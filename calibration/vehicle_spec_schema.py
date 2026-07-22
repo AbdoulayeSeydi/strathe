@@ -11,7 +11,7 @@ Usage:
 """
 from typing import Literal
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, model_validator
 
 Confidence = Literal["published", "literature", "estimated", "assumed"]
 
@@ -24,21 +24,25 @@ class CalibrationParam(BaseModel):
     source: str
     confidence: Confidence
 
-    @field_validator("bounds")
-    @classmethod
-    def bounds_ordered(cls, v):
-        lo, hi = v
+    @model_validator(mode="after")
+    def check_bounds_and_guess(self):
+        """
+        Runs AFTER every field on this model is already parsed and set —
+        deliberately NOT a field_validator on individual fields. A prior
+        version used @field_validator("initial_guess") reading
+        info.data.get("bounds"), which silently never fired: pydantic v2
+        validates fields in declaration order, and "bounds" is declared
+        AFTER "initial_guess" in this class, so info.data didn't contain
+        it yet when that validator ran. Confirmed broken in practice —
+        initial_guess=999999 against bounds=[-50,0] passed validation
+        silently. A model-level validator has no such ordering dependency.
+        """
+        lo, hi = self.bounds
         if lo > hi:
             raise ValueError(f"bounds lower ({lo}) > upper ({hi})")
-        return v
-
-    @field_validator("initial_guess")
-    @classmethod
-    def guess_within_bounds(cls, v, info):
-        bounds = info.data.get("bounds")
-        if bounds and not (bounds[0] <= v <= bounds[1]):
-            raise ValueError(f"initial_guess {v} falls outside bounds {bounds}")
-        return v
+        if not (lo <= self.initial_guess <= hi):
+            raise ValueError(f"initial_guess {self.initial_guess} falls outside bounds {self.bounds}")
+        return self
 
 
 class FixedMass(BaseModel):
