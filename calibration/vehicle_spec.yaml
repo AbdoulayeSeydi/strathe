@@ -17,6 +17,7 @@ assumptions:
   - "Thruster PWM->thrust conversion is assumed ALREADY DONE in the input dataset (Fx..Tz, thrust1-8 columns) — thruster-level dynamics (deadband, lag, saturation) are NOT calibrated in this MVP. See thruster_model.calibrated: false."
   - "Payload is the vehicle's baseline configuration — no additional payload mass/CG shift modeled. See payload section."
   - "Linear (Xu) vs quadratic (Xuu) damping identifiability varies by axis — confirmed via two independent measurements to be a data-coverage issue for some axes (Xu/Xuu, Yv/Yvv) but likely a missing-physics symptom for others (Mq/Mqq) — see validation.identifiability_note."
+  - "Dataset sampling rate is 10Hz — empirically determined (the dataset has no time column), NOT the 50Hz used in earlier calibration runs. See check_sampling_rate_windowed.py and PROJECT_STATUS.md finding #11 for the full validation (synthetic ground-truth recovery, drift-bias stress test, cross-date agreement, split-half reproducibility, per-run outlier screening, and round-number-duration confirmation). run_calibration.py's --sampling-rate-hz now defaults to 10.0 accordingly."
 
 vehicle:
   name: bluerov2_heavy

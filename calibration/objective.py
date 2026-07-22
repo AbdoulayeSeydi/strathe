@@ -10,14 +10,30 @@ Nothing here is coupled to scipy, HoloOcean, or any specific optimizer —
 this module only produces residual vectors and RMSE numbers; optimizer.py
 decides what to do with them.
 
-## Sampling rate — NOT guessed
-There is no default/assumed dt anywhere in this file. The dataset has no
-explicit time column, so the sampling rate MUST be explicitly supplied via
-DatasetConfig(sampling_rate_hz=...). Getting this wrong silently corrupts
-every acceleration estimate the model computes, which the optimizer then
-"fixes" by warping damping/added-mass/buoyancy to compensate — i.e. fitting
-confidently wrong physics. If the real rate isn't known yet, that has to
-be resolved before calibration runs at all, not guessed and moved past.
+## Sampling rate — empirically determined, not guessed
+There is no silent/implicit default in THIS file — DatasetConfig always
+requires sampling_rate_hz explicitly (run_calibration.py's CLI supplies a
+default of 10.0 Hz, but that's a caller decision, not something baked in
+here). The dataset has no explicit time column, so this was originally an
+unverified 50Hz placeholder used throughout early calibration runs.
+
+That 50Hz placeholder was WRONG. A dedicated investigation (see
+check_sampling_rate_windowed.py, check_sampling_rate_per_run.py, and
+PROJECT_STATUS.md for the full writeup) found the true rate is ~10Hz — a
+5x error, meaning every acceleration estimate and every fitted damping/
+inertia parameter from every calibration run before that investigation was
+computed at the wrong timescale. The 10Hz finding itself is well-validated:
+confirmed against synthetic ground truth, shown to survive a deliberate
+sensor-bias drift stress test, consistent across all 4 real collection
+dates independently, stable across multiple window-length choices, and
+confirmed by row counts clustering at clean round-number durations (200s/
+400s/600s at 10Hz) — a structural signature of a real fixed clock, not an
+artifact of curve-fitting.
+
+Still worth getting this right for any NEW dataset rather than assuming
+10Hz transfers: if the real rate isn't known for a different dataset, that
+has to be resolved the same way (or better) before trusting calibration
+results, not guessed and moved past.
 
 ## This is system identification, not full forward prediction
 Initial velocity (RunData.nu0) is taken directly from the logged data at

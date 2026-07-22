@@ -10,11 +10,12 @@ and returns a single CalibrationReport. main() itself is intentionally
 thin: parse args, build config, call run_pipeline(), print the report,
 set an exit code. Nothing else lives in main().
 
-## No assumed sampling rate
---sampling-rate-hz is REQUIRED, no default anywhere in this file or
-objective.py's DatasetConfig. See objective.py's module docstring for why
-guessing this is dangerous — it silently corrupts every acceleration
-estimate the model computes.
+## Sampling rate — empirically determined default, still overridable
+--sampling-rate-hz defaults to 10.0 Hz, empirically determined (see
+objective.py's module docstring and PROJECT_STATUS.md finding #11) — NOT
+guessed. The dataset has no time column; an earlier 50Hz placeholder was
+found to be wrong by a validated investigation. Override this flag if
+using a different dataset with an unconfirmed or different rate.
 
 ## Output artifacts
 Every run writes, under --output-dir:
@@ -484,10 +485,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spec", required=True)
     parser.add_argument("--output-dir", default="calibration_output")
     parser.add_argument(
-        "--sampling-rate-hz", type=float, required=True,
-        help="REQUIRED, no default — the dataset has no explicit time "
-             "column, and guessing this silently corrupts calibration "
-             "(see objective.py's module docstring).",
+        "--sampling-rate-hz", type=float, default=10.0,
+        help="Defaults to 10.0 Hz — empirically determined via "
+             "check_sampling_rate_windowed.py, not the dataset's own metadata "
+             "(it has no time column). Validated by: synthetic ground-truth "
+             "recovery, survival of a deliberate sensor-bias drift stress "
+             "test, agreement across all 4 collection dates independently, "
+             "stability across 3 window lengths, a split-half reproducibility "
+             "check, per-run outlier screening (37/39 runs consistent), and "
+             "confirmation that row counts cluster at clean round-number "
+             "durations at 10Hz (200s/400s/600s) — the signature of a real "
+             "fixed clock, not curve-fitting. Full writeup in "
+             "PROJECT_STATUS.md. Override this if using a different dataset.",
     )
     parser.add_argument("--heldout-dates", nargs="*", default=None,
                          help='e.g. --heldout-dates 16-02-2024 19-02-2024')
@@ -559,5 +568,5 @@ def main() -> None:
     sys.exit(0 if report.success else 1)
 
 
-if __name__ == "__main_":
+if __name__ == "__main__":
     main()
