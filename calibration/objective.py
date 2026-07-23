@@ -74,7 +74,7 @@ inside the optimizer's hot loop.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -84,10 +84,24 @@ from dynamics_model import (
     VehicleConstants,
     SimulationConfig,
     TrajectoryInputs,
+    SimulationResult,
     simulate_trajectory,
     quaternion_to_roll_pitch,
 )
 from data_split import extract_date
+
+# A pluggable simulation backend — anything matching this signature can be
+# passed as simulate_fn to any function below. Defaults to the analytical
+# stand-in (dynamics_model.simulate_trajectory) everywhere; pass a
+# HoloOcean-bound callable (see holoocean_backend.py) to evaluate the SAME
+# calibration parameters inside real HoloOcean physics instead — nothing
+# else about these functions changes. Building this callable (e.g. binding
+# a persistent HoloOcean env instance via functools.partial) is the
+# caller's responsibility, not this module's.
+SimulateFn = Callable[
+    [CalibrationParameters, VehicleConstants, SimulationConfig, TrajectoryInputs],
+    SimulationResult,
+]
 
 REQUIRED_COLUMNS = [
     "Fx", "Fy", "Fz", "Tx", "Ty", "Tz",
@@ -203,20 +217,43 @@ def _coerce_params(params: ParamsLike) -> CalibrationParameters:
     return params if isinstance(params, CalibrationParameters) else CalibrationParameters.from_vector(params)
 
 
-def _raw_residuals(params: CalibrationParameters, run: RunData, vehicle: VehicleConstants) -> np.ndarray:
+def _raw_residuals(
+    params: CalibrationParameters,
+    run: RunData,
+    vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> np.ndarray:
     """(simulated - real) velocity residuals, shape (N,6), in each DOF's
     natural physical units (m/s for u,v,w; rad/s for p,q,r) — unweighted,
     unnormalized. This is the basis for both RMSE reporting and the
-    optimizer-facing residual vector."""
+    optimizer-facing residual vector.
+
+    simulate_fn: defaults to the analytical stand-in
+        (dynamics_model.simulate_trajectory). Pass a HoloOcean-bound
+        callable (see holoocean_backend.py) to evaluate the SAME
+        parameters/run against real HoloOcean physics instead — every
+        caller of this function (residuals_for_run, joint_residuals,
+        rmse_for_run, etc.) accepts and forwards this same parameter.
+    """
+    simulate = simulate_fn if simulate_fn is not None else simulate_trajectory
     sim_config = SimulationConfig(dt=run.dt)
     trajectory = TrajectoryInputs(nu0=run.nu0, forces_torques=run.forces_torques,
                                     roll_pitch_series=run.roll_pitch)
-    result = simulate_trajectory(params, vehicle, sim_config, trajectory)
-    assert result.used_teacher_forced_orientation, (
-        "Expected teacher-forced orientation from this backend — if this "
-        "assertion fires, simulate_trajectory's implementation changed "
-        "without updating this check (see module docstring)."
-    )
+    result = simulate(params, vehicle, sim_config, trajectory)
+
+    if simulate_fn is None:
+        # Only enforced for the DEFAULT stand-in backend — this guards
+        # against dynamics_model.py's own implementation silently changing
+        # to non-teacher-forced behavior without updating this check. A
+        # custom simulate_fn (e.g. the HoloOcean backend) is EXPECTED to
+        # do genuine forward simulation (used_teacher_forced_orientation=
+        # False) — that's by design, not an error condition here.
+        assert result.used_teacher_forced_orientation, (
+            "Expected teacher-forced orientation from the default stand-in "
+            "backend — if this assertion fires, simulate_trajectory's "
+            "implementation changed without updating this check (see "
+            "module docstring)."
+        )
     residuals = result.nu - run.real_nu
 
     if not np.all(np.isfinite(residuals)):
@@ -253,6 +290,7 @@ def residuals_for_run(
     vehicle: VehicleConstants,
     dof_scales: Optional[np.ndarray] = None,
     normalize_by_run_length: bool = True,
+    simulate_fn: Optional[SimulateFn] = None,
 ) -> np.ndarray:
     """
     Flattened residuals for the OPTIMIZER (not for human-readable RMSE —
@@ -271,12 +309,14 @@ def residuals_for_run(
         purely because it's longer. Disable only if unequal run-length
         weighting is actually intended.
 
+    simulate_fn: see _raw_residuals — defaults to the analytical stand-in.
+
     Flatten order: row-major (C order) — for each timestep, all 6 DOFs
     appear consecutively, then the next timestep. DOF varies fastest
     within a timestep block; time is the outer, slower-varying index.
     """
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
 
     if dof_scales is not None:
         residuals = residuals / dof_scales
@@ -293,6 +333,7 @@ def joint_residuals(
     vehicle: VehicleConstants,
     dof_scales: Optional[np.ndarray] = None,
     normalize_by_run_length: bool = True,
+    simulate_fn: Optional[SimulateFn] = None,
 ) -> np.ndarray:
     """
     Concatenated residuals across MULTIPLE runs — what
@@ -300,44 +341,65 @@ def joint_residuals(
     dominate the fit (see the earlier held-out-by-date discussion: fitting
     one run at a time risks absorbing that run's specific quirks as if
     they were vehicle properties).
+
+    simulate_fn: see _raw_residuals — pass a HoloOcean-bound callable to
+    run the optimizer against real HoloOcean physics instead of the
+    stand-in. Every run uses the SAME simulate_fn (and, if it wraps a
+    persistent HoloOcean environment, the SAME running instance) — no
+    per-run or per-evaluation restart cost.
     """
     params = CalibrationParameters.from_vector(param_vec)
     all_residuals = [
-        residuals_for_run(params, run, vehicle, dof_scales, normalize_by_run_length)
+        residuals_for_run(params, run, vehicle, dof_scales, normalize_by_run_length, simulate_fn)
         for run in runs
     ]
     return np.concatenate(all_residuals)
 
 
-def rmse_for_run(params: ParamsLike, run: RunData, vehicle: VehicleConstants) -> float:
+def rmse_for_run(
+    params: ParamsLike, run: RunData, vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> float:
     """Human-readable, UNWEIGHTED RMSE across all 6 DOFs, natural units.
     For reporting/comparison — NOT what the optimizer minimizes (that's
-    joint_residuals, which may be weighted/normalized)."""
+    joint_residuals, which may be weighted/normalized).
+    simulate_fn: see _raw_residuals."""
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
     return float(np.sqrt(np.mean(residuals ** 2)))
 
 
-def rmse_by_dof(params: ParamsLike, run: RunData, vehicle: VehicleConstants) -> np.ndarray:
+def rmse_by_dof(
+    params: ParamsLike, run: RunData, vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> np.ndarray:
     """Per-DOF RMSE, shape (6,) = [u,v,w,p,q,r]. Diagnostic: reveals which
-    axis is actually driving the fit error, rather than one averaged number."""
+    axis is actually driving the fit error, rather than one averaged number.
+    simulate_fn: see _raw_residuals."""
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
     return np.sqrt(np.mean(residuals ** 2, axis=0))
 
 
-def max_abs_residual(params: ParamsLike, run: RunData, vehicle: VehicleConstants) -> float:
+def max_abs_residual(
+    params: ParamsLike, run: RunData, vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> float:
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
     return float(np.max(np.abs(residuals)))
 
 
-def mean_run_rmse(params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants) -> float:
+def mean_run_rmse(
+    params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> float:
     """Average per-run RMSE — the human-readable summary metric (renamed
     from mean_rmse for clarity: this averages RMSE ACROSS RUNS, each of
-    which is itself already an RMSE across timesteps/DOFs)."""
+    which is itself already an RMSE across timesteps/DOFs).
+    simulate_fn: see _raw_residuals."""
     params = _coerce_params(params)
-    return float(np.mean([rmse_for_run(params, run, vehicle) for run in runs]))
+    return float(np.mean([rmse_for_run(params, run, vehicle, simulate_fn) for run in runs]))
 
 
 @dataclass
@@ -348,12 +410,16 @@ class Diagnostics:
     n_runs: int
 
 
-def compute_diagnostics(params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants) -> Diagnostics:
+def compute_diagnostics(
+    params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> Diagnostics:
     """RMSE by run, RMSE by DOF, and the single worst residual — for
-    inspecting a fit rather than just reading one averaged number."""
+    inspecting a fit rather than just reading one averaged number.
+    simulate_fn: see _raw_residuals."""
     params = _coerce_params(params)
-    per_run = {run.filepath: rmse_for_run(params, run, vehicle) for run in runs}
-    per_dof = np.mean([rmse_by_dof(params, run, vehicle) for run in runs], axis=0)
-    worst = max(max_abs_residual(params, run, vehicle) for run in runs)
+    per_run = {run.filepath: rmse_for_run(params, run, vehicle, simulate_fn) for run in runs}
+    per_dof = np.mean([rmse_by_dof(params, run, vehicle, simulate_fn) for run in runs], axis=0)
+    worst = max(max_abs_residual(params, run, vehicle, simulate_fn) for run in runs)
     return Diagnostics(per_run_rmse=per_run, per_dof_rmse=per_dof,
                         max_abs_residual=worst, n_runs=len(runs))
