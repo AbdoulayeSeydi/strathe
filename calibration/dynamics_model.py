@@ -330,6 +330,51 @@ def _restoring_forces(roll, pitch, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.
     return np.array([Fx, Fy, Fz, Tx, Ty, Tz])
 
 
+def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
+    """Builds M_diag, linear_damping, quad_damping from params/vehicle —
+    factored out so both simulate_trajectory() and compute_acceleration()
+    build these identically, with no risk of the two drifting apart."""
+    m = vehicle.mass_kg
+    M_diag = np.array([
+        m + params.Xu_dot, m + params.Yv_dot, m + params.Zw_dot,
+        params.Ieff_roll, params.Ieff_pitch, params.Ieff_yaw,
+    ])
+    if np.any(M_diag <= 0):
+        raise ValueError(f"Effective mass/inertia (mass+added-mass) must be positive, got {M_diag}")
+    linear_damping = np.array([params.Xu, params.Yv, params.Zw, params.Kp, params.Mq, params.Nr])
+    quad_damping = np.array([params.Xuu, params.Yvv, params.Zww, params.Kpp, params.Mqq, params.Nrr])
+    return M_diag, linear_damping, quad_damping
+
+
+def compute_acceleration(
+    params: CalibrationParameters,
+    vehicle: VehicleConstants,
+    v: np.ndarray,
+    tau: np.ndarray,
+    roll: float,
+    pitch: float,
+):
+    """
+    THE single-step physics calculation — computes body-frame acceleration
+    v_dot given the current body velocity, current net force/torque, and
+    current roll/pitch (for the buoyancy restoring term). This is exactly
+    the per-step math the stand-in integrator uses internally, extracted
+    as its own function so a HoloOcean-integrated backend (which lets
+    HoloOcean do the actual position/orientation INTEGRATION, and only
+    needs the acceleration from OUR calibratable physics — see
+    holoocean_backend.py) uses the IDENTICAL equations, not a
+    re-implementation that could silently drift from this one.
+
+    Returns (v_dot, damping_force, g_eta) — the latter two purely for
+    optional debug/diagnostic use, matching debug_info's existing fields.
+    """
+    M_diag, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
+    damping_force = linear_damping * v + quad_damping * np.abs(v) * v
+    g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
+    v_dot = (tau + damping_force - g_eta) / M_diag
+    return v_dot, damping_force, g_eta
+
+
 def simulate_trajectory(
     params: CalibrationParameters,
     vehicle: VehicleConstants,
@@ -339,33 +384,29 @@ def simulate_trajectory(
     """
     THE interface everything else in the pipeline depends on. Forward-
     integrates body-frame velocity [u,v,w,p,q,r] via Forward Euler (see
-    module docstring, Numerical stability section).
+    module docstring, Numerical stability section), using
+    compute_acceleration() for the actual physics each sub-step.
 
-    Swap point: a future HoloOcean-backed implementation matches this
-    exact signature — (params, vehicle, sim_config, trajectory) ->
-    SimulationResult — so nothing calling this needs to change.
+    Swap point: a future HoloOcean-backed implementation (see
+    holoocean_backend.py) matches this exact signature — (params, vehicle,
+    sim_config, trajectory) -> SimulationResult — so nothing calling this
+    needs to change. That backend uses compute_acceleration() too, but lets
+    HoloOcean's own rigid-body physics do the actual integration instead of
+    this function's own Forward Euler loop.
     """
     params.validate()
     vehicle.validate()
     sim_config.validate()
     trajectory.validate()
 
-    m = vehicle.mass_kg
-    M_diag = np.array([
-        m + params.Xu_dot, m + params.Yv_dot, m + params.Zw_dot,
-        params.Ieff_roll, params.Ieff_pitch, params.Ieff_yaw,
-    ])
-    if np.any(M_diag <= 0):
-        raise ValueError(f"Effective mass/inertia (mass+added-mass) must be positive, got {M_diag}")
-
-    linear_damping = np.array([params.Xu, params.Yv, params.Zw, params.Kp, params.Mq, params.Nr])
-    quad_damping = np.array([params.Xuu, params.Yvv, params.Zww, params.Kpp, params.Mqq, params.Nrr])
+    _mass_and_damping_arrays(params, vehicle)  # validates M_diag > 0 up front, fail fast before the loop
 
     n_steps = trajectory.forces_torques.shape[0]
     nu = np.zeros((n_steps, 6))
     nu[0] = trajectory.nu0
 
     debug_info = None
+
     if sim_config.debug:
         debug_info = {
             "damping_force": np.zeros((n_steps, 6)),
@@ -388,9 +429,7 @@ def simulate_trajectory(
         # function's existing per-external-sample debug granularity.
         damping_force = g_eta = v_dot = None
         for _ in range(n_substeps):
-            damping_force = linear_damping * v + quad_damping * np.abs(v) * v
-            g_eta = _restoring_forces(roll, pitch, m, params.net_buoyancy_z, params.cg_cb_offset_z)
-            v_dot = (tau + damping_force - g_eta) / M_diag  # Forward Euler sub-step
+            v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch)
             v = v + v_dot * sub_dt
 
         nu[k + 1] = v

@@ -145,12 +145,30 @@ two different claims; only the first one has been demonstrated so far.
 - **Consequence:** every added-mass value from findings #1–10 (all computed at 50Hz) should be treated as more severely biased than "just the wrong overall scale" — specifically pushed toward the lower bound by this mechanism, not just uniformly off. The 10Hz added-mass values are much more likely to reflect genuine physics, though the usual caveats (stand-in model, missing Coriolis, thruster-curve simplification) still apply
 - Full comparison and synthetic validation script available on request — not yet saved as a standalone reusable script, run ad hoc during this investigation
 
+### 13. HoloOcean integration built, debugged, and stress-tested — MVP claim reframed
+
+**The reframed MVP claim, and why it's stronger than the original:** the original framing was "calibrate HoloOcean's default physics against real logs." Confirmed via HoloOcean's own docs this isn't achievable for `HoveringAUV` — modifying its exposed dynamics variables "will have no effect on results," and the newer Fossen-dynamics customization system is explicitly torpedo-vehicle-only in the current release. The real, working architecture instead: **our own calibratable 6-DOF physics equations (unchanged from the whole session's validated work) compute acceleration each tick; HoloOcean provides high-fidelity rigid-body integration, collision handling, and sensor simulation on top**, via `HoveringAUV`'s "Custom Dynamics" control scheme. Revised claim: *"a system-identification-calibrated physics model, integrated into HoloOcean via its Custom Dynamics interface, tracks real mission logs more accurately than an uncalibrated default parameter set — evaluated inside a real, high-fidelity simulator."* This is the standard way real robotics system identification works (fit a parameterized model, use it) and isn't tied to one vendor's opaque internals.
+
+**What was built:**
+- `dynamics_model.py` refactored — `compute_acceleration()` extracted as a standalone function, shared by both the stand-in integrator and the new HoloOcean backend, guaranteeing identical physics between them (no risk of silent drift between two re-implementations)
+- `holoocean_backend.py` — `simulate_trajectory_holoocean()`, matching the stand-in's exact signature. Since it never touches HoloOcean's own physics config (only feeds it accelerations each tick), the same running environment is reused across every optimizer evaluation and restart — no per-parameter-guess restart cost
+- Six diagnostic scripts (`diagnose_holoocean_api.py`, `diagnose_holoocean_frames.py`, `diagnose_rotation_baseline.py`, `diagnose_imu_convention.py`, `diagnose_angular_input_sign.py`, `diagnose_linear_input_sign.py`) and `stress_test_holoocean.py`, all run against the real installed HoloOcean, not assumed
+
+**Two real, separate frame-convention bugs found and fixed — both confirmed empirically, not guessed:**
+1. **`PoseSensor`'s rotation matrix** reports body-frame Z pointing down relative to a Z-up world at "zero rotation" — HoloOcean's native body frame already matches our own SNAME/Fossen convention (body Z = down), just expressed relative to Unreal's Z-up world. Confirmed exactly (not approximately) via two independent small-angle rotation tests: the correction `R_true = R_reported @ diag(1,-1,-1)` recovered the textbook-exact standard rotation matrix in both cases
+2. **The Custom Dynamics angular acceleration INPUT** needs the identical `diag(1,-1,-1)` correction — a separate finding from #1 (confirmed via direct, isolated tests on all 3 axes independently: X unaffected, Y and Z both flip), though both stem from one consistent underlying convention affecting rotation-related quantities only. Linear acceleration input confirmed clean (no correction needed) via the same method
+- One remaining assumption not independently isolated: whether `set_physics_state`'s initial `angular_velocity` parameter needs this same correction — extrapolated from the confirmed pattern, not directly tested in isolation
+
+**The real stress test — and a decisive test to separate "remaining bug" from "expected physics divergence":** ran the HoloOcean backend against real logged data with default (uncalibrated) parameters. Most DOFs landed in a sane ballpark against the stand-in. `p` (roll) persistently disagreed in sign across every fix attempt at 50 steps — investigated rather than dismissed. Re-ran at 5 steps: **`p` agreed in sign at 5 steps, diverged (including a sign flip) by 50** — the correct signature of compounding integration divergence between a genuine forward simulation (HoloOcean) and a teacher-forced one (the stand-in), not a persistent frame bug, which would show up immediately and consistently rather than starting in agreement. This also lines up with roll/pitch already being independently identified (finding #5) as the axes where the stand-in's missing Coriolis/cross-coupling terms are weakest — the same known limitation, visible in a new, more rigorous evaluation context, not a new problem
+
+**What this has NOT yet done:** run the actual calibration optimizer against this backend — everything above is single-run diagnostic testing with default (uncalibrated) parameters, confirming the plumbing works correctly. The real MVP question (does calibration improve accuracy, evaluated inside HoloOcean) is the next step, not yet answered
+
 ---
 
 ## Honest open items
 
 - **Per-evaluation runtime has a plausible lead but isn't confirmed** — see finding #9; likely the trust-region linear algebra cost, not directly profiled to prove it
-- **Rotational dynamics gap is a model limitation, not a tuning problem** — further bound-widening or parameter search on the stand-in model is unlikely to resolve it; this is exactly what HoloOcean's real physics (once installed) is expected to fix
+- **Rotational dynamics gap is a model limitation, not a tuning problem** — further bound-widening or parameter search on the stand-in model is unlikely to resolve it; this was the whole motivation for the HoloOcean integration in finding #13
 
 ---
 
@@ -158,6 +176,7 @@ two different claims; only the first one has been demonstrated so far.
 
 1. **~~Re-run the stand-in-model calibration at the corrected 10Hz rate~~ — DONE, see finding #12.**
 2. **~~Get HoloOcean installed and running~~ — DONE.** HoloOcean v2.3.0 running on Windows, `HoveringAUV` confirmed producing real scripted trajectories. Phase 0 complete
-3. **Swap the stand-in for HoloOcean** in `dynamics_model.simulate_trajectory()` — the pipeline (`objective.py`, `optimizer.py`, `run_calibration.py`, `diagnose_calibration.py`) is built to not need changes when this happens. **This is the actual next step**
-4. **Re-run calibration against real HoloOcean physics** — this is when the actual MVP question ("does calibration improve sim-to-real accuracy") gets a real answer, not an approximate one from the stand-in
-5. **Re-run `check_damping_identifiability.py`'s comparison against the new HoloOcean-calibrated Jacobian** (finding #10) — specifically check whether `Mq/Mqq`'s fitted correlation drops toward its kinematic baseline (0.764). A testable prediction from this session, worth confirming or refuting once real rotational physics is in the loop
+3. **~~Build and stress-test the HoloOcean integration~~ — DONE, see finding #13.** Frame conventions debugged and confirmed; remaining `p`/`q` divergence understood and attributed correctly, not an open bug
+4. **Run the actual calibration optimizer against the HoloOcean backend** — this is the real next step. Everything so far has been single-run diagnostic testing with default parameters; the actual MVP question needs a real optimization run
+5. **Re-run calibration against real HoloOcean physics** — this is when the actual MVP question ("does calibration improve sim-to-real accuracy") gets a real answer, not an approximate one from the stand-in
+6. **Re-run `check_damping_identifiability.py`'s comparison against the new HoloOcean-calibrated Jacobian** (finding #10) — specifically check whether `Mq/Mqq`'s fitted correlation drops toward its kinematic baseline (0.764). A testable prediction from this session, worth confirming or refuting once real rotational physics is in the loop
