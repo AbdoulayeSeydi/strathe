@@ -57,14 +57,31 @@ simplification (no specific equation numbers cited here deliberately,
 rather than risk citing ones I can't verify against the source text).
 
 ## Numerical stability
-Forward Euler integration (v_next = v + dt*v_dot), not RK4 — acceptable at
-the telemetry rates this dataset uses (10-100Hz typical for ROV logging;
-this pipeline currently assumes ~50Hz, see objective.py's ASSUMED_DT).
-Forward Euler becomes unstable as dt grows relative to the system's fastest
-time constant. SimulationConfig.validate() rejects obviously-too-large dt,
-but does not guarantee stability for every parameter combination — if
-simulate_trajectory() raises FloatingPointError, check dt first.
-TODO: replace with RK4 if dt needs to grow or stiffness becomes an issue.
+Forward Euler integration (v_next = v + sub_dt*v_dot), not RK4. Forward
+Euler becomes unstable as the integration step grows relative to the
+system's fastest time constant — CONFIRMED by direct reproduction, not
+just theorized: at the empirically-determined real data rate of 10Hz
+(dt=0.1s), the DEFAULT (uncalibrated, weakly-damped) parameter set
+overflowed to NaN, while the SAME parameters integrated fine at 50Hz
+(dt=0.02s). That's not a sign 10Hz is wrong — it's that using the data's
+own sample interval AS the physics integration step conflates two
+different things that don't have to be equal.
+
+FIX: SimulationConfig.physics_dt (default 0.02s) sets the target INTERNAL
+integration step, independent of dt (the external data sample interval).
+dt is subdivided into ceil(dt/physics_dt) sub-steps internally, holding
+the force/orientation input constant across them (zero-order hold — real
+data isn't available any finer than dt anyway). At dt=0.02s (50Hz) this
+is a no-op (1 sub-step, identical to the old behavior). At dt=0.1s (10Hz)
+this now takes 5 sub-steps of ~0.02s each, matching the same internal
+resolution already validated as stable — confirmed to fix the NaN found
+above, not just theorized to.
+
+This does not guarantee stability for every possible parameter combination
+at every possible dt — if simulate_trajectory() still raises
+FloatingPointError, check whether physics_dt itself needs to shrink further
+before assuming the parameters are at fault.
+TODO: replace with RK4 if stiffness becomes an issue even with sub-stepping.
 
 ## THE MOST IMPORTANT CAVEAT: teacher forcing
 This model is driven by the REAL, LOGGED roll/pitch at every timestep
@@ -199,7 +216,23 @@ class VehicleConstants:
 
 @dataclass
 class SimulationConfig:
-    dt: float
+    dt: float                    # the DATA's sample interval (e.g. 0.1s at 10Hz)
+    physics_dt: float = 0.02     # target INTERNAL integration step. dt is
+                                  # subdivided into ceil(dt/physics_dt) sub-steps,
+                                  # each holding the force/orientation input constant
+                                  # (zero-order hold, since real data isn't available
+                                  # any finer than dt anyway). This decouples "how
+                                  # coarsely the data was sampled" from "how fine the
+                                  # physics integration needs to be for stability" —
+                                  # see the "Numerical stability" module docstring
+                                  # section for why this exists: Forward Euler with
+                                  # the DEFAULT (weakly-damped) parameters was found
+                                  # to overflow to NaN at dt=0.1s (10Hz) even though
+                                  # the same parameters integrate fine at dt=0.02s
+                                  # (50Hz) — confirmed by direct reproduction, not
+                                  # theorized. Sub-stepping down to ~50Hz-equivalent
+                                  # internal resolution fixes this regardless of the
+                                  # data's own logging rate.
     seed: Optional[int] = None  # Reserved for future sensor-noise / current
                                  # disturbance injection. Unused today —
                                  # the hook exists so adding noise later
@@ -209,13 +242,28 @@ class SimulationConfig:
     def validate(self) -> None:
         if self.dt <= 0:
             raise ValueError(f"dt must be positive, got {self.dt}")
-        if not (0.001 <= self.dt <= 0.1):
-            # 0.001-0.1s = 10Hz-1000Hz. Forward Euler stability outside this
-            # range isn't validated for this model — see module docstring.
+        if not (0.001 <= self.dt <= 1.0):
+            # Widened from the old 0.001-0.1s range now that sub-stepping
+            # handles integration stability internally — this range is now
+            # about "is this a plausible data sample interval at all" (1Hz
+            # to 1000Hz), not "is Forward Euler stable at this exact step."
             raise ValueError(
-                f"dt={self.dt}s is outside the sane range for Forward Euler "
-                f"at this model's typical telemetry rates (10Hz-1000Hz)."
+                f"dt={self.dt}s is outside the plausible range for real "
+                f"telemetry sample intervals (0.001s-1.0s, i.e. 1Hz-1000Hz)."
             )
+        if self.physics_dt <= 0 or self.physics_dt > self.dt:
+            raise ValueError(
+                f"physics_dt must be positive and <= dt, got physics_dt="
+                f"{self.physics_dt} vs dt={self.dt}"
+            )
+
+    @property
+    def n_substeps(self) -> int:
+        return max(1, int(np.ceil(self.dt / self.physics_dt)))
+
+    @property
+    def sub_dt(self) -> float:
+        return self.dt / self.n_substeps
 
 
 @dataclass
@@ -325,16 +373,27 @@ def simulate_trajectory(
             "acceleration": np.zeros((n_steps, 6)),
         }
 
+    n_substeps = sim_config.n_substeps
+    sub_dt = sim_config.sub_dt
+
     for k in range(n_steps - 1):
         v = nu[k]
         tau = trajectory.forces_torques[k]
         roll, pitch = trajectory.roll_pitch_series[k]
 
-        damping_force = linear_damping * v + quad_damping * np.abs(v) * v
-        g_eta = _restoring_forces(roll, pitch, m, params.net_buoyancy_z, params.cg_cb_offset_z)
-        v_dot = (tau + damping_force - g_eta) / M_diag  # Forward Euler — see module docstring
+        # Sub-step between logged samples k and k+1, holding tau/roll/pitch
+        # constant across sub-steps (zero-order hold — real data isn't
+        # available any finer than the external dt anyway). Only the LAST
+        # sub-step's values are recorded for debug_info, matching this
+        # function's existing per-external-sample debug granularity.
+        damping_force = g_eta = v_dot = None
+        for _ in range(n_substeps):
+            damping_force = linear_damping * v + quad_damping * np.abs(v) * v
+            g_eta = _restoring_forces(roll, pitch, m, params.net_buoyancy_z, params.cg_cb_offset_z)
+            v_dot = (tau + damping_force - g_eta) / M_diag  # Forward Euler sub-step
+            v = v + v_dot * sub_dt
 
-        nu[k + 1] = v + v_dot * sim_config.dt
+        nu[k + 1] = v
 
         if debug_info is not None:
             debug_info["damping_force"][k] = damping_force
