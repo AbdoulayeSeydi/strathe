@@ -60,8 +60,20 @@ class Arena(gym.Env):
         self._fixed_waypoint = None if fixed_waypoint is None else np.array(fixed_waypoint, dtype=float)
         self.waypoint_range = waypoint_range
 
+        # Action space NORMALIZED to [-1,1] — NOT the raw force range. SB3's
+        # default PPO policy initializes its action distribution centered
+        # near 0 with std~1, so a wide raw range (e.g. +-30) would need the
+        # policy to learn a large output-mean shift before acting
+        # meaningfully at all — a well-known, textbook PPO/continuous-
+        # control gotcha. Confirmed as the real cause here, not just
+        # theorized: the first real training attempt (unnormalized, +-30
+        # directly) showed the policy's action std barely moving from its
+        # 1.0 initialization across 50k steps, explained_variance stuck near
+        # zero, and final performance statistically indistinguishable from
+        # random. Rescaling happens internally in step().
+        self._action_bound = action_bound
         self.action_space = gym.spaces.Box(
-            low=-action_bound, high=action_bound, shape=(6,), dtype=np.float32
+            low=-1.0, high=1.0, shape=(6,), dtype=np.float32
         )
         # obs = [u,v,w,p,q,r] (6) + position error in body frame (3) + roll,pitch (2) = 11
         self.observation_space = gym.spaces.Box(
@@ -84,7 +96,8 @@ class Arena(gym.Env):
     def step(self, action):
         action = np.clip(np.asarray(action, dtype=np.float32),
                           self.action_space.low, self.action_space.high)
-        self._core.step(action)
+        tau = action * self._action_bound  # rescale [-1,1] -> real force/torque units
+        self._core.step(tau)
         self._step_count += 1
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
