@@ -195,6 +195,20 @@ class CalibrationConfig:
     # objective knobs, passed through to joint_residuals
     dof_scales: Optional[np.ndarray] = None
     normalize_by_run_length: bool = True
+    simulate_fn: Optional[Callable] = None  # None = the analytical stand-in (default,
+        # unchanged behavior). Pass a HoloOcean-bound callable (see
+        # holoocean_backend.make_holoocean_simulate_fn) to calibrate against
+        # real HoloOcean physics instead — everything else about calibrate()
+        # stays the same.
+
+    # starting point
+    x0_override: Optional[np.ndarray] = None  # None = use initial_parameters(loaded)
+        # from vehicle_spec.yaml, as before. Pass an explicit parameter vector
+        # (e.g. a previously-calibrated result) to warm-start from that instead
+        # of the YAML's naive initial guess — useful when the naive guess is
+        # far from the true optimum and evaluations are expensive (e.g. a
+        # HoloOcean-backed run, where each evaluation costs real wall-clock
+        # time, not milliseconds).
 
     # reproducibility / restarts
     seed: Optional[int] = None
@@ -320,7 +334,7 @@ def calibrate(
     """
     config = config or CalibrationConfig()
     vehicle = loaded.vehicle
-    x0_base = initial_parameters(loaded).to_vector()
+    x0_base = config.x0_override if config.x0_override is not None else initial_parameters(loaded).to_vector()
     lb, ub = parameter_bounds(loaded)
 
     if config.x_scale is not None:
@@ -350,7 +364,7 @@ def calibrate(
             max_nfev=config.max_nfev,
             x_scale=x_scale,
             verbose=config.verbose,
-            args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length),
+            args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn),
         )
         restarts.append(RestartResult(
             x0=x0, x=result.x, cost=result.cost, success=result.success,

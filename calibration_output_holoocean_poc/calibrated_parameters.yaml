@@ -1,0 +1,23 @@
+parameters:
+  Ieff_roll: 4.9999999995
+  Ieff_pitch: 4.357098803404587
+  Ieff_yaw: 1.969876237504514
+  Xu: -42.62694079059458
+  Yv: -79.999999992
+  Zw: -99.99999999
+  Kp: -4.9999999995
+  Mq: -4.9999999995
+  Nr: -3.167222434803188
+  Xuu: -99.99999999
+  Yvv: -99.99999999
+  Zww: -149.999999985
+  Kpp: -9.999999999
+  Mqq: -9.999999999
+  Nrr: -1.6963539330201476
+  Xu_dot: 29.999999997
+  Yv_dot: 39.999999996
+  Zw_dot: 39.999999996
+  net_buoyancy_z: 2.7846809183955723
+  cg_cb_offset_z: 0.059696292600614674
+note: "PROOF-OF-CONCEPT: HoloOcean-backed, truncated runs, single restart \u2014 not\
+  \ the full rigorous validation the stand-in calibration received"

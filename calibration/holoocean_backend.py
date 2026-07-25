@@ -80,6 +80,10 @@ which already matches our Fossen convention.
 """
 from __future__ import annotations
 
+import glob
+import json
+import os
+
 import numpy as np
 from scipy.spatial.transform import Rotation
 
@@ -232,3 +236,98 @@ def simulate_trajectory_holoocean(
         )
 
     return SimulationResult(nu=nu, used_teacher_forced_orientation=False, debug_info=debug_info)
+
+
+def make_deterministic_environment(scenario_name: str = "SimpleUnderwater-Hovering"):
+    """
+    Creates a HoloOcean environment with ALL sensor noise zeroed out —
+    fixes a real, confirmed non-reproducibility bug found during the first
+    real calibration attempt: identical parameters, identical runs,
+    evaluated 3 times in a row, gave RMSE 0.4644/0.5140/0.5062 — not noise,
+    a real problem, since it corrupts every gradient the optimizer computes.
+
+    Root cause CONFIRMED (not assumed): diagnose_state_leakage.py first
+    ruled out incomplete state reset (env.reset() made variance WORSE, not
+    better — 18% spread vs 6%). diagnose_sensor_noise.py then isolated the
+    real cause directly: with the vehicle held perfectly still and zero
+    command, IMUSensor's angular velocity was NOT zero (std ~0.005-0.009
+    rad/s per axis, nonzero mean too — a real, working noise+bias-random-
+    walk feature of a higher-fidelity simulator, not a bug in HoloOcean).
+    Our backend reads this every tick and feeds it into a closed loop
+    (computes next command from it), compounding real sensor noise into
+    materially different trajectories each run.
+
+    This is the right fix for CALIBRATION specifically — we want a clean,
+    controlled test of whether our PHYSICS PARAMETERS fit better, not a
+    test of robustness to sensor noise (a real, legitimate, SEPARATE later
+    question about real-world deployment on real noisy hardware, which
+    should use make(scenario_name) directly, noise intact).
+
+    Confirmed via diagnose_noiseless_scenario.py: with all "*Sigma*"
+    parameters zeroed across every sensor (broader than just IMU, in case
+    other sensors are read later — GPS/DVL/Depth all had similar Sigma
+    fields), the held-still IMU test came back EXACTLY zero (mean and std
+    both [0,0,0]), confirmed on real HoloOcean, not assumed.
+    """
+    import holoocean
+
+    search_roots = [
+        os.path.expanduser("~/AppData/Local/holoocean"),
+        os.path.expanduser("~/.local/share/holoocean"),
+    ]
+    found = None
+    for root in search_roots:
+        if os.path.isdir(root):
+            matches = glob.glob(os.path.join(root, "**", f"*{scenario_name}*.json"), recursive=True)
+            if matches:
+                found = matches[0]
+                break
+    if found is None:
+        raise FileNotFoundError(
+            f"Could not find {scenario_name}'s scenario JSON under {search_roots} — "
+            f"see diagnose_noiseless_scenario.py for the search logic, or check "
+            f"holoocean.packagemanager for a proper scenario-lookup function."
+        )
+
+    with open(found) as f:
+        scenario = json.load(f)
+
+    zeroed_count = 0
+    for agent in scenario.get("agents", []):
+        for sensor in agent.get("sensors", []):
+            cfg = sensor.get("configuration", {})
+            for key in list(cfg.keys()):
+                if "Sigma" in key:
+                    cfg[key] = 0.0
+                    zeroed_count += 1
+
+    if "package_name" not in scenario:
+        scenario["package_name"] = "Ocean"
+
+    env = holoocean.make(scenario_cfg=scenario)
+    return env
+
+
+def make_holoocean_simulate_fn(env, agent_name: str = "auv0"):
+    """
+    Binds a persistent HoloOcean environment into objective.py's SimulateFn
+    shape — (params, vehicle, sim_config, trajectory) -> SimulationResult —
+    so it can be passed directly as simulate_fn to joint_residuals,
+    mean_run_rmse, rmse_by_dof, etc., without any of those functions
+    needing to know HoloOcean exists.
+
+    `env` is created ONCE by the caller (holoocean.make(...)) and reused
+    across every call this returned function makes — every optimizer
+    evaluation, every restart, every run within a single joint_residuals
+    call. No per-evaluation environment restart.
+
+    Usage:
+        import holoocean
+        env = holoocean.make("SimpleUnderwater-Hovering")
+        simulate_fn = make_holoocean_simulate_fn(env)
+        rmse = objective.mean_run_rmse(params, runs, vehicle, simulate_fn=simulate_fn)
+    """
+    def simulate_fn(params, vehicle, sim_config, trajectory):
+        return simulate_trajectory_holoocean(params, vehicle, sim_config, trajectory, env, agent_name=agent_name)
+
+    return simulate_fn
