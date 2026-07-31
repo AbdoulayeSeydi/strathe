@@ -1,0 +1,77 @@
+{
+  "claim": "CLAIM_B: trained PPO policy behavior under calibrated vs. default physics \u2014 complementary, not a second accuracy proof (no live hardware yet \u2014 see Phase 2.5)",
+  "result_type": "placeholder",
+  "n_seeds": 4,
+  "timesteps_per_seed": 150000,
+  "waypoint": [
+    -1.5763869285583496,
+    -2.471848249435425,
+    -0.562834620475769
+  ],
+  "summary": {
+    "default": {
+      "mean_reward": -30.311900826187912,
+      "std_reward": 0.8074537919168808,
+      "mean_success_rate": 1.0,
+      "std_success_rate": 0.0,
+      "per_seed": [
+        {
+          "seed": 0,
+          "mean_reward": -29.48324146889085,
+          "mean_final_distance": 0.4508245003723578,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 1,
+          "mean_reward": -31.12005589825544,
+          "mean_final_distance": 0.41946172027332207,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 2,
+          "mean_reward": -31.11837069672732,
+          "mean_final_distance": 0.4595270693388619,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 3,
+          "mean_reward": -29.525935240878038,
+          "mean_final_distance": 0.48107944749601106,
+          "success_rate": 1.0
+        }
+      ]
+    },
+    "calibrated": {
+      "mean_reward": -82.55937157957747,
+      "std_reward": 2.517235106441277,
+      "mean_success_rate": 1.0,
+      "std_success_rate": 0.0,
+      "per_seed": [
+        {
+          "seed": 0,
+          "mean_reward": -86.86377937298442,
+          "mean_final_distance": 0.4927112596950365,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 1,
+          "mean_reward": -80.62800076785429,
+          "mean_final_distance": 0.4877203417813849,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 2,
+          "mean_reward": -81.00399105364423,
+          "mean_final_distance": 0.49578320557355704,
+          "success_rate": 1.0
+        },
+        {
+          "seed": 3,
+          "mean_reward": -81.74171512382692,
+          "mean_final_distance": 0.45445355219685835,
+          "success_rate": 1.0
+        }
+      ]
+    }
+  }
+}

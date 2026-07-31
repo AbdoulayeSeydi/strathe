@@ -250,6 +250,16 @@ Warm-started from finding #18's converged stand-in result (not the old pre-Corio
 
 **Stage 2.4 has not yet been run for a final, reportable result** — the pipeline is built and dry-run tested (with stubs, given `stable-baselines3`/`gymnasium` aren't installable in this sandbox), but the real multi-seed run against real data hasn't happened yet this session.
 
+### 21. Stage 2.4's real multi-seed PPO run — both variants train cleanly; the reward gap is a real physical effect, not a training problem
+
+Real run: 4 seeds × 2 variants (default vs. finding #18's calibrated physics), on the real-data-grounded waypoint (derived from an actual held-out run's logged displacement, per Stage 2.1's design). **Both variants trained cleanly and stably:** 100% success rate across all 8 runs, tight final distances (`0.42–0.50`), and low relative variance within each group (default `-30.31±0.81`; calibrated `-82.56±2.52` — both ~3% relative spread) — no sign of a training failure on either side.
+
+**The large reward-magnitude gap between variants (`-30` vs. `-83`) is explained by the calibrated parameters themselves, not a bug.** Finding #18's calibration converged to a substantially heavier, more damped vehicle almost everywhere (`Ieff_roll/pitch: 0.28→5.0`, `Xu: -11.7→-38.2`, `Yv: -20→-80`, `Zw: -31.8→-100`, etc.). Since reward is `-distance` accumulated every step until termination, a heavier and more resistant vehicle genuinely needs more steps to cover the same real displacement under the same normalized `[-1,1]` actions — accumulating a larger negative reward even with an equally competent policy. This is expected physical behavior from calibrating toward a more realistic vehicle model, not a defect.
+
+**This result is intentionally not compared directly against Claim A's numbers** — per phase2_config.py's Decision 3, Claim B measures task-completion behavior under each model's own physics, not accuracy against real data; the two claims answer different questions by design and aren't expected to agree or disagree with each other.
+
+With this, both Claim A (finding #20) and Claim B (this finding) now have real, complete, honestly-labeled (`placeholder`) results — the MVP's stated Phase 2 acceptance criterion (a comparison chart) is technically satisfied by both.
+
 ---
 
 ## Honest open items
@@ -257,8 +267,8 @@ Warm-started from finding #18's converged stand-in result (not the old pre-Corio
 - **Rotational dynamics gap is a model limitation, not just a tuning problem** — Coriolis (finding #16) was the direct attempt to close this, and while it's a real, verified physics improvement, Stage 2.3's real result (finding #20) shows a genuinely mixed rotational picture, not a clean fix. Whether further calibration (vs. a deeper model limitation) would resolve this is still open
 - **Neither of finding #19's two HoloOcean refinement segments reached scipy's strict convergence** — deliberately stopped given clear diminishing returns (segment 2's gain was ~10x smaller than segment 1's for the same compute cost), not because the process failed
 - **`Zw_dot`'s practical (not structural) identifiability gap** (finding #18) is understood and precisely characterized, but not "fixed" — it simply reflects what this dataset's real maneuvers can and can't constrain
-- **Stage 2.4's real, final multi-seed PPO run hasn't happened yet** — the pipeline is ready; this is genuine remaining work, not a blocked or open question
 - **The small, confirmed ~2.5%/tick angular-velocity decay under Custom Dynamics with zero command** (finding #15) remains a known, deliberately-unfixed, first-instant-only residual
+- **Whether to invest further calibration effort (targeting the rotational coupling specifically) before treating Phase 2's current result as the MVP deliverable** — a genuine, undecided judgment call, not a technical blocker; both Claim A and Claim B are complete and honestly labeled as-is
 
 ---
 
@@ -270,6 +280,6 @@ Warm-started from finding #18's converged stand-in result (not the old pre-Corio
 4. **~~Wire up pluggable simulate_fn, build the real HoloOcean-backed calibration script~~ — DONE, see finding #15.**
 5. **~~Add Coriolis-centripetal terms to close the rotational-dynamics gap~~ — DONE, see finding #16.** Two real bugs found and fixed along the way (finding #17); the real Coriolis-aware calibration converged cleanly (finding #18); refined further against real HoloOcean physics with genuine, if diminishing, improvement (finding #19)
 6. **~~Build and test the Phase 2 Gym/Arena wrapper and PPO pipeline~~ — DONE, see finding #20.** Real bugs found and fixed (an action-integration bug, an action-space scale mismatch, a redundant-simulation performance bug); the market-facing placeholder/final safeguard built and verified
-7. **Run Stage 2.4's real, final multi-seed PPO comparison** — the pipeline is ready and has zero dependency on further HoloOcean refinement (Decision 2: it trains on the stand-in); this is the next concrete, unblocked step
-8. **Decide whether Stage 2.3's `placeholder` result is good enough to stand as the final Phase 2 deliverable, or whether further calibration work is worth pursuing first** — given the clear diminishing returns already observed, further HoloOcean-side refinement has a real, demonstrated poor cost/benefit tradeoff; a different lever (more training data diversity, a deeper look at the rotational coupling specifically) may be more productive than simply running longer
+7. **~~Run Stage 2.4's real, final multi-seed PPO comparison~~ — DONE, see finding #21.** Both variants trained cleanly (100% success, low variance); the reward-magnitude gap between them is explained by the calibrated physics being genuinely heavier/more damped, not a training problem
+8. **Decide whether the current Phase 2 result (Claims A + B, both real and complete) is good enough to stand as the MVP deliverable, or whether further calibration work is worth pursuing first** — given the clear diminishing returns already observed on HoloOcean-side refinement, a different lever (more training data diversity, a deeper look at the rotational coupling specifically) may be more productive than simply running longer — a genuine judgment call, not a technical blocker
 9. **Re-run `check_damping_identifiability.py`'s Mq/Mqq comparison against the new Coriolis-aware Jacobian** (flagged in finding #10) — now directly possible given finding #18's real Jacobian/correlation analysis exists; not yet done
