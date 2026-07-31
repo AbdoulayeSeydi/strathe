@@ -108,38 +108,54 @@ calibration_targets:
                  source: "sum of box-approximation inertia + literature added-mass estimate", confidence: estimated}
 
   linear_damping:
-    Xu:  {unit: "N/(m/s)", initial_guess: -11.7, bounds: [-50, 0],
-          bounds_rationale: "~5x nominal literature estimate",
+    # Upper bounds changed from 0 to a small negative value (see
+    # find_min_stable_damping.py) — CONFIRMED via direct empirical test,
+    # not assumed: allowing EXACTLY zero damping on any axis lets
+    # perturbed-initialization optimizer starts (see optimizer.py's
+    # "perturbed" strategy) land on a physically nonsensical "zero drag"
+    # state that is genuinely, not just numerically, unstable once
+    # Coriolis terms are active — with truly zero damping, nothing
+    # dissipates the energy Coriolis correctly transfers into that axis
+    # from others, so it grows unboundedly (confirmed: stable at 0.5% of
+    # the lower bound's magnitude, unstable ONLY at exact 0 — a sharp
+    # cliff, not a gradual degradation). New upper bounds set at 2% of
+    # each parameter's own lower bound — a confirmed 4x safety margin
+    # beyond the empirically-tested stable point, while leaving the vast
+    # majority of each range available (real calibration has always
+    # converged toward the STRONG/lower-bound end anyway — see
+    # PROJECT_STATUS.md finding #12).
+    Xu:  {unit: "N/(m/s)", initial_guess: -11.7, bounds: [-50, -1.0],
+          bounds_rationale: "~5x nominal literature estimate; upper bound excludes near-zero damping, see comment above",
           source: "Fossen-style BlueROV2 sysID literature", confidence: literature}
-    Yv:  {unit: "N/(m/s)", initial_guess: -20.0, bounds: [-80, 0],
-          bounds_rationale: "~4x nominal literature estimate",
+    Yv:  {unit: "N/(m/s)", initial_guess: -20.0, bounds: [-80, -1.6],
+          bounds_rationale: "~4x nominal literature estimate; upper bound excludes near-zero damping, see comment above",
           source: "Fossen-style BlueROV2 sysID literature", confidence: literature}
-    Zw:  {unit: "N/(m/s)", initial_guess: -31.8, bounds: [-100, 0],
-          bounds_rationale: "~3x nominal literature estimate",
+    Zw:  {unit: "N/(m/s)", initial_guess: -31.8, bounds: [-100, -2.0],
+          bounds_rationale: "~3x nominal literature estimate; upper bound excludes near-zero damping, see comment above",
           source: "Fossen-style BlueROV2 sysID literature", confidence: literature}
-    Kp:  {unit: "N*m/(rad/s)", initial_guess: -0.3, bounds: [-5, 0],
-          bounds_rationale: "wide net — low-confidence axis, sparse published data",
+    Kp:  {unit: "N*m/(rad/s)", initial_guess: -0.3, bounds: [-5, -0.1],
+          bounds_rationale: "wide net — low-confidence axis, sparse published data; upper bound excludes near-zero damping, see comment above",
           source: "literature", confidence: literature}
-    Mq:  {unit: "N*m/(rad/s)", initial_guess: -0.3, bounds: [-5, 0],
-          bounds_rationale: "wide net — low-confidence axis, sparse published data",
+    Mq:  {unit: "N*m/(rad/s)", initial_guess: -0.3, bounds: [-5, -0.1],
+          bounds_rationale: "wide net — low-confidence axis, sparse published data; upper bound excludes near-zero damping, see comment above",
           source: "literature", confidence: literature}
-    Nr:  {unit: "N*m/(rad/s)", initial_guess: -1.0, bounds: [-10, 0],
-          bounds_rationale: "wide net — low-confidence axis, sparse published data",
+    Nr:  {unit: "N*m/(rad/s)", initial_guess: -1.0, bounds: [-10, -0.2],
+          bounds_rationale: "wide net — low-confidence axis, sparse published data; upper bound excludes near-zero damping, see comment above",
           source: "literature", confidence: literature}
 
   quadratic_damping:
-    Xuu: {unit: "N/(m/s)^2", initial_guess: -18.2, bounds: [-100, 0],
-          bounds_rationale: "~5x nominal literature estimate", source: "literature", confidence: literature}
-    Yvv: {unit: "N/(m/s)^2", initial_guess: -21.7, bounds: [-100, 0],
-          bounds_rationale: "~5x nominal literature estimate", source: "literature", confidence: literature}
-    Zww: {unit: "N/(m/s)^2", initial_guess: -50.0, bounds: [-150, 0],
-          bounds_rationale: "~3x nominal literature estimate", source: "literature", confidence: literature}
-    Kpp: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, 0],
-          bounds_rationale: "wide net — low-confidence axis", source: "literature", confidence: literature}
-    Mqq: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, 0],
-          bounds_rationale: "wide net — low-confidence axis", source: "literature", confidence: literature}
-    Nrr: {unit: "N*m/(rad/s)^2", initial_guess: -2.0, bounds: [-20, 0],
-          bounds_rationale: "wide net — low-confidence axis", source: "literature", confidence: literature}
+    Xuu: {unit: "N/(m/s)^2", initial_guess: -18.2, bounds: [-100, -2.0],
+          bounds_rationale: "~5x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+    Yvv: {unit: "N/(m/s)^2", initial_guess: -21.7, bounds: [-100, -2.0],
+          bounds_rationale: "~5x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+    Zww: {unit: "N/(m/s)^2", initial_guess: -50.0, bounds: [-150, -3.0],
+          bounds_rationale: "~3x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+    Kpp: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, -0.2],
+          bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+    Mqq: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, -0.2],
+          bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+    Nrr: {unit: "N*m/(rad/s)^2", initial_guess: -2.0, bounds: [-20, -0.4],
+          bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
 
   added_mass_diag:
     # Off-diagonal added-mass coupling assumed negligible — see assumptions.

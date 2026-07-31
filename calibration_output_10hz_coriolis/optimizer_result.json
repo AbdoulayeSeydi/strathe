@@ -1,0 +1,19 @@
+{
+  "timestamp_utc": "2026-07-26T10:44:47.890687+00:00",
+  "method": "trf",
+  "loss": "soft_l1",
+  "n_restarts": 1,
+  "n_converged": 1,
+  "best_cost": 3.3548539433717552,
+  "best_nfev": 27,
+  "runtime_seconds": 23384.876303200028,
+  "restarts": [
+    {
+      "cost": 3.3548539433717552,
+      "success": true,
+      "status": 2,
+      "nfev": 27,
+      "message": "`ftol` termination condition is satisfied."
+    }
+  ]
+}

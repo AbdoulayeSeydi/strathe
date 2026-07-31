@@ -54,6 +54,8 @@ explicitly — never presented as one undifferentiated "Phase 2 result."
 """
 from __future__ import annotations
 
+from typing import Optional
+
 # Decision 1 — the exact pair used in every real calibration run this
 # session (run_calibration_holoocean.py's own CLI default matches this).
 PHASE1_HELDOUT_DATES = ["16-02-2024", "19-02-2024"]
@@ -86,3 +88,59 @@ def assert_uses_phase1_split(heldout_dates: list) -> None:
             f"Decision 1 for why. If you genuinely need a different split, update "
             f"PHASE1_HELDOUT_DATES here explicitly, don't silently pass a new one."
         )
+
+
+def check_result_type(result_type: str, metrics_path: Optional[str] = None) -> None:
+    """
+    The market-facing safeguard: refuses to let a "final" report be
+    generated from a calibration that wasn't actually confirmed converged.
+
+    result_type must be exactly "placeholder" or "final" — no default,
+    every Stage 2.3/2.4 script must state this explicitly, forcing a
+    deliberate choice rather than a silent one.
+
+    If result_type == "final", metrics_path (the SOURCE calibration's own
+    metrics.json — see run_calibration_holoocean.py / run_calibration.py's
+    output) is REQUIRED and must show converged=True. Refuses loudly
+    otherwise — this is the concrete fix for the exact class of mistake
+    this session already made more than once (a stale/wrong file silently
+    treated as authoritative). A wrong or mislabeled number going to
+    market is a real cost, not an inconvenience.
+    """
+    if result_type not in ("placeholder", "final"):
+        raise ValueError(
+            f"result_type must be exactly 'placeholder' or 'final', got {result_type!r} — "
+            f"no default, every Stage 2.3/2.4 script must state this explicitly."
+        )
+    if result_type == "final":
+        if metrics_path is None:
+            raise ValueError(
+                "result_type='final' requires metrics_path (the source calibration's own "
+                "metrics.json) so convergence can actually be verified, not assumed."
+            )
+        import json
+        with open(metrics_path, encoding="utf-8") as f:
+            metrics = json.load(f)
+        if not metrics.get("converged", False):
+            raise ValueError(
+                f"REFUSING to label this a FINAL result — {metrics_path} shows "
+                f"converged={metrics.get('converged')!r}, not True. This looks like a "
+                f"placeholder/proof-of-concept result being mistakenly promoted to final. "
+                f"Use result_type='placeholder' instead, or verify the source calibration "
+                f"actually converged first."
+            )
+
+
+def output_dir_for(base_name: str, result_type: str) -> str:
+    """Enforces the placeholder/_final output-directory naming convention
+    everywhere, rather than leaving each script to (inconsistently)
+    remember to do this itself. Only validates result_type is a legal
+    STRING here — the full metrics-verification check (check_result_type)
+    belongs at the point the actual analysis/report is generated, not at
+    directory-naming time, since a metrics_path may not even be decided
+    yet when a caller is just picking where output should go."""
+    if result_type not in ("placeholder", "final"):
+        raise ValueError(
+            f"result_type must be exactly 'placeholder' or 'final', got {result_type!r}"
+        )
+    return f"{base_name}_{result_type}"

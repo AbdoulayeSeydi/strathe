@@ -1,0 +1,228 @@
+{
+  "dataset": {
+    "train_dates": [
+      "12-01-2024",
+      "14-02-2024"
+    ],
+    "heldout_dates": [
+      "16-02-2024",
+      "19-02-2024"
+    ],
+    "n_train_files": 25,
+    "n_heldout_files": 14,
+    "total_samples": 183555,
+    "total_trajectories": 39
+  },
+  "timing": {
+    "loading_s": 0.6990299999597482,
+    "calibration_s": 23426.49592060002,
+    "evaluation_s": 291.699334600009,
+    "total_s": 23718.914257699973
+  },
+  "optimizer": {
+    "converged": true,
+    "cost": 3.3548539433717552,
+    "nfev": 27,
+    "njev": 27,
+    "status": 2,
+    "message": "`ftol` termination condition is satisfied.",
+    "optimality": 3.2137844248507657e-06,
+    "n_restarts": 1,
+    "n_converged": 1,
+    "convergence_rate": 1.0
+  },
+  "rmse": {
+    "default_train": 1.177886583564971,
+    "default_heldout": 1.1657511040385429,
+    "calibrated_train": 0.20509469176820916,
+    "calibrated_heldout": 0.20666574266187113,
+    "improvement_train_pct": 82.58790832412123,
+    "improvement_heldout_pct": 82.27188102624022,
+    "generalization_gap_default": 0.9896972427602503,
+    "generalization_gap_calibrated": 1.0076601245996046
+  },
+  "per_dof": {
+    "default_train": [
+      0.23726537229625488,
+      0.23156907208108696,
+      0.43197277421361546,
+      1.389803910176332,
+      2.3977508077515273,
+      0.4960150383324751
+    ],
+    "default_heldout": [
+      0.23368033539109864,
+      0.23159203991194488,
+      0.43032633397896064,
+      1.2476713940615765,
+      2.451411810004486,
+      0.4740495884666254
+    ],
+    "calibrated_train": [
+      0.13903823933076018,
+      0.12252643383839583,
+      0.1246384550497168,
+      0.2290531014923502,
+      0.3036465265801439,
+      0.22668055416203697
+    ],
+    "calibrated_heldout": [
+      0.12576812439138285,
+      0.10298511946781219,
+      0.12330925152298776,
+      0.22993167612005636,
+      0.32265721902446726,
+      0.2319962113001435
+    ]
+  },
+  "parameter_deltas": [
+    {
+      "name": "Ieff_roll",
+      "default": 0.28,
+      "calibrated": 4.999999999999999,
+      "magnitude_ratio": 17.85714285714285,
+      "crossed_zero": false
+    },
+    {
+      "name": "Ieff_pitch",
+      "default": 0.28,
+      "calibrated": 4.999999999999999,
+      "magnitude_ratio": 17.85714285714285,
+      "crossed_zero": false
+    },
+    {
+      "name": "Ieff_yaw",
+      "default": 0.32,
+      "calibrated": 1.8311104761754289,
+      "magnitude_ratio": 5.722220238048215,
+      "crossed_zero": false
+    },
+    {
+      "name": "Xu",
+      "default": -11.7,
+      "calibrated": -38.235664883242855,
+      "magnitude_ratio": 3.2680055455763126,
+      "crossed_zero": false
+    },
+    {
+      "name": "Yv",
+      "default": -20.0,
+      "calibrated": -79.99999999999999,
+      "magnitude_ratio": 3.999999999999999,
+      "crossed_zero": false
+    },
+    {
+      "name": "Zw",
+      "default": -31.8,
+      "calibrated": -99.99999999999999,
+      "magnitude_ratio": 3.1446540880503138,
+      "crossed_zero": false
+    },
+    {
+      "name": "Kp",
+      "default": -0.3,
+      "calibrated": -4.999999999999999,
+      "magnitude_ratio": 16.666666666666664,
+      "crossed_zero": false
+    },
+    {
+      "name": "Mq",
+      "default": -0.3,
+      "calibrated": -4.999999999999999,
+      "magnitude_ratio": 16.666666666666664,
+      "crossed_zero": false
+    },
+    {
+      "name": "Nr",
+      "default": -1.0,
+      "calibrated": -3.763831730119706,
+      "magnitude_ratio": 3.763831730119706,
+      "crossed_zero": false
+    },
+    {
+      "name": "Xuu",
+      "default": -18.2,
+      "calibrated": -99.99999999999999,
+      "magnitude_ratio": 5.494505494505494,
+      "crossed_zero": false
+    },
+    {
+      "name": "Yvv",
+      "default": -21.7,
+      "calibrated": -80.33609904746656,
+      "magnitude_ratio": 3.7021243800675836,
+      "crossed_zero": false
+    },
+    {
+      "name": "Zww",
+      "default": -50.0,
+      "calibrated": -149.99999999999997,
+      "magnitude_ratio": 2.9999999999999996,
+      "crossed_zero": false
+    },
+    {
+      "name": "Kpp",
+      "default": -0.5,
+      "calibrated": -9.999999999999998,
+      "magnitude_ratio": 19.999999999999996,
+      "crossed_zero": false
+    },
+    {
+      "name": "Mqq",
+      "default": -0.5,
+      "calibrated": -9.999999999999998,
+      "magnitude_ratio": 19.999999999999996,
+      "crossed_zero": false
+    },
+    {
+      "name": "Nrr",
+      "default": -2.0,
+      "calibrated": -1.4454010797927745,
+      "magnitude_ratio": 0.7227005398963873,
+      "crossed_zero": false
+    },
+    {
+      "name": "Xu_dot",
+      "default": 5.5,
+      "calibrated": 29.999999999999996,
+      "magnitude_ratio": 5.454545454545454,
+      "crossed_zero": false
+    },
+    {
+      "name": "Yv_dot",
+      "default": 12.7,
+      "calibrated": 33.52737307459703,
+      "magnitude_ratio": 2.6399506357950417,
+      "crossed_zero": false
+    },
+    {
+      "name": "Zw_dot",
+      "default": 14.6,
+      "calibrated": 1.5007702539635765e-17,
+      "magnitude_ratio": 1.0279248314819016e-18,
+      "crossed_zero": false
+    },
+    {
+      "name": "net_buoyancy_z",
+      "default": 0.0,
+      "calibrated": 9.999999999999998,
+      "magnitude_ratio": null,
+      "crossed_zero": false
+    },
+    {
+      "name": "cg_cb_offset_z",
+      "default": 0.02,
+      "calibrated": 0.03200812214827822,
+      "magnitude_ratio": 1.600406107413911,
+      "crossed_zero": false
+    }
+  ],
+  "reproducibility": {
+    "git_commit": "43cdf39198020599e9e87514906ce791d15cf1af",
+    "spec_version": "0.3.0",
+    "spec_path": "vehicle_spec.yaml",
+    "data_dir": "../data/raw/Bluerov2_trajectory_dataset",
+    "timestamp_utc": "2026-07-26T10:50:21.230558+00:00"
+  },
+  "success": true
+}

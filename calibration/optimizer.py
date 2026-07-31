@@ -42,6 +42,20 @@ Calibration targets span very different magnitudes (e.g. cg_cb_offset_z
 similarly scaled. Default x_scale is each parameter's bounds width
 (ub - lb), a scale directly tied to the physical range already specified
 in vehicle_spec.yaml, rather than a generic heuristic.
+
+## Fixed parameters (identifiability investigation support)
+CalibrationConfig.fixed_params lets specific parameters be held EXACTLY
+CONSTANT during optimization — removed from the search space entirely,
+not just tightly bounded. Added specifically to test a real finding
+(PROJECT_STATUS.md): Zw_dot pinned at its lower bound (0) after adding
+Coriolis terms, with NO strong pairwise correlation found in the Jacobian
+analysis — consistent with either a multi-parameter flat direction or a
+genuine practical identifiability gap (this dataset's real maneuvers may
+simply not excite heave acceleration enough to constrain it). Fixing
+Zw_dot at a physically plausible value (e.g. its pre-Coriolis calibrated
+value, ~14.6) and re-optimizing the other 19 parameters directly tests
+this: if RMSE barely changes, the data genuinely doesn't constrain this
+parameter; if it changes meaningfully, something else is going on.
 """
 from __future__ import annotations
 
@@ -210,6 +224,11 @@ class CalibrationConfig:
         # HoloOcean-backed run, where each evaluation costs real wall-clock
         # time, not milliseconds).
 
+    # identifiability investigation support
+    fixed_params: Optional[dict] = None  # {param_name: fixed_value} — see module
+        # docstring's "Fixed parameters" section. None (default) = every
+        # parameter is free, identical behavior to before this existed.
+
     # reproducibility / restarts
     seed: Optional[int] = None
     initialization_strategy: str = "fixed"  # "fixed" | "perturbed" | "random"
@@ -290,6 +309,23 @@ def _wrap_residual_fn(base_fn: Callable, on_iteration: Optional[Callable]) -> Ca
     return wrapped
 
 
+def _make_fixed_params_wrapper(residual_fn: Callable, full_template: np.ndarray,
+                                free_mask: np.ndarray) -> Callable:
+    """
+    Wraps a residual function that expects the FULL parameter vector so it
+    instead accepts only the FREE-dimension subset scipy actually
+    optimizes over — reconstructing the full vector (fixed entries from
+    full_template, free entries from what scipy is proposing) before each
+    call. This is the ONLY place fixed_params logic lives; everything else
+    in calibrate() operates on full-length vectors as before.
+    """
+    def wrapped(x_free, *args):
+        full_x = full_template.copy()
+        full_x[free_mask] = x_free
+        return residual_fn(full_x, *args)
+    return wrapped
+
+
 def _stability_report(all_restarts: list, converged_restarts: list) -> dict:
     """Actually measures parameter-set consistency across restarts,
     rather than asserting it in a docstring: mean/std of each parameter
@@ -331,9 +367,14 @@ def calibrate(
     best CONVERGED result. Raises RuntimeError if every restart fails to
     converge — calibration code should fail loudly, not hand back an
     unchecked result (see module docstring).
+
+    If config.fixed_params is set, those parameters are held EXACTLY
+    constant (not part of the search space) — see module docstring's
+    "Fixed parameters" section for why this exists.
     """
     config = config or CalibrationConfig()
     vehicle = loaded.vehicle
+    param_names = initial_parameters(loaded).param_names
     x0_base = config.x0_override if config.x0_override is not None else initial_parameters(loaded).to_vector()
     lb, ub = parameter_bounds(loaded)
 
@@ -345,16 +386,43 @@ def calibrate(
         x_scale = np.ones_like(x0_base)
 
     residual_fn = _wrap_residual_fn(joint_residuals, config.on_iteration)
+
+    # --- fixed_params: build the free/fixed split, subset everything the
+    # optimizer actually sees to free dimensions only. Fully inert (every
+    # array below is unchanged, mask is all-True) when fixed_params is None.
+    fixed_params = config.fixed_params or {}
+    unknown = set(fixed_params) - set(param_names)
+    if unknown:
+        raise ValueError(f"fixed_params has unknown parameter name(s): {sorted(unknown)}")
+    free_mask = np.array([name not in fixed_params for name in param_names])
+
+    full_template = x0_base.copy()
+    for name, val in fixed_params.items():
+        idx = param_names.index(name)
+        if not (lb[idx] <= val <= ub[idx]):
+            raise ValueError(
+                f"fixed_params[{name!r}]={val} is outside its own bounds "
+                f"[{lb[idx]}, {ub[idx]}] in vehicle_spec.yaml."
+            )
+        full_template[idx] = val
+
+    x0_base_free = full_template[free_mask]
+    lb_free = lb[free_mask]
+    ub_free = ub[free_mask]
+    x_scale_free = x_scale[free_mask]
+    optimized_residual_fn = _make_fixed_params_wrapper(residual_fn, full_template, free_mask)
+
     rng = np.random.default_rng(config.seed)
 
     restarts = []
     start_time = time.monotonic()
     for _ in range(config.n_restarts):
-        x0 = _initialize_x0(x0_base, lb, ub, rng, config.initialization_strategy, config.perturbation_frac)
+        x0_free = _initialize_x0(x0_base_free, lb_free, ub_free, rng,
+                                  config.initialization_strategy, config.perturbation_frac)
         result = least_squares(
-            fun=residual_fn,
-            x0=x0,
-            bounds=(lb, ub),
+            fun=optimized_residual_fn,
+            x0=x0_free,
+            bounds=(lb_free, ub_free),
             method=config.method,
             loss=config.loss,
             f_scale=config.f_scale,
@@ -362,12 +430,20 @@ def calibrate(
             xtol=config.xtol,
             gtol=config.gtol,
             max_nfev=config.max_nfev,
-            x_scale=x_scale,
+            x_scale=x_scale_free,
             verbose=config.verbose,
             args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn),
         )
+        # Reconstruct FULL-length x0/x — every downstream consumer
+        # (CalibrationParameters.from_vector, checkpoint files, reporting)
+        # expects a full param_names-length vector regardless of whether
+        # fixed_params was used.
+        full_x0 = full_template.copy()
+        full_x0[free_mask] = x0_free
+        full_x = full_template.copy()
+        full_x[free_mask] = result.x
         restarts.append(RestartResult(
-            x0=x0, x=result.x, cost=result.cost, success=result.success,
+            x0=full_x0, x=full_x, cost=result.cost, success=result.success,
             status=result.status, nfev=result.nfev, message=result.message,
             raw_result=result,
         ))

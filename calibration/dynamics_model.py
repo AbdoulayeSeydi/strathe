@@ -217,7 +217,7 @@ class VehicleConstants:
 @dataclass
 class SimulationConfig:
     dt: float                    # the DATA's sample interval (e.g. 0.1s at 10Hz)
-    physics_dt: float = 0.02     # target INTERNAL integration step. dt is
+    physics_dt: float = 0.005    # target INTERNAL integration step. dt is
                                   # subdivided into ceil(dt/physics_dt) sub-steps,
                                   # each holding the force/orientation input constant
                                   # (zero-order hold, since real data isn't available
@@ -225,14 +225,30 @@ class SimulationConfig:
                                   # coarsely the data was sampled" from "how fine the
                                   # physics integration needs to be for stability" —
                                   # see the "Numerical stability" module docstring
-                                  # section for why this exists: Forward Euler with
-                                  # the DEFAULT (weakly-damped) parameters was found
-                                  # to overflow to NaN at dt=0.1s (10Hz) even though
-                                  # the same parameters integrate fine at dt=0.02s
-                                  # (50Hz) — confirmed by direct reproduction, not
-                                  # theorized. Sub-stepping down to ~50Hz-equivalent
-                                  # internal resolution fixes this regardless of the
-                                  # data's own logging rate.
+                                  # section for the original (pre-Coriolis) finding
+                                  # this was built for.
+                                  #
+                                  # TIGHTENED from 0.02 to 0.005 after adding Coriolis
+                                  # terms: confirmed via direct reproduction that
+                                  # 0.02 crashes (NaN) at DEFAULT (weakly-damped)
+                                  # parameters once real-scale forces push velocity
+                                  # large enough for the Coriolis terms (quadratic in
+                                  # velocity) to overflow — reproduced cleanly at
+                                  # force magnitude ~100+, confirmed 0.005 resolves it
+                                  # up to force magnitude 200 with consistent,
+                                  # converged max|nu| values (a genuine resolution
+                                  # fix, not a different physics answer).
+                                  #
+                                  # HONEST TRADEOFF: this changes the OLD "50Hz is a
+                                  # no-op (1 sub-step)" regression guarantee from the
+                                  # original sub-stepping fix — at 50Hz (dt=0.02) this
+                                  # new default now takes 4 sub-steps, not 1. Findings
+                                  # #1-11 in PROJECT_STATUS.md were computed with the
+                                  # OLD default (physics_dt=0.02, 1 substep at 50Hz) —
+                                  # pass physics_dt=0.02 explicitly to exactly
+                                  # reproduce those specific historical numbers.
+                                  # Going forward, both 10Hz and 50Hz get more
+                                  # numerically robust integration by default.
     seed: Optional[int] = None  # Reserved for future sensor-noise / current
                                  # disturbance injection. Unused today —
                                  # the hook exists so adding noise later

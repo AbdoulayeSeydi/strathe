@@ -173,6 +173,33 @@ def identifiability_analysis(param_vec: np.ndarray, runs: list, vehicle) -> dict
     else:
         condition_number = float(singular_values[0] / smallest)
 
+    # --- Multi-parameter identifiability: near-null-space directions ---
+    # The pairwise correlation matrix (below) only catches TWO-parameter
+    # degeneracies. A flat direction can involve 3+ parameters
+    # simultaneously with no single pair crossing the correlation
+    # threshold — exactly the pattern found for Zw_dot after adding
+    # Coriolis terms (pinned at its bound, high overall condition number,
+    # but no pairwise correlation >=0.7 in the existing analysis). The
+    # right singular vectors corresponding to the SMALLEST singular values
+    # directly reveal these: each is a parameter COMBINATION the data
+    # barely constrains as a group, even if no single pair within it is
+    # individually degenerate. Reuses the SAME Jacobian already computed
+    # above — no additional expensive simulate_trajectory() calls.
+    from dynamics_model import CalibrationParameters
+    param_names = CalibrationParameters.from_vector(param_vec).param_names
+    _, S, Vt = np.linalg.svd(J, full_matrices=False)
+    n_flat_to_report = min(3, len(S))
+    print(f"\nSmallest {n_flat_to_report} singular value(s) and their parameter-combination "
+          f"directions (multi-parameter flat-direction check, not just pairwise):")
+    for i in range(1, n_flat_to_report + 1):
+        sv = S[-i]
+        direction = Vt[-i]
+        order = np.argsort(-np.abs(direction))
+        print(f"  Singular value {sv:.4e} (rank {len(S) - i + 1}/{len(S)}) — "
+              f"parameters with the largest role in this barely-constrained combination:")
+        for j in order[:5]:
+            print(f"      {param_names[j]:<18}{direction[j]:+.3f}")
+
     JtJ = J.T @ J
     try:
         # Cov(params) ~ (J^T J)^-1 up to an unknown noise-variance scale
