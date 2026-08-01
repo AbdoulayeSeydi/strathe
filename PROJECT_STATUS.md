@@ -260,15 +260,24 @@ Real run: 4 seeds × 2 variants (default vs. finding #18's calibrated physics), 
 
 With this, both Claim A (finding #20) and Claim B (this finding) now have real, complete, honestly-labeled (`placeholder`) results — the MVP's stated Phase 2 acceptance criterion (a comparison chart) is technically satisfied by both.
 
+### 22. Is the remaining rotational weakness a data-coverage ceiling or a genuine model gap? — resolved, precisely, with pure kinematics
+
+Given Stage 2.3's mixed rotational result (finding #20: `q +21.7%`, but `p -7.2%` and `r -12.9%`), the real open question was whether this dataset can even support further improvement — i.e., whether the Coriolis coupling terms (finding #16) are starved of real excitation, or whether the data genuinely supports them and something else in the model is still missing.
+
+**Method:** same approach as finding #10's independent damping check — using ONLY real logged velocity data (no simulation, no model, no optimizer), directly measure the excitation of the specific velocity products Coriolis's rotational equations depend on (`v·w`, `Q·R` → roll; `u·w`, `P·R` → pitch; `u·v`, `P·Q` → yaw). Built `check_coriolis_excitation.py`; verified its "ratio" framing against a direct synthetic test before trusting it — found and corrected a real mistake in the initial draft (assumed correlation would *suppress* a product's variance; a synthetic test showed the opposite: `Var(ab) ≈ Var(a)Var(b)(1+2ρ²)` for jointly Gaussian data, so correlation of either sign slightly *increases* it). Removed the flawed causal framing; kept the raw product magnitude as the primary, correctly-interpretable metric.
+
+**Result on real training data (25 runs, 103,995 samples): all six products are healthily and comparably excited** — `std` ranging from `0.024` (`v·w`) to `0.114` (`Q·R`), under a 5x spread across all six. This is nowhere near the "orders-of-magnitude starved" signature that would indicate a genuine data ceiling (confirmed via the synthetic test case, where a deliberately-poorly-excited product came out ~10–25x smaller than the rest, not <5x).
+
+**Conclusion, precisely stated:** this rules out "the data can't support Coriolis" as an explanation. The real dataset genuinely gives the model what it needs to identify all six rotational coupling terms. **The remaining `p`/`r` weakness from finding #20 is therefore more likely a genuine remaining model limitation, not a data-coverage gap** — pointing toward further model structure (off-diagonal added mass, thruster/actuator nonlinearity, or cross-axis damping terms — none of which this model currently includes) as the more promising next lever, rather than anything data-related.
+
 ---
 
 ## Honest open items
 
-- **Rotational dynamics gap is a model limitation, not just a tuning problem** — Coriolis (finding #16) was the direct attempt to close this, and while it's a real, verified physics improvement, Stage 2.3's real result (finding #20) shows a genuinely mixed rotational picture, not a clean fix. Whether further calibration (vs. a deeper model limitation) would resolve this is still open
+- **The remaining rotational weakness (finding #20) is now confirmed to be a model limitation, not a data-coverage gap** (finding #22) — the real dataset excites all six Coriolis-relevant velocity products comparably well. Candidate next steps: off-diagonal added mass, thruster/actuator nonlinearity, or cross-axis damping terms — none currently in the model
 - **Neither of finding #19's two HoloOcean refinement segments reached scipy's strict convergence** — deliberately stopped given clear diminishing returns (segment 2's gain was ~10x smaller than segment 1's for the same compute cost), not because the process failed
 - **`Zw_dot`'s practical (not structural) identifiability gap** (finding #18) is understood and precisely characterized, but not "fixed" — it simply reflects what this dataset's real maneuvers can and can't constrain
 - **The small, confirmed ~2.5%/tick angular-velocity decay under Custom Dynamics with zero command** (finding #15) remains a known, deliberately-unfixed, first-instant-only residual
-- **Whether to invest further calibration effort (targeting the rotational coupling specifically) before treating Phase 2's current result as the MVP deliverable** — a genuine, undecided judgment call, not a technical blocker; both Claim A and Claim B are complete and honestly labeled as-is
 
 ---
 
@@ -281,5 +290,6 @@ With this, both Claim A (finding #20) and Claim B (this finding) now have real, 
 5. **~~Add Coriolis-centripetal terms to close the rotational-dynamics gap~~ — DONE, see finding #16.** Two real bugs found and fixed along the way (finding #17); the real Coriolis-aware calibration converged cleanly (finding #18); refined further against real HoloOcean physics with genuine, if diminishing, improvement (finding #19)
 6. **~~Build and test the Phase 2 Gym/Arena wrapper and PPO pipeline~~ — DONE, see finding #20.** Real bugs found and fixed (an action-integration bug, an action-space scale mismatch, a redundant-simulation performance bug); the market-facing placeholder/final safeguard built and verified
 7. **~~Run Stage 2.4's real, final multi-seed PPO comparison~~ — DONE, see finding #21.** Both variants trained cleanly (100% success, low variance); the reward-magnitude gap between them is explained by the calibrated physics being genuinely heavier/more damped, not a training problem
-8. **Decide whether the current Phase 2 result (Claims A + B, both real and complete) is good enough to stand as the MVP deliverable, or whether further calibration work is worth pursuing first** — given the clear diminishing returns already observed on HoloOcean-side refinement, a different lever (more training data diversity, a deeper look at the rotational coupling specifically) may be more productive than simply running longer — a genuine judgment call, not a technical blocker
+8. **~~Decide whether to push further on the rotational-coupling gap, and whether that means more data or deeper model work~~ — DECIDED, see finding #22.** Confirmed via pure kinematics: the real data excites all six Coriolis-relevant velocity products comparably well (under a 5x spread) — this rules out a data-coverage ceiling and points at a genuine remaining model limitation instead
 9. **Re-run `check_damping_identifiability.py`'s Mq/Mqq comparison against the new Coriolis-aware Jacobian** (flagged in finding #10) — now directly possible given finding #18's real Jacobian/correlation analysis exists; not yet done
+10. **Investigate a specific model-structure addition for the remaining rotational weakness** (finding #22's conclusion) — leading candidates: off-diagonal added mass, thruster/actuator nonlinearity, or cross-axis damping terms, none of which the model currently includes; not yet started, this is the concrete next lever
