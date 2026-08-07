@@ -121,6 +121,7 @@ _PARAM_ORDER = (
     "Xuu", "Yvv", "Zww", "Kpp", "Mqq", "Nrr",
     "Xu_dot", "Yv_dot", "Zw_dot",
     "net_buoyancy_z", "cg_cb_offset_z",
+    "Xq_dot", "Zq_dot",
 )
 
 TEACHER_FORCED_ORIENTATION = True  # see module docstring — comparison code
@@ -167,6 +168,19 @@ class CalibrationParameters:
     Zw_dot: float
     net_buoyancy_z: float
     cg_cb_offset_z: float
+
+    # Off-diagonal added-mass coupling — surge-pitch and heave-pitch,
+    # the physically best-motivated cross-terms for a BlueROV2's real
+    # vertical (top-bottom) asymmetry (open frame, buoyancy above
+    # thrusters — the SAME asymmetry cg_cb_offset_z already models for
+    # the restoring force). Defaults to 0.0 — both for a sensible "no
+    # coupling" starting point, AND so existing saved
+    # calibrated_parameters.yaml files (from before this was added)
+    # still load correctly via CalibrationParameters(**old_dict), with
+    # these two fields implicitly zero (reduces exactly to the prior
+    # model — see _mass_matrix()'s regression test).
+    Xq_dot: float = 0.0
+    Zq_dot: float = 0.0
 
     def validate(self) -> None:
         """Cheap sanity checks — called once per construction, not per
@@ -347,51 +361,67 @@ def _restoring_forces(roll, pitch, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.
 
 
 def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
-    """Builds M_diag, linear_damping, quad_damping from params/vehicle —
-    factored out so both simulate_trajectory() and compute_acceleration()
-    build these identically, with no risk of the two drifting apart."""
+    """Builds the full mass/inertia matrix M (6x6), linear_damping, and
+    quad_damping from params/vehicle — factored out so both
+    simulate_trajectory() and compute_acceleration() build these
+    identically, with no risk of the two drifting apart.
+
+    M is diagonal EXCEPT for two off-diagonal coupling terms (Xq_dot,
+    Zq_dot — see CalibrationParameters' docstring on why these two
+    specifically). Checked for positive-definiteness (via Cholesky, not
+    just "diagonal entries positive" — the diagonal-only check used
+    before this was added is no longer sufficient once off-diagonal
+    terms exist) — fails loudly if a parameter combination would make
+    the mass matrix non-physical, the same "fail fast, don't silently
+    integrate garbage" principle used everywhere else in this file.
+    """
     m = vehicle.mass_kg
-    M_diag = np.array([
+    M = np.diag([
         m + params.Xu_dot, m + params.Yv_dot, m + params.Zw_dot,
         params.Ieff_roll, params.Ieff_pitch, params.Ieff_yaw,
     ])
-    if np.any(M_diag <= 0):
-        raise ValueError(f"Effective mass/inertia (mass+added-mass) must be positive, got {M_diag}")
+    M[0, 4] = M[4, 0] = params.Xq_dot  # surge-pitch coupling
+    M[2, 4] = M[4, 2] = params.Zq_dot  # heave-pitch coupling
+    try:
+        np.linalg.cholesky(M)
+    except np.linalg.LinAlgError:
+        raise ValueError(
+            f"Mass matrix is not positive-definite for this parameter combination "
+            f"(off-diagonal Xq_dot={params.Xq_dot}, Zq_dot={params.Zq_dot} too large "
+            f"relative to the corresponding diagonal terms) — a nonphysical mass "
+            f"matrix, not just a numerically awkward one. Check vehicle_spec.yaml's "
+            f"bounds on Xq_dot/Zq_dot aren't allowing this combination through."
+        )
     linear_damping = np.array([params.Xu, params.Yv, params.Zw, params.Kp, params.Mq, params.Nr])
     quad_damping = np.array([params.Xuu, params.Yvv, params.Zww, params.Kpp, params.Mqq, params.Nrr])
-    return M_diag, linear_damping, quad_damping
+    return M, linear_damping, quad_damping
 
 
-def _coriolis_centripetal_force(M_diag: np.ndarray, v: np.ndarray) -> np.ndarray:
+def _coriolis_centripetal_force(M: np.ndarray, v: np.ndarray) -> np.ndarray:
     """
     C(nu) @ nu — the rigid-body Coriolis-centripetal contribution this
-    model was missing entirely until now. This is THE specific gap
-    findings #5, #10, #12, and #13 in PROJECT_STATUS.md independently
+    model was missing entirely until finding #16 (PROJECT_STATUS.md).
+    This is THE specific gap findings #5, #10, #12, and #13 independently
     converged on (rotational DOFs fitting far worse than translational,
     damping compensating for absent cross-coupling) — closing it here,
     not working around it further.
 
-    Derivation (standard, not ad hoc): for a diagonal mass matrix
-    M_diag = [m1..m6] (added-mass-inclusive linear terms + effective
-    rotational inertia — the SAME M_diag already used for damping/
-    acceleration elsewhere in this function, no new calibration
-    parameters), the generalized-momentum construction gives
+    Takes the FULL mass matrix M (6x6 — may include off-diagonal added-
+    mass coupling, e.g. Xq_dot/Zq_dot; see CalibrationParameters), not
+    just its diagonal. Uses the GENERAL Fossen construction: generalized
+    momentum p = M @ nu (computed from the FULL matrix, mixing linear and
+    angular components when off-diagonal coupling exists), then p ITSELF
+    (not M) is split into linear/angular halves to build the standard
+    skew-symmetric block form:
         C(nu) = [[0, -S(p_lin)], [-S(p_lin), -S(p_ang)]]
-    where p_lin = diag(m1,m2,m3) @ [u,v,w], p_ang = diag(m4,m5,m6) @ [P,Q,R],
-    and S(.) is the standard skew-symmetric cross-product matrix. This is
-    the standard Fossen/rigid-body Coriolis matrix (Fossen, "Handbook of
-    Marine Craft Hydrodynamics and Motion Control", eq. 3.46-style),
-    re-derived here to match this file's own sign convention (M_diag
-    always positive; added-mass parameters already added directly rather
-    than Fossen's own negative-added-mass convention).
-
-    VERIFIED, not assumed: the defining property of any correct
-    Coriolis-centripetal matrix is that it does no work —
-    nu^T @ C(nu) @ nu == 0 for ALL nu. Confirmed via 10,000 random
-    (M_diag, nu) trials, max violation ~1.7e-12 (floating-point noise
-    only). Also confirmed against the well-known "coordinated turn"
-    case: forward motion + yaw rate produces exactly the expected
-    nonzero lateral (sway) centripetal force and nothing else.
+    This is a genuine generalization from the original (diagonal-only)
+    derivation — VERIFIED, not assumed, before being trusted: confirmed
+    energy-conserving (nu^T C(nu) nu ~ 0 to floating-point precision,
+    10,000 random trials) even WITH nonzero off-diagonal linear-angular
+    mass coupling, AND confirmed to reduce EXACTLY to the original
+    diagonal-only formula when the off-diagonal terms are zero (max
+    difference ~3e-13 across 1,000 trials — floating-point noise, not an
+    approximation).
 
     Returns C(nu)@nu, shape (6,). Callers SUBTRACT this from tau,
     matching M*nu_dot = tau - C(nu)*nu - D(nu)*nu - g(eta) — the
@@ -399,16 +429,21 @@ def _coriolis_centripetal_force(M_diag: np.ndarray, v: np.ndarray) -> np.ndarray
     -D(nu)*nu sign (its coefficients are negative, so it's ADDED, not
     subtracted, elsewhere in this function).
     """
-    u, v_, w, roll_rate, pitch_rate, yaw_rate = v
-    m1, m2, m3, m4, m5, m6 = M_diag
-    return np.array([
-        m3 * w * pitch_rate - m2 * v_ * yaw_rate,
-        m1 * u * yaw_rate - m3 * w * roll_rate,
-        m2 * v_ * roll_rate - m1 * u * pitch_rate,
-        (m3 - m2) * v_ * w + (m6 - m5) * pitch_rate * yaw_rate,
-        (m1 - m3) * u * w + (m4 - m6) * roll_rate * yaw_rate,
-        (m2 - m1) * u * v_ + (m5 - m4) * roll_rate * pitch_rate,
-    ])
+    p = M @ v
+    p_lin, p_ang = p[:3], p[3:]
+
+    def _skew(x: np.ndarray) -> np.ndarray:
+        return np.array([
+            [0.0, -x[2], x[1]],
+            [x[2], 0.0, -x[0]],
+            [-x[1], x[0], 0.0],
+        ])
+
+    C = np.zeros((6, 6))
+    C[:3, 3:] = -_skew(p_lin)
+    C[3:, :3] = -_skew(p_lin)
+    C[3:, 3:] = -_skew(p_ang)
+    return C @ v
 
 
 def compute_acceleration(
@@ -439,11 +474,16 @@ def compute_acceleration(
     Returns (v_dot, damping_force, g_eta) — the latter two purely for
     optional debug/diagnostic use, matching debug_info's existing fields.
     """
-    M_diag, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
+    M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
     damping_force = linear_damping * v + quad_damping * np.abs(v) * v
     g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
-    coriolis_force = _coriolis_centripetal_force(M_diag, v)
-    v_dot = (tau + damping_force - g_eta - coriolis_force) / M_diag
+    coriolis_force = _coriolis_centripetal_force(M, v)
+    # M is no longer guaranteed diagonal (Xq_dot/Zq_dot introduce two
+    # off-diagonal entries) — a proper linear solve, not elementwise
+    # division, is required. Reduces to exactly the same answer as the
+    # old division when M is diagonal (confirmed: solving a diagonal
+    # system is mathematically identical to elementwise division).
+    v_dot = np.linalg.solve(M, tau + damping_force - g_eta - coriolis_force)
     return v_dot, damping_force, g_eta
 
 
@@ -471,7 +511,7 @@ def simulate_trajectory(
     sim_config.validate()
     trajectory.validate()
 
-    _mass_and_damping_arrays(params, vehicle)  # validates M_diag > 0 up front, fail fast before the loop
+    _mass_and_damping_arrays(params, vehicle)  # validates M is positive-definite up front, fail fast before the loop
 
     n_steps = trajectory.forces_torques.shape[0]
     nu = np.zeros((n_steps, 6))

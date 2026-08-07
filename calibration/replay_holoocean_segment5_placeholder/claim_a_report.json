@@ -1,0 +1,46 @@
+{
+  "claim": "CLAIM_A: open-loop replay RMSE vs. real data \u2014 the rigorous, direct MVP acceptance criterion",
+  "result_type": "placeholder",
+  "used_holoocean": true,
+  "heldout_dates": [
+    "16-02-2024",
+    "19-02-2024"
+  ],
+  "n_heldout_runs": 14,
+  "dof_scales_from_training_data": {
+    "u": 0.3759747702290803,
+    "v": 0.22234714959551613,
+    "w": 0.16598711671658628,
+    "p": 0.12457424413095058,
+    "q": 0.20120911695427007,
+    "r": 0.56252870316568
+  },
+  "naive_unweighted": {
+    "note": "Can be dominated by whichever DOF has the largest raw magnitude \u2014 NOT the precise headline number, kept for reference/comparability only.",
+    "mean_rmse_default": 0.8782321977811892,
+    "mean_rmse_calibrated": 0.9342572017342629,
+    "improvement_pct": -6.3792928674919995
+  },
+  "scale_normalized": {
+    "note": "Each DOF divided by its own training-derived scale (compute_dof_scales) before averaging \u2014 puts m/s and rad/s DOFs on comparable footing. THIS is the precise, not-misleading headline number.",
+    "mean_rmse_default": 3.784669815715175,
+    "mean_rmse_calibrated": 3.655099837079277,
+    "improvement_pct": 3.423547758324428
+  },
+  "per_dof_default": {
+    "u": 0.48312136630862856,
+    "v": 0.24345772418230444,
+    "w": 0.21542623325460736,
+    "p": 1.4943058374294744,
+    "q": 1.0831036384500325,
+    "r": 0.9292770902167261
+  },
+  "per_dof_calibrated": {
+    "u": 0.1787131908651519,
+    "v": 0.16962436058744518,
+    "w": 0.15718263374005462,
+    "p": 1.7468291123044124,
+    "q": 0.6994540532706514,
+    "r": 1.2638784649678938
+  }
+}

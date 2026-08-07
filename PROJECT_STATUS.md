@@ -272,6 +272,77 @@ Given Stage 2.3's mixed rotational result (finding #20: `q +21.7%`, but `p -7.2%
 
 ---
 
+### 23. The Stage 2.3 "mixed" rotational result — isolated to a specific, fixable cause, not a fundamental limitation
+
+Directly tested whether the incomplete HoloOcean refinement itself (finding #19, stopped early due to diminishing AGGREGATE cost returns) was responsible for the mixed rotational picture (finding #20: `p -7.2%`, `r -12.9%`), rather than Coriolis or the calibration approach being fundamentally limited. Built `compare_two_calibrations.py` — directly compares two calibrated parameter sets against real held-out data using the fast stand-in backend (seconds, not hours), specifically isolating the CONVERGED stand-in Coriolis fit (finding #18) against the UNCONVERGED HoloOcean-refined result (finding #19) that Stage 2.3 actually used.
+
+**Result: every single rotational DOF regressed from the incomplete refinement, not just `p`/`r`** — `p: -14.6%`, `q: -9.7%`, `r: -17.7%` (stand-in's converged fit vs. the unconverged HoloOcean-refined one). Translational axes were comparatively unaffected (`u: +2.5%`, `v: -1.8%`, `w: -6.4%`).
+
+**Conclusion, precisely stated:** the mixed Stage 2.3 result is NOT evidence that Coriolis or the calibration methodology has a fundamental rotational limitation. It's an artifact of stopping HoloOcean refinement early based on the AGGREGATE cost curve's diminishing returns — which masked the fact that rotational and translational DOFs were moving in OPPOSITE directions underneath that aggregate number. The earlier "diminishing returns, stop here" decision (finding #19) was reasonable given the information available at the time, but is now understood to have been premature specifically for the rotational axes. This directly motivates properly re-running the HoloOcean refinement to genuine convergence (see "What's actually next"), rather than treating the current placeholder result as final.
+
+### 24. Finding #23's implied fix tested directly against real HoloOcean physics — and refuted, correcting course before acting on a misleading comparison
+
+Finding #23's comparison (`compare_two_calibrations.py`) suggested the stand-in's own CONVERGED Coriolis fit might already be better than the unconverged HoloOcean-refined checkpoint, which would have meant further HoloOcean refinement wasn't actually necessary. Before committing to a large refinement run (or abandoning one) on that basis, tested it directly: ran the ACTUAL Claim A methodology — `replay_comparison.py` against real held-out data through real HoloOcean physics — using the stand-in's converged fit as the "calibrated" arm, instead of the HoloOcean-refined checkpoint.
+
+**Result: WORSE than finding #20's original result, not better.** `p: -22.6%`, `r: -29.3%` (stand-in's converged fit vs. default, through real HoloOcean physics) — clearly worse than the unconverged HoloOcean-refined checkpoint's own `p: -7.2%`, `r: -12.9%`.
+
+**Why finding #23's comparison was misleading, precisely:** it evaluated BOTH parameter sets using the stand-in's OWN physics — really answering "which parameters does the stand-in's simplified dynamics prefer," not "which parameters actually perform better against real HoloOcean physics." A parameter set optimized to look good under the stand-in's own equations doesn't necessarily transfer to real HoloOcean's actual rigid-body integration, even though the two share the same underlying acceleration equations.
+
+**Corrected conclusion:** the unconverged HoloOcean-refined checkpoint IS genuinely better than the stand-in's own converged fit, when judged the way that actually counts (real HoloOcean physics, the Claim A standard). This REVERSES finding #23's implied direction — rather than being unnecessary, further HoloOcean refinement is confirmed to be the right, well-motivated next step, not just persistence. Proceeding with a properly-sized HoloOcean refinement run on the existing checkpoint (see "What's actually next").
+
+### 25. HoloOcean refinement segment 3 — genuinely converged, partial fix: `r`/`q` improved, `p` remains a real, isolated gap
+
+Resumed the HoloOcean-backed refinement (finding #24's confirmed-correct direction) for another `315` real evaluations. The cost-reduction pattern this time (`3.55e-03 → ... → 4.67e-09`, shrinking cleanly toward floating-point noise) is the genuine signature of reaching a real local optimum — not another budget-limited cutoff like segments 1-2.
+
+**Real Claim A result, checked precisely against finding #20's original numbers, not just the aggregate:**
+- `r`: `-12.9% → -8.3%` — **real improvement**
+- `q`: `+21.7% → +24.9%` — **further improvement**
+- `p`: `-7.2% → -8.0%` — **essentially unchanged**, within noise
+
+**A related, informative negative result:** this calibration run already included the off-diagonal added-mass terms (`Xq_dot`, `Zq_dot`, from the shelved off-diagonal work — `vehicle_spec.yaml`'s schema change applies globally, so they were live in this run too). Both converged to essentially zero (`Xq_dot: 0.0000 → -0.0019`, `Zq_dot: 0.0000 → 0.0001`) despite the optimizer genuinely converging elsewhere — the model found no benefit to using them in this configuration.
+
+**Conclusion:** this is very likely at or near the true local optimum for this specific setup (150-step truncated runs, this warm-start, these bounds) — 2 of 3 rotational axes are now real, confirmed wins; `p` is a genuine, isolated, unresolved limitation, not an under-converged one. Further `max-nfev` on this exact configuration is unlikely to move `p` further. Fixing `p` specifically likely needs a different lever (full-length runs instead of truncated, or a `p`-specific structural change), not more of the same refinement.
+
+### 26. Off-diagonal added mass — formally shelved, not pursued further
+
+Given finding #25's real negative result (both `Xq_dot`/`Zq_dot` converged to essentially zero when actually tested via real HoloOcean physics, despite the optimizer genuinely converging elsewhere) and the still-unresolved performance mystery blocking a clean, unbiased re-test via the stand-in backend (see the open items below), made a deliberate decision to shelve this line of work rather than keep investigating.
+
+**Not pursued further because:** the evidence we have is real, not inconclusive — the model was given room to use this coupling and chose not to. A genuinely fresh (non-warm-started) stand-in test could rule out warm-start bias as an explanation, but doing so requires the performance mystery to be understood first, and isn't worth blocking other progress on.
+
+**Practical consequence:** do not reference off-diagonal added mass in any public-facing material — it's real, tested, verified-correct code sitting unused in the model (harmless, since it defaults to zero coupling), not a capability worth claiming.
+
+### 27. Three refinement segments, two different objectives, one consistent result — DOF weighting ruled out as the fix for r; truncated-run overfitting is the leading remaining hypothesis
+
+Following finding #25's regression (p/r worse after an unweighted HoloOcean refinement segment), researched and implemented custom per-DOF weighting in the optimizer (`CalibrationConfig.dof_scales`) — boosting p and r beyond their natural training-data scales, specifically because r already has the LARGEST natural scale of all 6 DOFs (0.5625) yet was still regressing, meaning standard scale-normalization would have REDUCED its weight below today's already-implicit level (confirmed directly: 0.67x vs. today's 1.5x) rather than helping. Verified the weighting mechanism was genuinely active (custom scales printed and matched expectations) before trusting a long run to it.
+
+**Result across all three real segments, same 150-step-truncated training setup:**
+
+| DOF | Segment 3 | Segment 4 (unweighted) | Segment 5 (r boosted 4.46x) |
+|---|---|---|---|
+| p | -8.0% | -19.9% | -16.9% |
+| q | +24.9% | +34.9% | +35.4% |
+| r | -8.3% | -24.1% | **-36.0%** |
+
+**r got monotonically worse across all three segments, including the one where its objective weight was deliberately quadrupled relative to today's baseline.** This directly refutes the DOF-under-weighting hypothesis as r's primary cause — a real, useful negative result, not an inconclusive one.
+
+**Leading remaining hypothesis, not yet tested:** every one of these three segments was fit against the SAME 150-step-truncated training runs (15 seconds of real data at 10Hz) — a deliberate speed shortcut from finding #15's original proof-of-concept, never revisited since. The monotonic pattern (each segment's training objective improves while r's REAL held-out performance, on full-length runs, gets worse) is the classic signature of overfitting to a short training window that doesn't capture yaw's true dynamics timescale. This was named as a candidate lever back in finding #25 but not yet tested.
+
+**Decision: stop further weight-tuning on the truncated setup.** Two different objectives (unweighted, then heavily r-boosted) produced the same monotonic regression — a third attempt at reweighting is not expected to help. The real next test (full-length training runs instead of truncated) is a genuinely more expensive commitment (loses the speed-shortcut entirely) and deserves a deliberate decision to invest in, not an incremental extension of tonight's session.
+
+### 28. Ieff_roll/Ieff_pitch fixed at real, independently-sourced physical values — confirmed non-load-bearing two different ways, real Coriolis-coupling implication for r
+
+Following finding #27's r regression, investigated whether Ieff_roll/Ieff_pitch drifting to non-physical values (9.1, 10.0 kg*m^2 in the most recent fits) was a real, load-bearing part of the fit or an artifact of weak identifiability (the same class of issue as Zw_dot in finding #18).
+
+**Independent research, not assumed:** found a real, published, independently-sourced BlueROV2 "heavy" configuration rigid-body inertia model (a public Gazebo simulation repo): Ixx=0.26, Iyy=0.23, Izz=0.37 kg*m^2 — remarkably close to this project's OWN original literature-based initial guesses (0.28, 0.28, 0.32), confirming the original prior was well-grounded. The fitted values (9-10 kg*m^2) are 30-40x higher than both sources — far beyond a plausible rotational-added-mass correction.
+
+**Confirmed two independent ways that these parameters are not load-bearing:**
+1. Built `check_parameter_sensitivity.py` (item #11 from an early, never-completed diagnostic checklist) — a general per-parameter perturb-and-measure-ΔRMSE sweep. Result: Ieff_roll/Ieff_pitch ranked LOWEST of all 22 parameters (sensitivity 0.020 and 0.000 respectively) — the objective barely notices their exact value.
+2. Directly re-fit with them held fixed at the real values (0.26, 0.23) via `fixed_params`, then again via the standard (non-fixed_params) calibration path with tightened `vehicle_spec.yaml` bounds — BOTH produced essentially the same fit quality (cost still dropped ~97%, final cost 0.35-0.36 either way) as letting them float freely.
+
+**Fix applied:** `vehicle_spec.yaml`'s Ieff_roll/Ieff_pitch bounds tightened to [0.255,0.265]/[0.225,0.235] (narrow but deliberately NOT identical — confirmed directly that exactly-equal bounds cause a real x_scale=ub-lb=0 division-by-zero risk in the optimizer). Verified via the actual production calibration path (not just the fixed_params override) that the fit still converges well with these tight bounds.
+
+**Open, testable implication for r:** Coriolis's yaw equation depends directly on (Ieff_pitch - Ieff_roll) (finding #16's derivation) — non-physical drift in these two parameters could have been quietly corrupting yaw's specific coupling term even while contributing little to the AGGREGATE RMSE this sensitivity analysis measures. Not yet confirmed - the next real HoloOcean refinement segment (once run) should be checked specifically for whether r's regression pattern (finding #27) changes now that this drift is structurally prevented.
+
 ## Honest open items
 
 - **The remaining rotational weakness (finding #20) is now confirmed to be a model limitation, not a data-coverage gap** (finding #22) — the real dataset excites all six Coriolis-relevant velocity products comparably well. Candidate next steps: off-diagonal added mass, thruster/actuator nonlinearity, or cross-axis damping terms — none currently in the model

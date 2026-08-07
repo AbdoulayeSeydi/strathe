@@ -1,0 +1,7 @@
+2026-08-06 14:54:08,292 INFO     Discovering CSV files under ../data/raw/Bluerov2_trajectory_dataset
+2026-08-06 14:54:08,295 WARNING  Duplicate filename skipped: ..\data\raw\Bluerov2_trajectory_dataset\odom-12-01-2024-run1.csv (kept ..\data\raw\Bluerov2_trajectory_dataset\dataset\odom-12-01-2024-run1.csv)
+2026-08-06 14:54:08,295 INFO     Found 39 CSV file(s) (1 duplicate(s) skipped)
+2026-08-06 14:54:08,296 INFO     Split: 3 train date(s) ['12-01-2024', '14-02-2024', '16-02-2024'], 1 heldout date(s) ['19-02-2024']
+2026-08-06 14:54:08,326 INFO     Loading runs (4 worker thread(s))...
+2026-08-06 14:54:09,069 INFO     Loaded 33 train run(s), 6 heldout run(s), 183555 total samples (0.74s)
+2026-08-06 14:54:09,070 INFO     Running calibration: 1 restart(s), loss=soft_l1, seed=42

@@ -528,7 +528,76 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--checkpoint-path", default=None,
+                         help="Where to save the live checkpoint (overwritten after every "
+                              "single evaluation, not just improving ones). Defaults to "
+                              "<output-dir>/checkpoint.yaml. Added after a real, confirmed "
+                              "latency spike (one evaluation took ~17 minutes vs. the normal "
+                              "~9.5s) during a long real run with no prior protection.")
+    parser.add_argument("--resume-from-checkpoint", default=None,
+                         help="Path to a checkpoint.yaml from a previously-interrupted run — "
+                              "resumes from its best-parameters-so-far instead of "
+                              "vehicle_spec.yaml's naive initial guess.")
     return parser
+
+
+def make_checkpoint_callback(checkpoint_path):
+    """
+    Same proven pattern as run_calibration_holoocean.py's checkpoint —
+    saves the BEST (lowest-cost) parameter vector seen so far after EVERY
+    evaluation (overwriting one file, not accumulating), so an
+    interruption only ever loses the most recent single evaluation's
+    progress, not the whole run. Built after run_calibration.py's first
+    real 12+ hour attempt showed a genuine, unexplained latency spike
+    (one evaluation ~17 minutes vs. the normal ~9.5s) with zero protection
+    against losing everything to an interruption.
+    """
+    best = {"cost": float("inf"), "param_vec": None}
+
+    def callback(call_count, param_vec, cost):
+        if cost < best["cost"]:
+            best["cost"] = cost
+            best["param_vec"] = param_vec.copy()
+
+        current_params = CalibrationParameters.from_vector(param_vec)
+        best_params = (CalibrationParameters.from_vector(best["param_vec"])
+                        if best["param_vec"] is not None else current_params)
+
+        checkpoint = {
+            "call_count": call_count,
+            "current_cost": cost,
+            "current_parameters": {n: float(getattr(current_params, n))
+                                    for n in current_params.param_names},
+            "best_cost_so_far": best["cost"],
+            "best_parameters_so_far": {n: float(getattr(best_params, n))
+                                        for n in best_params.param_names},
+        }
+        with open(checkpoint_path, "w", encoding="utf-8") as f:
+            yaml.dump(checkpoint, f, sort_keys=False)
+
+        # Timing log for the still-unexplained performance mystery
+        # (PROJECT_STATUS.md) - appends ONE line per real evaluation with
+        # a real timestamp, so a future long stand-in run gives a genuine
+        # post-hoc distribution of per-call timing instead of another
+        # guess. Separate from checkpoint.yaml so it never risks
+        # corrupting the resumable state.
+        timing_log_path = str(Path(checkpoint_path).with_name("timing_log.csv"))
+        is_new = not Path(timing_log_path).exists()
+        with open(timing_log_path, "a", encoding="utf-8") as f:
+            if is_new:
+                f.write("call_count,unix_timestamp,cost\n")
+            f.write(f"{call_count},{__import__('time').time()},{cost}\n")
+
+    return callback
+
+
+def load_checkpoint_warm_start(checkpoint_path: str) -> np.ndarray:
+    with open(checkpoint_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    params = CalibrationParameters(**data["best_parameters_so_far"])
+    print(f"Resuming from checkpoint: call_count={data['call_count']}, "
+          f"best_cost_so_far={data['best_cost_so_far']:.6f}")
+    return params.to_vector()
 
 
 def main() -> None:
@@ -536,6 +605,15 @@ def main() -> None:
 
     level = logging.WARNING if args.quiet else (logging.DEBUG if args.verbose else logging.INFO)
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)-8s %(message)s")
+
+    checkpoint_path = args.checkpoint_path or str(Path(args.output_dir) / "checkpoint.yaml")
+    Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
+    print(f"Checkpointing every evaluation to: {checkpoint_path}")
+
+    x0_override = None
+    if args.resume_from_checkpoint:
+        print(f"Resuming from checkpoint {args.resume_from_checkpoint}...")
+        x0_override = load_checkpoint_warm_start(args.resume_from_checkpoint)
 
     calibration_config = CalibrationConfig(
         loss=args.loss, n_restarts=args.n_restarts, seed=args.seed, max_nfev=args.max_nfev,
@@ -546,6 +624,8 @@ def main() -> None:
         # only affected Python logging.basicConfig, never scipy's own
         # verbose=, so runs gave zero visibility into whether they were
         # progressing or stuck. This is what actually answers that question.
+        x0_override=x0_override,
+        on_iteration=make_checkpoint_callback(checkpoint_path),
     )
     pipeline_config = PipelineConfig(
         data_dir=args.data_dir,

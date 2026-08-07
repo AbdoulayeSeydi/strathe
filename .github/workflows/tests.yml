@@ -1,0 +1,28 @@
+name: Regression Tests
+
+# NOTE: this CI setup only runs tests that don't need HoloOcean itself
+# (which has no PyPI distribution and can't be installed here - see
+# README.md's Setup section). test_dynamics_regressions.py is pure math,
+# no simulator needed, so this works correctly for it. Any future test
+# requiring a real HoloOcean environment would need a different setup
+# (e.g. a self-hosted runner with HoloOcean pre-installed), not this one.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Run regression suite
+        working-directory: calibration
+        run: pytest tests/ -v
