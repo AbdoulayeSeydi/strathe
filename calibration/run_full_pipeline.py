@@ -79,10 +79,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                               "default so real data-quality problems are caught before "
                               "committing time to a calibration that can't succeed. Skip "
                               "only if you've already verified this exact dataset recently.")
+    parser.add_argument("--task", default="waypoint",
+                         choices=["waypoint", "station_keeping", "docking"],
+                         help="Which Arena task the delivered Gym environment is built for "
+                              "(item #12). 'waypoint' (default) - reach a target point once. "
+                              "'station_keeping' - stay near the target for sustained steps, "
+                              "not just touch it. 'docking' - reach the target aligned "
+                              "(orientation) and slow (low speed) simultaneously.")
     return parser
 
 
-def smoke_test_gym_environment(calibrated_params_path: str, spec_path: str) -> dict:
+def smoke_test_gym_environment(calibrated_params_path: str, spec_path: str, task: str = "waypoint") -> dict:
     """
     Confirms the calibrated parameters actually produce a working,
     importable, steppable Gymnasium environment — not just that a YAML
@@ -105,7 +112,7 @@ def smoke_test_gym_environment(calibrated_params_path: str, spec_path: str) -> d
         # Best-effort construction - Arena's exact constructor signature
         # should be verified against arena.py directly if this fails;
         # this smoke test is deliberately defensive rather than assuming.
-        env = Arena(params=params, vehicle=vehicle)
+        env = Arena(params=params, vehicle=vehicle, task=task)
         obs, info = env.reset()
         obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
 
@@ -246,7 +253,7 @@ def main() -> None:
     print()
     print("STEP 2/2: Verifying the calibrated Gym environment actually works...")
     calibrated_params_path = str(Path(args.output_dir) / "calibrated_parameters.yaml")
-    gym_check = smoke_test_gym_environment(calibrated_params_path, args.spec)
+    gym_check = smoke_test_gym_environment(calibrated_params_path, args.spec, task=args.task)
     if gym_check["success"]:
         print(f"  PASS — {gym_check['detail']}")
     else:
@@ -277,6 +284,14 @@ def main() -> None:
     print()
     print("=" * 70)
     print(f"DONE in {total_elapsed:.1f}s. Summary written to {summary_path}")
+    print()
+    print("Optional next step (item #17, NOT run automatically - real cost ~15-17 min on")
+    print("the full dataset, would slow down this demo): a deeper, automated parameter")
+    print("identifiability report (condition number, correlated pairs, multi-parameter")
+    print("flat directions) is available via:")
+    print(f"  python automated_identifiability_report.py --data-dir {args.data_dir} \\")
+    print(f"    --spec {args.spec} --sampling-rate-hz {args.sampling_rate_hz} \\")
+    print(f"    --calibrated-params {calibrated_params_path}")
     print("=" * 70)
     sys.exit(0 if (report.success and gym_check["success"]) else 1)
 

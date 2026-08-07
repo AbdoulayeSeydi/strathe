@@ -191,14 +191,18 @@ def identifiability_analysis(param_vec: np.ndarray, runs: list, vehicle) -> dict
     n_flat_to_report = min(3, len(S))
     print(f"\nSmallest {n_flat_to_report} singular value(s) and their parameter-combination "
           f"directions (multi-parameter flat-direction check, not just pairwise):")
+    near_null_directions = []
     for i in range(1, n_flat_to_report + 1):
         sv = S[-i]
         direction = Vt[-i]
         order = np.argsort(-np.abs(direction))
         print(f"  Singular value {sv:.4e} (rank {len(S) - i + 1}/{len(S)}) — "
               f"parameters with the largest role in this barely-constrained combination:")
+        top_params = []
         for j in order[:5]:
             print(f"      {param_names[j]:<18}{direction[j]:+.3f}")
+            top_params.append({"parameter": param_names[j], "loading": float(direction[j])})
+        near_null_directions.append({"singular_value": float(sv), "top_loadings": top_params})
 
     JtJ = J.T @ J
     try:
@@ -211,7 +215,10 @@ def identifiability_analysis(param_vec: np.ndarray, runs: list, vehicle) -> dict
     except np.linalg.LinAlgError:
         corr = None
 
-    return {"jacobian": J, "condition_number": condition_number, "correlation": corr}
+    return {
+        "jacobian": J, "condition_number": condition_number, "correlation": corr,
+        "near_null_directions": near_null_directions,
+    }
 
 
 def report_correlated_pairs(corr: np.ndarray, param_names: tuple, threshold: float = 0.8) -> list:

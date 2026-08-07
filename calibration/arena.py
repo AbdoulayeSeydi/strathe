@@ -51,7 +51,27 @@ class Arena(gym.Env):
         fixed_waypoint: Optional[np.ndarray] = None,
         waypoint_range: float = 3.0,
         action_bound: float = DEFAULT_ACTION_BOUND,
+        task: str = "waypoint",
+        hold_steps: int = 20,
+        docking_orientation_tol_rad: float = 0.2,
+        docking_max_speed: float = 0.3,
     ):
+        """
+        task: "waypoint" (default, ORIGINAL behavior, unchanged) - touch
+            the target once, episode ends. "station_keeping" - must STAY
+            within waypoint_radius for hold_steps CONSECUTIVE steps before
+            counting as success (a vehicle drifting through and continuing
+            past should NOT succeed - the whole point of this task).
+            "docking" - requires position, orientation alignment
+            (roll/pitch within docking_orientation_tol_rad), AND low speed
+            (below docking_max_speed) simultaneously, matching what a real
+            dock actually requires - not just touching the target point at
+            any angle/speed.
+        """
+        if task not in ("waypoint", "station_keeping", "docking"):
+            raise ValueError(
+                f"Unknown task {task!r} - expected 'waypoint', 'station_keeping', or 'docking'"
+            )
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
         self._core = ArenaCore(params, vehicle, sim_config)
@@ -59,6 +79,11 @@ class Arena(gym.Env):
         self.waypoint_radius = waypoint_radius
         self._fixed_waypoint = None if fixed_waypoint is None else np.array(fixed_waypoint, dtype=float)
         self.waypoint_range = waypoint_range
+        self._task = task
+        self._hold_steps = hold_steps
+        self._docking_orientation_tol_rad = docking_orientation_tol_rad
+        self._docking_max_speed = docking_max_speed
+        self._consecutive_steps_in_radius = 0  # used only by station_keeping
 
         # Action space NORMALIZED to [-1,1] — NOT the raw force range. SB3's
         # default PPO policy initializes its action distribution centered
@@ -87,6 +112,7 @@ class Arena(gym.Env):
         super().reset(seed=seed)
         self._core.reset()
         self._step_count = 0
+        self._consecutive_steps_in_radius = 0
         if self._fixed_waypoint is not None:
             self._waypoint = self._fixed_waypoint.copy()
         else:
@@ -102,12 +128,44 @@ class Arena(gym.Env):
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
         reward = -distance
-        terminated = distance < self.waypoint_radius
-        truncated = self._step_count >= self.max_episode_steps
-        if terminated:
-            reward += 10.0
-
         info = {"distance": distance, "position": self._core.state.position.copy()}
+        truncated = self._step_count >= self.max_episode_steps
+
+        if self._task == "waypoint":
+            terminated = distance < self.waypoint_radius
+            if terminated:
+                reward += 10.0
+
+        elif self._task == "station_keeping":
+            if distance < self.waypoint_radius:
+                self._consecutive_steps_in_radius += 1
+                # Extra shaping while close: penalize speed too, so the
+                # policy learns to actually STOP near the target rather
+                # than orbit through the radius repeatedly.
+                speed = float(np.linalg.norm(self._core.state.nu[:3]))
+                reward -= 0.1 * speed
+            else:
+                self._consecutive_steps_in_radius = 0
+            terminated = self._consecutive_steps_in_radius >= self._hold_steps
+            if terminated:
+                reward += 10.0
+            info["consecutive_steps_in_radius"] = self._consecutive_steps_in_radius
+
+        elif self._task == "docking":
+            roll, pitch, _yaw = self._core.state.orientation.as_euler("xyz")
+            orientation_error = float(np.sqrt(roll ** 2 + pitch ** 2))
+            speed = float(np.linalg.norm(self._core.state.nu[:3]))
+            reward -= 0.5 * orientation_error  # shape toward alignment throughout, not just at the end
+            terminated = (
+                distance < self.waypoint_radius
+                and orientation_error < self._docking_orientation_tol_rad
+                and speed < self._docking_max_speed
+            )
+            if terminated:
+                reward += 10.0
+            info["orientation_error"] = orientation_error
+            info["speed"] = speed
+
         return self._get_obs(), reward, terminated, truncated, info
 
     def _get_obs(self):

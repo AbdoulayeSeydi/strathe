@@ -1,0 +1,99 @@
+{
+  "condition_number": 11925.410741943519,
+  "correlated_pairs": [
+    {
+      "param_a": "Xu_dot",
+      "param_b": "Yv_dot",
+      "correlation": 0.8776385268372534
+    },
+    {
+      "param_a": "Yv",
+      "param_b": "Yvv",
+      "correlation": -0.8444594068908173
+    },
+    {
+      "param_a": "Xu",
+      "param_b": "Xuu",
+      "correlation": -0.8211362561667119
+    }
+  ],
+  "near_null_directions": [
+    {
+      "singular_value": 0.00030929183457704165,
+      "top_loadings": [
+        {
+          "parameter": "Yvv",
+          "loading": 0.9590613698505156
+        },
+        {
+          "parameter": "Yv",
+          "loading": -0.2825661151886866
+        },
+        {
+          "parameter": "Xuu",
+          "loading": 0.013637058979604757
+        },
+        {
+          "parameter": "Xu",
+          "loading": -0.008651104166843601
+        },
+        {
+          "parameter": "Zw",
+          "loading": -0.005862726820971001
+        }
+      ]
+    },
+    {
+      "singular_value": 0.0005268434727756783,
+      "top_loadings": [
+        {
+          "parameter": "Zww",
+          "loading": 0.9397779304788336
+        },
+        {
+          "parameter": "Zw",
+          "loading": -0.34073126579336616
+        },
+        {
+          "parameter": "net_buoyancy_z",
+          "loading": 0.023669163458691377
+        },
+        {
+          "parameter": "Yvv",
+          "loading": -0.006214357560415269
+        },
+        {
+          "parameter": "Xu",
+          "loading": 0.00508311344833418
+        }
+      ]
+    },
+    {
+      "singular_value": 0.001680220055836011,
+      "top_loadings": [
+        {
+          "parameter": "Kpp",
+          "loading": 0.8828686412158667
+        },
+        {
+          "parameter": "Yv",
+          "loading": -0.36678820811369467
+        },
+        {
+          "parameter": "Kp",
+          "loading": -0.21029781563247218
+        },
+        {
+          "parameter": "Xuu",
+          "loading": -0.14343390187837407
+        },
+        {
+          "parameter": "Yvv",
+          "loading": -0.10583559508323578
+        }
+      ]
+    }
+  ],
+  "n_train_runs_used": 3,
+  "correlation_threshold": 0.8
+}
