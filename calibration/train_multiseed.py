@@ -62,9 +62,9 @@ def derive_real_waypoint(data_dir: str, heldout_dates: list) -> np.ndarray:
 
 def train_one_seed(params: CalibrationParameters, vehicle: VehicleConstants,
                     waypoint: np.ndarray, seed: int, timesteps: int,
-                    n_eval_episodes: int) -> dict:
+                    n_eval_episodes: int, task: str = "waypoint") -> dict:
     def make_env():
-        return Arena(params, vehicle, fixed_waypoint=waypoint, max_episode_steps=100)
+        return Arena(params, vehicle, fixed_waypoint=waypoint, max_episode_steps=100, task=task)
 
     train_env = Monitor(make_env())
     model = PPO("MlpPolicy", train_env, verbose=0, seed=seed)
@@ -93,6 +93,13 @@ def main():
     parser.add_argument("--timesteps", type=int, default=150000)
     parser.add_argument("--n-eval-episodes", type=int, default=20)
     parser.add_argument("--output-dir", default="train_multiseed")
+    parser.add_argument("--task", default="waypoint",
+                         choices=["waypoint", "station_keeping", "docking"],
+                         help="Which Arena task to train/evaluate on (item #12). Defaults "
+                              "to 'waypoint', matching all of this session's existing "
+                              "real Claim B results - changing this changes what the "
+                              "reported reward numbers actually mean, so be deliberate "
+                              "about it, not incidental.")
     args = parser.parse_args()
 
     check_result_type(args.result_type, metrics_path=args.metrics_path)
@@ -111,7 +118,8 @@ def main():
         print(f"\n{'='*70}\nTraining {args.n_seeds} seeds — {variant} physics\n{'='*70}")
         for seed in range(args.n_seeds):
             print(f"  Seed {seed}...")
-            r = train_one_seed(params, vehicle, waypoint, seed, args.timesteps, args.n_eval_episodes)
+            r = train_one_seed(params, vehicle, waypoint, seed, args.timesteps,
+                               args.n_eval_episodes, task=args.task)
             print(f"    reward={r['mean_reward']:.2f}, "
                   f"distance={r['mean_final_distance']:.2f}, success={r['success_rate']:.2f}")
             results[variant].append(r)

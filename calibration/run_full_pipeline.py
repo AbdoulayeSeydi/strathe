@@ -86,6 +86,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                               "'station_keeping' - stay near the target for sustained steps, "
                               "not just touch it. 'docking' - reach the target aligned "
                               "(orientation) and slow (low speed) simultaneously.")
+    parser.add_argument("--heldout-dates", nargs="*",
+                         default=["16-02-2024", "19-02-2024"],
+                         help="Which collection dates to hold out for validation. Defaults "
+                              "to Phase 1's EXACT established split (PROJECT_STATUS.md) - "
+                              "the same dates every other script in this project uses - so "
+                              "this demo's numbers are genuinely comparable, not just "
+                              "'a demo that happens to run.' Override if pointing this at a "
+                              "genuinely different dataset.")
     return parser
 
 
@@ -168,7 +176,7 @@ def main() -> None:
     import yaml as _yaml
 
     csv_paths, dup = discover_csv_files(args.data_dir)
-    split = split_by_date(csv_paths, heldout_fraction=0.3)
+    split = split_by_date(csv_paths, heldout_dates=args.heldout_dates)
     dataset_config = DatasetConfig(sampling_rate_hz=args.sampling_rate_hz)
     train_runs = [load_run(fp, dataset_config) for fp in split.train_files[:args.max_train_runs]]
     heldout_runs = [load_run(fp, dataset_config) for fp in split.heldout_files]
