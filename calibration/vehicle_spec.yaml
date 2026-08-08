@@ -149,7 +149,8 @@ calibration_targets:
     Yvv: {unit: "N/(m/s)^2", initial_guess: -21.7, bounds: [-100, -2.0],
           bounds_rationale: "~5x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
     Zww: {unit: "N/(m/s)^2", initial_guess: -50.0, bounds: [-150, -3.0],
-          bounds_rationale: "~3x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+          bounds_rationale: "~3x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping comment. UPDATE: post-Coriolis real fit shows Zw/Zww correlation at -0.826 (was -0.88 pre-Coriolis) vs. the fixed kinematic baseline of 0.918 (see identifiability_note below) - the gap from baseline WIDENED (0.038 -> 0.092) after adding Coriolis, the opposite of what would be expected if Coriolis were resolving a missing-physics-driven inflation the way it was hoped to for Mq/Mqq. This pair's correlation looks like a genuine data-coverage issue, not a missing-physics symptom.",
+          source: "literature", confidence: literature}
     Kpp: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, -0.2],
           bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
     Mqq: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, -0.2],
@@ -178,7 +179,8 @@ calibration_targets:
     Yv_dot: {unit: kg, initial_guess: 12.7, bounds: [0, 40],
              bounds_rationale: "~3x nominal literature estimate", source: "literature", confidence: literature}
     Zw_dot: {unit: kg, initial_guess: 14.6, bounds: [0, 40],
-             bounds_rationale: "~3x nominal literature estimate", source: "literature", confidence: literature}
+             bounds_rationale: "~3x nominal literature estimate. UPDATE (PROJECT_STATUS.md finding #18): pinning at the lower bound in real fits is CONFIRMED a genuine practical (data-coverage) identifiability gap, not a modeling bug - two independent methods (Jacobian-based sensitivity analysis, and an SVD-based multi-parameter near-null-space check) both concluded this dataset's real maneuvers do not sufficiently excite heave acceleration to constrain this parameter. Bounds/initial_guess deliberately left unchanged - there is no fit-quality or physical basis to move them, unlike Ieff_roll/Ieff_pitch's later, different situation.",
+             source: "literature", confidence: literature}
 
   added_mass_coupling:
     # Bounds are NOT arbitrary — mathematically derived to GUARANTEE the
@@ -252,6 +254,13 @@ validation:
     baseline (0.764) once real Coriolis/cross-coupling terms are present.
     Zw/Zww and Kp/Kpp show milder versions of the same disagreement (2-rank
     shifts each) — worth watching too, not just Mq/Mqq.
+    UPDATE, post-Coriolis (real diagnostic run, PROJECT_STATUS.md): Zw/Zww's
+    fitted correlation is now -0.826 (was -0.88), vs. its fixed kinematic
+    baseline of 0.918. The gap from baseline WIDENED (0.038 -> 0.092), the
+    OPPOSITE of what Coriolis resolving a missing-physics inflation would
+    predict — Zw/Zww looks like genuine data-coverage, not a missing-physics
+    symptom, unlike the open Mq/Mqq question above. Not yet re-checked for
+    Mq/Mqq itself with this same before/after comparison.
     Regardless of mechanism: NOT exact ±1.000 correlations like Izz/Nr_dot
     was — genuinely difficult to separate, not proven structurally
     impossible. Treat each pair's INDIVIDUAL values with real skepticism;
