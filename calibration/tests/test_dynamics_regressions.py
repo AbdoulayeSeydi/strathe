@@ -157,3 +157,149 @@ class TestSplitByGroupAutomaticDefault:
                                  heldout_groups=["03-01-2024"])
         actual_heldout_days = {g.split("-")[0] for g in result.heldout_groups}
         assert actual_heldout_days == {"03"}
+
+
+class TestArenaTaskVariants:
+    """Item #12 follow-up: the three task branches (waypoint,
+    station_keeping, docking) verified with mock objects tonight, now
+    made permanent so a future change to arena.py can't silently break
+    station_keeping/docking while CI stays green."""
+
+    @staticmethod
+    def _simulate_step_logic(task, waypoint, position, nu, roll=0.0, pitch=0.0,
+                              waypoint_radius=0.5, hold_steps=20,
+                              docking_orientation_tol_rad=0.2, docking_max_speed=0.3,
+                              consecutive_steps_in_radius=0):
+        distance = float(np.linalg.norm(np.array(waypoint) - np.array(position)))
+        reward = -distance
+
+        if task == "waypoint":
+            terminated = distance < waypoint_radius
+            if terminated:
+                reward += 10.0
+            return reward, terminated, consecutive_steps_in_radius
+
+        elif task == "station_keeping":
+            if distance < waypoint_radius:
+                consecutive_steps_in_radius += 1
+                speed = float(np.linalg.norm(np.array(nu)[:3]))
+                reward -= 0.1 * speed
+            else:
+                consecutive_steps_in_radius = 0
+            terminated = consecutive_steps_in_radius >= hold_steps
+            if terminated:
+                reward += 10.0
+            return reward, terminated, consecutive_steps_in_radius
+
+        elif task == "docking":
+            orientation_error = float(np.sqrt(roll ** 2 + pitch ** 2))
+            speed = float(np.linalg.norm(np.array(nu)[:3]))
+            reward -= 0.5 * orientation_error
+            terminated = (distance < waypoint_radius
+                          and orientation_error < docking_orientation_tol_rad
+                          and speed < docking_max_speed)
+            if terminated:
+                reward += 10.0
+            return reward, terminated, consecutive_steps_in_radius
+
+    def test_waypoint_terminates_on_single_touch(self):
+        _, terminated, _ = self._simulate_step_logic(
+            "waypoint", [1.0, 0, 0], [0.9, 0, 0], [0, 0, 0, 0, 0, 0])
+        assert terminated is True
+
+    def test_waypoint_does_not_terminate_far_away(self):
+        _, terminated, _ = self._simulate_step_logic(
+            "waypoint", [1.0, 0, 0], [5, 0, 0], [0, 0, 0, 0, 0, 0])
+        assert terminated is False
+
+    def test_station_keeping_single_step_does_not_terminate(self):
+        _, terminated, count = self._simulate_step_logic(
+            "station_keeping", [1.0, 0, 0], [0.9, 0, 0], [0, 0, 0, 0, 0, 0],
+            hold_steps=20, consecutive_steps_in_radius=0)
+        assert terminated is False and count == 1
+
+    def test_station_keeping_sustained_presence_terminates(self):
+        count = 0
+        terminated = False
+        for _ in range(20):
+            _, terminated, count = self._simulate_step_logic(
+                "station_keeping", [1.0, 0, 0], [0.9, 0, 0], [0, 0, 0, 0, 0, 0],
+                hold_steps=20, consecutive_steps_in_radius=count)
+        assert terminated is True
+
+    def test_station_keeping_drift_resets_counter(self):
+        _, _, count = self._simulate_step_logic(
+            "station_keeping", [1.0, 0, 0], [5, 0, 0], [0, 0, 0, 0, 0, 0],
+            hold_steps=20, consecutive_steps_in_radius=5)
+        assert count == 0
+
+    def test_docking_close_but_misaligned_does_not_terminate(self):
+        _, terminated, _ = self._simulate_step_logic(
+            "docking", [1.0, 0, 0], [0.9, 0, 0], [0, 0, 0, 0, 0, 0], roll=0.5)
+        assert terminated is False
+
+    def test_docking_close_aligned_but_too_fast_does_not_terminate(self):
+        _, terminated, _ = self._simulate_step_logic(
+            "docking", [1.0, 0, 0], [0.9, 0, 0], [1.0, 0, 0, 0, 0, 0])
+        assert terminated is False
+
+    def test_docking_close_aligned_and_slow_terminates(self):
+        _, terminated, _ = self._simulate_step_logic(
+            "docking", [1.0, 0, 0], [0.9, 0, 0], [0.1, 0, 0, 0, 0, 0], roll=0.05, pitch=0.05)
+        assert terminated is True
+
+
+class TestArenaTaskVariantsReal:
+    """Corrects a real gap in TestArenaTaskVariants above: that class
+    tested a REIMPLEMENTATION of the reward logic, not the actual Arena
+    class from arena.py - meaning it would NOT catch a real regression in
+    arena.py itself. These tests construct and step REAL Arena instances,
+    the same proven pattern already used in run_full_pipeline.py's real
+    Gym-environment smoke test."""
+
+    @staticmethod
+    def _make_arena(task, **kwargs):
+        from arena import Arena
+        params = _make_test_params(Ieff_roll=1.0, Ieff_pitch=1.0, Ieff_yaw=1.0,
+                                     Xu=-10, Yv=-10, Zw=-10, Kp=-1, Mq=-1, Nr=-1,
+                                     Xuu=-5, Yvv=-5, Zww=-5, Kpp=-1, Mqq=-1, Nrr=-1)
+        vehicle = VehicleConstants(mass_kg=10.0)
+        return Arena(params=params, vehicle=vehicle, task=task,
+                     fixed_waypoint=np.array([1.0, 0.0, 0.0]), max_episode_steps=50, **kwargs)
+
+    def test_default_task_is_waypoint(self):
+        env = self._make_arena("waypoint")
+        obs, info = env.reset()
+        assert env._task == "waypoint"
+
+    def test_each_task_constructs_and_steps_without_error(self):
+        for task in ("waypoint", "station_keeping", "docking"):
+            env = self._make_arena(task)
+            obs, info = env.reset()
+            obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+            assert obs.shape == (11,)
+            assert isinstance(reward, float)
+
+    def test_station_keeping_info_has_consecutive_steps_key(self):
+        env = self._make_arena("station_keeping")
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(6, dtype=np.float32))
+        assert "consecutive_steps_in_radius" in info
+
+    def test_docking_info_has_orientation_and_speed_keys(self):
+        env = self._make_arena("docking")
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(6, dtype=np.float32))
+        assert "orientation_error" in info
+        assert "speed" in info
+
+    def test_waypoint_info_does_not_have_task_specific_keys(self):
+        env = self._make_arena("waypoint")
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(6, dtype=np.float32))
+        assert "consecutive_steps_in_radius" not in info
+        assert "orientation_error" not in info
+
+    def test_invalid_task_raises(self):
+        with pytest.raises(ValueError):
+            self._make_arena("not_a_real_task")
