@@ -156,7 +156,8 @@ calibration_targets:
     Mqq: {unit: "N*m/(rad/s)^2", initial_guess: -0.5, bounds: [-10, -0.2],
           bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
     Nrr: {unit: "N*m/(rad/s)^2", initial_guess: -2.0, bounds: [-30, -0.4],
-          bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment", source: "literature", confidence: literature}
+          bounds_rationale: "wide net — low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment. UPDATE: post-Coriolis real fit shows Nr/Nrr correlation at -0.861 vs. the fixed kinematic baseline of 0.864 (see identifiability_note below) - gap 0.003, the TIGHTEST match of any damping pair (was 0.006 pre-Coriolis, already small). Not bound-pinned in the current real result either. Clean, confirmed data-coverage case - no missing-physics symptom here.",
+          source: "literature", confidence: literature}
 
   added_mass_diag:
     # Off-diagonal added-mass coupling — surge-pitch (Xq_dot) and heave-
@@ -200,9 +201,9 @@ calibration_targets:
 
   buoyancy:
     # x=y=0 assumed for CG/CB offset (see assumptions) — only z calibrated.
-    net_buoyancy_z: {unit: N, initial_guess: 0.0, bounds: [-10, 10],
-                      bounds_rationale: "±10N is roughly ±1kg of trim error — generous for a hand-trimmed vehicle",
-                      source: "assumed near-neutral trim", confidence: assumed}
+    net_buoyancy_z: {unit: N, initial_guess: 0.0, bounds: [-1.0, 1.0],
+                      bounds_rationale: "TIGHTENED from [-10,10] - CONFIRMED (PROJECT_STATUS.md): real sensitivity sweep showed near-ZERO RMSE sensitivity to this parameter (tied for lowest of all 22 parameters), AND a real re-fit with it fixed at 0.0 (this file's own original neutral-trim prior) lost none of the fit quality (cost still dropped ~97% with the other 21 parameters doing the work). The old wide bound let it drift to the extreme +10N edge (~1kg of trim) with no fit-quality justification - the same non-load-bearing-drift pattern already confirmed and fixed for Ieff_roll/Ieff_pitch. New bounds still allow +-1N (~0.1kg) of real trim variation, comfortably wider than a well-trimmed vehicle should need.",
+                      source: "assumed near-neutral trim, confirmed non-load-bearing", confidence: assumed}
     cg_cb_offset_z: {unit: m, initial_guess: 0.02, bounds: [-0.1, 0.1],
                       bounds_rationale: "±10cm exceeds any plausible BlueROV2 hull offset — deliberately generous",
                       source: "assumed small positive (CG below CB, passively stable)", confidence: assumed}
