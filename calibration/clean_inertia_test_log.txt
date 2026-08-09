@@ -1,0 +1,27 @@
+Duplicate filename skipped: ..\data\raw\Bluerov2_trajectory_dataset\odom-12-01-2024-run1.csv (kept ..\data\raw\Bluerov2_trajectory_dataset\dataset\odom-12-01-2024-run1.csv)
+Loading and truncating 25 training runs to 150 steps each...
+Loaded. Total steps across all training runs: 3750
+
+Resuming from checkpoint ../calibration_output_holoocean_coriolis/checkpoint_bounds_fixed.yaml...
+Resuming from checkpoint: call_count=345, best_cost_so_far=670.140746
+Checkpointing every evaluation to: ..\calibration_output_holoocean_clean_inertia_test\checkpoint.yaml
+
+Creating HoloOcean environment (real Unreal Engine startup)...
+DVLSensor rate 20 is not a factor of ticks_per_sec 30, rounding to 30
+Environment created — all sensor noise zeroed for calibration (see make_deterministic_environment's docstring for why).
+
+Evaluating BASELINE (warm-start parameters, before any HoloOcean-backed fitting)...
+Baseline RMSE (HoloOcean, warm-start params): 0.3081  (took 124.2s for this one evaluation)
+
+NAIVE estimate (15 evaluations x this baseline time): ~31.0 min
+CAUTION: a prior real run measured standalone per-eval cost at ~124s, but the ACTUAL cost during a live optimizer run came in far higher (~900s/eval observed) — an unexplained gap (see PROJECT_STATUS.md's runtime-mystery note). Treat the naive estimate above as an optimistic floor, not a real prediction. Checkpointing is on, so an interrupted run can be resumed rather than needing to guess right upfront.
+
+DOF weighting DISABLED (--no-dof-weighting) - standard unweighted objective, isolating other changes from the separately-tested weighting approach (PROJECT_STATUS.md finding #27).
+Traceback (most recent call last):
+  File "C:\Users\aseyd\marine_sim_mvp\calibration\run_calibration_holoocean.py", line 370, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\aseyd\marine_sim_mvp\calibration\run_calibration_holoocean.py", line 275, in main
+    dof_scales[_dof_labels.index("p")] *= 0.3   # p: strongly boosted - confirmed under-weighted
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'NoneType' object is not subscriptable

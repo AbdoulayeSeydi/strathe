@@ -272,10 +272,11 @@ def main():
               "isolating other changes from the separately-tested weighting approach "
               "(PROJECT_STATUS.md finding #27)."
         )
-    dof_scales[_dof_labels.index("p")] *= 0.3   # p: strongly boosted - confirmed under-weighted
-    dof_scales[_dof_labels.index("r")] *= 0.15  # r: boosted BEYOND its already-large natural scale
-    print(f"Custom DOF weighting active - p and r boosted beyond natural scale "
-          f"(see PROJECT_STATUS.md for the research behind this): {dict(zip(_dof_labels, dof_scales))}")
+    else:
+        dof_scales[_dof_labels.index("p")] *= 0.3   # p: strongly boosted - confirmed under-weighted
+        dof_scales[_dof_labels.index("r")] *= 0.15  # r: boosted BEYOND its already-large natural scale
+        print(f"Custom DOF weighting active - p and r boosted beyond natural scale "
+              f"(see PROJECT_STATUS.md for the research behind this): {dict(zip(_dof_labels, dof_scales))}")
 
     config = CalibrationConfig(
         n_restarts=1,
