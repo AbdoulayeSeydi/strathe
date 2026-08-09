@@ -1,0 +1,27 @@
+call_count: 499
+current_cost: 4.99
+current_parameters: &id001
+  param_0: 0.0
+  param_1: 1.2345
+  param_2: 2.469
+  param_3: 3.7035
+  param_4: 4.938
+  param_5: 6.172499999999999
+  param_6: 7.407
+  param_7: 8.641499999999999
+  param_8: 9.876
+  param_9: 11.1105
+  param_10: 12.344999999999999
+  param_11: 13.5795
+  param_12: 14.814
+  param_13: 16.0485
+  param_14: 17.282999999999998
+  param_15: 18.5175
+  param_16: 19.752
+  param_17: 20.9865
+  param_18: 22.221
+  param_19: 23.455499999999997
+  param_20: 24.689999999999998
+  param_21: 25.9245
+best_cost_so_far: 4.99
+best_parameters_so_far: *id001

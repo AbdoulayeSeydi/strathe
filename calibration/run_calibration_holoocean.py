@@ -158,6 +158,9 @@ def main():
     parser.add_argument("--n-steps-per-run", type=int, default=150)
     parser.add_argument("--max-nfev", type=int, default=25)
     parser.add_argument("--output-dir", default="../calibration_output_holoocean_poc")
+    parser.add_argument("--no-dof-weighting", action="store_true",
+                         help="Disable the p/r DOF weighting (finding #27) for a clean, "
+                              "isolated test of other changes.")
     args = parser.parse_args()
 
     if args.resume_from_checkpoint is None and args.warm_start_yaml is None:
@@ -263,6 +266,12 @@ def main():
     from objective import compute_dof_scales as _compute_dof_scales
     _dof_labels = ["u", "v", "w", "p", "q", "r"]
     dof_scales = _compute_dof_scales(train_runs).copy()
+    if getattr(args, "no_dof_weighting", False):
+        dof_scales = None
+        print("DOF weighting DISABLED (--no-dof-weighting) - standard unweighted objective, "
+              "isolating other changes from the separately-tested weighting approach "
+              "(PROJECT_STATUS.md finding #27)."
+        )
     dof_scales[_dof_labels.index("p")] *= 0.3   # p: strongly boosted - confirmed under-weighted
     dof_scales[_dof_labels.index("r")] *= 0.15  # r: boosted BEYOND its already-large natural scale
     print(f"Custom DOF weighting active - p and r boosted beyond natural scale "
