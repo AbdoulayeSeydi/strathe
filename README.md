@@ -63,80 +63,110 @@ print(params)
 
 *(Confirmed working as-written, run from the project root.)*
 
+### 4. Try the fast demo pipeline
+
+A single, watchable command — pre-flight data-quality checks, a fast
+calibration fit, and a real Gym-environment smoke test, end to end:
+
+```bash
+cd calibration
+python run_full_pipeline.py \
+    --spec vehicle_spec.yaml \
+    --data-dir <path-to-logs> \
+    --output-dir <output-dir> \
+    --sampling-rate-hz 10.0 \
+    --max-train-runs 3 \
+    --max-nfev 5
+```
+
+Optionally pick a task for the delivered environment with `--task waypoint`
+(default), `--task station_keeping`, or `--task docking`. This is a fast,
+truncated demo for confirming the mechanism works end to end — not the
+source of the reportable numbers below. See the real workflow below for that.
+
 ## The real (non-demo) workflow
 
-`run_full_pipeline.py` (above) is a fast, truncated DEMO - good for
-showing the mechanism works end-to-end, not for producing the final,
-reportable numbers. The real pipeline, run against the full dataset and
-real HoloOcean physics, is a sequence of separate scripts, run in order:
+The pipeline above is a fast, truncated demo. The real pipeline, run
+against the full dataset and real HoloOcean physics, is a sequence of
+separate scripts, run in order:
 
 1. **Pre-flight data-quality check** (always run this first):
-```bash
+   ```bash
    cd calibration
    python preflight_check.py --data-dir <path-to-logs> --spec vehicle_spec.yaml
-```
+   ```
    Validates sampling rate and Coriolis-relevant excitation on the REAL,
    full dataset before committing real compute time to a calibration that
    might not succeed.
 
 2. **Stand-in calibration** (fast, minutes):
-```bash
+   ```bash
    python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
        --sampling-rate-hz 10.0 --heldout-dates 16-02-2024 19-02-2024 \
        --output-dir <output-dir> --max-nfev 60
-```
+   ```
 
-3. **HoloOcean refinement** (slow, hours - real, confirmed cost ~124s per
+   Add --parallel (optionally --max-workers N) to the stand-in step above to run multiple restarts across real CPU cores instead of sequentially - confirmed real speedup (roughly 4 restarts in the time 1 would normally take) on real, smaller data. Honest caveat: checkpointing is disabled in this mode (a real, deliberate tradeoff - see PROJECT_STATUS.md finding 34), and the combination of --parallel with the FULL, untruncated dataset has not yet been confirmed to finish in a reasonable time - recommend testing on a smaller subset first, or preferring the default (sequential) mode for full-dataset runs until that has been verified.
+
+3. **HoloOcean refinement** (slow, hours — real, confirmed cost ~124s per
    evaluation on this dataset; checkpointed and resumable):
-```bash
+   ```bash
    python run_calibration_holoocean.py --data-dir <path> --spec vehicle_spec.yaml \
        --sampling-rate-hz 10.0 --resume-from-checkpoint <path>/checkpoint.yaml \
        --n-steps-per-run 150 --max-nfev 15 --output-dir <output-dir>
-```
+   ```
+   If resuming from a checkpoint created before a `vehicle_spec.yaml` bounds
+   change, first run `check_and_fix_checkpoint_bounds.py` against it — an
+   out-of-date checkpoint can hold values now outside the current bounds,
+   which will crash the resume. Add `--no-dof-weighting` to disable the
+   custom per-DOF weighting described in the Results section below, for a
+   standard, unweighted objective.
 
 4. **Real validation (Claim A)** against real HoloOcean physics:
-```bash
+   ```bash
    python replay_comparison.py --data-dir <path> --spec vehicle_spec.yaml \
        --sampling-rate-hz 10.0 --calibrated-params <output-dir>/calibrated_parameters.yaml \
        --result-type final --output-dir <output-dir>
-```
+   ```
 
-5. **Real multi-seed PPO training (Claim B)** - optionally pick a task
+5. **Real multi-seed PPO training (Claim B)** — optionally pick a task
    (`waypoint` default, `station_keeping`, or `docking`):
-```bash
+   ```bash
    python train_multiseed.py --data-dir <path> --spec vehicle_spec.yaml \
        --calibrated-params <output-dir>/calibrated_parameters.yaml \
        --result-type final --n-seeds 4 --task waypoint --output-dir <output-dir>
-```
+   ```
 
-6. **Optional - deeper diagnostics**, once you have a real calibrated
+6. **Optional — deeper diagnostics**, once you have a real calibrated
    result:
    - **Per-DOF real-vs-simulated plots and force-breakdown charts** (fast
-     - a few minutes, no Jacobian evaluation):
-```bash
+     — a few minutes, no Jacobian evaluation):
+     ```bash
      python diagnose_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
          --calibrated-params <output-dir>/calibrated_parameters.yaml \
          --sampling-rate-hz 10.0 --heldout-dates 16-02-2024 19-02-2024 \
          --skip-jacobian --plot --plot-output-dir <output-dir>/plots
-```
-     Shows exactly WHERE in a trajectory the fit breaks down, per DOF -
+     ```
+     Shows exactly WHERE in a trajectory the fit breaks down, per DOF —
      not just the aggregate RMSE number.
    - **Automated parameter identifiability report** (real cost ~15-17 min
-     on the full dataset - condition number, correlated pairs,
+     on the full dataset — condition number, correlated pairs,
      multi-parameter flat directions):
-```bash
+     ```bash
      python automated_identifiability_report.py --data-dir <path> --spec vehicle_spec.yaml \
          --sampling-rate-hz 10.0 --calibrated-params <output-dir>/calibrated_parameters.yaml
-```
+     ```
 
-See `PROJECT_STATUS.md` for the full history of real runs, real bugs
-found and fixed along the way, and the honest per-DOF results.
+See `PROJECT_STATUS.md` for the full history of real runs, real bugs found
+and fixed along the way, and the honest per-DOF results.
 
 ## What's in this repo
 
 - **`calibration/`** — the full calibration pipeline: data loading, the
-  physics model, the optimizer, the HoloOcean integration, and the
-  Gym/`Arena` RL training environment.
+  physics model, the optimizer, the HoloOcean integration, the Gym/`Arena`
+  RL training environment (three tasks: `waypoint`, `station_keeping`,
+  `docking`), diagnostic and reporting tools, and a real, automated test
+  suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
   sets (`calibrated_parameters.yaml` + `metrics.json` in each).
 - **`PROJECT_STATUS.md`** — the full research log: every finding, every bug
@@ -148,8 +178,8 @@ found and fixed along the way, and the honest per-DOF results.
 ## Results
 
 **Methodology:** real BlueROV2 mission logs (public `oceansystemslab`
-dataset), held out by entire collection *date* (not a random split) —
-so validation checks generalization to entire unseen sessions, not just
+dataset), held out by entire collection *date* (not a random split) — so
+validation checks generalization to entire unseen sessions, not just
 unseen samples. Real logged thruster commands replayed open-loop through
 both default and calibrated physics, evaluated inside real HoloOcean
 simulation, compared against real logged trajectories.
@@ -158,30 +188,44 @@ simulation, compared against real logged trajectories.
 default physics, on held-out real data (varies by calibration segment —
 see `PROJECT_STATUS.md` for the full history).
 
-Per-axis breakdown (RMSE improvement over default, most recent result):
+Per-axis breakdown (current best real result):
 
 | Axis | Improvement |
 |---|---|
 | Surge (u) | +61–63% |
 | Sway (v) | +29–30% |
 | Heave (w) | +27–35% |
-| Roll rate (p) | **known limitation — currently under active investigation** |
+| Roll rate (p) | **known limitation — see below** |
 | Pitch rate (q) | +25–35% |
-| Yaw rate (r) | **known limitation — currently under active investigation** |
+| Yaw rate (r) | **known limitation — see below** |
 
 We're being upfront about roll and yaw rate — they're real, honest results,
-not polished ones. Multiple fixes have been tried (bound adjustments,
-custom objective weighting); the leading remaining hypothesis is that the
-truncated training-run length used for speed during refinement doesn't
-capture their true dynamics timescale. See `PROJECT_STATUS.md` (findings
-#20–27) for the full technical investigation.
+not polished ones. Real, direct evidence rules out a data-coverage
+explanation (the real dataset excites every relevant coupling term
+comparably well). Two specific, well-motivated fixes have since been tested
+directly and refuted with real evidence: a custom per-DOF objective
+weighting, and a fix for a separately-confirmed non-physical parameter
+drift that fed directly into yaw's Coriolis coupling term. Neither helped —
+in fact both isolated tests showed `r` getting **worse**, not better,
+including one test where the specific coupling term this hypothesis was
+about changed by close to the largest amount that could be tested.
+
+The current leading hypothesis is that every real HoloOcean-backed
+refinement so far has trained on the same short (150-step, ~15 second)
+truncated window of each real run — a deliberate speed shortcut whose
+tradeoff was never revisited. Testing this properly means giving up that
+shortcut for a full-length run, a real, larger compute commitment not yet
+made. See `PROJECT_STATUS.md` findings #20–32 for the complete technical
+investigation, including the two ruled-out hypotheses.
 
 ## Status
 
 - ✅ Real-data calibration pipeline, validated (held-out-by-date, multi-restart stability)
 - ✅ HoloOcean integration, frame conventions confirmed
-- ✅ Gym-compatible RL environment (`Arena`), PPO training confirmed working
-- 🔄 Rotational-axis accuracy (roll, yaw rate) — actively being improved
+- ✅ Gym-compatible RL environment (`Arena`), three tasks, PPO training confirmed working
+- ✅ Automated pre-flight data-quality checks, automated identifiability reporting
+- ✅ Real, automated regression test suite (26 tests), CI-verified on every push
+- 🔄 Rotational-axis accuracy (roll, yaw rate) — two hypotheses tested and ruled out; the training-window-truncation hypothesis is the clear next step
 - ⏳ Real hardware validation — not yet done; looking for lab partners with BlueROV2 access
 
 ## Contact

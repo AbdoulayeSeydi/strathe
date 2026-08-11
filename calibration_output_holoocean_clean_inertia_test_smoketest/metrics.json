@@ -1,0 +1,11 @@
+{
+  "baseline_rmse_holoocean": 0.3080941980130596,
+  "fitted_rmse_holoocean": 0.3080912689131416,
+  "n_steps_per_run": 150,
+  "n_train_runs": 25,
+  "total_steps": 3750,
+  "converged": false,
+  "cost": 9.157453113345328,
+  "nfev": 23,
+  "elapsed_seconds": 2855.8863370000036
+}
