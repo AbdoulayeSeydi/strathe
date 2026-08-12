@@ -1,0 +1,41 @@
+{
+  "claim": "CLAIM_B: trained PPO policy behavior under calibrated vs. default physics \u2014 complementary, not a second accuracy proof (no live hardware yet \u2014 see Phase 2.5)",
+  "result_type": "placeholder",
+  "n_seeds": 1,
+  "timesteps_per_seed": 500,
+  "waypoint": [
+    -1.5763869285583496,
+    -2.471848249435425,
+    -0.562834620475769
+  ],
+  "summary": {
+    "default": {
+      "mean_reward": 0.7719915113524527,
+      "std_reward": 0.0,
+      "mean_success_rate": 0.0,
+      "std_success_rate": 0.0,
+      "per_seed": [
+        {
+          "seed": 0,
+          "mean_reward": 0.7719915113524527,
+          "mean_final_distance": 2.735340426824111,
+          "success_rate": 0.0
+        }
+      ]
+    },
+    "calibrated": {
+      "mean_reward": 0.5742698669692012,
+      "std_reward": 0.0,
+      "mean_success_rate": 0.0,
+      "std_success_rate": 0.0,
+      "per_seed": [
+        {
+          "seed": 0,
+          "mean_reward": 0.5742698669692012,
+          "mean_final_distance": 2.9445909348356025,
+          "success_rate": 0.0
+        }
+      ]
+    }
+  }
+}
