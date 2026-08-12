@@ -14,6 +14,21 @@ e.g. derived from a real held-out trajectory's endpoint — see Stage 2.3's
 grounding requirement) or randomized within a plausible range each
 episode (useful for training itself, less so for the final real-data
 comparison, which should use fixed, data-derived waypoints).
+
+## Task architecture (refactored this session)
+Each task's reward/termination logic now lives in its own Task subclass
+rather than inline if/elif branches in Arena.step() — the previous
+structure worked for 3 tasks but was flagged as not scaling to more.
+This refactor is a PURE migration for the three existing tasks
+(waypoint/station_keeping/docking) — zero behavior change, verified via
+a full regression gate (existing test suite + live script runs +
+same-seed reproducibility) before any new task was added on top of it.
+Observation space is deliberately left unchanged (11,) for these three
+existing tasks — a new task with a different observation contract is
+free to differ (Arena already sets observation_space as a per-instance
+attribute, not a shared class constant), but changing an EXISTING task's
+observation shape would break real, tested downstream assumptions for no
+benefit — an explicit compatibility decision, not an oversight.
 """
 from __future__ import annotations
 
@@ -31,6 +46,109 @@ from dynamics_model import CalibrationParameters, VehicleConstants, SimulationCo
 # never produced. 30.0 is a rough guess based on forces seen during this
 # session's diagnostic work, not a verified bound.
 DEFAULT_ACTION_BOUND = 30.0
+
+
+# ---------------------------------------------------------------------------
+# Task base class and the three existing tasks, migrated unchanged
+# ---------------------------------------------------------------------------
+
+class Task:
+    """Base class - each subclass encapsulates one task's reward and
+    termination logic. reset() is called from Arena.reset() after the
+    core physics/waypoint reset already happened - task-specific state
+    reset goes here. step() computes reward and terminated from ONE
+    consistent transition (never recomputed independently elsewhere),
+    matching Arena.step()'s own real (reward, terminated, truncated,
+    info) shape - truncated is task-independent (pure step-count), so
+    Arena computes it once itself and passes it in, rather than asking
+    every task to redundantly recompute the same thing."""
+
+    def reset(self, arena: "Arena") -> None:
+        pass
+
+    def step(self, arena: "Arena", distance: float, truncated: bool) -> tuple:
+        """Returns (reward, terminated, info) - info here is ONLY this
+        task's own additions; Arena.step() merges in the common
+        distance/position fields itself before returning to the caller."""
+        raise NotImplementedError
+
+
+class WaypointTask(Task):
+    """Original, unchanged behavior: touch the target once, episode ends."""
+
+    def step(self, arena, distance, truncated):
+        reward = -distance
+        terminated = distance < arena.waypoint_radius
+        if terminated:
+            reward += 10.0
+        return reward, terminated, {}
+
+
+class StationKeepingTask(Task):
+    """Must STAY within waypoint_radius for hold_steps CONSECUTIVE steps
+    before counting as success - a vehicle drifting through and
+    continuing past should NOT succeed, the whole point of this task."""
+
+    def __init__(self, hold_steps: int = 20):
+        self.hold_steps = hold_steps
+        self._consecutive_steps_in_radius = 0
+
+    def reset(self, arena):
+        self._consecutive_steps_in_radius = 0
+
+    def step(self, arena, distance, truncated):
+        reward = -distance
+        if distance < arena.waypoint_radius:
+            self._consecutive_steps_in_radius += 1
+            # Extra shaping while close: penalize speed too, so the
+            # policy learns to actually STOP near the target rather
+            # than orbit through the radius repeatedly.
+            speed = float(np.linalg.norm(arena._core.state.nu[:3]))
+            reward -= 0.1 * speed
+        else:
+            self._consecutive_steps_in_radius = 0
+        terminated = self._consecutive_steps_in_radius >= self.hold_steps
+        if terminated:
+            reward += 10.0
+        return reward, terminated, {"consecutive_steps_in_radius": self._consecutive_steps_in_radius}
+
+
+class DockingTask(Task):
+    """Requires position, orientation alignment (roll/pitch within
+    orientation_tol_rad), AND low speed (below max_speed) simultaneously
+    - matching what a real dock actually requires, not just touching the
+    target point at any angle/speed."""
+
+    def __init__(self, orientation_tol_rad: float = 0.2, max_speed: float = 0.3):
+        self.orientation_tol_rad = orientation_tol_rad
+        self.max_speed = max_speed
+
+    def step(self, arena, distance, truncated):
+        reward = -distance
+        roll, pitch, _yaw = arena._core.state.orientation.as_euler("xyz")
+        orientation_error = float(np.sqrt(roll ** 2 + pitch ** 2))
+        speed = float(np.linalg.norm(arena._core.state.nu[:3]))
+        reward -= 0.5 * orientation_error  # shape toward alignment throughout, not just at the end
+        terminated = (
+            distance < arena.waypoint_radius
+            and orientation_error < self.orientation_tol_rad
+            and speed < self.max_speed
+        )
+        if terminated:
+            reward += 10.0
+        return reward, terminated, {"orientation_error": orientation_error, "speed": speed}
+
+
+def _make_task(task: str, hold_steps: int, docking_orientation_tol_rad: float,
+               docking_max_speed: float) -> Task:
+    if task == "waypoint":
+        return WaypointTask()
+    if task == "station_keeping":
+        return StationKeepingTask(hold_steps=hold_steps)
+    if task == "docking":
+        return DockingTask(orientation_tol_rad=docking_orientation_tol_rad,
+                            max_speed=docking_max_speed)
+    raise ValueError(f"Unknown task {task!r} - expected 'waypoint', 'station_keeping', or 'docking'")
 
 
 class Arena(gym.Env):
@@ -68,10 +186,6 @@ class Arena(gym.Env):
             dock actually requires - not just touching the target point at
             any angle/speed.
         """
-        if task not in ("waypoint", "station_keeping", "docking"):
-            raise ValueError(
-                f"Unknown task {task!r} - expected 'waypoint', 'station_keeping', or 'docking'"
-            )
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
         self._core = ArenaCore(params, vehicle, sim_config)
@@ -80,10 +194,7 @@ class Arena(gym.Env):
         self._fixed_waypoint = None if fixed_waypoint is None else np.array(fixed_waypoint, dtype=float)
         self.waypoint_range = waypoint_range
         self._task = task
-        self._hold_steps = hold_steps
-        self._docking_orientation_tol_rad = docking_orientation_tol_rad
-        self._docking_max_speed = docking_max_speed
-        self._consecutive_steps_in_radius = 0  # used only by station_keeping
+        self._task_obj = _make_task(task, hold_steps, docking_orientation_tol_rad, docking_max_speed)
 
         # Action space NORMALIZED to [-1,1] — NOT the raw force range. SB3's
         # default PPO policy initializes its action distribution centered
@@ -112,7 +223,7 @@ class Arena(gym.Env):
         super().reset(seed=seed)
         self._core.reset()
         self._step_count = 0
-        self._consecutive_steps_in_radius = 0
+        self._task_obj.reset(self)
         if self._fixed_waypoint is not None:
             self._waypoint = self._fixed_waypoint.copy()
         else:
@@ -127,44 +238,11 @@ class Arena(gym.Env):
         self._step_count += 1
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
-        reward = -distance
         info = {"distance": distance, "position": self._core.state.position.copy()}
         truncated = self._step_count >= self.max_episode_steps
 
-        if self._task == "waypoint":
-            terminated = distance < self.waypoint_radius
-            if terminated:
-                reward += 10.0
-
-        elif self._task == "station_keeping":
-            if distance < self.waypoint_radius:
-                self._consecutive_steps_in_radius += 1
-                # Extra shaping while close: penalize speed too, so the
-                # policy learns to actually STOP near the target rather
-                # than orbit through the radius repeatedly.
-                speed = float(np.linalg.norm(self._core.state.nu[:3]))
-                reward -= 0.1 * speed
-            else:
-                self._consecutive_steps_in_radius = 0
-            terminated = self._consecutive_steps_in_radius >= self._hold_steps
-            if terminated:
-                reward += 10.0
-            info["consecutive_steps_in_radius"] = self._consecutive_steps_in_radius
-
-        elif self._task == "docking":
-            roll, pitch, _yaw = self._core.state.orientation.as_euler("xyz")
-            orientation_error = float(np.sqrt(roll ** 2 + pitch ** 2))
-            speed = float(np.linalg.norm(self._core.state.nu[:3]))
-            reward -= 0.5 * orientation_error  # shape toward alignment throughout, not just at the end
-            terminated = (
-                distance < self.waypoint_radius
-                and orientation_error < self._docking_orientation_tol_rad
-                and speed < self._docking_max_speed
-            )
-            if terminated:
-                reward += 10.0
-            info["orientation_error"] = orientation_error
-            info["speed"] = speed
+        reward, terminated, task_info = self._task_obj.step(self, distance, truncated)
+        info.update(task_info)
 
         return self._get_obs(), reward, terminated, truncated, info
 
