@@ -90,9 +90,11 @@ class WaypointTask(Task):
     def step(self, arena, distance, truncated):
         reward = -distance
         terminated = distance < arena.waypoint_radius
+        info = {}
         if terminated:
             reward += 10.0
-        return reward, terminated, {}
+            info["terminal_reason"] = TERMINAL_REASON_GOAL
+        return reward, terminated, info
 
 
 class StationKeepingTask(Task):
@@ -117,9 +119,11 @@ class StationKeepingTask(Task):
         else:
             self._consecutive_steps_in_radius = 0
         terminated = self._consecutive_steps_in_radius >= self.hold_steps
+        info = {"consecutive_steps_in_radius": self._consecutive_steps_in_radius}
         if terminated:
             reward += 10.0
-        return reward, terminated, {"consecutive_steps_in_radius": self._consecutive_steps_in_radius}
+            info["terminal_reason"] = TERMINAL_REASON_GOAL
+        return reward, terminated, info
 
 
 class DockingTask(Task):
@@ -143,9 +147,11 @@ class DockingTask(Task):
             and orientation_error < self.orientation_tol_rad
             and speed < self.max_speed
         )
+        info = {"orientation_error": orientation_error, "speed": speed}
         if terminated:
             reward += 10.0
-        return reward, terminated, {"orientation_error": orientation_error, "speed": speed}
+            info["terminal_reason"] = TERMINAL_REASON_GOAL
+        return reward, terminated, info
 
 
 # ---------------------------------------------------------------------------
