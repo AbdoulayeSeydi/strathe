@@ -80,12 +80,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                               "committing time to a calibration that can't succeed. Skip "
                               "only if you've already verified this exact dataset recently.")
     parser.add_argument("--task", default="waypoint",
-                         choices=["waypoint", "station_keeping", "docking"],
+                         choices=["waypoint", "station_keeping", "docking", "obstacle_avoidance"],
                          help="Which Arena task the delivered Gym environment is built for "
                               "(item #12). 'waypoint' (default) - reach a target point once. "
                               "'station_keeping' - stay near the target for sustained steps, "
                               "not just touch it. 'docking' - reach the target aligned "
-                              "(orientation) and slow (low speed) simultaneously.")
+                              "(orientation) and slow (low speed) simultaneously. "
+                              "'obstacle_avoidance' - route around a randomized obstacle to "
+                              "reach a randomized goal; this task has a LARGER observation "
+                              "space (15 dims, not 11) - see PROJECT_STATUS.md.")
     parser.add_argument("--heldout-dates", nargs="*",
                          default=["16-02-2024", "19-02-2024"],
                          help="Which collection dates to hold out for validation. Defaults "

@@ -94,12 +94,15 @@ def main():
     parser.add_argument("--n-eval-episodes", type=int, default=20)
     parser.add_argument("--output-dir", default="train_multiseed")
     parser.add_argument("--task", default="waypoint",
-                         choices=["waypoint", "station_keeping", "docking"],
+                         choices=["waypoint", "station_keeping", "docking", "obstacle_avoidance"],
                          help="Which Arena task to train/evaluate on (item #12). Defaults "
                               "to 'waypoint', matching all of this session's existing "
                               "real Claim B results - changing this changes what the "
                               "reported reward numbers actually mean, so be deliberate "
-                              "about it, not incidental.")
+                              "about it, not incidental. NOTE: 'obstacle_avoidance' "
+                              "generates its OWN randomized goal every episode and does "
+                              "NOT use the real-data-grounded waypoint below - see the "
+                              "printed warning at runtime.")
     args = parser.parse_args()
 
     check_result_type(args.result_type, metrics_path=args.metrics_path)
@@ -107,6 +110,13 @@ def main():
 
     assert_uses_phase1_split(PHASE1_HELDOUT_DATES)  # sanity: constants haven't drifted
     waypoint = derive_real_waypoint(args.data_dir, PHASE1_HELDOUT_DATES)
+    if args.task == "obstacle_avoidance":
+        print("NOTE: --task obstacle_avoidance generates its own randomized goal every "
+              "episode (see ObstacleAvoidanceTask.reset()) - the real-data-grounded "
+              "waypoint just derived above will be computed but NOT actually used for "
+              "this task. This is intentional (obstacle avoidance needs to control "
+              "spawn/goal/obstacle together for a valid, solvable episode), not a bug - "
+              "flagged here so it's not a silent surprise.")
 
     loaded_spec = load_vehicle_spec(args.spec)
     vehicle = loaded_spec.vehicle
