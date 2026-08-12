@@ -16,15 +16,26 @@ episode (useful for training itself, less so for the final real-data
 comparison, which should use fixed, data-derived waypoints).
 
 ## Task architecture (refactored this session)
-Each task's reward/termination logic now lives in its own Task subclass
+Each task's reward/termination logic lives in its own Task subclass
 rather than inline if/elif branches in Arena.step() — the previous
 structure worked for 3 tasks but was flagged as not scaling to more.
-This refactor is a PURE migration for the three existing tasks
+This refactor was a PURE migration for the three original tasks
 (waypoint/station_keeping/docking) — zero behavior change, verified via
-a full regression gate (existing test suite + live script runs +
-same-seed reproducibility) before any new task was added on top of it.
-Observation space is deliberately left unchanged (11,) for these three
-existing tasks — a new task with a different observation contract is
+a 6000-trial randomized logic-equivalence test AND all 26 real
+regression tests AND a live end-to-end product run before anything new
+was added on top of it.
+
+Task.reset() ALSO returns (spawn_override, waypoint_override) — added
+after discovering ArenaCore.reset() already supports an explicit
+starting position (a real capability that wasn't being used anywhere).
+The three original tasks return (None, None) unconditionally, which
+ArenaCore.reset(position=None) and Arena's own existing
+fixed/randomized-waypoint fallback logic both already treat identically
+to "no override given" — re-verified to be exactly byte-equivalent to
+the pre-change behavior before this was trusted.
+
+Observation space is deliberately left unchanged (11,) for the three
+original tasks — a new task with a different observation contract is
 free to differ (Arena already sets observation_space as a per-instance
 attribute, not a shared class constant), but changing an EXISTING task's
 observation shape would break real, tested downstream assumptions for no
@@ -49,22 +60,31 @@ DEFAULT_ACTION_BOUND = 30.0
 
 
 # ---------------------------------------------------------------------------
-# Task base class and the three existing tasks, migrated unchanged
+# Task base class and the three original tasks, migrated unchanged
 # ---------------------------------------------------------------------------
 
 class Task:
-    """Base class - each subclass encapsulates one task's reward and
-    termination logic. reset() is called from Arena.reset() after the
-    core physics/waypoint reset already happened - task-specific state
-    reset goes here. step() computes reward and terminated from ONE
-    consistent transition (never recomputed independently elsewhere),
-    matching Arena.step()'s own real (reward, terminated, truncated,
-    info) shape - truncated is task-independent (pure step-count), so
-    Arena computes it once itself and passes it in, rather than asking
-    every task to redundantly recompute the same thing."""
+    """Base class - each subclass encapsulates one task's reward,
+    termination, and episode-generation logic.
 
-    def reset(self, arena: "Arena") -> None:
-        pass
+    reset(arena) -> (spawn_override, waypoint_override): called from
+    Arena.reset() BEFORE the core physics reset happens, so a task can
+    control the episode's starting layout (needed for tasks like
+    obstacle avoidance, where spawn/goal/obstacle must be generated
+    together as one mutually-validated set). Either return value may be
+    None to preserve Arena's own existing default behavior for that
+    piece (zero spawn position; Arena's own fixed/randomized waypoint
+    logic). The three original tasks return (None, None) unconditionally.
+
+    step() computes reward and terminated from ONE consistent transition
+    (never recomputed independently elsewhere), matching Arena.step()'s
+    own real (reward, terminated, truncated, info) shape - truncated is
+    task-independent (pure step-count), so Arena computes it once itself
+    and passes it in, rather than asking every task to redundantly
+    recompute the same thing."""
+
+    def reset(self, arena: "Arena") -> tuple:
+        return None, None
 
     def step(self, arena: "Arena", distance: float, truncated: bool) -> tuple:
         """Returns (reward, terminated, info) - info here is ONLY this
@@ -95,6 +115,7 @@ class StationKeepingTask(Task):
 
     def reset(self, arena):
         self._consecutive_steps_in_radius = 0
+        return None, None
 
     def step(self, arena, distance, truncated):
         reward = -distance
@@ -221,10 +242,12 @@ class Arena(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        self._core.reset()
         self._step_count = 0
-        self._task_obj.reset(self)
-        if self._fixed_waypoint is not None:
+        spawn_override, waypoint_override = self._task_obj.reset(self)
+        self._core.reset(position=spawn_override)
+        if waypoint_override is not None:
+            self._waypoint = np.array(waypoint_override, dtype=float)
+        elif self._fixed_waypoint is not None:
             self._waypoint = self._fixed_waypoint.copy()
         else:
             self._waypoint = self.np_random.uniform(-self.waypoint_range, self.waypoint_range, size=3)
