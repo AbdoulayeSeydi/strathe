@@ -51,6 +51,19 @@ def main():
         [sys.executable, "check_coriolis_excitation.py",
          "--data-dir", args.data_dir, "--sampling-rate-hz", str(args.sampling_rate_hz)],
     )
+    results["schema"] = run_check(
+        "Schema validation (required columns)",
+        [sys.executable, "check_schema.py", "--data-dir", args.data_dir],
+    )
+    results["data_integrity"] = run_check(
+        "Structural data integrity (empty files, malformed rows, NaN/Inf)",
+        [sys.executable, "check_data_integrity.py", "--data-dir", args.data_dir],
+    )
+    results["physical_plausibility"] = run_check(
+        "Physical/units plausibility",
+        [sys.executable, "check_physical_plausibility.py",
+         "--data-dir", args.data_dir, "--sampling-rate-hz", str(args.sampling_rate_hz)],
+    )
 
     print(f"\n{'=' * 70}\nPRE-FLIGHT SUMMARY\n{'=' * 70}")
     for name, passed in results.items():
