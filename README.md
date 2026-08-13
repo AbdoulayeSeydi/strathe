@@ -144,7 +144,7 @@
       ```bash
       python train_multiseed.py --data-dir <path> --spec vehicle_spec.yaml \
          --calibrated-params <output-dir>/calibrated_parameters.yaml \
-         --result-type final --n-seeds 4 --task waypoint --output-dir <output-dir>
+         --result-type final --n-seeds 4 --task waypoint --algorithm ppo --output-dir <output-dir>
       ```
 
    6. **Optional — deeper diagnostics**, once you have a real calibrated
@@ -175,9 +175,11 @@
    - **`calibration/`** — the full calibration pipeline: data loading, the
    physics model, the optimizer, the HoloOcean integration, the Gym/`Arena`
    RL training environment (four tasks: `waypoint`, `station_keeping`,
-   `docking`, `obstacle_avoidance`), diagnostic and reporting tools, and a
-   real, automated test suite (`calibration/tests/`, CI-verified on every
-   push).
+   `docking`, `obstacle_avoidance`), three RL training algorithms
+   (`--algorithm ppo` (default), `sac`, or `td3` - all real, rigorously
+   validated against the same locked criteria, see PROJECT_STATUS.md
+   finding 37), diagnostic and reporting tools, and a real, automated
+   test suite (`calibration/tests/`, CI-verified on every push).
    - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
    sets (`calibrated_parameters.yaml` + `metrics.json` in each).
    - **`PROJECT_STATUS.md`** — the full research log: every finding, every bug
