@@ -80,9 +80,12 @@
    ```
 
    Optionally pick a task for the delivered environment with `--task waypoint`
-   (default), `--task station_keeping`, or `--task docking`. This is a fast,
-   truncated demo for confirming the mechanism works end to end — not the
-   source of the reportable numbers below. See the real workflow below for that.
+   (default), `--task station_keeping`, `--task docking`, or
+   `--task obstacle_avoidance` (this last one has a larger, 15-dim
+   observation space rather than 11 - see PROJECT_STATUS.md finding 36).
+   This is a fast, truncated demo for confirming the mechanism works end
+   to end — not the source of the reportable numbers below. See the real
+   workflow below for that.
 
    ## The real (non-demo) workflow
 
@@ -133,7 +136,11 @@
       ```
 
    5. **Real multi-seed PPO training (Claim B)** — optionally pick a task
-      (`waypoint` default, `station_keeping`, or `docking`):
+      (`waypoint` default, `station_keeping`, `docking`, or
+      `obstacle_avoidance` - note: obstacle_avoidance generates its own
+      randomized goal each episode and will print a warning that the
+      real-data-grounded waypoint below is computed but not used for
+      this task):
       ```bash
       python train_multiseed.py --data-dir <path> --spec vehicle_spec.yaml \
          --calibrated-params <output-dir>/calibrated_parameters.yaml \
@@ -167,9 +174,10 @@
 
    - **`calibration/`** — the full calibration pipeline: data loading, the
    physics model, the optimizer, the HoloOcean integration, the Gym/`Arena`
-   RL training environment (three tasks: `waypoint`, `station_keeping`,
-   `docking`), diagnostic and reporting tools, and a real, automated test
-   suite (`calibration/tests/`, CI-verified on every push).
+   RL training environment (four tasks: `waypoint`, `station_keeping`,
+   `docking`, `obstacle_avoidance`), diagnostic and reporting tools, and a
+   real, automated test suite (`calibration/tests/`, CI-verified on every
+   push).
    - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
    sets (`calibrated_parameters.yaml` + `metrics.json` in each).
    - **`PROJECT_STATUS.md`** — the full research log: every finding, every bug
