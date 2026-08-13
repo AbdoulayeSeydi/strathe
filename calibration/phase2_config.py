@@ -75,6 +75,20 @@ class Claim:
     A_OPEN_LOOP_REPLAY_ACCURACY = "CLAIM_A: open-loop replay RMSE vs. real data — the rigorous, direct MVP acceptance criterion"
     B_TRAINED_POLICY_BEHAVIOR = "CLAIM_B: trained PPO policy behavior under calibrated vs. default physics — complementary, not a second accuracy proof (no live hardware yet — see Phase 2.5)"
 
+    @staticmethod
+    def b_trained_policy_behavior(algorithm: str = "PPO") -> str:
+        """Same message as B_TRAINED_POLICY_BEHAVIOR, but with the real
+        algorithm name substituted in - B_TRAINED_POLICY_BEHAVIOR itself
+        is kept unchanged (hardcoded "PPO") for backward compatibility
+        with anything that may already reference the bare constant, but
+        train_multiseed.py now calls this instead, so a SAC/TD3 run's
+        printed header and saved report both say the real algorithm that
+        actually ran, not always "PPO" (a real, confirmed bug found and
+        fixed - see PROJECT_STATUS.md)."""
+        return (f"CLAIM_B: trained {algorithm.upper()} policy behavior under calibrated "
+                f"vs. default physics — complementary, not a second accuracy proof "
+                f"(no live hardware yet — see Phase 2.5)")
+
 
 def assert_uses_phase1_split(heldout_dates: list) -> None:
     """Fail loudly if any Phase 2 script is about to use a DIFFERENT

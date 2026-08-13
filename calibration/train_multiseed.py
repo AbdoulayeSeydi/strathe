@@ -29,7 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import yaml
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC, TD3
 from stable_baselines3.common.monitor import Monitor
 
 from data_split import discover_csv_files, split_by_date
@@ -60,14 +60,19 @@ def derive_real_waypoint(data_dir: str, heldout_dates: list) -> np.ndarray:
     return displacement
 
 
+ALGORITHMS = {"ppo": PPO, "sac": SAC, "td3": TD3}
+
+
 def train_one_seed(params: CalibrationParameters, vehicle: VehicleConstants,
                     waypoint: np.ndarray, seed: int, timesteps: int,
-                    n_eval_episodes: int, task: str = "waypoint") -> dict:
+                    n_eval_episodes: int, task: str = "waypoint",
+                    algorithm: str = "ppo") -> dict:
     def make_env():
         return Arena(params, vehicle, fixed_waypoint=waypoint, max_episode_steps=100, task=task)
 
     train_env = Monitor(make_env())
-    model = PPO("MlpPolicy", train_env, verbose=0, seed=seed)
+    algo_cls = ALGORITHMS[algorithm]
+    model = algo_cls("MlpPolicy", train_env, verbose=0, seed=seed)
     model.learn(total_timesteps=timesteps)
 
     eval_env = make_env()
@@ -108,6 +113,13 @@ def main():
                               "generates its OWN randomized goal every episode and does "
                               "NOT use the real-data-grounded waypoint below - see the "
                               "printed warning at runtime.")
+    parser.add_argument("--algorithm", default="ppo", choices=["ppo", "sac", "td3"],
+                         help="Which SB3 algorithm to train with. Defaults to 'ppo', "
+                              "matching all of this session's existing real Claim B "
+                              "results. 'sac'/'td3' are off-policy algorithms with a "
+                              "replay buffer - see PROJECT_STATUS.md for their real, "
+                              "confirmed learning_starts/buffer_size defaults and the "
+                              "validation gates run before trusting them.")
     args = parser.parse_args()
 
     check_result_type(args.result_type, metrics_path=args.metrics_path)
@@ -134,7 +146,7 @@ def main():
         for seed in range(args.n_seeds):
             print(f"  Seed {seed}...")
             r = train_one_seed(params, vehicle, waypoint, seed, args.timesteps,
-                               args.n_eval_episodes, task=args.task)
+                               args.n_eval_episodes, task=args.task, algorithm=args.algorithm)
             clearance_str = (f", clearance={r['mean_min_obstacle_clearance']:.2f}"
                               if r['mean_min_obstacle_clearance'] is not None else "")
             print(f"    reward={r['mean_reward']:.2f}, "
@@ -164,7 +176,7 @@ def main():
     summary = {v: summarize(results[v]) for v in ["default", "calibrated"]}
 
     print("\n" + "=" * 70)
-    print(Claim.B_TRAINED_POLICY_BEHAVIOR)
+    print(Claim.b_trained_policy_behavior(args.algorithm))
     print("=" * 70)
     for v in ["default", "calibrated"]:
         s = summary[v]
@@ -185,7 +197,7 @@ def main():
     stds = [summary[v]["std_reward"] for v in variants]
     ax.bar(variants, means, yerr=stds, capsize=8, color=["#c0392b", "#27ae60"])
     ax.set_ylabel("Mean episode reward")
-    ax.set_title(f"Claim B: PPO reward, default vs. calibrated physics "
+    ax.set_title(f"Claim B: {args.algorithm.upper()} reward, default vs. calibrated physics "
                  f"(n={args.n_seeds} seeds each, {args.result_type})")
     fig.tight_layout()
     chart_path = out / "claim_b_reward_comparison.png"
@@ -193,7 +205,8 @@ def main():
     print(f"\nSaved chart: {chart_path}")
 
     report = {
-        "claim": Claim.B_TRAINED_POLICY_BEHAVIOR,
+        "claim": Claim.b_trained_policy_behavior(args.algorithm),
+        "algorithm": args.algorithm,
         "result_type": args.result_type,
         "n_seeds": args.n_seeds,
         "timesteps_per_seed": args.timesteps,
