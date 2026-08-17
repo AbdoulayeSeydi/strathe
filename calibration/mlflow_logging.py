@@ -39,7 +39,7 @@ import mlflow_schema as schema
 # MLflow's own real, current default is already SQLite. Corrected here
 # to match that confirmed-working reality, not the original assumption.
 TRACKING_URI = "sqlite:///mlflow.db"
-EXPERIMENT_NAME = "marine_sim_calibration"
+EXPERIMENT_NAME = "tryton_calibration"
 
 
 def _safe_pkg_version(pkg_name: str) -> str:

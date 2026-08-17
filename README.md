@@ -1,9 +1,16 @@
-   # Calibrated Digital Twin for BlueROV2 (Marine Autonomy)
+   # Tryton — Calibrated Digital Twins for Marine Autonomy
 
-   A system-identification pipeline that fits a physics model to real BlueROV2
+   A system-identification pipeline that fits a physics model to real vehicle
    mission logs, integrated into [HoloOcean](https://byu-holoocean.github.io/holoocean-docs/v2.0.0/index.html)
    for high-fidelity underwater simulation — plus a Gym-compatible RL training
    environment built on top of the calibrated physics.
+
+   **Current real scope: BlueROV2 only.** Every real result in this repo -
+   the calibration pipeline, HoloOcean integration, and RL environment -
+   has been built and validated against one vehicle. Expanding to
+   additional vehicle classes (e.g. torpedo-style AUVs) is a real,
+   planned next step, not something built or tested yet - see
+   PRODUCT_VISION.md for the honest scope of that gap.
 
    **What this answers:** does calibrating a simulator against real logged
    vehicle data measurably improve how closely it tracks real behavior,
