@@ -177,6 +177,9 @@ def main() -> None:
     from objective import DatasetConfig, load_run, mean_run_rmse
     from optimizer import load_vehicle_spec, initial_parameters, CalibrationConfig as _CC, calibrate
     import yaml as _yaml
+    from mlflow_logging import log_calibration_run
+    from mlflow_schema import STATUS_SUCCESS, STATUS_CHECKPOINT_FALLBACK, STATUS_FAILED
+    from run_calibration import _get_git_commit
 
     csv_paths, dup = discover_csv_files(args.data_dir)
     split = split_by_date(csv_paths, heldout_dates=args.heldout_dates)
@@ -222,6 +225,13 @@ def main() -> None:
     except RuntimeError as e:
         if _best["param_vec"] is None:
             print(f"\nPIPELINE FAILED at calibration step (no usable point found at all): {e}")
+            log_calibration_run(
+                script="run_full_pipeline",
+                run_name=f"run_full_pipeline_{time.strftime('%Y-%m-%d_%H%M')}",
+                status=STATUS_FAILED, status_reason=str(e),
+                git_commit=_get_git_commit(), vehicle_spec_path=args.spec,
+                tags={"run_type": "demo", "task": args.task},
+            )
             sys.exit(1)
         print(f"\nDid not reach strict convergence within max_nfev={args.max_nfev} - this is "
               f"EXPECTED for a small demo budget, not a failure. Using the best point found "
@@ -291,6 +301,45 @@ def main() -> None:
     summary_path = Path(args.output_dir) / "pipeline_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    if report.strict_converged:
+        _status = STATUS_SUCCESS
+        _status_reason = f"scipy converged, cost={best_cost:.6f}"
+    else:
+        _status = STATUS_CHECKPOINT_FALLBACK
+        _status_reason = f"maximum function evaluations reached, best point substituted (cost={best_cost:.6f})"
+
+    log_calibration_run(
+        script="run_full_pipeline",
+        run_name=f"run_full_pipeline_{time.strftime('%Y-%m-%d_%H%M')}",
+        status=_status, status_reason=_status_reason,
+        git_commit=_get_git_commit(), vehicle_spec_path=args.spec,
+        params={
+            "optimizer": "scipy.optimize.least_squares (trf)",
+            "optimizer_settings": "loss=soft_l1, n_restarts=1, seed=42",
+            "vehicle_spec_version": loaded_spec.raw.get("schema_version", "unknown"),
+            "dataset_path": args.data_dir,
+            "dataset_file_count": len(train_runs) + len(heldout_runs),
+            "sampling_rate_hz": args.sampling_rate_hz,
+            "max_nfev": args.max_nfev,
+            "task": args.task,
+            "max_train_runs": args.max_train_runs,
+        },
+        # NOTE: nfev deliberately omitted - this script never captures a
+        # real call count anywhere (neither the try block nor the
+        # fallback _best dict tracks it) - honestly omitted rather than
+        # fabricated, see PROJECT_STATUS.md.
+        metrics={
+            "rmse_total": report.rmse.calibrated_heldout,
+            "rmse_calibrated_train": report.rmse.calibrated_train,
+            "rmse_default_heldout": report.rmse.default_heldout,
+            "rmse_default_train": report.rmse.default_train,
+            "runtime_seconds": total_elapsed,
+        },
+        artifacts=[args.spec, calibrated_params_path, str(summary_path)],
+        tags={"run_type": "demo", "task": args.task,
+              "gym_check_passed": str(gym_check["success"])},
+    )
 
     print()
     print("=" * 70)

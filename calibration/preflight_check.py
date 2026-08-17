@@ -36,6 +36,13 @@ def main():
                               "the point of this check is determining which one is actually "
                               "correct, not assuming one. Override if you have reason to expect "
                               "a specific rate not in this default list.")
+    parser.add_argument("--heldout-dates", nargs="*", default=None,
+                         help="Forwarded to check_coriolis_excitation.py's own --heldout-dates. "
+                              "A real gap found and fixed: without this, that check always fell "
+                              "back to ITS OWN internal default dates, which don't exist in a "
+                              "smaller/different dataset - producing a confusing, unrelated-"
+                              "looking failure. Only forwarded when explicitly given, so behavior "
+                              "against the standard full dataset stays exactly unchanged by default.")
     args = parser.parse_args()
 
     results = {}
@@ -46,10 +53,13 @@ def main():
          "--data-dir", args.data_dir,
          "--candidates", *[str(c) for c in args.rate_candidates]],
     )
+    _coriolis_cmd = [sys.executable, "check_coriolis_excitation.py",
+                      "--data-dir", args.data_dir, "--sampling-rate-hz", str(args.sampling_rate_hz)]
+    if args.heldout_dates:
+        _coriolis_cmd += ["--heldout-dates", *args.heldout_dates]
     results["coriolis_excitation"] = run_check(
         "Coriolis-relevant velocity product excitation",
-        [sys.executable, "check_coriolis_excitation.py",
-         "--data-dir", args.data_dir, "--sampling-rate-hz", str(args.sampling_rate_hz)],
+        _coriolis_cmd,
     )
     results["schema"] = run_check(
         "Schema validation (required columns)",
