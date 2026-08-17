@@ -1,0 +1,16 @@
+{
+  "pipeline_succeeded": true,
+  "scipy_strict_convergence": false,
+  "rmse_train_default": 1.314297023984142,
+  "rmse_train_calibrated": 1.4829749261897116,
+  "rmse_heldout_default": 1.1658868885699567,
+  "rmse_heldout_calibrated": 1.3433121290798347,
+  "improvement_heldout_pct": -15.218049216378326,
+  "gym_environment_check": {
+    "attempted": true,
+    "success": true,
+    "detail": "Environment reset and stepped successfully. obs shape: (11,)"
+  },
+  "total_elapsed_seconds": 415.78433459997177,
+  "NOTE": "Validation numbers above are from the FAST STAND-IN backend, a quick check only - NOT the rigorous real-HoloOcean Claim A methodology in PROJECT_STATUS.md. Do not quote as the project's headline result."
+}
