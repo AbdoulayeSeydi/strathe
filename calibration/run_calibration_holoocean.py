@@ -62,6 +62,9 @@ from objective import DatasetConfig, load_run, mean_run_rmse, rmse_by_dof
 from optimizer import load_vehicle_spec, parameter_bounds, calibrate, CalibrationConfig
 from dynamics_model import CalibrationParameters
 from holoocean_backend import make_holoocean_simulate_fn, make_deterministic_environment
+from mlflow_logging import log_calibration_run
+from mlflow_schema import STATUS_SUCCESS, STATUS_CHECKPOINT_FALLBACK
+from run_calibration import _get_git_commit
 
 
 def make_checkpoint_callback(checkpoint_path):
@@ -365,6 +368,45 @@ def main():
             "elapsed_seconds": elapsed,
         }, f, indent=2)
     print(f"\nSaved results to {out}/")
+
+    if converged:
+        _status = STATUS_SUCCESS
+        _status_reason = f"scipy converged, cost={best_cost:.6f}"
+    else:
+        _status = STATUS_CHECKPOINT_FALLBACK
+        _status_reason = (f"maximum function evaluations reached, best checkpoint "
+                           f"substituted (nfev={best_nfev})")
+
+    log_calibration_run(
+        script="run_calibration_holoocean",
+        run_name=f"run_calibration_holoocean_{_time.strftime('%Y-%m-%d_%H%M')}",
+        status=_status, status_reason=_status_reason,
+        git_commit=_get_git_commit(), vehicle_spec_path=args.spec,
+        params={
+            "optimizer": "scipy.optimize.least_squares (trf)",
+            "optimizer_settings": (f"n_steps_per_run={args.n_steps_per_run}, "
+                                    f"dof_weighting={'disabled' if args.no_dof_weighting else 'enabled'}"),
+            "vehicle_spec_version": loaded_spec.raw.get("schema_version", "unknown"),
+            "dataset_path": args.data_dir,
+            "dataset_file_count": len(train_runs),
+            "seed": config.seed,
+            "sampling_rate_hz": args.sampling_rate_hz,
+            "max_nfev": args.max_nfev,
+        },
+        # NOTE: rmse_total only, deliberately - per-DOF metrics would need
+        # a SEPARATE, expensive HoloOcean-backed evaluation loop on top of
+        # the already-costly fitted_rmse call above, a real, bad cost
+        # tradeoff for this specific script (see PROJECT_STATUS.md).
+        metrics={
+            "rmse_total": fitted_rmse,
+            "rmse_baseline": baseline_rmse,
+            "runtime_seconds": elapsed,
+            "nfev": best_nfev,
+        },
+        artifacts=[args.spec, str(out / "calibrated_parameters.yaml"),
+                   str(out / "metrics.json")],
+        tags={"run_type": "real"},
+    )
 
 
 if __name__ == "__main__":
