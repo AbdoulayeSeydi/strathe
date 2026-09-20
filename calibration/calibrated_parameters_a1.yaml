@@ -1,0 +1,33 @@
+parameters:
+  Ieff_roll: 0.2646383861015588
+  Ieff_pitch: 0.22512625519183596
+  Ieff_yaw: 8.691031379303219
+  Xu: -41.0044291686355
+  Yv: -31.068107778458412
+  Zw: -27.897977477933853
+  Kp: -2.5105434815742944
+  Mq: -4.845439034076949
+  Nr: -2.3278537758127293
+  Xuu: -71.47950631773004
+  Yvv: -66.29412492471006
+  Zww: -97.88869785115871
+  Kpp: -4.102643913624525
+  Mqq: -9.654973448429386
+  Nrr: -4.948216203736138
+  Xu_dot: 26.303455557618452
+  Yv_dot: 37.42409485311837
+  Zw_dot: 37.778941791074274
+  net_buoyancy_z: -0.8880963363526408
+  cg_cb_offset_z: 0.031211245035183372
+  Xq_dot: -0.2297304175292817
+  Zq_dot: 0.35866632737890347
+provenance:
+  converged: false
+  cost: 0.8878178908693111
+  data_dir: /Users/abdoulayeseydi/marine_sim_mvp/data/raw/Bluerov2_trajectory_dataset
+  n_restarts: 1
+  max_nfev: 15
+  generated_at_utc: '2026-09-01T22:29:11.052057+00:00'
+  note: "NOT a fully-converged result if converged=False above \u2014 a quick A1.1\
+    \ fit, not a Claim-A-grade calibration. Re-run with a larger --max-nfev/--n-restarts\
+    \ for anything more rigorous."

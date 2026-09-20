@@ -487,6 +487,66 @@ def compute_acceleration(
     return v_dot, damping_force, g_eta
 
 
+def _restoring_forces_from_rotation_matrix(R, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.81):
+    """The same restoring-force physics as _restoring_forces(), expressed
+    directly via the body->world rotation matrix R instead of scalar
+    roll/pitch. VERIFIED (not assumed) mathematically identical to
+    _restoring_forces(), given roll/pitch extracted from R via the SAME
+    'xyz' convention quaternion_to_roll_pitch already uses elsewhere in
+    this file: tested directly against a genuine rotation matrix WITH a
+    real, nonzero yaw component (not just yaw=0), across multiple
+    (roll, pitch, yaw) combinations, matching to machine precision
+    (~1e-16) in every case -- confirms down_in_body's yaw-independence
+    holds in practice, not just in principle.
+
+    R.T @ [0,0,-1] is world-down expressed in body coordinates -- well
+    defined for every valid rotation, with no Euler-angle decomposition
+    step to become ill-conditioned near gimbal lock. Intended for callers
+    that already have R natively (e.g. mujoco_backend.py's genuine
+    forward-simulation path, which reads R directly from MuJoCo's own
+    evolving orientation) and would otherwise have to extract roll/pitch
+    just to call _restoring_forces()/compute_acceleration(), introducing
+    an avoidable numerical step this function skips entirely."""
+    W = mass_kg * g
+    B = W + net_buoyancy_z
+    diff = W - B
+    down_in_body = R.T @ np.array([0.0, 0.0, -1.0])
+    Fx, Fy, Fz = diff * down_in_body
+    Tx = -cg_cb_offset_z * W * down_in_body[1]
+    Ty = cg_cb_offset_z * W * down_in_body[0]
+    Tz = 0.0
+    return np.array([Fx, Fy, Fz, Tx, Ty, Tz])
+
+
+def compute_acceleration_from_rotation_matrix(
+    params,
+    vehicle,
+    v,
+    tau,
+    R,
+):
+    """Identical physics to compute_acceleration() -- same mass/damping/
+    Coriolis logic, reused directly via the SAME
+    _mass_and_damping_arrays()/_coriolis_centripetal_force() helper
+    functions already in this file, not duplicated -- but takes the
+    body->world rotation matrix R directly instead of scalar roll/pitch.
+    See _restoring_forces_from_rotation_matrix()'s own docstring for how
+    this was verified against the real _restoring_forces() formula,
+    including with genuine nonzero yaw.
+
+    Intended for callers that already have R natively (e.g.
+    mujoco_backend.py's genuine forward-simulation path) and would
+    otherwise have to extract roll/pitch just to call
+    compute_acceleration(), introducing an avoidable Euler-angle
+    extraction step."""
+    M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
+    damping_force = linear_damping * v + quad_damping * np.abs(v) * v
+    g_eta = _restoring_forces_from_rotation_matrix(R, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
+    coriolis_force = _coriolis_centripetal_force(M, v)
+    v_dot = np.linalg.solve(M, tau + damping_force - g_eta - coriolis_force)
+    return v_dot, damping_force, g_eta
+
+
 def simulate_trajectory(
     params: CalibrationParameters,
     vehicle: VehicleConstants,

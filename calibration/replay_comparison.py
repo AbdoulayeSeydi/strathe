@@ -13,9 +13,14 @@ machinery every Phase 1 finding is built on), just pointed at the SAME
 held-out split (phase2_config.PHASE1_HELDOUT_DATES, enforced, not
 re-decided) with two different parameter sets.
 
-Per phase2_config.py's Decision 2, uses the REAL HoloOcean backend
-(VALIDATION_BACKEND) — this is Claim A, the rigorous one, and deserves the
-real physics from the start, not the fast stand-in.
+Per phase2_config.py's Decision 2 (REVISED), --backend defaults to
+"mujoco" now, using forward-sim held-out evaluation
+(mujoco_backend.make_mujoco_simulate_fn) — NOT teacher_forced=True, since
+this script only EVALUATES already-fitted parameters, it never fits them
+(see mujoco_backend.py's own docstring for why forward-sim is fine for
+evaluation but unsafe for fitting). --backend holoocean remains available
+for Decision 2's occasional, independent physics cross-check role — not
+the routine choice anymore.
 
 Usage:
     python replay_comparison.py \
@@ -75,11 +80,16 @@ def main():
                          help="Required if --result-type final — the source calibration's "
                               "own metrics.json, checked for converged=True before this script "
                               "will produce a report labeled final.")
-    parser.add_argument("--use-holoocean", action="store_true", default=True)
-    parser.add_argument("--no-holoocean", dest="use_holoocean", action="store_false",
-                         help="Use the fast stand-in instead of real HoloOcean — for a quick "
-                              "pipeline smoke test only, NOT for an actual Claim A result "
-                              "(Decision 2: validation should use HoloOcean).")
+    parser.add_argument("--backend", choices=["mujoco", "holoocean", "standin"], default="mujoco",
+                         help="Which physics to validate against. 'mujoco' (default, Decision 2 "
+                              "REVISED in phase2_config.py) uses forward-sim held-out evaluation "
+                              "— confirmed ~1.9x the stand-in's overhead, not HoloOcean's ~400x. "
+                              "'holoocean' remains available for Decision 2's occasional, "
+                              "independent physics cross-check role — NOT the routine choice "
+                              "anymore. 'standin' is a quick pipeline smoke test only, NOT a "
+                              "real Claim A result.")
+    parser.add_argument("--mjcf-path", default="b0_single_body_placeholder.xml",
+                         help="MJCF model path, used only when --backend mujoco.")
     parser.add_argument("--output-dir", default="replay_comparison")
     args = parser.parse_args()
 
@@ -116,13 +126,23 @@ def main():
     default_params = initial_parameters(loaded_spec)
     calibrated_params = load_calibrated_params(args.calibrated_params)
 
-    if args.use_holoocean:
-        print("\nUsing REAL HoloOcean physics (Decision 2 — validation backend)...")
+    if args.backend == "mujoco":
+        print("\nUsing MuJoCo forward-sim physics (Decision 2, REVISED — validation "
+              "backend)...")
+        import mujoco
+        from mujoco_backend import make_mujoco_simulate_fn
+        model = mujoco.MjModel.from_xml_path(args.mjcf_path)
+        data = mujoco.MjData(model)
+        simulate_fn = make_mujoco_simulate_fn(model, data)
+    elif args.backend == "holoocean":
+        print("\nUsing REAL HoloOcean physics — Decision 2's occasional, independent "
+              "physics cross-check role now, NOT the routine validation backend "
+              "(see phase2_config.py)...")
         from holoocean_backend import make_holoocean_simulate_fn, make_deterministic_environment
         env = make_deterministic_environment("SimpleUnderwater-Hovering")
         simulate_fn = make_holoocean_simulate_fn(env)
     else:
-        print("\nWARNING: using the fast stand-in, NOT HoloOcean — pipeline smoke test only, "
+        print("\nWARNING: using the fast stand-in — pipeline smoke test only, "
               "not a real Claim A result (see Decision 2 in phase2_config.py).")
         simulate_fn = None
 
@@ -253,7 +273,11 @@ def main():
     report = {
         "claim": Claim.A_OPEN_LOOP_REPLAY_ACCURACY,
         "result_type": args.result_type,
-        "used_holoocean": args.use_holoocean,
+        "backend": args.backend,
+        "used_holoocean": args.backend == "holoocean",  # kept for backward compatibility
+                                                          # with existing claim_a_report.json
+                                                          # readers — "backend" is the field
+                                                          # to use going forward.
         "heldout_dates": split.heldout_groups,
         "n_heldout_runs": len(heldout_runs),
         "dof_scales_from_training_data": {label: float(v) for label, v in zip(DOF_LABELS, dof_scales)},

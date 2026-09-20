@@ -59,6 +59,7 @@ DEFAULT_ACTION_BOUND = 30.0
 # can't silently break evaluation.
 TERMINAL_REASON_GOAL = "goal"
 TERMINAL_REASON_COLLISION = "collision"
+TERMINAL_REASON_FORMATION_ACHIEVED = "formation_achieved"
 
 
 # ---------------------------------------------------------------------------
