@@ -237,6 +237,38 @@ INDEPENDENT_CROSSCHECK_BACKEND = "holoocean"
 # reasoning for why this role is narrower than "the" validation backend
 # it used to be. holoocean_backend.make_holoocean_simulate_fn.
 
+# F5.2: The authoritative Claim C honest-caveats text, pulled directly from
+# the Decision 3 addendum above. run_fleet_experiment.py imports this to
+# include it verbatim in every summary_report.md, rather than maintaining a
+# separately-written copy that can drift from the source of truth.
+# Any edit to the caveats above should be reflected here.
+CLAIM_C_HONEST_CAVEATS = (
+    "What Claim C does **not** establish (from `phase2_config.py` Decision 3 addendum, "
+    "stated explicitly per Decision 3's own discipline):\n\n"
+    "- `success_rate` and `delta_physics_off_axis` did **not** transfer cleanly between "
+    "backends — but this is confounded by L0–L3a being four **separately-trained** policies "
+    "(each reflecting its own training run's idiosyncrasies), not evidence against the "
+    "backend transfer itself.\n"
+    "- This result claims nothing about whether MuJoCo-based **training** would produce "
+    "equally-good or better policies. No such training has been run, per Decision 2's "
+    "training-backend rule. This is purely a transfer-of-an-already-stand-in-trained-policy "
+    "result.\n"
+    "- Claim C is layered on top of Claims A and B. It presupposes Claim A's own "
+    "physics-fidelity work (MuJoCo is only a meaningful validator here because its dynamics "
+    "were already confirmed to match the stand-in), and extends Claim B's single-agent "
+    "'trained policy behaves sensibly' result to the multi-agent, cross-backend case.\n"
+    "- Any result reported from Track C must be labeled CLAIM_C explicitly, same discipline "
+    "as A/B.\n"
+    "- **Missing causal link (identified by F5.4 dogfood review):** this experiment "
+    "demonstrates one link in the causal chain — calibrated physics → more accurate "
+    "teammate-position belief under degraded comm (`delta_physics_belief_error`). It does "
+    "**not** establish the full chain through to fleet task success: lower belief error → "
+    "better coordination behavior → higher `success_rate` / fewer collisions. The "
+    "`success_rate` in these results is not broken down calibrated-vs-generic, so the "
+    "experiment cannot support the claim that calibrated physics improves fleet coordination "
+    "outcomes. That link requires a separate, controlled experiment."
+)
+
 
 class Claim:
     """Decision 3 (and its addendum) — every Phase 2 result must be

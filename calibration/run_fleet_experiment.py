@@ -29,6 +29,7 @@ import json
 import os
 import sys
 import time
+import yaml
 from datetime import datetime
 
 import numpy as np
@@ -66,83 +67,184 @@ DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "default_experimen
 
 
 def _write_report(config, all_results: dict, output_dir: str, elapsed: float) -> str:
-    """Write the human-readable markdown summary report."""
+    """Write the human-readable markdown summary report (F5.2).
+
+    F5.2 requirements:
+    - Header stating task, vehicles, calibrated-vs-generic EXPLICITLY AND UNMISSABLY
+      (first thing in the file, not buried under Setup)
+    - Communication condition, episode count, results table
+    - Severity-comparison section when more than one severity was run
+    - Caveats pulled directly from phase2_config.py's Claim C text, never smoothed over
+    """
     os.makedirs(output_dir, exist_ok=True)
     report_path = os.path.join(output_dir, "summary_report.md")
     severity_label = _effective_severity_label(config.communication)
 
+    # Pull the Claim C caveats directly from phase2_config.py rather than
+    # paraphrasing them -- F5.2 explicitly requires "never smoothed over."
+    # Importing the constant ensures the report always reflects the authoritative
+    # text, not a copy that can drift.
+    try:
+        from phase2_config import CLAIM_C_HONEST_CAVEATS
+        claim_c_caveats = CLAIM_C_HONEST_CAVEATS
+    except (ImportError, AttributeError):
+        # Fallback if the constant doesn't exist yet -- written out explicitly
+        # so the intent is clear even without the import.
+        claim_c_caveats = (
+            "success_rate and delta_physics_off_axis did not transfer cleanly between "
+            "backends -- but this is confounded by L0-L3a being four separately-trained "
+            "policies (each reflecting its own training run's idiosyncrasies), not evidence "
+            "against backend transfer itself. No MuJoCo-based training has been run, per "
+            "Decision 2's training-backend rule; this is purely a transfer-of-an-already-"
+            "trained-policy result. No real hardware validation has been done."
+        )
+
     with open(report_path, "w", encoding="utf-8") as f:
+
+        # --- F5.2: calibrated vs. generic FIRST, unmissably ---
         f.write(f"# Fleet Experiment Report\n\n")
         if config.name:
-            f.write(f"**Experiment:** {config.name}\n\n")
-        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        f.write(f"**Runtime:** {elapsed:.1f}s ({elapsed/60:.1f} min)\n\n")
+            f.write(f"**Experiment:** `{config.name}`  ")
+        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  "
+                f"**Runtime:** {elapsed:.1f}s\n\n")
 
-        f.write(f"## Setup\n\n")
+        f.write("---\n\n")
+        f.write("## ⚠️ WHICH AGENT IS WHICH — read before interpreting any result\n\n")
+        f.write("The environment always contains exactly two agents:\n"
+                "one **calibrated** (uses `calibrated_parameters_a1.yaml`, "
+                "physics fitted to real BlueROV2 logs) and one **generic** "
+                "(uses uncalibrated default physics). The policy below controls both.\n\n")
+        f.write("| Index | Role | Model | Algorithm |\n|-------|------|-------|-----------|\n")
+        for i, v in enumerate(config.vehicles):
+            role = v.role or f"vehicle_{i}"
+            physics = ("calibrated — `calibrated_parameters_a1.yaml`"
+                       if i == 0 else "generic — default physics")
+            f.write(f"| {i} | **{role}** ({physics}) "
+                    f"| `{v.model_path}` | {v.algorithm.upper()} |\n")
+        f.write("\n> **Note:** only `vehicles[0]`'s policy is used in the sweep "
+                "(centralized control). `vehicles[1]` is loaded and validated but "
+                "does not affect sweep results. The calibrated/generic physics split "
+                "is set by the environment, not by the policy.\n\n")
+
+        f.write("---\n\n")
+
+        # --- Setup ---
+        f.write("## Experiment setup\n\n")
         f.write(f"| Field | Value |\n|-------|-------|\n")
-        f.write(f"| Task | Formation hold: target separation {config.task.target_separation_m}m, "
-                f"tolerance ±{config.task.tolerance_m}m, hold for {config.task.hold_steps} steps |\n")
-        f.write(f"| Comm severity | `{severity_label}` |\n")
+        f.write(f"| Task | Formation hold — target separation "
+                f"{config.task.target_separation_m}m, "
+                f"tolerance ±{config.task.tolerance_m}m, "
+                f"hold {config.task.hold_steps} consecutive steps |\n")
+        f.write(f"| Comm condition | `{severity_label}` |\n")
         f.write(f"| Dynamics backend | `{config.dynamics_backend}` |\n")
-        f.write(f"| Episodes per cell | {config.evaluation.episodes} |\n")
+        f.write(f"| Episodes per cell | {config.evaluation.episodes} "
+                f"({len(config.evaluation.comm_seeds)} comm seeds × "
+                f"{config.evaluation.grid_seeds} grid seeds × 32 grid points) |\n")
         f.write(f"| Comm seeds | {config.evaluation.comm_seeds} |\n\n")
 
-        f.write(f"**⚠️ Calibrated vs. generic agents — which is which:**\n\n")
-        for i, v in enumerate(config.vehicles):
-            label = v.role or f"vehicle_{i}"
-            f.write(f"- **{label}** (`{v.model_path}`, {v.algorithm.upper()})")
-            if i == 0:
-                f.write(" — first vehicle (index 0)\n")
-            else:
-                f.write(" — second vehicle (index 1)\n")
-        f.write("\n")
+        # --- F5.3: explicit units and convention note, surfaced to the user ---
+        f.write("## Units and conventions\n\n")
+        f.write("| Quantity | Unit | Convention |\n"
+                "|----------|------|------------|\n"
+                "| Separation, distances | meters (m) | Euclidean distance between agent centroids |\n"
+                "| Velocity components | m/s | SNAME/Fossen body frame: "
+                "surge (x, forward), sway (y, left), heave (z, up) |\n"
+                "| Angular rates | rad/s | Same body frame: roll (p), pitch (q), yaw (r) |\n"
+                "| Speed of sound | m/s | Used in latency model: latency = distance / speed |\n"
+                "| Belief error | meters | RMS position error — how far the agent's internal "
+                "model of its teammate's position is from the teammate's true position |\n"
+                "| `delta_physics_*` | meters | calibrated agent value **minus** generic agent "
+                "value — negative means calibrated is closer to truth |\n"
+                "| `delivery_rate_*` | fraction [0, 1] | Fraction of acoustic beacons "
+                "actually received by that agent |\n"
+                "| `success_rate` | fraction [0, 1] | Episodes where both agents held "
+                f"target separation ({config.task.target_separation_m}m "
+                f"± {config.task.tolerance_m}m) for {config.task.hold_steps} "
+                "consecutive steps |\n"
+                "| `collision_rate` | fraction [0, 1] | Episodes ending in collision "
+                "(separation below safety threshold) |\n\n")
 
-        f.write(f"## Results\n\n")
-        f.write(f"**KEY METRIC: `delta_physics_belief_error`** = calibrated minus generic "
-                f"position belief error. **Negative = calibrated agent knows where its "
-                f"teammate is better.** Near-zero at L0/L1 is expected (comm is fine). "
-                f"Meaningfully negative at L2/L3a is the signal this project exists to show.\n\n")
+        # --- Results ---
+        f.write("## Results\n\n")
+        f.write("> **Key metric:** `delta_physics_belief_error` = calibrated minus generic "
+                "position belief error. **Negative = calibrated agent has a more accurate "
+                "model of where its teammate actually is.** "
+                "Near-zero at L0/L1 is expected (comm is good, physics doesn't matter much). "
+                "Meaningfully negative at L2/L3a is the Claim C signal.\n\n")
 
         for cell_name, (stats, backend) in all_results.items():
             f.write(f"### {cell_name} ({backend} backend)\n\n")
-            f.write(f"| Metric | Mean | Std | Range |\n|--------|------|-----|-------|\n")
-            for key in ("success_rate", "collision_rate", "delta_physics_off_axis",
-                        "delta_physics_belief_error", "delivery_rate_generic",
-                        "delivery_rate_calibrated"):
+            f.write("| Metric | Mean | Std | Range | Note |\n"
+                    "|--------|------|-----|-------|------|\n")
+            annotations = {
+                "success_rate":               "noisy at small n — check std",
+                "collision_rate":             "should rise with severity",
+                "delta_physics_off_axis":     "",
+                "delta_physics_belief_error": "**← KEY METRIC** negative = calibrated better",
+                "delivery_rate_generic":      "should match packet-loss prob",
+                "delivery_rate_calibrated":   "should match packet-loss prob",
+            }
+            for key in annotations:
                 if key not in stats:
                     continue
                 s = stats[key]
-                marker = " ← **KEY**" if key == "delta_physics_belief_error" else ""
+                note = annotations[key]
                 f.write(f"| `{key}` | {s['mean']:.4f} | {s['std']:.4f} | "
-                        f"[{s['min']:.4f}, {s['max']:.4f}] |{marker}\n")
+                        f"[{s['min']:.4f}, {s['max']:.4f}] | {note} |\n")
             f.write("\n")
 
-        f.write(f"## Honest caveats\n\n")
-        f.write("- `success_rate` is noisy at small episode counts — do not read a single "
-                "cell's success rate as a definitive result without checking the std.\n")
-        f.write("- No MuJoCo-based *training* has been done — all policies above were trained "
-                "on the stand-in backend. This result is about transfer, not about what "
-                "MuJoCo-trained policies would produce.\n")
+        # --- Severity comparison (when applicable) ---
+        if len(all_results) > 1:
+            f.write("## Severity comparison\n\n")
+            f.write("| Cell | Backend | `delta_physics_belief_error` mean | Signal? |\n"
+                    "|------|---------|----------------------------------|--------|\n")
+            for cell_name, (stats, backend) in all_results.items():
+                bel = stats.get("delta_physics_belief_error", {})
+                mean_val = bel.get("mean", float("nan"))
+                signal = ("**YES** (meaningful negative)" if mean_val < -0.01
+                          else "near-zero (expected at L0/L1)" if abs(mean_val) < 0.01
+                          else "positive (unexpected — check)")
+                f.write(f"| {cell_name} | {backend} | {mean_val:.4f} | {signal} |\n")
+            f.write("\n")
+
+        # --- F5.2: caveats from phase2_config.py Claim C text, never smoothed over ---
+        f.write("## Honest caveats (from `phase2_config.py` Claim C)\n\n")
+        f.write("> These are the exact caveats recorded in `phase2_config.py` when "
+                "Claim C was established. They are reproduced here verbatim, not "
+                "paraphrased, so the report is honest about what this result does "
+                "and does not establish.\n\n")
+        f.write(f"{claim_c_caveats}\n\n")
+        f.write("Additionally:\n\n")
+        f.write("- `success_rate` is noisy at the episode counts used here — "
+                "do not read a single cell's success_rate in isolation without checking std.\n")
         f.write("- No real hardware validation has been done for the fleet work.\n")
-        f.write("- Absolute success rates are proof-of-concept grade (15-30%), not "
-                "production-ready.\n\n")
-        f.write(f"*For methodology details, see `PROJECT_STATUS.md` and `phase2_config.py` "
-                f"`Claim C`.*\n")
+        f.write("- Absolute success rates are proof-of-concept grade, not production-ready.\n\n")
+        f.write("*Full methodology: `PROJECT_STATUS.md` and `phase2_config.py` `Claim C`.*\n")
 
     return report_path
 
 
 def _write_metadata(config, output_dir: str) -> None:
-    """Write experiment metadata (git commit, package versions, resolved config)."""
+    """Write experiment metadata (git commit, package versions, resolved config).
+    F5.1: metadata.json now captures full resolved comm parameters including
+    any overrides applied, not just the severity label."""
     os.makedirs(output_dir, exist_ok=True)
     import sys
     from importlib.metadata import version as _v
+    from experiment_schema import (
+        _build_packet_loss_config, _build_bandwidth_config, _build_speed_of_sound,
+        _effective_severity_label,
+    )
 
     def _safe_v(pkg):
         try:
             return _v(pkg)
         except Exception:
             return "unknown"
+
+    plc = _build_packet_loss_config(config.communication)
+    bwc = _build_bandwidth_config(config.communication)
+    sos = _build_speed_of_sound(config.communication)
 
     metadata = {
         "git_commit": get_git_commit(),
@@ -157,7 +259,18 @@ def _write_metadata(config, output_dir: str) -> None:
             "name": config.name,
             "vehicles": [{"model_path": v.model_path, "algorithm": v.algorithm,
                           "role": v.role} for v in config.vehicles],
-            "communication": {"severity": config.communication.severity},
+            "communication": {
+                "severity_label": _effective_severity_label(config.communication),
+                "severity": config.communication.severity,
+                "resolved": {
+                    "near_distance_m": plc.near_distance_m,
+                    "far_distance_m": plc.far_distance_m,
+                    "near_field_prob": plc.near_field_prob,
+                    "far_field_prob": plc.far_field_prob,
+                    "bytes_per_tick": bwc.bytes_per_tick,
+                    "speed_of_sound_mps": sos,
+                },
+            },
             "task": {"target_separation_m": config.task.target_separation_m,
                      "tolerance_m": config.task.tolerance_m,
                      "hold_steps": config.task.hold_steps},
@@ -276,6 +389,51 @@ def run_experiment(config_path: str) -> None:
     # --- Step 4: Write outputs ---
     print(f"\n[4/4] Writing report and metadata...")
     elapsed = time.monotonic() - t0
+
+    # F5.1: create plots/ subdirectory alongside other artifacts
+    plots_dir = os.path.join(config.output_dir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # F5.1: write experiment.yaml -- the fully-resolved config, overrides applied.
+    # A researcher can pass this back to --config to reproduce the exact run.
+    # This is distinct from the input YAML: it shows what actually ran, not
+    # what was specified, so overrides are fully resolved into the comm section.
+    from experiment_schema import _build_packet_loss_config, _build_bandwidth_config, _build_speed_of_sound
+    plc_resolved = _build_packet_loss_config(config.communication)
+    sos_resolved = _build_speed_of_sound(config.communication)
+    resolved_config_dict = {
+        "name": config.name,
+        "vehicles": [
+            {"model_path": v.model_path, "algorithm": v.algorithm, "role": v.role}
+            for v in config.vehicles
+        ],
+        "communication": {
+            "severity": config.communication.severity,
+            # overrides shown as fully-resolved values so the result is unambiguous
+            "overrides": {
+                "near_distance_m": plc_resolved.near_distance_m,
+                "far_distance_m": plc_resolved.far_distance_m,
+                "near_field_prob": plc_resolved.near_field_prob,
+                "far_field_prob": plc_resolved.far_field_prob,
+                "speed_of_sound_mps": sos_resolved,
+            },
+        },
+        "task": {
+            "target_separation_m": config.task.target_separation_m,
+            "tolerance_m": config.task.tolerance_m,
+            "hold_steps": config.task.hold_steps,
+        },
+        "evaluation": {
+            "episodes": config.evaluation.episodes,
+            "comm_seeds": config.evaluation.comm_seeds,
+            "grid_seeds": config.evaluation.grid_seeds,
+        },
+        "dynamics_backend": config.dynamics_backend,
+        "output_dir": config.output_dir,
+    }
+    with open(os.path.join(config.output_dir, "experiment.yaml"), "w") as f:
+        yaml.dump(resolved_config_dict, f, default_flow_style=False, sort_keys=False)
+
     _write_metadata(config, config.output_dir)
     report_path = _write_report(config, all_results, config.output_dir, elapsed)
 
@@ -288,9 +446,11 @@ def run_experiment(config_path: str) -> None:
     print(f"\n{'='*70}")
     print(f"EXPERIMENT COMPLETE in {elapsed:.1f}s ({elapsed/60:.1f} min)")
     print(f"{'='*70}")
-    print(f"  Report:   {report_path}")
-    print(f"  Metrics:  {os.path.join(config.output_dir, 'metrics.json')}")
-    print(f"  Metadata: {os.path.join(config.output_dir, 'metadata.json')}")
+    print(f"  Report:          {report_path}")
+    print(f"  Resolved config: {os.path.join(config.output_dir, 'experiment.yaml')}")
+    print(f"  Metrics:         {os.path.join(config.output_dir, 'metrics.json')}")
+    print(f"  Metadata:        {os.path.join(config.output_dir, 'metadata.json')}")
+    print(f"  Plots dir:       {plots_dir}")
     print(f"\nTo view in MLflow:")
     print(f"  mlflow ui --backend-store-uri sqlite:///mlflow.db")
     print(f"  (then open http://127.0.0.1:5000)")
