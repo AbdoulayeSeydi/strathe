@@ -158,7 +158,10 @@ If validation fails, the error message names exactly what's wrong
 (wrong observation shape, wrong action bounds, file not found, etc.)
 before any compute is spent.
 
-**Step 3 — edit `my_experiment.yaml`:**
+**Step 3 — edit `my_experiment.yaml`** (this step is required — copying the file is not enough):
+
+Open `my_experiment.yaml` in any text editor and change `vehicles[0].model_path`:
+
 
 ```yaml
 # Before
@@ -178,6 +181,13 @@ vehicles:
   - model_path: formation_hold_ppo_curriculum_v5  # second entry validated but not used in sweep
     algorithm: ppo
     role: reference
+```
+
+Also change `name:` and `output_dir:` so your results don't overwrite the defaults:
+
+```yaml
+name: "my_policy_L2_experiment"
+output_dir: results/my_policy_L2_experiment
 ```
 
 **Step 4 — run:**
