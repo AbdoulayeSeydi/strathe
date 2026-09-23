@@ -406,9 +406,34 @@ Findings:
 
 **Caveat on "calibrated":** in simulation, `calibrated` means a model equal to the simulated vehicle, so the study measures the value of model accuracy. How accurate a real calibration is against a real vehicle is measured separately, on held-out logs (Single-Vehicle results).
 
+### 48. Specialized policies resolve the #47 confound -- information helps; calibrated beats generic; last-beacon is still hard to beat (2026-09-23)
+
+One policy per belief model (`train_fleet_policy.py --belief`, 2 seeds each, 3M steps), each evaluated only with its own belief (`run_specialized_study.py`). The comparison is 12,800 episodes, paired by training seed, start state and packet losses. Results: `calibration/results/fleet_v2_specialized/`.
+
+| Comm | calibrated | generic | last beacon | oracle |
+|---|---|---|---|---|
+| L0, 3 s | 98% | 84% | 100% | 100% |
+| L1, 3 s | 93% | 80% | 100% | 100% |
+| L2, 3 s | 86% | 62% | 94% | 100% |
+| L3a, 1 s | 97% | 86% | 99% | 100% |
+| L3a, 3 s | 70% | 44% | 70% | 98% |
+
+(Every belief model scores 100% at L0, L1 and L2 with 1 s beacons.)
+
+1. **The confound was real.** With a policy trained for it, perfect information is now the best model: +28 points over last-beacon at L3a with 3 s beacons, +6 at L2 with 3 s. Better teammate information does produce better coordination.
+2. **Calibrated beats generic by +11 to +26 points** in every condition not already at the 100% ceiling (L0@3s +14, L1@3s +14, L2@3s +24, L3a@1s +11, L3a@3s +26; all CIs exclude 0). **Generic is worse than no prediction** by 13 to 31 points.
+3. **Calibrated dead reckoning still doesn't beat the last beacon** (−2 to −7 points; tied at L3a@3s). It predicts the teammate's motion by holding its last reported thrust for up to 3 s, while the teammate's controller keeps changing that thrust. The remaining error is about predicting the teammate's future **commands**, not its physics. That points to the next lever: share intent (planned thrust or trajectory) in the beacon, or model the teammate's policy. This is a natural research question for a lab partner.
+
+**What Strathe can now claim:**
+- If a fleet predicts its teammates with a physics model under sparse, lossy acoustic comms, **calibrate it**. An uncalibrated model costs 13–31 points of formation success compared with no model; calibration recovers it.
+- Accurate teammate information is worth up to +28 points, so better prediction has real upside.
+- Physics alone doesn't capture that upside yet: intent-sharing or teammate-policy models are the next step.
+
+All of this holds in simulation, with a calibrated model standing in for the real vehicle.
+
 ## Honest open items
 
-- **Fleet v2 policies don't exploit better information** (finding #47): with mixed-belief training, perfect information scores below a calibrated model and last-beacon matches it. Specialized-policy study running.
+- **Physics dead reckoning doesn't beat last-beacon** (finding #48): predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. The bounds need review by someone who knows the vehicle.
 - **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.

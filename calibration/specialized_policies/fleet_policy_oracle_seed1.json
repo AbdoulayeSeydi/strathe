@@ -1,0 +1,56 @@
+{
+  "policy": "specialized_policies/fleet_policy_oracle_seed1.zip",
+  "contract": {
+    "observation": "Box(13,) float32",
+    "action": "Box(6,) float32 in [-1, 1]",
+    "per_vehicle": true
+  },
+  "algorithm": "ppo",
+  "seed": 1,
+  "timesteps": 3000000,
+  "n_sims": 8,
+  "hyperparameters": {
+    "n_steps": 256,
+    "batch_size": 1024,
+    "n_epochs": 10,
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.0,
+    "net_arch": [
+      128,
+      128
+    ]
+  },
+  "truth_params": "calibrated_parameters_fleet_truth.yaml",
+  "training_distribution": {
+    "belief": "oracle",
+    "severities": [
+      "L0",
+      "L1",
+      "L2",
+      "L3a"
+    ],
+    "beacon_intervals_s": [
+      0.5,
+      1.0,
+      2.0,
+      3.0
+    ],
+    "belief_mix": null,
+    "initial_separation_range_m": [
+      2.0,
+      5.5
+    ],
+    "initial_closing_speed_range_mps": [
+      -0.7,
+      0.7
+    ]
+  },
+  "git_commit": "b40c254c30b94e83ac0762872045b72100ee0546",
+  "git_uncommitted_changes": false,
+  "python": "3.13.5",
+  "elapsed_s": 3784.3,
+  "transitions_per_s": 792.7
+}
