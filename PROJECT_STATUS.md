@@ -307,19 +307,43 @@ A real, honest post-hoc audit (not initially caught) found three of C1-C5's sub-
 
 **Current, honest status**: MLflow experiment tracking is fully built, phased, and confirmed working end-to-end across all three real scripts, with a real, clean cross-script query as the final proof. Local, file-based (SQLite) tracking only - no server, matching this project's real current scale.
 
+### 39. MuJoCo backend: missing rotating-frame term in free-orientation mode -- found and fixed (2026-09-23)
+
+`mujoco_backend._inject_full_override_wrench` converted the desired body-frame acceleration to MuJoCo's world-frame linear acceleration as `R @ v_dot`. When orientation evolves freely (`MuJoCoArenaCore`, forward-sim mode) the correct conversion is `R @ (v_dot + omega x v)`. Symptom: MuJoCo vs `ArenaCore` drifted **1.4 cm in 2 s of turning, and the gap did not shrink with a finer `physics_dt`** (a frame error, not integrator error). With the term added the gap is 10x smaller and shrinks in proportion to `physics_dt`. **Teacher-forced mode is unaffected and must not get the term**: it reads velocity back with the pre-step rotation, so the original formula matches the stand-in to ~1e-15 against real MuJoCo. So MuJoCo *calibrations* (teacher-forced) are unaffected; the fleet MuJoCo validation (`MuJoCoArenaCore`, Claim C) was affected whenever a vehicle turned while moving. Regression test: `tests/test_mujoco_transport.py`; `test_mujoco_arena_core.py` test 3 now asserts a real bound (was finiteness only) and fails on the old code.
+
+### 40. The roll/yaw "weakness" is not in the calibration -- and the HoloOcean backend has the same frame omission plus an unchecked tick rate (2026-09-23)
+
+Held-out per-axis scoring with the stand-in physics the calibrations were fitted with (`diagnose_rotational_weakness.py`, 14 held-out runs): every converged calibration improves roll rate by ~82% and yaw rate by 23-51% over generic physics. The weakness appears only in HoloOcean evaluation. Two concrete problems found in `holoocean_backend.py`:
+
+1. **Same omission as #39**: `world_lin_accel = R @ v_dot[:3]` with HoloOcean integrating a free rigid body. Fixed (`transport_term=True`, default) and tested against a fake HoloOcean that integrates as documented (`tests/test_holoocean_backend_frames.py`: turning surge error 0.03 with the term vs 0.40 without). **Not confirmed in real HoloOcean.**
+2. **Tick rate never checked**: the backend sends one command per 0.1 s logged sample, so each `env.step()` must advance 0.1 s. HoloOcean's documented default is 30 ticks/s, and the scenario's value was never recorded. `make_deterministic_environment()` now records it and `simulate_trajectory_holoocean()` refuses to run on a mismatch.
+
+`verify_holoocean_frame_conventions.py` measures both on real HoloOcean (tick length from a constant-acceleration run; which convention keeps a turning vehicle's body velocity constant). It needs a Windows or Linux machine with HoloOcean. **Every HoloOcean-backed number in this document (Claim A, findings #19-#32) predates both fixes and should be treated as provisional until that script passes and Claim A is re-run.** An emulation of HoloOcean's scheme on macOS diverged for all physically plausible calibrations, so it could not reproduce the Claim A numbers either way (documented in the script).
+
+### 41. Test isolation: a fake `mujoco` module leaked into every later test file
+
+`test_mujoco_backend.py` installed a fake `mujoco` into `sys.modules` at import time and never removed it, so any test file collected after it ran against the fake (12 unrelated failures, depending only on file order; CI passed only because of its order). It now restores the real modules immediately after importing its fake-bound copy; the suite passes in either order. `test_mujoco_arena_core.py` passed values between tests via return values, which pytest can't do (3 errors, never ran); converted to fixtures.
+
+### 42. The single-evaluation stall (#1 open item): unattended capture instead of watching for it (2026-09-23)
+
+`stall_watchdog.py`, wired into every stand-in, HoloOcean and demo calibration via `optimizer`: each evaluation is timed on three clocks (wall, monotonic, process CPU) into `eval_timing.csv`, and an evaluation running past max(120 s, 10x median) gets every thread's stack, rusage and load average dumped to `stall_log.txt`, repeated every 10 min while it lasts. The clocks classify the cause: machine asleep (wall >> monotonic on macOS), process waiting (CPU << wall: sleep on Windows, swapping, I/O, CPU starvation) or genuinely computing. The stand-in evaluation does a fixed amount of arithmetic, so a 100x slow-down has to come from outside it; a laptop sleeping through an overnight run fits every observation so far. Verified live on a real demo run (every evaluation 9.6-10.8 s, all three clocks agreeing). `py-spy` was the original plan; it needs root on macOS and someone present at the right moment.
+
+`fast_dynamics.py` (added alongside): the same 6-DOF equations with the mass matrix inverted once and orientation as a rotation matrix; 6.4x faster than `ArenaCore`, equivalent to 1e-8 over 20 s trajectories across 7 parameter sets (`tests/test_fast_dynamics.py`).
+
 ## Honest open items
 
-- **`Xq_dot`'s bound-reversal, flagged but not yet investigated** (finding #33) — in the most recent real result, `Xq_dot` sits at its bound (`-0.4794` of `[-0.5, 0.5]`), the opposite signal from the earlier near-zero result finding #26's shelving decision was based on. Whether this means the off-diagonal-added-mass shelving decision should be revisited is a real, open question.
-- **The rotational weakness (`p`/`r`) remains genuinely open.** Two specific, well-reasoned hypotheses have now been tested directly and refuted with real evidence: DOF-weighting (finding #27) and the `Ieff_roll`/`Ieff_pitch`/Coriolis-coupling fix (finding #32). The leading remaining hypothesis — the 150-step training-run truncation used in every HoloOcean-backed segment this session — has not yet been tested; doing so means giving up the speed shortcut that made this session's iteration possible, a genuinely larger, more expensive commitment deserving a deliberate decision, not an incremental extension.
-- **The performance mystery** (a single evaluation occasionally taking far longer than its confirmed baseline) resurfaced this session in the stand-in backend specifically (`run_full_pipeline.py`, a single eval took ~4 hours against a confirmed ~100s baseline). Real negative evidence gathered this session: OneDrive sync ruled out (confirmed local disk), isolated rapid file I/O ruled out via a direct, real test (500 checkpoint-pattern writes, zero outliers). The hypothesis is narrowed, not resolved — a live `py-spy` catch of an actual stall remains the one clear, undone, decisive diagnostic step.
-- **`Zw_dot`'s practical (not structural) identifiability gap** is understood and precisely characterized (findings #18, #29), not "fixed" — it reflects what this dataset's real maneuvers can and can't constrain.
-- **The small, confirmed ~2.5%/tick angular-velocity decay** under Custom Dynamics with zero command (finding #15) remains a known, deliberately-unfixed, first-instant-only residual.
+- **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
+- **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. The bounds need review by someone who knows the vehicle.
+- **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.
+- **The single-evaluation stall** is now instrumented (#42) but not yet caught; the next long run will classify it.
+- **The ~2.5%/tick angular-velocity decay** under Custom Dynamics (#15) remains a known residual.
 
 ---
 
 ## What's actually next
 
-1. **Test the 150-step training-truncation hypothesis directly** — the clearest, most strongly-motivated remaining lever for `p`/`r`, now that two other real hypotheses have been eliminated. Requires a deliberate decision to run full-length HoloOcean-backed training, giving up the speed shortcut used throughout this session.
-2. **Resolve the performance mystery properly** — catch a real, live stall with `py-spy` attached, rather than continuing to rule out candidate causes one at a time from the outside.
-3. **Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison** against the current, real Coriolis-aware Jacobian — flagged as a concrete follow-up in finding #10, still not done.
-4. Beyond `p`/`r` specifically, the next real model-structure lever (if the truncation hypothesis doesn't resolve it) remains: off-diagonal added mass revisited with a properly time-budgeted test, thruster/actuator nonlinearity, or cross-axis damping terms — none of which the model currently includes.
+1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
+2. **Review `vehicle_spec.yaml` bounds** for the parameters every fit pins, then re-fit.
+3. Run the next long calibration normally; if it stalls, `stall_log.txt` and `eval_timing.csv` will say why.
+4. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
+5. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

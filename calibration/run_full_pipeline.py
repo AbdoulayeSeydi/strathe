@@ -216,6 +216,11 @@ def main() -> None:
             _best["cost"] = cost
             _best["param_vec"] = param_vec.copy()
     calibration_config.on_iteration = _track_best
+    # the ~4 h single-evaluation stall was last seen in THIS script -- time
+    # every evaluation and capture stacks if it happens again (stall_watchdog.py)
+    from stall_watchdog import StallWatchdog
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    calibration_config.stall_watchdog = StallWatchdog(args.output_dir)
 
     try:
         result = calibrate(loaded_spec, train_runs, calibration_config)

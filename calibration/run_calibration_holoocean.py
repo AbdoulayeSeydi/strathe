@@ -54,6 +54,8 @@ import json
 import time
 from pathlib import Path
 
+from stall_watchdog import StallWatchdog
+
 import numpy as np
 import yaml
 
@@ -288,6 +290,7 @@ def main():
         x0_override=x0_warm_start,
         initialization_strategy="fixed",  # start EXACTLY at the warm-start point, no perturbation
         on_iteration=_with_timing_log(make_checkpoint_callback(checkpoint_path)),
+        stall_watchdog=StallWatchdog(str(_output_dir)),  # see stall_watchdog.py
         simulate_fn=simulate_fn,
         dof_scales=dof_scales,
         verbose=2,
