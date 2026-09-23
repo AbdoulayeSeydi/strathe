@@ -330,6 +330,29 @@ Held-out per-axis scoring with the stand-in physics the calibrations were fitted
 
 `fast_dynamics.py` (added alongside): the same 6-DOF equations with the mass matrix inverted once and orientation as a rotation matrix; 6.4x faster than `ArenaCore`, equivalent to 1e-8 over 20 s trajectories across 7 parameter sets (`tests/test_fast_dynamics.py`).
 
+### 43. Raw PWM → force, validated on the dataset's own logged pipeline (2026-09-23)
+
+The public dataset logs `pwm1-8`, `pwm_virtual1-8`, `thrust1-8` and `Fx..Tz`. Three exact relationships were recovered:
+- **Direction:** `pwm_virtual` is `pwm` mirrored about 1500 µs for thrusters 1, 2, 5 and 8 (reversed motors), identical in every session.
+- **Thrust curve:** `thrust` is an exact function of `pwm_virtual` (zero spread over 183,555 rows × 8 thrusters). Deadband is 1472–1528 µs, and the maxima are +47.9 / −37.2 N. Forward and reverse maxima independently match Blue Robotics' published T200 figures interpolated to ~15 V.
+- **Allocation:** `Fx..Tz = B · thrust` exactly (least-squares residual 0). This recovers the BlueROV2 Heavy allocation matrix.
+
+`thruster_model.py` reproduces the dataset's forces from raw PWM alone on every row (to the 4-decimal precision of the stored matrix). This closes PRODUCT_VISION items 3 and 12 for T200-based vehicles. Not modelled: ESC/motor lag and battery sag.
+
+### 44. General log ingestion with silent-error guards (2026-09-23)
+
+`data_ingestion.py` converts arbitrary CSV logs to the canonical layout from a YAML spec: column mapping, units, FLU/ENU → FRD/NED frames, Euler or quaternion orientation, logged forces or PWM, and timestamps with optional resampling. Tested by disguising real dataset runs as a foreign ROS-style, PWM-only log in deg/s, cm/s and ms. Ingestion recovers the original velocities to 1e-9, forces to 5e-3 N and rotations to 1e-9, and the calibration objective on the ingested files equals the original's. It refuses the classic silent errors: deg/s declared as rad/s, bad quaternions, non-monotonic or jittered time, mixed rates, and non-µs PWM. ROS bag reading is not built; export to CSV first.
+
+### 45. Non-specialist calibration report (2026-09-23)
+
+`calibration_report.py` turns `metrics.json`, the calibrated parameters and the identifiability JSON into plain language:
+- a bottom line
+- a per-axis verdict with the reason
+- parameters at bounds, physically implausible values, confounded pairs
+- next steps
+
+On `calibration_output_10hz_coriolis` it flags what earlier findings established by hand: 9 parameters at bounds, and `Ieff_roll`/`Ieff_pitch` at 19–22× the independent Gazebo inertia (finding #28).
+
 ## Honest open items
 
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.

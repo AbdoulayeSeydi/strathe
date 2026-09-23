@@ -19,6 +19,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+      # The public BlueROV2 dataset, pinned, so tests that validate against
+      # real logs (thruster model, ingestion round-trip) run in CI instead of
+      # skipping. ~230 MB.
+      - name: Fetch BlueROV2 dataset
+        run: |
+          git init data/raw/Bluerov2_trajectory_dataset
+          git -C data/raw/Bluerov2_trajectory_dataset fetch --depth 1 https://github.com/oceansystemslab/Bluerov2_trajectory_dataset.git 5104d15d2f9756ff45b4b0ed2b95d284a6e30e43
+          git -C data/raw/Bluerov2_trajectory_dataset checkout FETCH_HEAD
       - name: Install dependencies
         run: |
           pip install -r requirements.txt

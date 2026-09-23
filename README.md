@@ -168,6 +168,53 @@ separate scripts, run in order:
 See `PROJECT_STATUS.md` for the full history of real runs, real bugs found
 and fixed along the way, and the honest per-DOF results.
 
+## Bring your own vehicle's logs
+
+The calibration pipeline reads one canonical CSV layout. Three tools get a
+lab's own data into it and explain the result.
+
+**1. Thruster PWM → force** (`calibration/thruster_model.py`). Most logs record
+the PWM each ESC was sent, not force. `ThrusterConfig.wrench(pwm)` applies
+motor directions, a thrust curve and the thruster allocation matrix. The
+BlueROV2 Heavy preset (8 × T200) was extracted from the public dataset, which
+logs all three stages. It reproduces the dataset's own forces from raw PWM
+on all 183,555 rows. Its thrust curve (+47.9 N / −37.2 N) matches Blue
+Robotics' published T200 figures at ~15 V (a 4S battery), and
+`at_voltage(V)` rescales it to 12–20 V. Other vehicles use
+`allocation_from_geometry()` plus their own curve file.
+
+**2. Log ingestion** (`calibration/data_ingestion.py`). A short YAML spec says
+which of your columns hold velocity, orientation and force (or PWM), in what
+units and frame. ROS FLU/ENU frames are converted to Fossen FRD/NED.
+```bash
+cd calibration
+python data_ingestion.py --spec my_vehicle_ingest.yaml --out ../my_vehicle_logs
+python preflight_check.py --data-dir ../my_vehicle_logs --spec vehicle_spec.yaml
+```
+It refuses data that would silently corrupt a calibration:
+- deg/s declared as rad/s
+- non-unit quaternions
+- non-monotonic or irregular timestamps (unless you ask it to resample)
+- files at different rates
+- PWM values that aren't ESC microseconds
+
+`ingest_report.json` records the detected rate, time gaps and anything dropped. The
+full example spec is in the module docstring. ROS bags: export the topics to
+CSV first (for example with `rosbags-convert` or `ros2 bag` plus a small
+script); direct bag reading isn't built yet.
+
+**3. A report written for non-specialists** (`calibration/calibration_report.py`).
+```bash
+python calibration_report.py --result ../calibration_output_x --identifiability identifiability_report.json
+```
+It writes `calibration_report.md`, with:
+- a bottom line
+- a verdict for each motion axis (trust it / use with care / don't rely on it), with the reason
+- parameters stuck at their limits, physically implausible values, and parameter pairs your data can't tell apart
+- concrete next steps
+
+Example: `calibration_output_10hz_coriolis/calibration_report.md`.
+
 ## The fleet coordination workflow: multi-agent, comm-constrained
 
 **Two agents, two physics models — stated up front before any commands.**
