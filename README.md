@@ -1,4 +1,4 @@
-# Tryton — Communication-Constrained Multi-Agent Simulation for Underwater Autonomy
+# Strathe — Communication-Constrained Multi-Agent Simulation for Underwater Autonomy
 
 A simulation and RL-training platform for studying how real-world communication constraints — latency, packet loss, limited bandwidth — affect coordination between multiple underwater vehicles, grounded in physics calibrated against real vehicle mission logs, not an idealized model.
 
@@ -357,7 +357,7 @@ investigation, including the two ruled-out hypotheses.
 
 Every real calibration run - `run_calibration.py`, `run_calibration_holoocean.py`,
 and `run_full_pipeline.py` - automatically logs to a local MLflow experiment
-(`marine_sim_calibration`). This is purely observational: if MLflow is
+(`strathe_calibration`). This is purely observational: if MLflow is
 missing or logging fails for any reason, the calibration itself is
 completely unaffected - you'll see a warning printed, never a crash.
 
@@ -414,6 +414,13 @@ own dataset directory, and would bloat the tracking store for no real
 benefit. Only the dataset's identity (path, file count, size, mtime) is
 recorded, so you can tell *which* dataset a run used without duplicating
 the data itself.
+
+## License
+
+Strathe is proprietary software — all rights reserved. See [LICENSE](LICENSE).
+Access to this repository does not grant any right to use, copy, modify or
+distribute it; labs and other partners use Strathe under a separate written
+evaluation, pilot or commercial agreement.
 
 ## Contact
 
