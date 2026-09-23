@@ -151,3 +151,28 @@ def test_fast_core_is_meaningfully_faster():
         fast.step(tau)
     t_fast = time.perf_counter() - t
     assert t_fast * 3 < t_ref, f"FastCore {t_fast:.3f}s vs ArenaCore {t_ref:.3f}s"
+
+
+@pytest.mark.parametrize("name,params", PARAM_SETS, ids=[n for n, _ in PARAM_SETS])
+def test_simulate_trajectory_fast_path_matches_reference_loop(name, params):
+    """dynamics_model.simulate_trajectory uses fast_dynamics unless debug output
+    is requested; debug=True runs the original reference loop. Both must agree."""
+    from dynamics_model import TrajectoryInputs, simulate_trajectory
+    rng = np.random.default_rng(5)
+    n = 150
+    traj = TrajectoryInputs(nu0=rng.normal(0, 0.2, 6),
+                            forces_torques=np.clip(np.cumsum(rng.normal(0, 2, (n, 6)), axis=0), -30, 30),
+                            roll_pitch_series=rng.uniform(-0.4, 0.4, (n, 2)))
+    for dt, pdt in ((0.1, 0.005), (0.02, 0.005)):
+        fast = simulate_trajectory(params, VEHICLE, SimulationConfig(dt=dt, physics_dt=pdt), traj).nu
+        ref = simulate_trajectory(params, VEHICLE, SimulationConfig(dt=dt, physics_dt=pdt, debug=True), traj).nu
+        np.testing.assert_allclose(fast, ref, rtol=1e-9, atol=1e-10)
+
+
+def test_simulate_trajectory_fast_path_still_reports_divergence():
+    from dynamics_model import TrajectoryInputs, simulate_trajectory
+    params = initial_parameters(SPEC)
+    traj = TrajectoryInputs(nu0=np.array([1e200, 0, 0, 0, 0, 0]), forces_torques=np.full((20, 6), 1e200),
+                            roll_pitch_series=np.zeros((20, 2)))
+    with pytest.raises(FloatingPointError):
+        simulate_trajectory(params, VEHICLE, SimulationConfig(dt=0.1), traj)

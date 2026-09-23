@@ -64,6 +64,11 @@ class FastDynamics:
     def acceleration(self, v, tau, roll: float, pitch: float) -> list:
         """Body-frame v_dot (list of 6 floats). Equivalent to
         dynamics_model.compute_acceleration(...)[0]."""
+        return self.acceleration_trig(v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch))
+
+    def acceleration_trig(self, v, tau, sr: float, cr: float, sp: float, cp: float) -> list:
+        """acceleration() with sin/cos of roll and pitch precomputed (they are
+        constant across a teacher-forced sample's sub-steps)."""
         M, Minv, lin, quad = self.M, self.Minv, self.lin, self.quad
         # Momentum p = M v (full matrix -- keeps off-diagonal coupling exact).
         p = [M[i][0] * v[0] + M[i][1] * v[1] + M[i][2] * v[2]
@@ -78,7 +83,6 @@ class FastDynamics:
         cv4 = -(pl2 * u - pl0 * w) - (pa2 * a - pa0 * c)
         cv5 = -(pl0 * vv - pl1 * u) - (pa0 * b - pa1 * a)
         # Restoring forces g(eta) -- same formula as _restoring_forces.
-        sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
         diff, W, zg = self._diff, self._W, self._zg
         g0 = diff * sp
         g1 = -diff * cp * sr
@@ -196,3 +200,28 @@ class FastCore:
     def state(self) -> ArenaState:
         return ArenaState(nu=np.array(self.nu), position=np.array(self.pos),
                           orientation=Rotation.from_matrix(np.array(self.R)))
+
+
+def simulate_velocity_teacher_forced(params: CalibrationParameters, vehicle: VehicleConstants,
+                                     n_substeps: int, sub_dt: float, nu0, forces_torques,
+                                     roll_pitch_series) -> np.ndarray:
+    """dynamics_model.simulate_trajectory's integration loop (teacher-forced
+    roll/pitch, Forward Euler sub-steps), on FastDynamics. Returns (N, 6)."""
+    dyn = FastDynamics(params, vehicle)
+    acc = dyn.acceleration_trig
+    n = forces_torques.shape[0]
+    out = np.empty((n, 6))
+    out[0] = nu0
+    v = [float(x) for x in nu0]
+    F = forces_torques.tolist()
+    RP = roll_pitch_series.tolist()
+    for k in range(n - 1):
+        tau = F[k]
+        roll, pitch = RP[k]
+        sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
+        for _ in range(n_substeps):
+            vd = acc(v, tau, sr, cr, sp, cp)
+            v = [v[0] + vd[0] * sub_dt, v[1] + vd[1] * sub_dt, v[2] + vd[2] * sub_dt,
+                 v[3] + vd[3] * sub_dt, v[4] + vd[4] * sub_dt, v[5] + vd[5] * sub_dt]
+        out[k + 1] = v
+    return out

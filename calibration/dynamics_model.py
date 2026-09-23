@@ -589,6 +589,18 @@ def simulate_trajectory(
     n_substeps = sim_config.n_substeps
     sub_dt = sim_config.sub_dt
 
+    if debug_info is None:
+        # Fast path: the identical equations with the mass matrix inverted once
+        # (fast_dynamics.py). Equivalence to the reference loop below is tested
+        # in tests/test_fast_dynamics.py; ~6x faster, so a full stand-in
+        # calibration drops from hours to about an hour. The reference loop
+        # still runs whenever debug output is requested.
+        from fast_dynamics import simulate_velocity_teacher_forced
+        nu = simulate_velocity_teacher_forced(params, vehicle, n_substeps, sub_dt, trajectory.nu0,
+                                              np.asarray(trajectory.forces_torques, dtype=float),
+                                              np.asarray(trajectory.roll_pitch_series, dtype=float))
+        n_steps = 0  # skip the reference loop
+
     for k in range(n_steps - 1):
         v = nu[k]
         tau = trajectory.forces_torques[k]
