@@ -242,7 +242,20 @@ INDEPENDENT_CROSSCHECK_BACKEND = "holoocean"
 # include it verbatim in every summary_report.md, rather than maintaining a
 # separately-written copy that can drift from the source of truth.
 # Any edit to the caveats above should be reflected here.
-CLAIM_C_HONEST_CAVEATS = (
+# WITHDRAWN 2026-09-23 (PROJECT_STATUS.md finding #46): delta_physics_belief_error
+# measures how far the TEAMMATE moved since its last beacon, which depends on
+# how hard the policy drives each vehicle slot, not on either agent's physics
+# (the same negative "advantage" appears with no calibration difference at
+# all). Kept so fleet v1 runs still render; superseded by fleet v2.
+CLAIM_C_WITHDRAWN_NOTICE = (
+    "> **Claim C is withdrawn (PROJECT_STATUS.md finding #46).** `delta_physics_belief_error` "
+    "measures how far the teammate moved since its last beacon. No agent in fleet v1 uses its "
+    "physics to predict anything, and the same negative 'advantage' appears when both vehicles "
+    "have identical physics (-0.043 with both generic, -0.011 with both calibrated). Use fleet v2 "
+    "(`run_fleet_experiment.py`) for calibrated-vs-generic comparisons.\n\n"
+)
+
+CLAIM_C_HONEST_CAVEATS = CLAIM_C_WITHDRAWN_NOTICE + (
     "What Claim C does **not** establish (from `phase2_config.py` Decision 3 addendum, "
     "stated explicitly per Decision 3's own discipline):\n\n"
     "- `success_rate` and `delta_physics_off_axis` did **not** transfer cleanly between "

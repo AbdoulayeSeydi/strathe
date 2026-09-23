@@ -1,0 +1,15 @@
+# Robustness check for fleet_study.yaml: the vehicles' TRUE motion simulated by
+# MuJoCo (independent integrator, rotating-frame fix from PROJECT_STATUS #39)
+# while every vehicle's belief model stays the stand-in equations.
+schema_version: 2
+name: fleet_v2_mujoco_truth
+policies:
+  - {model_path: fleet_policy_seed1}
+  - {model_path: fleet_policy_seed2}
+  - {model_path: fleet_policy_seed3}
+beliefs: [calibrated, generic, last_beacon]
+compare: {a: calibrated, b: generic}
+communication: {severities: [L3a], beacon_interval_s: [1.0, 3.0]}
+evaluation: {comm_seeds: [1, 2, 3, 4, 5], workers: 7}
+dynamics_backend: mujoco
+output_dir: results/fleet_v2_mujoco_truth

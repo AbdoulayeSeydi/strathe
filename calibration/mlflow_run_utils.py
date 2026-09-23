@@ -15,6 +15,7 @@ string.
 from __future__ import annotations
 
 import subprocess
+from typing import Optional
 
 import numpy as np
 
@@ -64,3 +65,14 @@ def compute_per_agent_rewards(combined_reward: float, action_generic: np.ndarray
     reward_generic = shared_components - ctrl_generic
     reward_calibrated = shared_components - ctrl_calibrated
     return reward_generic, reward_calibrated
+
+def get_git_dirty() -> Optional[bool]:
+    """True if the working tree has uncommitted changes to TRACKED files
+    (so git_commit alone does not identify the code that ran), False if
+    clean, None if git is unavailable. Never raises."""
+    try:
+        result = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                                capture_output=True, text=True, timeout=5, check=True)
+        return bool(result.stdout.strip())
+    except Exception:
+        return None

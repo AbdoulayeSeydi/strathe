@@ -353,8 +353,62 @@ The public dataset logs `pwm1-8`, `pwm_virtual1-8`, `thrust1-8` and `Fx..Tz`. Th
 
 On `calibration_output_10hz_coriolis` it flags what earlier findings established by hand: 9 parameters at bounds, and `Ieff_roll`/`Ieff_pitch` at 19–22× the independent Gazebo inertia (finding #28).
 
+### 46. Claim C withdrawn: the fleet v1 headline metric did not measure calibration (2026-09-23)
+
+`delta_physics_belief_error` (calibrated minus generic "belief error") was the fleet v1 headline. Fleet v1 had no belief model: each agent's "belief" was the last beacon it received, so the metric measured how far the **teammate** moved since its last beacon. That depends on how hard the policy drives each vehicle slot. Controlled check, using the L2 policy at L2 over 96 episodes per condition:
+
+| Setup | Delta (cal - gen) | Mean speed, generic / calibrated slot |
+|---|---|---|
+| As shipped | -0.018 | 0.26 / 0.38 m/s |
+| Generic vehicle given the initial velocity instead | -0.017 | 0.27 / 0.38 |
+| **Both vehicles generic physics** (no calibration difference) | **-0.043** | 0.28 / 0.59 |
+| **Both vehicles calibrated physics** (no calibration difference) | **-0.011** | 0.28 / 0.37 |
+
+The "calibrated advantage" appears, and is even larger, with no calibration difference at all. Four further problems were found in fleet v1:
+
+- **Centralized control leaked the teammate's state.** One policy saw both vehicles' exact velocity and orientation every tick, bypassing the acoustic channel.
+- **Crashing was rewarding.** A collision ended the episode for a one-off penalty of 10, escaping every remaining step's separation cost. That fits the 20–50% collision rates.
+- **Beacons were unrealistically frequent.** At 10 beacons a second, beliefs stayed within centimetres even at 60% loss, so no belief model could matter.
+- **The entry point ignored most of its config.** Task settings were validated and then ignored, and every comm override crashed with `KeyError`.
+
+Claim C and the README numbers built on it are withdrawn. `phase2_config.CLAIM_C_HONEST_CAVEATS` now opens with the withdrawal, so v1 reports say so. Fleet v1 code still runs (`run_fleet_experiment_v1.py`) for reproducing old results.
+
+### 47. Fleet v2: a physical belief model, per-vehicle policies, and the belief-to-success study (2026-09-23)
+
+**Design** (`fleet_env.py`, `fleet_belief.py`, `fleet_vec_env.py`):
+- **Same truth for both vehicles.** Both run the same "true" physics: `calibrated_parameters_fleet_truth.yaml`, the best held-out converged fit (expA).
+- **Full-state beacons, sent sparsely.** Each vehicle transmits its full state (position, orientation, velocity, last thrust) every `beacon_interval_s` (1–3 s; acoustic modems don't manage 10 Hz).
+- **A real belief model.** Between beacons each vehicle predicts its teammate with a belief model, and that model is the only thing varied. Options: 6-DOF dead reckoning with calibrated, generic or interpolated parameters; constant velocity; last beacon; oracle.
+- **Per-vehicle policy.** One shared network sees only the vehicle's own state plus its belief (13 floats) and outputs that vehicle's thrust (6).
+- **No crash exploit.** A collision is charged the rest of the episode.
+
+Key properties are tested directly: the observation carries nothing about the teammate except through the channel, and packet-drop patterns are identical across belief models, so episodes are paired.
+
+**Speed.** `fast_dynamics.py` (#42) makes training practical: 3 policies × 3M steps in ~41 min each on an M1.
+
+**Main study** (`fleet_study.yaml`):
+- 3 training seeds × 8 belief models × 4 loss levels × 2 beacon intervals × 200 paired episodes = 38,400 episodes.
+- Results: `calibration/results/fleet_v2_belief_to_success/`, with per-seed checks in `extended_analysis.md`.
+
+Findings:
+1. **Calibrated beats generic physics in 7 of 8 conditions**, by +3 to +25 success points (McNemar p ≤ 1e-5).
+   - The gap grows with loss and beacon sparsity: +25 at 30% loss with 3 s beacons, +15 at 60% with 3 s.
+   - Dose-response: success falls as model parameters move from true to generic in all 8 conditions (slope CIs exclude 0).
+   - Per seed it is robust in the hard conditions (all 3 seeds positive at L2@3s, +22 to +30) and seed-dependent in easy ones (one seed shows no gain at L0/L1).
+2. **An uncalibrated predictive model is worse than no prediction.** `generic` loses to `last_beacon` in all 8 conditions, by 3 to 26 points.
+3. **But `calibrated` is no better than `last_beacon`** (−10 points at L0@3s and L1@3s), **and perfect information (`oracle`) scores below `calibrated` in 6 of 8 conditions.** These policies don't turn better information into better coordination. The likely cause is a design confound: they were trained on a mixture of belief models, and the observation doesn't say which one is active. The "age since last beacon" input means "stale" for last-beacon but "current prediction" for physics and oracle beliefs, so the policy applies one average staleness correction to all of them. The calibrated-vs-generic comparison is unaffected (both carry the same confound, and it's paired), but "does prediction help at all" is not answered by this study.
+
+**Robustness:**
+- **Different "true vehicle"** (`fleet_study_alt_truth.yaml`, holoocean_coriolis): calibrated beats generic in 3 of 4 conditions (+14 to +19), with no difference at L2@1s.
+- **MuJoCo as the truth engine** (`fleet_study_mujoco.yaml`): nearly identical to the stand-in (L3a@1s 98/88/99% vs 97/86/99%; L3a@3s 66/48/68% vs 64/48/67% for calibrated/generic/last-beacon).
+
+**What this supports:** for a fleet that predicts its teammates with a physics model under sparse, lossy acoustic comms, calibrating that model is worth up to ~25 points of formation success, and an uncalibrated model is worse than none. It does not yet support "prediction beats no prediction". **Follow-up running:** policies trained for a single belief model each (`train_fleet_policy.py --belief`, evaluated by `run_specialized_study.py`).
+
+**Caveat on "calibrated":** in simulation, `calibrated` means a model equal to the simulated vehicle, so the study measures the value of model accuracy. How accurate a real calibration is against a real vehicle is measured separately, on held-out logs (Single-Vehicle results).
+
 ## Honest open items
 
+- **Fleet v2 policies don't exploit better information** (finding #47): with mixed-belief training, perfect information scores below a calibrated model and last-beacon matches it. Specialized-policy study running.
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. The bounds need review by someone who knows the vehicle.
 - **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.

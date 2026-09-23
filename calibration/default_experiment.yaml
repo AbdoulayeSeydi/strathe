@@ -1,67 +1,39 @@
-# default_experiment.yaml -- shipped default fleet experiment config.
-# Run with: python run_fleet_experiment.py  (uses this file automatically)
-# Or specify your own: python run_fleet_experiment.py --config my_experiment.yaml
+# default_experiment.yaml -- the shipped fleet v2 experiment.
+#     python run_fleet_experiment.py            (uses this file)
+# Copy it and edit to run your own; every field is explained in
+# fleet_experiment_schema.py and CUSTOM_EXPERIMENT.md.
 #
-# Copy this file and edit it to define your own experiment -- no source
-# edits needed. See comments on each field for what's configurable.
-#
-# IMPORTANT: the two vehicles below are assigned roles by position, not by
-# name. The first vehicle is treated as "calibrated" (uses real fitted
-# physics), the second as "generic" (uses default physics). The labels
-# below are just for the report -- they don't change which parameters each
-# agent uses.
-
-name: "fleet_baseline_sweep"  # appears in MLflow and the summary report
-
-vehicles:
-  # NOTE ON HOW MODELS ARE USED: run_fleet_experiment.py currently uses
-  # vehicles[0] as the centralized policy controlling BOTH agents in the
-  # sweep. vehicles[1] is loaded and validated (pre-flight shape check)
-  # but does not affect the sweep output. Both agents' PHYSICS are always
-  # one calibrated + one generic, set by the environment -- independent
-  # of which policies are listed here.
-  #
-  # For the default to show a meaningful delta_physics_belief_error at L2,
-  # vehicles[0] must be the L2-trained policy (curriculum_L2), not the
-  # L0-trained one (curriculum_v5). An L0-trained policy at L2 severity
-  # produces near-zero delta because it doesn't exploit calibrated physics
-  # under degraded comm. See README for the full explanation.
-
-  - model_path: formation_hold_ppo_curriculum_L2  # L2-trained: shows the Claim C signal
-    algorithm: ppo
-    role: calibrated   # human-readable label only -- physics are set by the environment
-
-  - model_path: formation_hold_ppo_curriculum_v5  # L0-trained: loaded+validated, not used in sweep
-    algorithm: ppo
-    role: generic
-
+# Two simulated BlueROV2s hold a 2 m formation, sharing their state over a
+# lossy acoustic link every beacon_interval_s. Between beacons each vehicle
+# predicts where its teammate is with a BELIEF MODEL -- the only thing that
+# differs between the conditions below. Same true physics, same start states,
+# same lost packets in every condition, so they're compared episode by episode.
+schema_version: 2
+name: fleet_default
+policies:                       # the three shipped per-vehicle policies (training seeds);
+  - {model_path: fleet_policy_seed1, algorithm: ppo}   # results pool them -- a single seed can
+  - {model_path: fleet_policy_seed2, algorithm: ppo}   # over- or under-state the effect
+  - {model_path: fleet_policy_seed3, algorithm: ppo}   # (see analyze_fleet_study.py)
+truth_params: calibrated_parameters_fleet_truth.yaml     # the "real" vehicle both run on
+beliefs:
+  - calibrated        # physics model with the true vehicle's parameters
+  - generic           # physics model with uncalibrated default parameters
+  - last_beacon       # no prediction: teammate assumed to sit at its last beacon
+  - oracle            # perfect knowledge (upper bound)
+compare: {a: calibrated, b: generic}
 communication:
-  severity: L2         # base severity level: L0, L1, L2, L3a, or L3b
-                       # See README for what each level means numerically.
-  # overrides:         # optional: change any individual comm parameter on top
-  #   near_field_prob: 0.4   # override packet drop probability
-  #   far_field_prob: 0.4
-  #   bytes_per_tick: 23     # override bandwidth limit
-  #   speed_of_sound_mps: 1500.0  # override acoustic latency model
-
+  severities: [L2, L3a]        # 30% and 60% packet loss (see README table)
+  beacon_interval_s: [1.0, 3.0] # seconds between state beacons (one result cell each)
 task:
-  target_separation_m: 2.0   # target distance between agents (meters)
-  tolerance_m: 0.2            # how close to target counts as "in formation"
-  hold_steps: 20              # how many consecutive steps must be held for success
-
+  target_separation_m: 2.0
+  tolerance_m: 0.2
+  hold_steps: 20               # ticks of 0.1 s
+  max_episode_steps: 200
+  collision_radius_m: 0.5
+initial_conditions:
+  separations_m: [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5]
+  closing_speeds_mps: [-0.7, -0.35, 0.0, 0.35, 0.7]   # + = starting to separate
 evaluation:
-  episodes: 160               # total episodes per cell (32 grid points × 5 seeds = 160)
-  comm_seeds: [1, 2, 3, 4, 5] # RNG seeds for the comm channel (averaged over in output)
-  grid_seeds: 5               # episode seeds per grid point
-
-# dynamics_backend: which physics engine to use for evaluation.
-# "stand_in": fast, default (the same backend used for training)
-# "mujoco": validated MuJoCo dynamics (slower, but independent physics engine)
-# "both": run on stand_in first, then re-run on mujoco (takes 2x the time)
-dynamics_backend: stand_in
-
-output_dir: results/fleet_baseline_sweep  # all CSVs, metrics, and the report go here
-
-# Expected runtime (stand_in backend, comm_seeds=5, grid_seeds=5):
-#   ~7 minutes per severity level on a modern laptop (M-series Mac or similar)
-# "both" backend doubles that. MuJoCo adds roughly 20-30% overhead per cell.
+  comm_seeds: [1, 2, 3, 4, 5]
+dynamics_backend: stand_in     # stand_in | mujoco | both
+output_dir: results/fleet_default

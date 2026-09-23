@@ -1,473 +1,375 @@
 #!/usr/bin/env python3
 """
-run_fleet_experiment.py -- single entry point for Strathe fleet coordination
-experiments (G6/F1, see conversation).
+run_fleet_experiment.py -- run a Strathe fleet v2 experiment from one YAML file.
 
-Usage:
-    python run_fleet_experiment.py                          # uses default_experiment.yaml
-    python run_fleet_experiment.py --config my_exp.yaml    # your own config
+    python run_fleet_experiment.py                          # default_experiment.yaml
+    python run_fleet_experiment.py --config my_exp.yaml
 
-This script replaces the four-command manual sequence in the README with a
-single, validated, self-contained entry point. It:
-  1. Loads and validates the experiment config (pre-flight, before any compute)
-  2. Loads and validates all policies (shape/algorithm checks before any episodes)
-  3. Runs the comm-degradation sweep (stand_in, mujoco, or both backends)
-  4. Writes a human-readable summary report alongside the raw CSV/JSON output
+Two simulated BlueROV2s hold formation while exchanging state over a lossy
+acoustic link. Between beacons each vehicle predicts where its teammate is
+with a belief model; the experiment compares belief models (for example a
+calibrated physics model against generic default physics) episode by
+episode, under identical initial conditions and identical packet losses.
 
-Everything is logged to MLflow automatically (same as the individual scripts).
-If MLflow is missing or logging fails, the experiment itself is unaffected.
-
-Architecture note: this script is deliberately a THIN FRONT DOOR onto
-already-tested functions. The sweep logic lives in run_cell_multi_seed()
-and run_cell_multi_seed_mujoco() (already validated in C0.3/F0.1). This
-script owns validation, setup, and the report -- not physics or sweep math.
+Outputs in output_dir:
+    summary_report.md   plain-language results, confidence intervals, caveats
+    summary.csv         one row per (comm condition, belief) -- pooled over policies
+    episodes.csv        every episode
+    metrics.json        everything above, machine-readable, plus the statistics
+    metadata.json       git commit (+ whether the tree had uncommitted changes),
+                        package versions, resolved config
+    experiment.yaml     the resolved config -- pass it back with --config to rerun
+    plots/              success rate and belief error by condition
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
+import platform
 import sys
 import time
-import yaml
 from datetime import datetime
 
 import numpy as np
+import yaml
 
-# Pre-flight dependency check: fail early with a clear, actionable message
-# rather than a raw ImportError three levels into the run.
-def _check_dependency(module: str, install_name: str) -> None:
+from build_two_agent_cores import load_calibrated_parameters
+from fleet_belief import BeliefSpec, interpolate_params
+from fleet_env import FleetConfig
+from fleet_eval import CellSpec, CommSpec, run_cells
+from fleet_experiment_schema import (ConfigError, PhysicsAlphaBelief, PhysicsParamsBelief,
+                                     belief_label, load_fleet_experiment)
+from fleet_stats import belief_success_link, dose_response, paired_contrast, summarize
+from formation_hold_task import FormationHoldConfig
+from mlflow_run_utils import get_git_commit, get_git_dirty
+from optimizer import initial_parameters, load_vehicle_spec
+from validate_fleet_policy import FleetPolicyError, load_fleet_policy
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG_PATH = os.path.join(HERE, "default_experiment.yaml")
+VEHICLE_SPEC_PATH = os.path.join(HERE, "vehicle_spec.yaml")
+
+
+# ----------------------------------------------------------------- building cells
+
+def resolve_beliefs(cfg, truth, generic) -> list:
+    """[(BeliefSpec, alpha or None)]; alpha places physics beliefs on the
+    truth(0) -> generic(1) axis so a dose-response can be fitted."""
+    out = []
+    for b in cfg.beliefs:
+        label = belief_label(b)
+        if b == "calibrated":
+            out.append((BeliefSpec("physics", label, truth), 0.0))
+        elif b == "generic":
+            out.append((BeliefSpec("physics", label, generic), 1.0))
+        elif isinstance(b, str):
+            out.append((BeliefSpec(b, label), None))
+        elif isinstance(b, PhysicsAlphaBelief):
+            out.append((BeliefSpec("physics", label, interpolate_params(truth, generic, b.physics_alpha)),
+                        b.physics_alpha))
+        elif isinstance(b, PhysicsParamsBelief):
+            out.append((BeliefSpec("physics", label, load_calibrated_parameters(b.physics_params)), None))
+    return out
+
+
+def fleet_config_for(cfg, backend: str) -> FleetConfig:
+    t = cfg.task
+    task = FormationHoldConfig(target_separation=t.target_separation_m, tolerance=t.tolerance_m,
+                               hold_steps=t.hold_steps, safety_radius=t.collision_radius_m,
+                               influence_radius=max(1.5, t.collision_radius_m + 1.0))
+    seps = cfg.initial_conditions.separations_m
+    speeds = cfg.initial_conditions.closing_speeds_mps
+    return FleetConfig(max_episode_steps=t.max_episode_steps, task=task, dynamics_backend=backend,
+                       initial_separation_range=(min(seps), max(seps)),
+                       initial_closing_speed_range=(min(speeds), max(speeds)))
+
+
+def build_cells(cfg, truth, generic, vehicle) -> tuple:
+    beliefs = resolve_beliefs(cfg, truth, generic)
+    backends = ["stand_in", "mujoco"] if cfg.dynamics_backend == "both" else [cfg.dynamics_backend]
+    comm = cfg.communication
+    cells = []
+    for backend in backends:
+        fc = fleet_config_for(cfg, backend)
+        for pol in cfg.policies:
+            for level, plc, bwc in comm.levels():
+                for interval in comm.beacon_interval_s:
+                    cs = CommSpec(f"{level}@{interval:g}s", plc, bwc, comm.speed_of_sound_mps, interval)
+                    for spec, _alpha in beliefs:
+                        cells.append(CellSpec(pol.model_path, pol.algorithm, cs, spec, truth, vehicle, fc,
+                                              cfg.initial_conditions.separations_m,
+                                              cfg.initial_conditions.closing_speeds_mps,
+                                              cfg.evaluation.comm_seeds))
+    alphas = {spec.label: a for spec, a in beliefs if a is not None}
+    return cells, alphas
+
+
+# ----------------------------------------------------------------- outputs
+
+def _pct(x):
+    return f"{100 * x:.0f}%"
+
+
+def _pp(x):
+    return f"{100 * x:+.0f} pts"
+
+
+def headline_sentences(contrasts, a, b) -> list:
+    out = []
+    for c in contrasts:
+        lo, hi = c["success_diff_ci95"]
+        if lo > 0:
+            verdict = f"**{a} did better**"
+        elif hi < 0:
+            verdict = f"**{b} did better**"
+        else:
+            verdict = "**no clear difference**"
+        err = (f"belief error {c['belief_error_diff_m'] * 100:+.1f} cm" if np.isfinite(c["belief_error_diff_m"])
+               else "no beacons arrived, so no belief error to compare")
+        out.append(f"- **{c['comm']}**: {verdict}. Success {_pct(c['success_a'])} with `{a}` vs "
+                   f"{_pct(c['success_b'])} with `{b}` ({_pp(c['success_diff'])}, 95% CI "
+                   f"{_pp(lo)} to {_pp(hi)}; McNemar p = {c['mcnemar_p']:.2g}; {c['n_pairs']} matched episodes). "
+                   f"Difference in {err}; collisions {_pp(c['collision_diff'])}.")
+    return out
+
+
+def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, dirty):
+    a, b = (cfg.compare.a, cfg.compare.b) if cfg.compare else (None, None)
+    L = []
+    L.append(f"# Fleet experiment: {cfg.name or 'unnamed'}\n")
+    L.append(f"{datetime.now():%Y-%m-%d %H:%M} · {n_eps} episodes · {elapsed / 60:.1f} min"
+             + (" · **ran with uncommitted code changes**" if dirty else "") + "\n")
+    L.append("## What was tested\n")
+    L.append("Two simulated BlueROV2s must hold "
+             f"{cfg.task.target_separation_m} m ± {cfg.task.tolerance_m} m apart for {cfg.task.hold_steps} "
+             f"consecutive ticks (0.1 s each) within {cfg.task.max_episode_steps} ticks, without coming closer than "
+             f"{cfg.task.collision_radius_m} m. They share their state over an acoustic link that loses packets. "
+             "Between beacons, each vehicle predicts where its teammate is with a **belief model**; that model is the "
+             "only thing that changes between the conditions below. Both vehicles' true physics is "
+             f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "
+             "positions and the same lost packets.\n")
+    if contrasts:
+        L.append(f"## Headline: `{a}` vs `{b}`\n")
+        L += headline_sentences(contrasts, a, b)
+        L.append("")
+    L.append("## All conditions\n")
+    L.append("| Comm | Belief | Success (95% CI) | Collision | Mean belief error | Episodes |")
+    L.append("|---|---|---|---|---|---|")
+    for s in summary:
+        lo, hi = s["success_ci95"]
+        L.append(f"| {s['comm']} | `{s['belief']}` | {_pct(s['success_rate'])} ({_pct(lo)}–{_pct(hi)}) | "
+                 f"{_pct(s['collision_rate'])} | "
+                 + (f"{s['mean_belief_error_m'] * 100:.1f} cm" if np.isfinite(s['mean_belief_error_m']) else "n/a")
+                 + f" | {s['n']} |")
+    L.append("")
+    if doses:
+        L.append("## Does belief-model error drive success? (dose-response)\n")
+        L.append("Belief models placed on a line from the true parameters (alpha = 0) to generic defaults "
+                 "(alpha = 1). A negative slope means success falls as the model gets less accurate.\n")
+        L.append("| Comm | Success at alpha = " + ", ".join(f"{x:g}" for x in doses[0]["alphas"])
+                 + " | Slope per unit alpha (95% CI) |")
+        L.append("|---|---|---|")
+        for d in doses:
+            lo, hi = d["slope_ci95"]
+            L.append(f"| {d['comm']} | " + ", ".join(_pct(r) for r in d["success_rates"])
+                     + f" | {_pp(d['slope_per_unit_alpha'])} ({_pp(lo)} to {_pp(hi)}) |")
+        L.append("")
+    if links:
+        L.append("## Belief error vs success across all belief models\n")
+        L.append("Spearman correlation between a condition's mean belief error and its success rate "
+                 "(negative = lower error goes with more success; the oracle is excluded because its error is "
+                 "zero by construction).\n")
+        for k in links:
+            if np.isfinite(k["spearman_rho"]):
+                L.append(f"- {k['comm']}: rho = {k['spearman_rho']:+.2f} over {k['n_conditions']} belief models "
+                         f"(p = {k['spearman_p']:.2g})")
+            else:
+                L.append(f"- {k['comm']}: not defined (every belief model had the same success rate or error)")
+        L.append("")
+    L.append("## How to read this, and its limits\n")
+    L.append("- Differences are **paired**: the same episode (start state, packet losses) is run under each belief "
+             "model, so the comparison isn't blurred by luck of the draw. CIs are bootstrap intervals over episodes; "
+             "McNemar's test counts episodes that one model won and the other lost.\n"
+             "- `calibrated` means a model whose parameters equal the simulated vehicle's true parameters. It shows "
+             "the value of an accurate model; how close a real calibration gets to a real vehicle is measured "
+             "separately, on held-out real logs (see README, calibration results).\n"
+             "- Simulation only. No hardware has been in the loop.\n"
+             f"- Policies: {', '.join(os.path.basename(p.model_path) for p in cfg.policies)}. Results pool them; "
+             "`episodes.csv` has the per-policy breakdown.\n")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(L))
+
+
+def write_plots(plots_dir, summary, doses):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    os.makedirs(plots_dir, exist_ok=True)
+    comms = sorted({s["comm"] for s in summary})
+    beliefs = list(dict.fromkeys(s["belief"] for s in summary))
+    by = {(s["comm"], s["belief"]): s for s in summary}
+    for metric, fname, ylabel in (("success_rate", "success_by_belief.png", "Success rate"),
+                                  ("mean_belief_error_m", "belief_error_by_belief.png", "Mean belief error (m)")):
+        fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(comms) * len(beliefs) / 3), 4))
+        w = 0.8 / len(beliefs)
+        for j, bel in enumerate(beliefs):
+            xs = np.arange(len(comms)) + (j - (len(beliefs) - 1) / 2) * w
+            ys = [by[(c, bel)][metric] if (c, bel) in by else np.nan for c in comms]
+            if metric == "success_rate":
+                err = np.array([[ys[i] - by[(c, bel)]["success_ci95"][0], by[(c, bel)]["success_ci95"][1] - ys[i]]
+                                if (c, bel) in by else [0, 0] for i, c in enumerate(comms)]).T
+                ax.bar(xs, ys, w, yerr=err, capsize=2, label=bel)
+            else:
+                ax.bar(xs, ys, w, label=bel)
+        ax.set_xticks(range(len(comms)), comms)
+        ax.set_ylabel(ylabel)
+        ax.legend(fontsize=8, frameon=False)
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(os.path.join(plots_dir, fname), dpi=130)
+        plt.close(fig)
+    if doses:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        for d in doses:
+            ax.plot(d["alphas"], d["success_rates"], marker="o", label=d["comm"])
+        ax.set_xlabel("Belief-model parameters: 0 = true vehicle, 1 = generic defaults")
+        ax.set_ylabel("Success rate")
+        ax.legend(fontsize=8, frameon=False)
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(os.path.join(plots_dir, "dose_response.png"), dpi=130)
+        plt.close(fig)
+
+
+def _jsonable(x):
+    if isinstance(x, dict):
+        return {k: _jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_jsonable(v) for v in x]
+    if isinstance(x, (np.floating, np.integer)):
+        return x.item()
+    if isinstance(x, float) and not np.isfinite(x):
+        return None
+    return x
+
+
+def _log_mlflow(cfg, out_dir, summary, contrasts):
+    """Observational only: never lets a logging problem affect the run."""
     try:
-        __import__(module)
-    except ImportError:
-        print(
-            f"ERROR: {module!r} is not installed. "
-            f"Fix with: pip install {install_name}\n"
-            f"(This should have been installed via pip install -r requirements.txt "
-            f"-- check that requirements.txt is up to date.)"
-        )
-        sys.exit(1)
-
-_check_dependency("mujoco", "mujoco==3.12.0")
-_check_dependency("mlflow", "mlflow==3.16.1")
-_check_dependency("stable_baselines3", "stable-baselines3")
-
-from experiment_schema import (
-    load_and_validate, build_comm_objects, _effective_severity_label,
-)
-from validate_policy_compatibility import load_policy, validate_policy_compatibility
-from evaluate_comm_degradation_curve import (
-    run_cell_multi_seed, print_cell_stats, GRID_SEPARATIONS, GRID_VELOCITIES,
-)
-from evaluate_comm_degradation_curve_mujoco import run_cell_multi_seed_mujoco
-from mlflow_run_utils import get_git_commit
-import mlflow_logging
-
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "default_experiment.yaml")
+        import mlflow
+        mlflow.set_tracking_uri(f"sqlite:///{os.path.join(HERE, 'mlflow.db')}")
+        mlflow.set_experiment("strathe_fleet")
+        with mlflow.start_run(run_name=cfg.name or "fleet_experiment"):
+            mlflow.set_tags({"script": "run_fleet_experiment.py", "schema_version": "2",
+                             "git_commit": get_git_commit(), "dynamics_backend": cfg.dynamics_backend})
+            for s in summary:
+                key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
+                mlflow.log_metric(f"success.{key}", s["success_rate"])
+                mlflow.log_metric(f"belief_error_m.{key}", s["mean_belief_error_m"])
+            for c in contrasts:
+                mlflow.log_metric(f"success_diff.{c['comm'].replace('@', '_at_')}", c["success_diff"])
+            mlflow.log_artifacts(out_dir)
+    except Exception as e:  # pragma: no cover - depends on local mlflow state
+        print(f"  (MLflow logging skipped: {type(e).__name__}: {e})")
 
 
-def _write_report(config, all_results: dict, output_dir: str, elapsed: float) -> str:
-    """Write the human-readable markdown summary report (F5.2).
+# ----------------------------------------------------------------- main
 
-    F5.2 requirements:
-    - Header stating task, vehicles, calibrated-vs-generic EXPLICITLY AND UNMISSABLY
-      (first thing in the file, not buried under Setup)
-    - Communication condition, episode count, results table
-    - Severity-comparison section when more than one severity was run
-    - Caveats pulled directly from phase2_config.py's Claim C text, never smoothed over
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    report_path = os.path.join(output_dir, "summary_report.md")
-    severity_label = _effective_severity_label(config.communication)
+def run_experiment(config_path: str) -> dict:
+    t0 = time.monotonic()
+    print("=" * 70 + "\nSTRATHE FLEET EXPERIMENT (v2)\n" + "=" * 70)
+    print(f"Config: {config_path}\n\n[1/4] Validating config...")
+    cfg = load_fleet_experiment(config_path)
+    spec = load_vehicle_spec(VEHICLE_SPEC_PATH)
+    truth = load_calibrated_parameters(cfg.truth_params)
+    generic = initial_parameters(spec)
+    print(f"  OK: {len(cfg.policies)} policy(ies), beliefs {[belief_label(b) for b in cfg.beliefs]}, "
+          f"comm {[l for l, _, _ in cfg.communication.levels()]} x beacon {cfg.communication.beacon_interval_s} s, "
+          f"backend {cfg.dynamics_backend}")
 
-    # Pull the Claim C caveats directly from phase2_config.py rather than
-    # paraphrasing them -- F5.2 explicitly requires "never smoothed over."
-    # Importing the constant ensures the report always reflects the authoritative
-    # text, not a copy that can drift.
-    try:
-        from phase2_config import CLAIM_C_HONEST_CAVEATS
-        claim_c_caveats = CLAIM_C_HONEST_CAVEATS
-    except (ImportError, AttributeError):
-        # Fallback if the constant doesn't exist yet -- written out explicitly
-        # so the intent is clear even without the import.
-        claim_c_caveats = (
-            "success_rate and delta_physics_off_axis did not transfer cleanly between "
-            "backends -- but this is confounded by L0-L3a being four separately-trained "
-            "policies (each reflecting its own training run's idiosyncrasies), not evidence "
-            "against backend transfer itself. No MuJoCo-based training has been run, per "
-            "Decision 2's training-backend rule; this is purely a transfer-of-an-already-"
-            "trained-policy result. No real hardware validation has been done."
-        )
+    print("\n[2/4] Checking policies against the per-vehicle contract...")
+    for p in cfg.policies:
+        load_fleet_policy(p.model_path, p.algorithm)
+        print(f"  PASS {p.model_path}")
 
-    with open(report_path, "w", encoding="utf-8") as f:
+    cells, alphas = build_cells(cfg, truth, generic, spec.vehicle)
+    n_per_cell = (len(cfg.initial_conditions.separations_m) * len(cfg.initial_conditions.closing_speeds_mps)
+                  * len(cfg.evaluation.comm_seeds))
+    print(f"\n[3/4] Running {len(cells)} cells x {n_per_cell} episodes = {len(cells) * n_per_cell} episodes...")
+    last = [0.0]
 
-        # --- F5.2: calibrated vs. generic FIRST, unmissably ---
-        f.write(f"# Fleet Experiment Report\n\n")
-        if config.name:
-            f.write(f"**Experiment:** `{config.name}`  ")
-        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  "
-                f"**Runtime:** {elapsed:.1f}s\n\n")
+    def progress(done, total):
+        if time.monotonic() - last[0] > 10 or done == total:
+            last[0] = time.monotonic()
+            print(f"  {done}/{total} cells ({time.monotonic() - t0:.0f}s)", flush=True)
+    rows = run_cells(cells, workers=cfg.evaluation.workers, progress=progress)
 
-        f.write("---\n\n")
-        f.write("## ⚠️ WHICH AGENT IS WHICH — read before interpreting any result\n\n")
-        f.write("The environment always contains exactly two agents:\n"
-                "one **calibrated** (uses `calibrated_parameters_a1.yaml`, "
-                "physics fitted to real BlueROV2 logs) and one **generic** "
-                "(uses uncalibrated default physics). The policy below controls both.\n\n")
-        f.write("| Index | Role | Model | Algorithm |\n|-------|------|-------|-----------|\n")
-        for i, v in enumerate(config.vehicles):
-            role = v.role or f"vehicle_{i}"
-            physics = ("calibrated — `calibrated_parameters_a1.yaml`"
-                       if i == 0 else "generic — default physics")
-            f.write(f"| {i} | **{role}** ({physics}) "
-                    f"| `{v.model_path}` | {v.algorithm.upper()} |\n")
-        f.write("\n> **Note:** only `vehicles[0]`'s policy is used in the sweep "
-                "(centralized control). `vehicles[1]` is loaded and validated but "
-                "does not affect sweep results. The calibrated/generic physics split "
-                "is set by the environment, not by the policy.\n\n")
+    print("\n[4/4] Statistics and report...")
+    out = cfg.output_dir
+    os.makedirs(out, exist_ok=True)
+    summary = summarize(rows, by=("comm", "belief"))
+    contrasts = paired_contrast(rows, cfg.compare.a, cfg.compare.b) if cfg.compare else []
+    doses = dose_response(rows, alphas) if len(alphas) >= 3 else []
+    links = belief_success_link(summary, exclude_beliefs=[l for l in {r["belief"] for r in rows}
+                                                          if l == "oracle"])
+    elapsed = time.monotonic() - t0
+    dirty = get_git_dirty()
 
-        f.write("---\n\n")
+    with open(os.path.join(out, "episodes.csv"), "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    with open(os.path.join(out, "summary.csv"), "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(summary[0]))
+        w.writeheader()
+        w.writerows(summary)
+    metrics = {"summary": summary, "paired_contrast": contrasts, "dose_response": doses, "belief_success_link": links}
+    with open(os.path.join(out, "metrics.json"), "w") as f:
+        json.dump(_jsonable(metrics), f, indent=2)
+    from importlib.metadata import version
 
-        # --- Setup ---
-        f.write("## Experiment setup\n\n")
-        f.write(f"| Field | Value |\n|-------|-------|\n")
-        f.write(f"| Task | Formation hold — target separation "
-                f"{config.task.target_separation_m}m, "
-                f"tolerance ±{config.task.tolerance_m}m, "
-                f"hold {config.task.hold_steps} consecutive steps |\n")
-        f.write(f"| Comm condition | `{severity_label}` |\n")
-        f.write(f"| Dynamics backend | `{config.dynamics_backend}` |\n")
-        f.write(f"| Episodes per cell | {config.evaluation.episodes} "
-                f"({len(config.evaluation.comm_seeds)} comm seeds × "
-                f"{config.evaluation.grid_seeds} grid seeds × 32 grid points) |\n")
-        f.write(f"| Comm seeds | {config.evaluation.comm_seeds} |\n\n")
-
-        # --- F5.3: explicit units and convention note, surfaced to the user ---
-        f.write("## Units and conventions\n\n")
-        f.write("| Quantity | Unit | Convention |\n"
-                "|----------|------|------------|\n"
-                "| Separation, distances | meters (m) | Euclidean distance between agent centroids |\n"
-                "| Velocity components | m/s | SNAME/Fossen body frame: "
-                "surge (x, forward), sway (y, left), heave (z, up) |\n"
-                "| Angular rates | rad/s | Same body frame: roll (p), pitch (q), yaw (r) |\n"
-                "| Speed of sound | m/s | Used in latency model: latency = distance / speed |\n"
-                "| Belief error | meters | RMS position error — how far the agent's internal "
-                "model of its teammate's position is from the teammate's true position |\n"
-                "| `delta_physics_*` | meters | calibrated agent value **minus** generic agent "
-                "value — negative means calibrated is closer to truth |\n"
-                "| `delivery_rate_*` | fraction [0, 1] | Fraction of acoustic beacons "
-                "actually received by that agent |\n"
-                "| `success_rate` | fraction [0, 1] | Episodes where both agents held "
-                f"target separation ({config.task.target_separation_m}m "
-                f"± {config.task.tolerance_m}m) for {config.task.hold_steps} "
-                "consecutive steps |\n"
-                "| `collision_rate` | fraction [0, 1] | Episodes ending in collision "
-                "(separation below safety threshold) |\n\n")
-
-        # --- Results ---
-        f.write("## Results\n\n")
-        f.write("> **Key metric:** `delta_physics_belief_error` = calibrated minus generic "
-                "position belief error. **Negative = calibrated agent has a more accurate "
-                "model of where its teammate actually is.** "
-                "Near-zero at L0/L1 is expected (comm is good, physics doesn't matter much). "
-                "Meaningfully negative at L2/L3a is the Claim C signal.\n\n")
-
-        for cell_name, (stats, backend) in all_results.items():
-            f.write(f"### {cell_name} ({backend} backend)\n\n")
-            f.write("| Metric | Mean | Std | Range | Note |\n"
-                    "|--------|------|-----|-------|------|\n")
-            annotations = {
-                "success_rate":               "noisy at small n — check std",
-                "collision_rate":             "should rise with severity",
-                "delta_physics_off_axis":     "",
-                "delta_physics_belief_error": "**← KEY METRIC** negative = calibrated better",
-                "delivery_rate_generic":      "should match packet-loss prob",
-                "delivery_rate_calibrated":   "should match packet-loss prob",
-            }
-            for key in annotations:
-                if key not in stats:
-                    continue
-                s = stats[key]
-                note = annotations[key]
-                f.write(f"| `{key}` | {s['mean']:.4f} | {s['std']:.4f} | "
-                        f"[{s['min']:.4f}, {s['max']:.4f}] | {note} |\n")
-            f.write("\n")
-
-        # --- Severity comparison (when applicable) ---
-        if len(all_results) > 1:
-            f.write("## Severity comparison\n\n")
-            f.write("| Cell | Backend | `delta_physics_belief_error` mean | Signal? |\n"
-                    "|------|---------|----------------------------------|--------|\n")
-            for cell_name, (stats, backend) in all_results.items():
-                bel = stats.get("delta_physics_belief_error", {})
-                mean_val = bel.get("mean", float("nan"))
-                signal = ("**YES** (meaningful negative)" if mean_val < -0.01
-                          else "near-zero (expected at L0/L1)" if abs(mean_val) < 0.01
-                          else "positive (unexpected — check)")
-                f.write(f"| {cell_name} | {backend} | {mean_val:.4f} | {signal} |\n")
-            f.write("\n")
-
-        # --- F5.2: caveats from phase2_config.py Claim C text, never smoothed over ---
-        f.write("## Honest caveats (from `phase2_config.py` Claim C)\n\n")
-        f.write("> These are the exact caveats recorded in `phase2_config.py` when "
-                "Claim C was established. They are reproduced here verbatim, not "
-                "paraphrased, so the report is honest about what this result does "
-                "and does not establish.\n\n")
-        f.write(f"{claim_c_caveats}\n\n")
-        f.write("Additionally:\n\n")
-        f.write("- `success_rate` is noisy at the episode counts used here — "
-                "do not read a single cell's success_rate in isolation without checking std.\n")
-        f.write("- No real hardware validation has been done for the fleet work.\n")
-        f.write("- Absolute success rates are proof-of-concept grade, not production-ready.\n\n")
-        f.write("*Full methodology: `PROJECT_STATUS.md` and `phase2_config.py` `Claim C`.*\n")
-
-    return report_path
-
-
-def _write_metadata(config, output_dir: str) -> None:
-    """Write experiment metadata (git commit, package versions, resolved config).
-    F5.1: metadata.json now captures full resolved comm parameters including
-    any overrides applied, not just the severity label."""
-    os.makedirs(output_dir, exist_ok=True)
-    import sys
-    from importlib.metadata import version as _v
-    from experiment_schema import (
-        _build_packet_loss_config, _build_bandwidth_config, _build_speed_of_sound,
-        _effective_severity_label,
-    )
-
-    def _safe_v(pkg):
+    def v(pkg):
         try:
-            return _v(pkg)
+            return version(pkg)
         except Exception:
             return "unknown"
+    meta = {"git_commit": get_git_commit(), "git_uncommitted_changes": dirty, "python": platform.python_version(),
+            "platform": platform.platform(), "packages": {p: v(p) for p in
+                                                          ("numpy", "scipy", "stable-baselines3", "torch", "mujoco")},
+            "timestamp": datetime.now().isoformat(), "elapsed_s": round(elapsed, 1), "n_episodes": len(rows),
+            "resolved_config": cfg.model_dump(mode="json")}
+    with open(os.path.join(out, "metadata.json"), "w") as f:
+        json.dump(meta, f, indent=2)
+    with open(os.path.join(out, "experiment.yaml"), "w") as f:
+        yaml.safe_dump(cfg.model_dump(mode="json", exclude_none=True), f, sort_keys=False)
+    write_report(os.path.join(out, "summary_report.md"), cfg, summary, contrasts, doses, links, elapsed, len(rows), dirty)
+    try:
+        write_plots(os.path.join(out, "plots"), summary, doses)
+    except Exception as e:  # plots are a convenience; the numbers are already written
+        print(f"  (plots skipped: {type(e).__name__}: {e})")
+    _log_mlflow(cfg, out, summary, contrasts)
 
-    plc = _build_packet_loss_config(config.communication)
-    bwc = _build_bandwidth_config(config.communication)
-    sos = _build_speed_of_sound(config.communication)
-
-    metadata = {
-        "git_commit": get_git_commit(),
-        "python_version": sys.version.split()[0],
-        "numpy_version": _safe_v("numpy"),
-        "scipy_version": _safe_v("scipy"),
-        "stable_baselines3_version": _safe_v("stable-baselines3"),
-        "mujoco_version": _safe_v("mujoco"),
-        "mlflow_schema_version": 2,
-        "timestamp": datetime.now().isoformat(),
-        "resolved_config": {
-            "name": config.name,
-            "vehicles": [{"model_path": v.model_path, "algorithm": v.algorithm,
-                          "role": v.role} for v in config.vehicles],
-            "communication": {
-                "severity_label": _effective_severity_label(config.communication),
-                "severity": config.communication.severity,
-                "resolved": {
-                    "near_distance_m": plc.near_distance_m,
-                    "far_distance_m": plc.far_distance_m,
-                    "near_field_prob": plc.near_field_prob,
-                    "far_field_prob": plc.far_field_prob,
-                    "bytes_per_tick": bwc.bytes_per_tick,
-                    "speed_of_sound_mps": sos,
-                },
-            },
-            "task": {"target_separation_m": config.task.target_separation_m,
-                     "tolerance_m": config.task.tolerance_m,
-                     "hold_steps": config.task.hold_steps},
-            "evaluation": {"episodes": config.evaluation.episodes,
-                           "comm_seeds": config.evaluation.comm_seeds,
-                           "grid_seeds": config.evaluation.grid_seeds},
-            "dynamics_backend": config.dynamics_backend,
-        }
-    }
-    with open(os.path.join(output_dir, "metadata.json"), "w") as f:
-        json.dump(metadata, f, indent=2)
+    print("\n" + "=" * 70)
+    if contrasts:
+        for line in headline_sentences(contrasts, cfg.compare.a, cfg.compare.b):
+            print(line.replace("**", "").replace("`", ""))
+    print(f"\nDone in {elapsed / 60:.1f} min. Report: {os.path.join(out, 'summary_report.md')}")
+    return metrics
 
 
-def run_experiment(config_path: str) -> None:
-    t0 = time.monotonic()
-
-    # --- Step 1: Load and validate config ---
-    print(f"\n{'='*70}")
-    print("STRATHE FLEET EXPERIMENT")
-    print(f"{'='*70}")
-    print(f"Config: {config_path}")
-    print(f"\n[1/4] Loading and validating experiment config...")
-    # Pydantic validates on construction -- no separate validate() call needed.
-    config = load_and_validate(config_path)
-    print(f"  OK: {len(config.vehicles)} vehicles, "
-          f"severity={_effective_severity_label(config.communication)}, "
-          f"backend={config.dynamics_backend}")
-
-    # --- Step 2: Load and validate all policies ---
-    print(f"\n[2/4] Loading and validating policies (pre-flight shape check)...")
-    from two_agent_formation_env import TwoAgentFormationEnv
-    from formation_hold_task import FormationHoldConfig
-    from comm_channel import PacketLossConfig, BandwidthConfig
-    from two_agent_orchestrator import OrchestratorConfig
-
-    plc, bwc, sos = build_comm_objects(config)
-    ftc = FormationHoldConfig(
-        target_separation=config.task.target_separation_m,
-        tolerance=config.task.tolerance_m,
-        hold_steps=config.task.hold_steps,
-    )
-    env_for_validation = TwoAgentFormationEnv(
-        packet_loss_config=plc,
-        bandwidth_config=bwc,
-        task_config=ftc,
-        speed_of_sound_mps=sos,  # F2.3: now actually threaded through
-    )
-
-    models = []
-    for v in config.vehicles:
-        model = load_policy(v.model_path, v.algorithm)
-        validate_policy_compatibility(model, env=env_for_validation,
-                                      model_path=v.model_path)
-        models.append(model)
-    print(f"  OK: all {len(models)} policies passed compatibility check")
-
-    # Same-model warning: if both vehicles use the same model_path, the
-    # experiment will show near-zero delta_physics_belief_error by
-    # construction -- there's no real calibrated-vs-generic difference to
-    # measure. This is fine for a first-run sanity check, but a researcher
-    # expecting to see the Claim C signal needs two different models.
-    paths = [v.model_path for v in config.vehicles]
-    if len(set(paths)) == 1:
-        print(
-            f"\n  WARNING: both vehicles use the same model "
-            f"({paths[0]!r}). delta_physics_belief_error will be near "
-            f"zero by construction -- no real calibrated-vs-generic "
-            f"difference exists. To see the Claim C signal, set each "
-            f"vehicle to a differently-trained policy in the config.\n"
-        )
-
-    # --- Step 3: Run the sweep ---
-    print(f"\n[3/4] Running fleet experiment sweep...")
-    os.makedirs(config.output_dir, exist_ok=True)
-    severity = _effective_severity_label(config.communication)
-    all_results = {}
-
-    backends_to_run = []
-    if config.dynamics_backend in ("stand_in", "both"):
-        backends_to_run.append("stand_in")
-    if config.dynamics_backend in ("mujoco", "both"):
-        backends_to_run.append("mujoco")
-
-    for backend in backends_to_run:
-        cell_name = f"{config.name or 'experiment'}@{severity}"
-        print(f"\n  Running {cell_name} ({backend} backend)...")
-
-        # Use vehicle 0's model as the primary policy for the sweep.
-        # In a two-agent env, both agents share the same centralized policy.
-        primary_model = models[0]
-        csv_prefix = os.path.join(config.output_dir, f"{severity}_{backend}")
-
-        if backend == "stand_in":
-            _, across_seed_stats, csv_path = run_cell_multi_seed(
-                primary_model, severity,
-                config.evaluation.comm_seeds,
-                config.evaluation.grid_seeds,
-                GRID_SEPARATIONS, GRID_VELOCITIES,
-                csv_prefix,
-                speed_of_sound_mps=sos,  # F2.3: sos from experiment YAML reaches CommChannel
-            )
-        else:
-            _, across_seed_stats, csv_path = run_cell_multi_seed_mujoco(
-                primary_model, severity,
-                config.evaluation.comm_seeds,
-                config.evaluation.grid_seeds,
-                GRID_SEPARATIONS, GRID_VELOCITIES,
-                csv_prefix,
-                speed_of_sound_mps=sos,  # F2.3
-            )
-
-        all_results[f"{cell_name}_{backend}"] = (across_seed_stats, backend)
-        print(f"  Written to {csv_path}")
-        print_cell_stats(cell_name, across_seed_stats, len(config.evaluation.comm_seeds))
-
-    # --- Step 4: Write outputs ---
-    print(f"\n[4/4] Writing report and metadata...")
-    elapsed = time.monotonic() - t0
-
-    # F5.1: create plots/ subdirectory alongside other artifacts
-    plots_dir = os.path.join(config.output_dir, "plots")
-    os.makedirs(plots_dir, exist_ok=True)
-
-    # F5.1: write experiment.yaml -- the fully-resolved config, overrides applied.
-    # A researcher can pass this back to --config to reproduce the exact run.
-    # This is distinct from the input YAML: it shows what actually ran, not
-    # what was specified, so overrides are fully resolved into the comm section.
-    from experiment_schema import _build_packet_loss_config, _build_bandwidth_config, _build_speed_of_sound
-    plc_resolved = _build_packet_loss_config(config.communication)
-    sos_resolved = _build_speed_of_sound(config.communication)
-    resolved_config_dict = {
-        "name": config.name,
-        "vehicles": [
-            {"model_path": v.model_path, "algorithm": v.algorithm, "role": v.role}
-            for v in config.vehicles
-        ],
-        "communication": {
-            "severity": config.communication.severity,
-            # overrides shown as fully-resolved values so the result is unambiguous
-            "overrides": {
-                "near_distance_m": plc_resolved.near_distance_m,
-                "far_distance_m": plc_resolved.far_distance_m,
-                "near_field_prob": plc_resolved.near_field_prob,
-                "far_field_prob": plc_resolved.far_field_prob,
-                "speed_of_sound_mps": sos_resolved,
-            },
-        },
-        "task": {
-            "target_separation_m": config.task.target_separation_m,
-            "tolerance_m": config.task.tolerance_m,
-            "hold_steps": config.task.hold_steps,
-        },
-        "evaluation": {
-            "episodes": config.evaluation.episodes,
-            "comm_seeds": config.evaluation.comm_seeds,
-            "grid_seeds": config.evaluation.grid_seeds,
-        },
-        "dynamics_backend": config.dynamics_backend,
-        "output_dir": config.output_dir,
-    }
-    with open(os.path.join(config.output_dir, "experiment.yaml"), "w") as f:
-        yaml.dump(resolved_config_dict, f, default_flow_style=False, sort_keys=False)
-
-    _write_metadata(config, config.output_dir)
-    report_path = _write_report(config, all_results, config.output_dir, elapsed)
-
-    with open(os.path.join(config.output_dir, "metrics.json"), "w") as f:
-        json.dump({
-            cell: {k: v for k, v in stats.items()}
-            for cell, (stats, _) in all_results.items()
-        }, f, indent=2, default=float)
-
-    print(f"\n{'='*70}")
-    print(f"EXPERIMENT COMPLETE in {elapsed:.1f}s ({elapsed/60:.1f} min)")
-    print(f"{'='*70}")
-    print(f"  Report:          {report_path}")
-    print(f"  Resolved config: {os.path.join(config.output_dir, 'experiment.yaml')}")
-    print(f"  Metrics:         {os.path.join(config.output_dir, 'metrics.json')}")
-    print(f"  Metadata:        {os.path.join(config.output_dir, 'metadata.json')}")
-    print(f"  Plots dir:       {plots_dir}")
-    print(f"\nTo view in MLflow:")
-    print(f"  mlflow ui --backend-store-uri sqlite:///mlflow.db")
-    print(f"  (then open http://127.0.0.1:5000)")
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+    args = ap.parse_args(argv)
+    try:
+        run_experiment(args.config)
+    except (ConfigError, FleetPolicyError) as e:
+        print(f"\nERROR: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument(
-        "--config",
-        default=DEFAULT_CONFIG_PATH,
-        help=f"Path to experiment YAML config (default: default_experiment.yaml). "
-             f"Copy default_experiment.yaml and edit it to define your own experiment.",
-    )
-    args = parser.parse_args()
-
-    try:
-        run_experiment(args.config)
-    except (ValueError, FileNotFoundError) as e:
-        print(f"\nERROR: {e}", file=sys.stderr)
-        sys.exit(1)
+    sys.exit(main())
