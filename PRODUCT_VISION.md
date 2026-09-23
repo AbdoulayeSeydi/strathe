@@ -189,11 +189,11 @@ result than "still investigating" — see Part 3, item 29.
 
 ## Part 3 — Detailed gap list: MVP → full product
 
-> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#47). Items below are unchanged text; this is what has moved since:
+> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#49). Items below are unchanged text; this is what has moved since:
 >
 > | Item | Now |
 > |---|---|
-> | 1. Performance mystery | **Instrumented, not yet caught.** Every calibration evaluation is timed on wall/monotonic/CPU clocks and stack-dumped if it stalls (`stall_watchdog.py`); the clocks classify sleep vs waiting vs computing. |
+> | 1. Performance mystery | **Solved: the machine was asleep.** The stall watchdog (`stall_watchdog.py`) caught 7 stalls in an overnight run. Each lined up to the second with a macOS sleep/wake event, while the process computed only ~26 s per evaluation (PROJECT_STATUS.md #49). Fix: `caffeinate -i` for long runs on macOS. |
 > | 3, 12. Thruster allocation, raw-PWM datasets | **Done for T200-based vehicles.** `thruster_model.py` reproduces the dataset's forces from raw PWM on every row; the allocation matrix can be built from geometry for other vehicles. ESC lag and battery sag are not modelled. |
 > | 9. Multi-agent | **Fleet v2 (2 vehicles):** per-vehicle policies, physical teammate beliefs, paired belief-to-success study. |
 > | 11, 13. Data ingestion, garbage input | **CSV done** (`data_ingestion.py`: columns, units, ROS frames, PWM, timestamps, with guards against silent unit/frame/time errors). ROS bags: export to CSV first. |
