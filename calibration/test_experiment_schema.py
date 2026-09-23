@@ -25,7 +25,6 @@ Run from calibration/:
     python3 test_experiment_schema.py
 """
 import os
-import stat
 import sys
 import tempfile
 
@@ -322,15 +321,16 @@ def test_invalid_missing_model_file():
 
 
 def test_invalid_unwritable_output_dir():
-    """Use a read-only temp directory to guarantee the makedirs call fails."""
-    tmp = tempfile.mkdtemp()
+    """Nest output_dir under a regular FILE to guarantee the makedirs call
+    fails on every OS. (A chmod'd read-only directory doesn't work here:
+    Windows ignores directory permission bits, so makedirs succeeds.)"""
+    fd, blocker = tempfile.mkstemp()
+    os.close(fd)
     try:
-        os.chmod(tmp, stat.S_IRUSR | stat.S_IXUSR)  # r-x, not writable
-        unwritable = os.path.join(tmp, "subdir")
+        unwritable = os.path.join(blocker, "subdir")
         _expect_error(_valid(output_dir=unwritable), "output_dir")
     finally:
-        os.chmod(tmp, stat.S_IRWXU)  # restore so rmdir works
-        os.rmdir(tmp)
+        os.remove(blocker)
 
 
 def test_invalid_empty_output_dir():

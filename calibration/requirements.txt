@@ -1,3 +1,14 @@
 mlflow==3.15.1
 mlflow-skinny==3.15.1
 mlflow-tracing==3.15.1
+
+# Track B (MuJoCo backend) -- confirmed working via `pip install mujoco`
+# on macOS (Python 3.13, Apple Silicon arm64) on 2026-09-04 (B0.1).
+# Version and all five transitive dependencies pinned exactly as
+# installed, per this project's existing reproducibility discipline.
+mujoco==3.12.0
+absl-py==2.5.0
+etils==1.14.0
+glfw==2.10.2
+pyopengl==3.1.10
+zipp==4.1.0

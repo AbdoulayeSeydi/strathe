@@ -1,0 +1,85 @@
+<mujoco model="track_b_b3_two_body_placeholder">
+  <!--
+    B3.1: Two independent free bodies, Track B (MuJoCo backend),
+    extending b0_single_body_placeholder.xml for Track C's multi-agent
+    coordination work.
+
+    Purpose (B3.1's own scope, deliberately narrow): prove two
+    independent free bodies can coexist in one MuJoCo scene at all, with
+    contact constraints between them DISABLED for this first test. This
+    deliberately isolates "does the solver couple two unrelated bodies"
+    (a scene-wiring/indexing question, B3.2/B3.3's job) from "do the
+    bodies collide as intended" (a physical-interaction question, B3.4,
+    explicitly flagged as NOT required for the MVP). Answering both at
+    once would leave an ambiguous result if something looked wrong: this
+    file's structure means B3.2's zero-cross-talk test can only fail for
+    scene-wiring reasons, never because contacts introduced unintended
+    coupling.
+
+    Contacts disabled via the GLOBAL flag contact="disable" (confirmed
+    exact MJCF syntax directly against MuJoCo's own XML reference, and
+    against a real MuJoCo test file using this identical pattern), not
+    per-geom contype/conaffinity: the simplest thing to reason about with
+    nothing else in the scene, and B3.4's own framing ("enabling real
+    contact constraints... for free") implies flipping this one flag back
+    to "enable" is the intended later path, not reconfiguring per-geom
+    settings retroactively.
+
+    Body indexing (confirmed via MuJoCo's own convention, index 0 is
+    always the implicit world body; see mujoco_backend.py's own
+    _BODY_ID=1 comment): body 1 = auv_placeholder, body 2 =
+    auv_placeholder_2. B3.3's own position-indexing test depends on this
+    exact numbering being stable and unsurprising.
+
+    Body 1 (auv_placeholder) is UNCHANGED from
+    b0_single_body_placeholder.xml: same name, position, inertial
+    properties, geom, specifically so existing single-body code
+    (mujoco_backend.py's hardcoded _BODY_ID=1, and every B0-B2 test built
+    against it) continues to work completely unmodified when pointed at
+    THIS file instead, with body 2 simply present but untouched by any
+    code that only ever references index 1. This is exactly what B3.2's
+    zero-cross-talk test needs: a true single-body baseline to compare
+    against, not a new, differently-configured body 1.
+
+    Body 2 (auv_placeholder_2) is structurally IDENTICAL to body 1 (same
+    mass, inertia, geom size) but placed 2m away in x, far enough that the
+    two geoms (each 0.3 x 0.15 x 0.15) never overlap even under
+    substantial motion, so nothing about this test's result could be
+    confused with a contact effect even before B3.4 revisits that
+    question deliberately. Using an IDENTICAL body here, not a
+    deliberately different one, is itself a design choice: B3.2 compares
+    "body 2 actuated with a generic parameter set" against "the same
+    generic parameters run standalone", so keeping body 2's own MJCF
+    definition identical to body 1's means any observed divergence is
+    attributable to the SCENE (two bodies present) rather than to some
+    incidental difference between the two bodies' own placeholder
+    properties.
+
+    Neither body has hydrodynamics, damping, buoyancy, or cross-coupling
+    wired in at the MJCF level, exactly as in the single-body file, since
+    the full-override architecture (see mujoco_backend.py) injects all
+    real, calibratable physics via Python at runtime, per body, not via
+    anything declared here.
+  -->
+  <option gravity="0 0 -9.81">
+    <flag contact="disable"/>
+  </option>
+
+  <worldbody>
+    <body name="auv_placeholder" pos="0 0 0">
+      <freejoint/>
+      <!-- PLACEHOLDER inertial properties, see file header. Unchanged
+           from b0_single_body_placeholder.xml. -->
+      <inertial pos="0 0 0" mass="11.2" diaginertia="0.15 0.25 0.20"/>
+      <geom type="box" size="0.3 0.15 0.15" rgba="0.2 0.5 0.8 1"/>
+    </body>
+
+    <body name="auv_placeholder_2" pos="2 0 0">
+      <freejoint/>
+      <!-- Structurally IDENTICAL to body 1's own placeholder properties,
+           see file header for why this is deliberate, not laziness. -->
+      <inertial pos="0 0 0" mass="11.2" diaginertia="0.15 0.25 0.20"/>
+      <geom type="box" size="0.3 0.15 0.15" rgba="0.8 0.4 0.2 1"/>
+    </body>
+  </worldbody>
+</mujoco>
