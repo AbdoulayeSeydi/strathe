@@ -6,15 +6,50 @@ A simulation and RL-training platform for studying how real-world communication 
 
 **What this answers:** when two underwater vehicles coordinate over a sparse, lossy acoustic link, each has to predict where its teammate is between messages. Does it matter whether that prediction uses a physics model calibrated against real vehicle logs, or generic textbook physics?
 
-**Answer so far** (simulation, 38,400 paired episodes, 3 training seeds, confirmed on MuJoCo and with a second "true vehicle"):
-- **A calibrated teammate model beats a generic one by +3 to +25 points** of formation success, and the gap grows as communication gets worse.
-- **An uncalibrated predictive model is worse than no prediction at all.**
-- **Better teammate information is worth up to +28 points** (perfect information vs none, with policies trained for their belief model).
-- **Physics-based dead reckoning still doesn't beat simply using the last message**: the remaining error is the teammate's changing commands, not its physics. Sharing intent in the beacon is the next lever.
+**Answer so far** (simulation only; 38,400 + 12,800 paired episodes; confirmed on MuJoCo and with a second "true vehicle"):
+- **A calibrated teammate model beats a generic one by +11 to +26 points** of formation success in every condition not already at 100%, when each vehicle's policy is trained for its own belief model. With policies trained on a mixture of belief models, the gap is +3 to +25. Either way, it grows as communication gets worse.
+- **An uncalibrated predictive model is worse than no prediction at all**, by 13 to 31 points.
+- **Better teammate information is worth up to +28 points** (perfect information vs none).
+- **Physics-based dead reckoning still doesn't beat simply using the last message** (−2 to −7 points). The remaining error comes from the teammate's changing commands, not its physics. Sharing intent in the beacon is the next lever.
 
 See [Fleet coordination results](#fleet-coordination-results). An earlier headline metric (fleet v1, "Claim C") was withdrawn after it turned out not to measure calibration at all ([PROJECT_STATUS.md](PROJECT_STATUS.md) #46).
 
 This rests on a system-identification pipeline that fits physics to real BlueROV2 logs, validated on held-out recording sessions (see [Single-Vehicle Calibration Results](#single-vehicle-calibration-results)).
+
+## Recent fixes (September 2026)
+
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–49.
+
+**Fleet coordination: rebuilt (fleet v2)**
+- **Claim C withdrawn (#46).** The v1 metric measured how far the *teammate* had moved since its last message, not anything about calibration. The same "calibrated advantage" appeared with both vehicles running identical physics.
+- **What else v1 got wrong, and what v2 does instead (#47):**
+  - v1 let one controller see both vehicles' true state. In v2, each vehicle sees only its own state plus its belief about its teammate.
+  - v1's reward paid a vehicle to crash early and end a bad episode. In v2, a collision costs the rest of the episode's penalty.
+  - v1 sent beacons 10 times a second. In v2, the interval is set by `beacon_interval_s` (1 s and 3 s in the studies).
+  - v1 ignored most of its config file. In v2, every YAML setting reaches the simulation, including start states (`initial_conditions`), task and comm settings.
+- **The fleet now uses the best converged calibration** as its "true" vehicle, not an unconverged quick fit.
+- **Belief models were separated from policy training (#48).** Policies trained on a mixture of belief models made perfect information score *below* a calibrated model. Policies trained for their own belief model fix that.
+
+**Physics and calibration**
+- **Rotating-frame term (#39, #40).** Both physics backends were missing the rotating-frame (ω × v) term when converting the body-frame acceleration into the world-frame acceleration the engine integrates.
+  - **MuJoCo:** fixed, and confirmed against real MuJoCo.
+  - **HoloOcean:** fixed in code, plus a new check that HoloOcean's tick length matches the 0.1 s logs. Neither is confirmed in HoloOcean itself yet (it doesn't run on macOS), so HoloOcean numbers are provisional.
+- **Roll/yaw "weakness" (#40).** It isn't in the calibration. With the physics the fit was made in, calibration improves held-out roll by ~82% and yaw by 23–51%. The weakness only appeared inside HoloOcean, where the rotating-frame term was missing.
+- **The "one evaluation takes 4 hours" stall is solved (#42, #49): the Mac was asleep.**
+  - The new stall watchdog times every evaluation on three clocks and dumps stack traces when one runs long.
+  - It caught 7 stalls in an overnight run. In each, the process computed for ~26 s while up to 67 min passed on the wall clock.
+  - Every one lines up to the second with a macOS sleep/wake event.
+  - Fix: run long calibrations under `caffeinate -i` (see step 2 below).
+- **Stand-in calibration is 3× faster** (47.5 s → 16.1 s per full-dataset evaluation). The model is unchanged; the evaluation now uses the equivalence-tested fast integrator.
+
+**Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
+
+**Tests and CI**
+- A fake `mujoco` module in one test file leaked into every later file. Test results depended on file order.
+- One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
+- CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
+- CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
+- 197 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Setup
 
@@ -109,12 +144,20 @@ separate scripts, run in order:
    before committing real compute time to a calibration that might not
    succeed.
 
-2. **Stand-in calibration** (fast, minutes):
+2. **Stand-in calibration** (~16 s per evaluation on the full dataset on an
+   M1; a `--max-nfev 60` run is a few hundred evaluations, so plan on hours):
    ```bash
-   python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
+   caffeinate -i python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
       --sampling-rate-hz 10.0 --heldout-dates 16-02-2024 19-02-2024 \
       --output-dir <output-dir> --max-nfev 60
    ```
+   **On macOS, keep `caffeinate -i` in front of long runs.** Without it the Mac
+   sleeps, and evaluations that take ~16 s stretch to over an hour
+   (PROJECT_STATUS.md #49). Keep the lid open, since `caffeinate -i` doesn't
+   stop lid-close sleep. Every run writes `eval_timing.csv`, which has each
+   evaluation's time on three clocks. If an evaluation runs long, the run also
+   writes `stall_log.txt`, which records whether the machine slept, the
+   process waited, or it was really computing.
 
    Add --parallel (optionally --max-workers N) to the stand-in step above to run multiple restarts across real CPU cores instead of sequentially - confirmed real speedup (roughly 4 restarts in the time 1 would normally take) on real, smaller data. Honest caveat: checkpointing is disabled in this mode (a real, deliberate tradeoff - see PROJECT_STATUS.md finding 34), and the combination of --parallel with the FULL, untruncated dataset has not yet been confirmed to finish in a reasonable time - recommend testing on a smaller subset first, or preferring the default (sequential) mode for full-dataset runs until that has been verified.
 
@@ -284,7 +327,9 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/fleet_env.py`, `fleet_belief.py`, `fleet_vec_env.py`** — fleet v2: the two-vehicle simulation with per-vehicle observations, the teammate belief models, and the wrapper that trains one shared per-vehicle policy with stock stable-baselines3.
 - **`calibration/run_fleet_experiment.py`, `fleet_experiment_schema.py`, `fleet_eval.py`, `fleet_stats.py`** — the lab entry point: YAML config, paired evaluation across processes, statistics (Wilson CIs, paired bootstrap, McNemar, dose-response), plain-language report.
 - **`calibration/train_fleet_policy.py`, `validate_fleet_policy.py`, `analyze_fleet_study.py`, `run_specialized_study.py`** — training, the policy contract check, and the study analyses.
-- **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical.
+- **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical. Stand-in calibration uses it too, which makes it 3× faster per evaluation.
+- **`calibration/stall_watchdog.py`** — times every calibration evaluation on three clocks and dumps stack traces for a stalled one (`eval_timing.csv`, `stall_log.txt`).
+- **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
 - **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
 - **`calibration/thruster_model.py`, `data_ingestion.py`, `calibration_report.py`** — PWM → force, lab log ingestion, plain-language calibration reports (see "Bring your own vehicle's logs").
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
@@ -381,11 +426,13 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 
 ## Status
 
-- ✅ Real-data calibration pipeline, validated (held-out-by-date, multi-restart stability)
-- ✅ HoloOcean integration, frame conventions confirmed
-- ✅ Gym-compatible RL environment (`Arena`), three tasks, PPO training confirmed working
+- ✅ Real-data calibration pipeline, validated (held-out-by-date, multi-restart stability); stand-in calibration 3× faster
+- 🔄 HoloOcean integration: runs, but the rotating-frame fix and tick-rate check are unconfirmed in HoloOcean (see below)
+- ✅ Gym-compatible RL environment (`Arena`), four tasks, PPO/SAC/TD3 training confirmed working
 - ✅ Automated pre-flight data-quality checks, automated identifiability reporting
-- ✅ Automated test suite (130+ tests incl. real-data validation, fetched in CI), Windows CI on every push
+- ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows), log ingestion with silent-error guards, plain-language calibration reports
+- ✅ Calibration stall diagnosed (the Mac was asleep), with a watchdog on every run
+- ✅ Automated test suite (197 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -437,7 +484,8 @@ always logs to `sqlite:///mlflow.db` (a local file, `calibration/mlflow.db`
   comm seed) as well.
 - **Metrics**: RMSE results (aggregate, and per-DOF where the script
   computes them without extra real cost), runtime, and evaluation count.
-  For fleet runs: per-agent reward and coordination-success rate.
+  For fleet runs: success rate and belief error per condition, and the
+  headline paired differences.
 - **Status**: every run is tagged with one of four honest outcomes -
   `SUCCESS` (the optimizer genuinely converged), `CHECKPOINT_FALLBACK`
   (didn't converge, but a real, usable checkpoint result was
