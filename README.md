@@ -9,7 +9,8 @@ A simulation and RL-training platform for studying how real-world communication 
 **Answer so far** (simulation, 38,400 paired episodes, 3 training seeds, confirmed on MuJoCo and with a second "true vehicle"):
 - **A calibrated teammate model beats a generic one by +3 to +25 points** of formation success, and the gap grows as communication gets worse.
 - **An uncalibrated predictive model is worse than no prediction at all.**
-- **But the current policies don't yet beat "no prediction"** even with a calibrated model: they don't turn better information into better coordination. A follow-up with policies trained for their own belief model is under way.
+- **Better teammate information is worth up to +28 points** (perfect information vs none, with policies trained for their belief model).
+- **Physics-based dead reckoning still doesn't beat simply using the last message**: the remaining error is the teammate's changing commands, not its physics. Sharing intent in the beacon is the next lever.
 
 See [Fleet coordination results](#fleet-coordination-results). An earlier headline metric (fleet v1, "Claim C") was withdrawn after it turned out not to measure calibration at all ([PROJECT_STATUS.md](PROJECT_STATUS.md) #46).
 
@@ -263,7 +264,7 @@ Training your own per-vehicle policy (~40 min on an M1 for 3M steps):
 python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # --belief <model> to specialize
 python validate_fleet_policy.py my_policy.zip
 ```
-Shipped policies: `fleet_policy_seed1-3.zip` (trained on a mixture of belief models; see results).
+Shipped policies: `fleet_policy_seed1-3.zip` (trained on a mixture of belief models) and `specialized_policies/fleet_policy_<belief>_seed1-2.zip` (each trained for one belief model; see results).
 
 Reproduce the studies below: `python run_fleet_experiment.py --config fleet_study.yaml` (~30 min), `fleet_study_alt_truth.yaml`, `fleet_study_mujoco.yaml`, then `python analyze_fleet_study.py results/<dir>` for per-seed checks.
 
@@ -316,7 +317,23 @@ Formation success rate by teammate-prediction model:
 What it shows:
 1. **Calibration matters when a vehicle predicts its teammate with physics.** Calibrated beats generic in 7 of 8 conditions, and success falls steadily as the model's parameters move from true toward generic (dose-response, all 8 slopes below zero). Per training seed the gain is robust in the hard conditions and seed-dependent in the easy ones.
 2. **An uncalibrated model is worse than none.** Generic loses to last-beacon in every condition, by 3 to 26 points.
-3. **The current policies don't beat "no prediction", and even perfect information does worse than a calibrated model in 6 of 8 conditions.** The policies were trained on a mixture of belief models, and their input doesn't say which one is active, so they apply one average staleness correction to all of them (PROJECT_STATUS.md #47). The calibrated-vs-generic comparison shares that confound equally and is paired. A follow-up with policies trained for their own belief model is running.
+3. **These policies were trained on a mixture of belief models**, and their input doesn't say which one is active, so perfect information scored *below* a calibrated model here. Policies trained for their own belief model fix this (next table).
+
+**Follow-up: each belief model with a policy trained for it** (`run_specialized_study.py`, 2 seeds each, 12,800 paired episodes, `calibration/results/fleet_v2_specialized/`):
+
+| Comm | calibrated | generic | last beacon | oracle | calibrated − generic (95% CI) |
+|---|---|---|---|---|---|
+| L0, beacon 3 s | 98% | 84% | 100% | 100% | +14 (+10, +18) |
+| L1, beacon 3 s | 93% | 80% | 100% | 100% | +14 (+9, +18) |
+| L2, beacon 3 s | 86% | 62% | 94% | 100% | **+24 (+18, +30)** |
+| L3a, beacon 1 s | 97% | 86% | 99% | 100% | +11 (+8, +15) |
+| L3a, beacon 3 s | 70% | 44% | 70% | 98% | **+26 (+20, +32)** |
+
+(Every belief model scores 100% at L0, L1 and L2 with 1 s beacons.)
+
+- **Better information now wins:** perfect information beats the last beacon by up to +28 points.
+- **Calibrated beats generic by +11 to +26 points** wherever the task isn't already solved, and generic is 13–31 points *worse* than no prediction.
+- **Calibrated dead reckoning ties or trails the last beacon (−2 to −7):** it holds the teammate's last thrust for up to 3 s while the teammate's controller keeps changing it. The next lever is sharing intent (planned thrust or trajectory) in the beacon, a natural research question for a lab partner (PROJECT_STATUS.md #48).
 
 **Robustness:**
 - **With a second "true vehicle"** (the least bound-limited calibration): calibrated beats generic by +14 to +19 points in 3 of 4 conditions, with no difference in the fourth.
@@ -325,7 +342,7 @@ What it shows:
 **Limits:**
 - Simulation only, 2 vehicles, formation hold, BlueROV2.
 - In simulation `calibrated` equals the simulated vehicle, so this measures the value of model accuracy. How close a real calibration gets to a real vehicle is the single-vehicle result below.
-- Success rates are 48–100%, depending mostly on comm conditions.
+- Success rates range from 44% to 100%, depending mostly on comm conditions and the belief model.
 
 ## Single-Vehicle Calibration Results
 
@@ -374,7 +391,8 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
 - ❌ Fleet v1 "Claim C" withdrawn — its metric didn't measure calibration (PROJECT_STATUS.md #46)
 - 🔄 HoloOcean-backed results provisional — backend frame fix and tick-rate guard need confirming on a HoloOcean machine (`verify_holoocean_frame_conventions.py`); with the stand-in physics, calibration improves all six axes on held-out data
-- 🔄 Fleet v2 policies don't yet exploit better teammate information (mixed-belief training confound); specialized-policy study running
+- ✅ Specialized-policy follow-up: better teammate information → better coordination (+28 pts); calibrated beats generic by +11 to +26
+- 🔄 Physics dead reckoning doesn't beat last-beacon yet — intent-sharing beacons are the next lever
 - ⏳ Fleet policies are trained on the stand-in engine; MuJoCo is used as an independent truth engine for evaluation
 - ⏳ Real hardware validation — not yet done, for either the single-vehicle or fleet work; looking for lab partners with BlueROV2 access
 
