@@ -10,7 +10,7 @@ produces/delivers Message objects. Any vehicle, calibrated or not, real
 physics or a mock, can sit on either end of this channel as long as it can
 report a position each tick.
 
-## Physical model (formula mode — see the Mera product vision doc)
+## Physical model (formula mode — see the Strathe product vision doc)
 - Latency = distance / speed_of_sound_mps (1500 m/s default, real seawater
   value). Fixed at SEND time, not delivery time — matches how sound
   actually propagates: a message's travel time depends on the distance

@@ -1,0 +1,30 @@
+Strathe — Proprietary Software License
+
+Copyright (c) 2026 Abdoulaye Seydi. All rights reserved.
+
+This software, including its source code, documentation, trained models,
+calibrated parameter sets, configuration files and associated data
+(together, the "Software"), is proprietary and confidential.
+
+No license or right to use, copy, modify, merge, publish, distribute,
+sublicense, sell, or create derivative works of the Software is granted
+by possession of it or access to this repository. Any such use requires
+a separate written agreement signed by the copyright holder (for example
+an evaluation, pilot, or commercial license agreement), and is limited
+to the terms of that agreement.
+
+Unauthorized copying of the Software, in whole or in part, by any means,
+is strictly prohibited.
+
+Third-party components used by the Software (including Python packages
+listed in requirements.txt, MuJoCo, and HoloOcean) remain subject to
+their own licenses, which this license does not modify. Datasets used
+for calibration remain subject to the terms set by their owners.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.

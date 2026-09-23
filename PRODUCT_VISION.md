@@ -1,4 +1,4 @@
-# Product Vision — Calibrated Digital Twins for Marine Autonomy
+# Product Vision — Strathe
 
 *Companion to PROJECT_STATUS.md (the research log) — this document answers
 "what are we actually building, for whom, and what's the gap between what

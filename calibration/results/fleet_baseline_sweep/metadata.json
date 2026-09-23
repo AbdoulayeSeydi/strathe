@@ -1,0 +1,54 @@
+{
+  "git_commit": "dad99a4f325cddca00bfdd6e031022a00c0f2657",
+  "python_version": "3.13.5",
+  "numpy_version": "2.5.2",
+  "scipy_version": "1.18.1",
+  "stable_baselines3_version": "2.9.0",
+  "mujoco_version": "3.12.0",
+  "mlflow_schema_version": 2,
+  "timestamp": "2026-09-20T21:58:35.069138",
+  "resolved_config": {
+    "name": "fleet_baseline_sweep",
+    "vehicles": [
+      {
+        "model_path": "formation_hold_ppo_curriculum_L2",
+        "algorithm": "ppo",
+        "role": "calibrated"
+      },
+      {
+        "model_path": "formation_hold_ppo_curriculum_v5",
+        "algorithm": "ppo",
+        "role": "generic"
+      }
+    ],
+    "communication": {
+      "severity_label": "L2",
+      "severity": "L2",
+      "resolved": {
+        "near_distance_m": 0.0,
+        "far_distance_m": 1000.0,
+        "near_field_prob": 0.3,
+        "far_field_prob": 0.3,
+        "bytes_per_tick": 1000000000.0,
+        "speed_of_sound_mps": 1500.0
+      }
+    },
+    "task": {
+      "target_separation_m": 2.0,
+      "tolerance_m": 0.2,
+      "hold_steps": 20
+    },
+    "evaluation": {
+      "episodes": 160,
+      "comm_seeds": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "grid_seeds": 5
+    },
+    "dynamics_backend": "stand_in"
+  }
+}

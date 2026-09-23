@@ -1,4 +1,4 @@
-# Calibrated Digital Twins for Marine Autonomy — Project Status
+# Strathe — Project Status
 
 *Last updated: current session*
 
