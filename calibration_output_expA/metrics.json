@@ -1,0 +1,32 @@
+{
+  "spec": "vehicle_spec_expA_fix_all_added_mass.yaml",
+  "baseline_train_rmse": 0.3101373688387652,
+  "fitted_train_rmse": 0.2136092018896285,
+  "baseline_heldout_rmse": 0.29990880020086713,
+  "fitted_heldout_rmse": 0.21186048465841706,
+  "n_pinned": 18,
+  "pinned_params": [
+    "Ieff_roll",
+    "Ieff_pitch",
+    "Xu",
+    "Yv",
+    "Zw",
+    "Kp",
+    "Mq",
+    "Xuu",
+    "Yvv",
+    "Zww",
+    "Kpp",
+    "Mqq",
+    "Xu_dot",
+    "Yv_dot",
+    "Zw_dot",
+    "net_buoyancy_z",
+    "Xq_dot",
+    "Zq_dot"
+  ],
+  "converged": true,
+  "cost": 3.640937144507471,
+  "nfev": 12,
+  "elapsed_seconds": 19788.310246959096
+}

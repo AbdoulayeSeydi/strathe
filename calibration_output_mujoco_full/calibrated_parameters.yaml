@@ -1,0 +1,25 @@
+parameters:
+  Ieff_roll: 0.26499999999999996
+  Ieff_pitch: 0.22500000000000003
+  Ieff_yaw: 2.4279941194559487
+  Xu: -37.398071148848885
+  Yv: -79.99999999999999
+  Zw: -95.72388606246038
+  Kp: -9.999999999999998
+  Mq: -4.999999999999999
+  Nr: -5.991923630240644
+  Xuu: -66.78773286876583
+  Yvv: -99.99999999999999
+  Zww: -149.99999999999997
+  Kpp: -9.999999999999998
+  Mqq: -9.999999999999998
+  Nrr: -0.6246565156238177
+  Xu_dot: 29.999999999999996
+  Yv_dot: 32.53837818036031
+  Zw_dot: 12.40135761110552
+  net_buoyancy_z: 0.9999999999999999
+  cg_cb_offset_z: 0.026775495030146985
+  Xq_dot: -0.49999999999999994
+  Zq_dot: -0.49999999999999994
+note: MuJoCo-backed (teacher_forced=True), see run_calibration_mujoco.py's own docstring
+  for what differs from the earlier HoloOcean proof-of-concept.

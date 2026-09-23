@@ -1,0 +1,56 @@
+<mujoco model="track_b_b3_two_body_contacts_enabled">
+  <!--
+    B3.4: Native collision, Track B (MuJoCo backend).
+
+    Identical to b3_two_body_placeholder.xml (B3.1) in every respect
+    except ONE flag: contact is "enable" here instead of "disable".
+    B3.1's own file header already named this as the intended later
+    path ("B3.4's own framing implies flipping this one flag back to
+    enable"); this file is exactly that, not a redesign.
+
+    WHY this is genuinely "essentially for free", confirmed directly
+    against MuJoCo's own documentation (see conversation), not assumed:
+    the full-override architecture's wrench injection
+    (_inject_full_override_wrench in mujoco_backend.py) cancels and
+    replaces ONLY qfrc_bias; MuJoCo's own documented "Coriolis,
+    centrifugal and gravitational forces" term. Contact/constraint
+    forces are a SEPARATE quantity entirely (qfrc_constraint, derived
+    from efc_force via the constraint Jacobian); MuJoCo's own equation
+    of motion adds bias and constraint forces separately, never combining
+    them into one term. This means the override mechanism structurally
+    CANNOT interfere with contact forces: it never touches them, by
+    construction, regardless of whether contacts are enabled or
+    disabled. Enabling this flag therefore does not require any change
+    to mujoco_backend.py's own wrench-injection logic at all; contact
+    forces simply appear as an additional, independent contribution to
+    qacc whenever MuJoCo's own collision detection finds an active
+    contact, layered on top of whatever the calibrated physics already
+    supplies.
+
+    Body 1 (auv_placeholder) and body 2 (auv_placeholder_2) are
+    otherwise UNCHANGED from B3.1; same positions, same inertial
+    properties, same geoms. At their default 2m separation, their boxes
+    (each 0.3 x 0.15 x 0.15) never overlap, so this file alone does not
+    by itself produce a contact. b3_4_native_collision_test.py
+    deliberately moves them together to actually exercise collision
+    detection, rather than relying on it happening to occur through
+    ordinary motion.
+  -->
+  <option gravity="0 0 -9.81">
+    <flag contact="enable"/>
+  </option>
+
+  <worldbody>
+    <body name="auv_placeholder" pos="0 0 0">
+      <freejoint/>
+      <inertial pos="0 0 0" mass="11.2" diaginertia="0.15 0.25 0.20"/>
+      <geom type="box" size="0.3 0.15 0.15" rgba="0.2 0.5 0.8 1"/>
+    </body>
+
+    <body name="auv_placeholder_2" pos="2 0 0">
+      <freejoint/>
+      <inertial pos="0 0 0" mass="11.2" diaginertia="0.15 0.25 0.20"/>
+      <geom type="box" size="0.3 0.15 0.15" rgba="0.8 0.4 0.2 1"/>
+    </body>
+  </worldbody>
+</mujoco>

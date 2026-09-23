@@ -1,0 +1,402 @@
+assumptions:
+- "Added mass matrix is diagonal \u2014 off-diagonal added-mass coupling assumed negligible."
+- "CG/CB offset only modeled in z \u2014 x=y=0 assumed (no known lateral CG/CB asymmetry)."
+- "Ocean current assumed zero \u2014 dataset was collected in a tank/pool, not open water. See environment.current\
+  \ below; this assumption breaks for real open-water customer data."
+- "Thruster PWM->thrust conversion is assumed ALREADY DONE in the input dataset (Fx..Tz, thrust1-8 columns)\
+  \ \u2014 thruster-level dynamics (deadband, lag, saturation) are NOT calibrated in this MVP. See thruster_model.calibrated:\
+  \ false."
+- "Payload is the vehicle's baseline configuration \u2014 no additional payload mass/CG shift modeled.\
+  \ See payload section."
+- "Linear (Xu) vs quadratic (Xuu) damping identifiability varies by axis \u2014 confirmed via two independent\
+  \ measurements to be a data-coverage issue for some axes (Xu/Xuu, Yv/Yvv) but likely a missing-physics\
+  \ symptom for others (Mq/Mqq) \u2014 see validation.identifiability_note."
+- "Dataset sampling rate is 10Hz \u2014 empirically determined (the dataset has no time column), NOT the\
+  \ 50Hz used in earlier calibration runs. See check_sampling_rate_windowed.py and PROJECT_STATUS.md finding\
+  \ #11 for the full validation (synthetic ground-truth recovery, drift-bias stress test, cross-date agreement,\
+  \ split-half reproducibility, per-run outlier screening, and round-number-duration confirmation). run_calibration.py's\
+  \ --sampling-rate-hz now defaults to 10.0 accordingly."
+calibration_targets:
+  added_mass_coupling:
+    Xq_dot:
+      bounds:
+      - -0.5
+      - 0.5
+      bounds_rationale: no prior literature estimate for this vehicle; bound is set by the mass-matrix
+        positive-definiteness requirement, not a physical magnitude estimate
+      confidence: assumed
+      initial_guess: 0.0
+      source: assumed near-zero, exploratory
+      unit: kg
+    Zq_dot:
+      bounds:
+      - -0.5
+      - 0.5
+      bounds_rationale: no prior literature estimate for this vehicle; bound is set by the mass-matrix
+        positive-definiteness requirement, not a physical magnitude estimate
+      confidence: assumed
+      initial_guess: 0.0
+      source: assumed near-zero, exploratory
+      unit: kg
+  added_mass_diag:
+    Xu_dot:
+      bounds:
+      - 5.499
+      - 5.501
+      bounds_rationale: 'EXPERIMENTALLY FIXED near-literature-value (see conversation): the full-25-run
+        Jacobian identifiability analysis found Xu_dot correlated >=0.916 with BOTH other translational
+        added-mass terms simultaneously -- a three-way near-degeneracy, not a clean two-parameter tradeoff.
+        This experiment tests whether the dataset''s real acceleration excitation can actually constrain
+        Xu_dot independently, or whether fixing it near its literature value costs little to no held-out
+        predictive quality -- which would mean it was never separably identifiable from this dataset to
+        begin with. Original bounds were [0, 30]. Kept narrow-but-nonzero (not exactly equal) to avoid
+        the real x_scale=ub-lb=0 crash confirmed directly against the real calibrate() before this file
+        was written.'
+      confidence: literature
+      initial_guess: 5.5
+      source: literature
+      unit: kg
+    Yv_dot:
+      bounds:
+      - 12.699
+      - 12.701
+      bounds_rationale: 'EXPERIMENTALLY FIXED near-literature-value (see conversation): the full-25-run
+        Jacobian identifiability analysis found Yv_dot correlated >=0.916 with BOTH other translational
+        added-mass terms simultaneously -- a three-way near-degeneracy, not a clean two-parameter tradeoff.
+        This experiment tests whether the dataset''s real acceleration excitation can actually constrain
+        Yv_dot independently, or whether fixing it near its literature value costs little to no held-out
+        predictive quality -- which would mean it was never separably identifiable from this dataset to
+        begin with. Original bounds were [0, 40]. Kept narrow-but-nonzero (not exactly equal) to avoid
+        the real x_scale=ub-lb=0 crash confirmed directly against the real calibrate() before this file
+        was written.'
+      confidence: literature
+      initial_guess: 12.7
+      source: literature
+      unit: kg
+    Zw_dot:
+      bounds:
+      - 14.599
+      - 14.601
+      bounds_rationale: 'EXPERIMENTALLY FIXED near-literature-value (see conversation): the full-25-run
+        Jacobian identifiability analysis found Zw_dot correlated >=0.916 with BOTH other translational
+        added-mass terms simultaneously -- a three-way near-degeneracy, not a clean two-parameter tradeoff.
+        This experiment tests whether the dataset''s real acceleration excitation can actually constrain
+        Zw_dot independently, or whether fixing it near its literature value costs little to no held-out
+        predictive quality -- which would mean it was never separably identifiable from this dataset to
+        begin with. Original bounds were [0, 40]. Kept narrow-but-nonzero (not exactly equal) to avoid
+        the real x_scale=ub-lb=0 crash confirmed directly against the real calibrate() before this file
+        was written.'
+      confidence: literature
+      initial_guess: 14.6
+      source: literature
+      unit: kg
+  buoyancy:
+    cg_cb_offset_z:
+      bounds:
+      - -0.1
+      - 0.1
+      bounds_rationale: "\xB110cm exceeds any plausible BlueROV2 hull offset \u2014 deliberately generous"
+      confidence: assumed
+      initial_guess: 0.02
+      source: assumed small positive (CG below CB, passively stable)
+      unit: m
+    net_buoyancy_z:
+      bounds:
+      - -1.0
+      - 1.0
+      bounds_rationale: 'TIGHTENED from [-10,10] - CONFIRMED (PROJECT_STATUS.md): real sensitivity sweep
+        showed near-ZERO RMSE sensitivity to this parameter (tied for lowest of all 22 parameters), AND
+        a real re-fit with it fixed at 0.0 (this file''s own original neutral-trim prior) lost none of
+        the fit quality (cost still dropped ~97% with the other 21 parameters doing the work). The old
+        wide bound let it drift to the extreme +10N edge (~1kg of trim) with no fit-quality justification
+        - the same non-load-bearing-drift pattern already confirmed and fixed for Ieff_roll/Ieff_pitch.
+        New bounds still allow +-1N (~0.1kg) of real trim variation, comfortably wider than a well-trimmed
+        vehicle should need.'
+      confidence: assumed
+      initial_guess: 0.0
+      source: assumed near-neutral trim, confirmed non-load-bearing
+      unit: N
+  effective_inertia:
+    Ieff_pitch:
+      bounds:
+      - 0.225
+      - 0.235
+      bounds_rationale: FIXED near the real, independently-sourced BlueROV2 heavy-config value (0.23 kg*m^2,
+        clydemcqueen/bluerov2_gz public Gazebo model) - same reasoning as Ieff_roll above (near-zero RMSE
+        sensitivity confirmed two ways; the earlier 9-10 kg*m^2 drift was not fit-quality-justified).
+      confidence: literature
+      initial_guess: 0.23
+      source: independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)
+      unit: kg*m^2
+    Ieff_roll:
+      bounds:
+      - 0.255
+      - 0.265
+      bounds_rationale: 'FIXED near the real, independently-sourced BlueROV2 heavy-config value (0.26
+        kg*m^2, clydemcqueen/bluerov2_gz public Gazebo model) after two convergent findings (PROJECT_STATUS.md):
+        (1) a sensitivity sweep showed near-ZERO RMSE sensitivity to this parameter''s exact value, (2)
+        a real re-fit with it fixed at this value lost none of the fit quality (cost still dropped ~97%
+        with the other 20 parameters doing the work). Previous wide bounds let it drift to a non-physical
+        9-10 kg*m^2 with no real fit-quality justification - likely compensating for something else rather
+        than reflecting genuine inertia. Bounds kept narrow-but-nonzero (not exactly equal) to avoid a
+        real x_scale=ub-lb=0 division risk, confirmed directly before this change.'
+      confidence: literature
+      initial_guess: 0.26
+      source: independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)
+      unit: kg*m^2
+    Ieff_yaw:
+      bounds:
+      - 0.05
+      - 10.0
+      bounds_rationale: "deliberately wider than the old Izz+Nr_dot combined bound (2.4), which is where\
+        \ the ORIGINAL calibration run pinned this exact quantity \u2014 see note above"
+      confidence: estimated
+      initial_guess: 0.32
+      source: sum of box-approximation inertia + literature added-mass estimate
+      unit: kg*m^2
+  linear_damping:
+    Kp:
+      bounds:
+      - -10
+      - -0.1
+      bounds_rationale: "WIDENED AGAIN (experimental variant, see conversation): this is the SECOND widening\
+        \ of this exact bound. Already widened once from -5 to -10 after being confirmed pinned at -5\
+        \ in an earlier real calibration. A later real MuJoCo-backed fit (10 full-length runs, converged)\
+        \ pinned it again, exactly at -10 \u2014 a real, repeating signal, not noise. Doubled again (-10\
+        \ to -20) mirroring the same magnitude as the first widening. Upper bound still excludes near-zero\
+        \ damping, see comment above."
+      confidence: literature
+      initial_guess: -0.3
+      source: literature
+      unit: N*m/(rad/s)
+    Mq:
+      bounds:
+      - -5
+      - -0.1
+      bounds_rationale: "NOT WIDENED in this experimental variant (see conversation), despite also being\
+        \ pinned in the same real MuJoCo fit: this file's own identifiability_note flags Mq/Mqq's fitted-model\
+        \ correlation as sharply disagreeing with its pure-kinematic baseline, with a working hypothesis\
+        \ that the optimizer uses both jointly as compensation for missing rotational Coriolis/cross-coupling\
+        \ physics, not genuine identification. Widening without first resolving that open question risks\
+        \ letting the compensation grow further rather than revealing anything real. wide net \u2014 low-confidence\
+        \ axis, sparse published data; upper bound excludes near-zero damping, see comment above"
+      confidence: literature
+      initial_guess: -0.3
+      source: literature
+      unit: N*m/(rad/s)
+    Nr:
+      bounds:
+      - -10
+      - -0.2
+      bounds_rationale: "wide net \u2014 low-confidence axis, sparse published data; upper bound excludes\
+        \ near-zero damping, see comment above"
+      confidence: literature
+      initial_guess: -1.0
+      source: literature
+      unit: N*m/(rad/s)
+    Xu:
+      bounds:
+      - -50
+      - -1.0
+      bounds_rationale: ~5x nominal literature estimate; upper bound excludes near-zero damping, see comment
+        above
+      confidence: literature
+      initial_guess: -11.7
+      source: Fossen-style BlueROV2 sysID literature
+      unit: N/(m/s)
+    Yv:
+      bounds:
+      - -80
+      - -1.6
+      bounds_rationale: 'WIDENED (experimental variant, see conversation): a real MuJoCo-backed fit (10
+        full-length runs, converged) pinned this exactly at the previous -80 lower bound, with no prior
+        documented history of harmful drift here (unlike Ieff_roll/Ieff_pitch/net_buoyancy_z). Widened
+        ~1.5x to test whether -80 was genuinely constraining. ORIGINAL bound/rationale: ~4x nominal literature
+        estimate; upper bound excludes near-zero damping, see comment above.'
+      confidence: literature
+      initial_guess: -20.0
+      source: Fossen-style BlueROV2 sysID literature
+      unit: N/(m/s)
+    Zw:
+      bounds:
+      - -100
+      - -2.0
+      bounds_rationale: ~3x nominal literature estimate; upper bound excludes near-zero damping, see comment
+        above
+      confidence: literature
+      initial_guess: -31.8
+      source: Fossen-style BlueROV2 sysID literature
+      unit: N/(m/s)
+  quadratic_damping:
+    Kpp:
+      bounds:
+      - -10
+      - -0.2
+      bounds_rationale: "NOT WIDENED in this experimental variant (see conversation), despite also being\
+        \ pinned in the same real MuJoCo fit: flagged in this file's own identifiability_note as a milder\
+        \ version of the same Mq/Mqq missing-physics-compensation pattern (2-rank shift). wide net \u2014\
+        \ low-confidence axis; upper bound excludes near-zero damping, see linear_damping comment"
+      confidence: literature
+      initial_guess: -0.5
+      source: literature
+      unit: N*m/(rad/s)^2
+    Mqq:
+      bounds:
+      - -10
+      - -0.2
+      bounds_rationale: "NOT WIDENED in this experimental variant (see conversation) \u2014 same reasoning\
+        \ as Mq above (this file's own identifiability_note: likely missing-physics compensation, not\
+        \ genuine identification). wide net \u2014 low-confidence axis; upper bound excludes near-zero\
+        \ damping, see linear_damping comment"
+      confidence: literature
+      initial_guess: -0.5
+      source: literature
+      unit: N*m/(rad/s)^2
+    Nrr:
+      bounds:
+      - -30
+      - -0.4
+      bounds_rationale: "wide net \u2014 low-confidence axis, sparse published data; upper bound excludes\
+        \ near-zero damping, see linear_damping comment. UPDATE: post-Coriolis real fit shows Nr/Nrr correlation\
+        \ at -0.861 vs. the fixed kinematic baseline of 0.864 (see identifiability_note below) - gap 0.003,\
+        \ the TIGHTEST match of any damping pair (was 0.006 pre-Coriolis, already small). Not bound-pinned\
+        \ in the current real result either. Clean, confirmed data-coverage case - no missing-physics\
+        \ symptom here."
+      confidence: literature
+      initial_guess: -2.0
+      source: literature
+      unit: N*m/(rad/s)^2
+    Xuu:
+      bounds:
+      - -100
+      - -2.0
+      bounds_rationale: ~5x nominal literature estimate; upper bound excludes near-zero damping, see linear_damping
+        comment
+      confidence: literature
+      initial_guess: -18.2
+      source: literature
+      unit: N/(m/s)^2
+    Yvv:
+      bounds:
+      - -100
+      - -2.0
+      bounds_rationale: 'WIDENED (experimental variant, see conversation): a real MuJoCo-backed fit (10
+        full-length runs, converged) pinned this exactly at the previous -100 lower bound. No prior documented
+        history of harmful drift here. Widened ~1.5x. ORIGINAL bound/rationale: ~5x nominal literature
+        estimate; upper bound excludes near-zero damping, see linear_damping comment.'
+      confidence: literature
+      initial_guess: -21.7
+      source: literature
+      unit: N/(m/s)^2
+    Zww:
+      bounds:
+      - -150
+      - -3.0
+      bounds_rationale: 'WIDENED (experimental variant, see conversation): a real MuJoCo-backed fit (10
+        full-length runs, converged) pinned this exactly at the previous -150 lower bound. Widened ~1.5x.
+        ORIGINAL bound/rationale: ~3x nominal literature estimate; upper bound excludes near-zero damping,
+        see linear_damping comment. UPDATE: post-Coriolis real fit shows Zw/Zww correlation at -0.826
+        (was -0.88 pre-Coriolis) vs. the fixed kinematic baseline of 0.918 (see identifiability_note below)
+        - the gap from baseline WIDENED (0.038 -> 0.092) after adding Coriolis, the opposite of what would
+        be expected if Coriolis were resolving a missing-physics-driven inflation the way it was hoped
+        to for Mq/Mqq. This pair''s correlation looks like a genuine data-coverage issue, not a missing-physics
+        symptom.'
+      confidence: literature
+      initial_guess: -50.0
+      source: literature
+      unit: N/(m/s)^2
+environment:
+  confidence: assumed
+  current_direction_deg: 0.0
+  current_velocity_mps: 0.0
+  note: "If future customer deployment logs come from open water, this can no longer be assumed zero \u2014\
+    \ would need direct measurement or promotion to a calibration target.\n"
+  source: "assumed \u2014 dataset collected in tank/pool, not open water"
+fixed_parameters:
+  mass_kg:
+    confidence: published
+    source: Blue Robotics published spec (BlueROV2 Heavy, standard config)
+    unit: kg
+    value: 11.2
+metadata:
+  description: "BlueROV2 Heavy (8-thruster) vehicle spec for the Tryton calibration pipeline. Separates\
+    \ MEASURED/PUBLISHED constants (fixed_parameters) from UNKNOWN physical parameters the optimizer solves\
+    \ for (calibration_targets). Every value carries source + confidence so provenance isn't lost months\
+    \ later.\nEXPERIMENTAL VARIANT (see conversation): widens bounds ONLY for 5 of the 13 parameters a\
+    \ real MuJoCo-backed calibration (10 full-length training runs, max_nfev=50, converged) pinned exactly\
+    \ at their bounds -- Kp, Yv, Yvv, Zww, Xu_dot. The other 8 pinned parameters (Ieff_roll, Ieff_pitch,\
+    \ net_buoyancy_z, Xq_dot, Zq_dot, Mq, Mqq, Kpp) are DELIBERATELY left untouched here -- see each one's\
+    \ own bounds_rationale below (unchanged from the original file) for why: three have documented evidence\
+    \ that widening previously caused non-physical drift with zero fit-quality benefit, two are hard mass-matrix\
+    \ positive-definiteness constraints, and the Mq/Mqq/Kpp group is flagged as likely missing-physics\
+    \ compensation rather than genuine identification. Widening those without first re-deriving their\
+    \ own specific justification would risk re-creating problems this file's own history already found\
+    \ and fixed.\nThis file exists ONLY for the diagnostic experiment of re-running the same calibration\
+    \ with more room on these 5 specific parameters, to distinguish (per the plan) whether: (A) they move\
+    \ further and held-out RMSE improves again (original bounds were genuinely constraining), (B) they\
+    \ move further but RMSE barely changes (weakly identified, not worth chasing), or (C) they barely\
+    \ move despite the room (the original bounds were never the real constraint). NOT intended as a replacement\
+    \ for the original vehicle_spec.yaml unless outcome A is confirmed.\n\n    EXPERIMENT A (see conversation):\
+    \ fixes ALL THREE translational added-mass terms (Xu_dot, Yv_dot, Zw_dot) near their literature values,\
+    \ testing the parameter-reduction hypothesis directly -- if held-out RMSE barely changes, these three\
+    \ were never independently identifiable from this dataset."
+optimization:
+  algorithm: scipy.optimize.least_squares (trust region reflective)
+  ftol: 1.0e-08
+  loss: linear (standard least-squares residuals)
+payload:
+  additional_mass_kg: 0.0
+  description: Baseline vehicle configuration, no additional payload.
+  note: 'Payload changes mass, buoyancy, CG, and CB simultaneously. A future revision should model payload
+    as a structured addition that propagates to all four together, not just mass alone.
+
+    '
+schema_version: 0.3.0
+thruster_model:
+  calibrated: false
+  confidence: published
+  count: 8
+  future_calibration_targets:
+    deadband_pwm: null
+    max_forward_n: null
+    max_reverse_n: null
+    polynomial_coefficients: null
+    time_constant_s: null
+  hardware: Blue Robotics T200
+  note: "Thruster-level dynamics (deadband, time constant, saturation, nonlinear thrust curve) are NOT\
+    \ calibrated in this MVP \u2014 the dataset already provides pre-converted net forces/torques (Fx..Tz).\
+    \ If a future dataset provides only raw PWM, this section becomes real calibration targets \u2014\
+    \ see future_calibration_targets below.\n"
+  source: Blue Robotics published spec sheet
+validation:
+  identifiability_note: "CONFIRMED via TWO INDEPENDENT measurements, and the comparison between them is\
+    \ more informative than either alone. (1) Jacobian-based correlation from the fitted model, on real\
+    \ data (v0.2.0-0.3.0 calibration): Xu/Xuu -0.93, Mq/Mqq -0.93, Yv/Yvv -0.92, Zw/Zww -0.88, Nr/Nrr\
+    \ -0.87, Kp/Kpp -0.84. (2) Pure kinematic correlation of corr(v, v*|v|) using ONLY the real logged\
+    \ velocity distribution, independent of any model or optimizer (check_damping_identifiability.py):\
+    \ Xu/Xuu 0.948, Zw/Zww 0.918, Yv/Yvv 0.887, Nr/Nrr 0.864, Kp/Kpp 0.795, Mq/Mqq 0.764. For Xu/Xuu and\
+    \ Yv/Yvv, the two measures agree closely \u2014 CONFIRMS the \"narrow speed range\" mechanism is real\
+    \ and dominant for these axes. For Mq/Mqq specifically, they sharply DISAGREE: it's the 2nd-worst\
+    \ pair by the fitted-model measure but the LEAST severe by pure velocity kinematics. That gap means\
+    \ data coverage alone does not explain Mq/Mqq's correlation \u2014 something else is inflating it.\
+    \ Given the separately-documented finding that pitch shows the model's clearest missing-rotational-physics\
+    \ symptoms (force-breakdown plots showing damping compensating for absent Coriolis/cross-coupling\
+    \ terms; see PROJECT_STATUS.md), the working hypothesis is that Mq/Mqq's correlation is a SYMPTOM\
+    \ of that same missing-physics problem, not an independent data-coverage issue \u2014 i.e. the optimizer\
+    \ is using both damping terms jointly as compensation, not just failing to tell them apart. This should\
+    \ resolve (or at least change) once the stand-in model is replaced with HoloOcean's real dynamics\
+    \ \u2014 worth explicitly re-running this same two-measurement comparison after that swap to see whether\
+    \ Mq/Mqq's fitted-model correlation drops toward its kinematic baseline (0.764) once real Coriolis/cross-coupling\
+    \ terms are present. Zw/Zww and Kp/Kpp show milder versions of the same disagreement (2-rank shifts\
+    \ each) \u2014 worth watching too, not just Mq/Mqq. UPDATE, post-Coriolis (real diagnostic run, PROJECT_STATUS.md):\
+    \ Zw/Zww's fitted correlation is now -0.826 (was -0.88), vs. its fixed kinematic baseline of 0.918.\
+    \ The gap from baseline WIDENED (0.038 -> 0.092), the OPPOSITE of what Coriolis resolving a missing-physics\
+    \ inflation would predict \u2014 Zw/Zww looks like genuine data-coverage, not a missing-physics symptom,\
+    \ unlike the open Mq/Mqq question above. Not yet re-checked for Mq/Mqq itself with this same before/after\
+    \ comparison. Regardless of mechanism: NOT exact \xB11.000 correlations like Izz/Nr_dot was \u2014\
+    \ genuinely difficult to separate, not proven structurally impossible. Treat each pair's INDIVIDUAL\
+    \ values with real skepticism; the pair's combined behavior is more trustworthy than either value\
+    \ alone.\n"
+  primary_metric: mean per-run RMSE across all 6 velocity DOFs (Bu,Bv,Bw,Bp,Bq,Br)
+vehicle:
+  name: bluerov2_heavy

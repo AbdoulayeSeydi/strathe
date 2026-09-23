@@ -1,0 +1,28 @@
+{
+  "spec": "vehicle_spec_expB1_fix_xu_dot.yaml",
+  "baseline_train_rmse": 0.36428028125659273,
+  "fitted_train_rmse": 0.21240968039984232,
+  "baseline_heldout_rmse": 0.3541845409804799,
+  "fitted_heldout_rmse": 0.21162949670344552,
+  "n_pinned": 14,
+  "pinned_params": [
+    "Ieff_roll",
+    "Ieff_pitch",
+    "Yv",
+    "Zw",
+    "Kp",
+    "Mq",
+    "Xuu",
+    "Yvv",
+    "Zww",
+    "Kpp",
+    "Mqq",
+    "Xu_dot",
+    "net_buoyancy_z",
+    "Zq_dot"
+  ],
+  "converged": true,
+  "cost": 3.6009612557257893,
+  "nfev": 27,
+  "elapsed_seconds": 44901.04642850021
+}

@@ -7,3 +7,10 @@ calibration/gate1_*_test_buffer.pkl
 calibration/gate1_*_test_model.zip
 calibration/gate1_*_resume_test.zip
 calibration/mlflow.db
+venv/
+.pytest_cache/
+# MLflow's local artifact store -- pairs with calibration/mlflow.db above,
+# regenerated on every logged run
+calibration/mlruns/
+# MuJoCo's own instability log, written wherever a sim diverges
+MUJOCO_LOG.TXT

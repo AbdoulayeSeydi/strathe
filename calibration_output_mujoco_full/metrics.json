@@ -1,0 +1,11 @@
+{
+  "baseline_rmse_mujoco": 0.3082129409281989,
+  "fitted_rmse_mujoco": 0.20132650338130248,
+  "n_steps_per_run": "full",
+  "n_train_runs": 10,
+  "total_steps": 33999,
+  "converged": true,
+  "cost": 40.3174161532294,
+  "nfev": 37,
+  "elapsed_seconds": 53808.5922762081
+}
