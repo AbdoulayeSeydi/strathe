@@ -4,11 +4,16 @@ A simulation and RL-training platform for studying how real-world communication 
 
 **Current real scope: two-agent formation-hold, BlueROV2 physics only.** Every real result in this repo has been built and validated against a two-vehicle fleet and one vehicle class. Scaling to larger fleets and additional vehicle types is a real, planned next step — see PRODUCT_VISION.md for the honest scope of that gap.
 
-**What this answers:** does calibrating each agent's physics against real vehicle data change how a fleet coordinates under realistic communication constraints, compared to using generic, uncalibrated physics — and does that effect survive the move from a fast physics stand-in to a validated, independent physics engine (MuJoCo)?
+**What this answers:** when two underwater vehicles coordinate over a sparse, lossy acoustic link, each has to predict where its teammate is between messages. Does it matter whether that prediction uses a physics model calibrated against real vehicle logs, or generic textbook physics?
 
-**Answer so far:** yes, on the metric that matters most. Under moderate-to-severe communication degradation, the calibrated agent maintains a measurably better belief about its teammate's position than the generic agent — an effect that holds up quantitatively, not just directionally, across both physics backends. See [Fleet Coordination Results](#fleet-coordination-results) below for the full, honest breakdown, including where this is still early.
+**Answer so far** (simulation, 38,400 paired episodes, 3 training seeds, confirmed on MuJoCo and with a second "true vehicle"):
+- **A calibrated teammate model beats a generic one by +3 to +25 points** of formation success, and the gap grows as communication gets worse.
+- **An uncalibrated predictive model is worse than no prediction at all.**
+- **But the current policies don't yet beat "no prediction"** even with a calibrated model: they don't turn better information into better coordination. A follow-up with policies trained for their own belief model is under way.
 
-This result rests on a real, separately-validated foundation: a system-identification pipeline that fits physics to real vehicle logs, integrated into [HoloOcean](https://byu-holoocean.github.io/holoocean-docs/v2.0.0/index.html) for high-fidelity single-vehicle validation. That pipeline's own results are real and reported below (see [Single-Vehicle Calibration Results](#single-vehicle-calibration-results)), but calibration accuracy is no longer this project's headline claim — the multi-agent coordination result is.
+See [Fleet coordination results](#fleet-coordination-results). An earlier headline metric (fleet v1, "Claim C") was withdrawn after it turned out not to measure calibration at all ([PROJECT_STATUS.md](PROJECT_STATUS.md) #46).
+
+This rests on a system-identification pipeline that fits physics to real BlueROV2 logs, validated on held-out recording sessions (see [Single-Vehicle Calibration Results](#single-vehicle-calibration-results)).
 
 ## Setup
 
@@ -215,95 +220,54 @@ It writes `calibration_report.md`, with:
 
 Example: `calibration_output_10hz_coriolis/calibration_report.md`.
 
-## The fleet coordination workflow: multi-agent, comm-constrained
+## The fleet coordination workflow (fleet v2)
 
-**Two agents, two physics models — stated up front before any commands.**
-- **Calibrated agent:** uses `calibrated_parameters_a1.yaml`, parameters fitted to real BlueROV2 mission logs by the single-vehicle calibration pipeline above. This is the agent that "knows" the vehicle's real hydrodynamics.
-- **Generic agent:** uses uncalibrated default physics — same vehicle model, no data fitting. This is the baseline.
-- **Task:** both agents try to maintain a 2m separation (formation hold). Neither agent can see the other directly — they can only communicate position beacons over an acoustic channel.
-- **The question:** does having calibrated physics change how well the calibrated agent coordinates under realistic acoustic communication constraints? And does that effect survive a switch from the training simulator (stand-in) to an independently-validated physics engine (MuJoCo)?
+**The setup, in one paragraph.**
+- **Two simulated BlueROV2s must hold 2 m ± 0.2 m apart** for 2 s within a 20 s episode, without coming within 0.5 m.
+- **Both run the same "true" physics**: `calibrated_parameters_fleet_truth.yaml`, the best held-out calibration.
+- **Each broadcasts its state** (position, orientation, velocity, last thrust) every `beacon_interval_s` over an acoustic channel that drops packets.
+- **Between beacons, each vehicle predicts its teammate with a belief model**, which is the only thing varied between conditions:
+  - `calibrated`: physics with the true parameters
+  - `generic`: physics with default parameters
+  - interpolations between those two
+  - `constant_velocity`, `last_beacon` (no prediction), `oracle` (perfect knowledge)
+- **One shared policy drives each vehicle** from that vehicle's own state plus its belief (13 numbers in, 6 thrusts out).
+- **Comparisons are paired:** every condition sees the same start states and the same lost packets.
 
-**Acoustic comm severity levels — what the named levels actually mean:**
-
-| Level | Packet drop prob | Bandwidth | Physical meaning |
-|-------|-----------------|-----------|-----------------|
-| L0    | 0%              | Unlimited | Perfect comm — baseline, no degradation |
-| L1    | 10%             | Unlimited | Mild: 1 in 10 beacons lost |
-| L2    | 30%             | Unlimited | Moderate: nearly 1 in 3 beacons lost |
-| L3a   | 60%             | Unlimited | Severe: majority of beacons lost |
-| L3b   | 60%             | 23 bytes/tick | Severe packet loss + bandwidth-starved (23 bytes is 1 byte below a full position beacon — every bandwidth-limited message fails) |
-
-Drop probability is distance-independent in the current model. Speed of sound is fixed at 1500 m/s (latency = distance / 1500). Both are hardcoded — see the "Configurable vs. hardcoded" note below if you need to change them.
-
-1. **Gate 1 — fast sanity check** (does PPO even construct against the two-agent env, no crash):
-   ```bash
-   cd calibration
-   python train_formation_baseline.py --mode gate1
-   ```
-
-2. **Gate 2 — real training** (stand-in physics backend, per this project's own training/validation split — see `phase2_config.py`'s Decision 2):
-   ```bash
-   python train_formation_baseline.py --mode gate2 --total-timesteps 20000 --run-name my_run
-   ```
-   Saves a trained policy (`formation_hold_ppo_my_run.zip`) and logs the run to MLflow (see below).
-
-   **Policy interface contract** — what makes a policy compatible with this environment (relevant whether you use the pre-shipped policies or substitute your own):
-   - **Observation space:** `Box(24,)` float32 — `[body_frame_velocity(6), orientation_roll_pitch(2), comm_obs(4)]` per agent × 2 agents = 24 total
-   - **Action space:** `Box(12,)` float32, bounded `[-1.0, 1.0]` — 6-dim normalized thruster command per agent × 2 agents = 12 total (scaled internally by `action_bound=30.0 N·m`)
-   - **Compatible algorithms:** PPO (proven in this project for fleet training), SAC and TD3 (supported by the interface, not yet validated by any real fleet training run)
-   - **Not compatible:** single-agent policies (`Box(11,)` or `Box(22,)` obs — these will fail at load time with a clear shape-mismatch error), recurrent/LSTM policies, custom SB3 subclasses
-
-3. **Comm-degradation sweep** (stand-in backend, across severities `L0`/`L1`/`L2`/`L3a`):
-
-   The four `--model-paths` below (`formation_hold_ppo_curriculum_v5`/`_L1`/`_L2`/`_L3a`) are **already-included, pre-trained policies shipped in this repo** — one per severity — not something step 2 above produces. Step 2's own output (`formation_hold_ppo_my_run.zip`) is a separate, fresh model; it demonstrates that training works, but by itself it's only one model, and this sweep needs one per severity to compare. To run the sweep on your own freshly-trained models instead, repeat step 2 once per severity (`--run-name L0`, `--run-name L1`, etc.) and substitute your own four filenames below.
-
-   ```bash
-   python evaluate_comm_degradation_curve.py \
-       --severities L0 L1 L2 L3a \
-       --model-paths formation_hold_ppo_curriculum_v5 formation_hold_ppo_curriculum_L1 \
-                      formation_hold_ppo_curriculum_L2 formation_hold_ppo_curriculum_L3a \
-       --csv-prefix comm_curve
-   ```
-
-4. **MuJoCo-backend validation** — the same already-trained policies, re-evaluated on real MuJoCo dynamics instead of the stand-in (no retraining; see `phase2_config.py`'s `Claim C`):
-   ```bash
-   python evaluate_baseline_sanity_mujoco.py \
-       --model-paths formation_hold_ppo_curriculum_v5 formation_hold_ppo_curriculum_L1 \
-                      formation_hold_ppo_curriculum_L2 formation_hold_ppo_curriculum_L3a \
-       --labels L0 L1 L2 L3a
-
-   python evaluate_comm_degradation_curve_mujoco.py \
-       --severities L0 L1 L2 L3a \
-       --model-paths formation_hold_ppo_curriculum_v5 formation_hold_ppo_curriculum_L1 \
-                      formation_hold_ppo_curriculum_L2 formation_hold_ppo_curriculum_L3a \
-       --csv-prefix comm_curve_mujoco
-   ```
-   Expect the same qualitative shape as step 3's stand-in sweep, not identical numbers — the two physics backends are expected to differ somewhat, the same way MuJoCo's single-vehicle held-out RMSE was never expected to exactly match the stand-in's.
-
-**After each run, results are automatically logged to MLflow.** To browse them:
 ```bash
 cd calibration
-mlflow ui --backend-store-uri sqlite:///mlflow.db
+python run_fleet_experiment.py                       # shipped experiment (default_experiment.yaml), a few minutes
+cp default_experiment.yaml my_experiment.yaml        # then edit: comm, beacon interval, beliefs, task, start states
+python run_fleet_experiment.py --config my_experiment.yaml
 ```
-Open `http://127.0.0.1:5000` in a browser. Each sweep cell appears as a separate run with its comm severity, backend, success rate, and belief-error delta already tagged and filterable.
 
-**What you can configure today vs. what requires source edits:**
+| Level | Packet loss | Bandwidth |
+|---|---|---|
+| L0 | 0% | unlimited |
+| L1 | 10% | unlimited |
+| L2 | 30% | unlimited |
+| L3a | 60% | unlimited |
+| L3b | 60% | 1 byte short of a beacon |
 
-Configurable via CLI flags right now:
-- Which severity levels to sweep (`--severities L0 L1 L2 L3a`)
-- Which trained policies to use (`--model-paths ...`)
-- Number of comm noise seeds (`--comm-seeds`, default: 5)
-- Episode seeds per grid point (`--n-seeds-per-grid`, default: 5)
-- Output file prefix (`--csv-prefix`)
+What the run produces:
+- `summary_report.md`: a plain-language headline with 95% CIs, every condition, and limits
+- `episodes.csv`, `metrics.json`
+- `metadata.json`: git commit and **whether the code had uncommitted changes**
+- `experiment.yaml`: reruns the exact experiment
+- plots
 
-Currently hardcoded — requires editing source to change:
-- Initial agent separation (randomized 2.0–5.5m range per episode)
-- Task type (formation-hold only; `target_separation`=2m, `tolerance`=0.2m, `hold_steps`=20 consecutive steps)
-- Episode length (200 steps max)
-- Speed of sound / acoustic latency (fixed at 1500 m/s)
-- Raw packet-loss probabilities (only the named severity levels above are exposed — you cannot set arbitrary drop probabilities via CLI today)
+Every setting is documented in [`calibration/CUSTOM_EXPERIMENT.md`](calibration/CUSTOM_EXPERIMENT.md), and the acceptance spec for handing it to a lab is in [`calibration/LAB_USER_JOURNEY.md`](calibration/LAB_USER_JOURNEY.md).
 
-A dedicated experiment configuration file (`experiment.yaml`) is planned as the next engineering priority (`F1`) — this will expose the full parameter surface as a single editable YAML, no source edits needed.
+Training your own per-vehicle policy (~40 min on an M1 for 3M steps):
+```bash
+python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # --belief <model> to specialize
+python validate_fleet_policy.py my_policy.zip
+```
+Shipped policies: `fleet_policy_seed1-3.zip` (trained on a mixture of belief models; see results).
+
+Reproduce the studies below: `python run_fleet_experiment.py --config fleet_study.yaml` (~30 min), `fleet_study_alt_truth.yaml`, `fleet_study_mujoco.yaml`, then `python analyze_fleet_study.py results/<dir>` for per-seed checks.
+
+The retired fleet v1 setup still runs (`run_fleet_experiment_v1.py`) for reproducing old results only.
 
 ## What's in this repo
 
@@ -316,9 +280,13 @@ validated against the same locked criteria, see PROJECT_STATUS.md
 finding 37), diagnostic and reporting tools, and a real, automated
 test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/comm_channel.py`** — a standalone, vehicle-agnostic underwater acoustic communication model (latency, distance-conditioned packet loss, per-tick bandwidth budget). Zero physics dependency by construction — any vehicle can sit on either end.
-- **`calibration/formation_hold_task.py`, `two_agent_orchestrator.py`** — the two-agent formation-hold coordination task and the orchestration loop tying two vehicle cores, the comm channel, and the task together into one Gym environment (`two_agent_formation_env.py`).
-- **`calibration/mujoco_backend.py`** — the validated MuJoCo physics backend, used two ways: as a shared pose source for the coordination task, and (`MuJoCoArenaCore`) as each agent's own independent, live dynamics engine for re-evaluating trained policies.
-- **`calibration/train_formation_baseline.py`, `evaluate_comm_degradation_curve.py` (+ `_mujoco.py`), `evaluate_baseline_sanity_mujoco.py`** — the fleet training and evaluation scripts described in the workflow above.
+- **`calibration/fleet_env.py`, `fleet_belief.py`, `fleet_vec_env.py`** — fleet v2: the two-vehicle simulation with per-vehicle observations, the teammate belief models, and the wrapper that trains one shared per-vehicle policy with stock stable-baselines3.
+- **`calibration/run_fleet_experiment.py`, `fleet_experiment_schema.py`, `fleet_eval.py`, `fleet_stats.py`** — the lab entry point: YAML config, paired evaluation across processes, statistics (Wilson CIs, paired bootstrap, McNemar, dose-response), plain-language report.
+- **`calibration/train_fleet_policy.py`, `validate_fleet_policy.py`, `analyze_fleet_study.py`, `run_specialized_study.py`** — training, the policy contract check, and the study analyses.
+- **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical.
+- **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
+- **`calibration/thruster_model.py`, `data_ingestion.py`, `calibration_report.py`** — PWM → force, lab log ingestion, plain-language calibration reports (see "Bring your own vehicle's logs").
+- Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
 sets (`calibrated_parameters.yaml` + `metrics.json` in each).
 - **`PROJECT_STATUS.md`** — the full research log: every finding, every bug
@@ -327,19 +295,37 @@ the detailed record for anyone who wants to verify the methodology or
 understand exactly how a specific number was produced. Not required
 reading to just use the model.
 
-## Fleet Coordination Results
+## Fleet coordination results
 
-**Methodology:** four PPO policies (`L0`–`L3a`), each trained on the stand-in physics backend at a fixed comm-degradation severity, then evaluated two ways: a baseline sanity check (trained policy vs. a random baseline, zero comm degradation) and a full comm-degradation sweep (32 initial-condition grid points × 5 comm seeds × 5 per-grid seeds, at each of `L0`/`L1`/`L2`/`L3a`), each run on both the stand-in backend and, separately, on real MuJoCo dynamics with no retraining.
+**Main study** (`fleet_study.yaml`):
+- **Episodes:** 3 training seeds × 8 belief models × 4 loss levels × 2 beacon intervals × 200 paired episodes.
+- **Setup:** true physics = the best held-out calibration, stand-in engine.
+- **Outputs:** full tables and plots in `calibration/results/fleet_v2_belief_to_success/`, per-seed checks in `extended_analysis.md`.
 
-**Baseline sanity:** all four trained policies clearly beat a random baseline on mean reward and on how long they hold formation, on both backends. `success_rate` alone is noisy at this sample size (`n=20`) — one cell (`L2`) scored *below* random on that single metric while still clearly beating it on the other two, which we read as sampling noise, not a broken transfer, per this project's own established decision rule for a similar situation.
+Formation success rate by teammate-prediction model:
 
-**Comm-degradation sweep:** delivery rate matches almost exactly between backends at every severity (`~99%/89%/69%/40%` for `L0`–`L3a`) — expected, since delivery depends only on the comm channel's own randomness, not the physics backend, and confirms the comm model is genuinely backend-independent. Collision rate shows the same qualitative shape on both backends (a dip at `L1`, then a sharp climb through `L2`/`L3a`) at different absolute numbers.
+| Comm | calibrated | generic | last beacon (no prediction) | oracle (perfect) | calibrated − generic (95% CI) |
+|---|---|---|---|---|---|
+| L0, beacon 1 s | 100% | 97% | 100% | 100% | +3 (+2, +5) |
+| L1, beacon 3 s | 90% | 78% | 99% | 84% | +12 (+7, +15) |
+| L2, beacon 1 s | 100% | 96% | 100% | 93% | +4 (+2, +5) |
+| L2, beacon 3 s | 89% | 64% | 90% | 82% | **+25 (+20, +29)** |
+| L3a, beacon 1 s | 97% | 86% | 99% | 86% | +11 (+8, +14) |
+| L3a, beacon 3 s | 64% | 48% | 67% | 69% | +15 (+10, +20) |
 
-**The main result:** `Delta_physics(belief_error)` — the calibrated agent's belief-error advantage over the generic agent — is near-zero and noisy at `L0`/`L1` on both backends, but shows a consistent, similarly-sized negative gap (calibrated doing better) at `L2` (stand-in `-0.017` vs. MuJoCo `-0.020`) and `L3a` (`-0.022` vs. `-0.024`). Under real communication degradation, the calibrated agent's advantage holds up quantitatively, not just directionally, across the switch from a fast physics stand-in to an independently-validated physics engine.
+What it shows:
+1. **Calibration matters when a vehicle predicts its teammate with physics.** Calibrated beats generic in 7 of 8 conditions, and success falls steadily as the model's parameters move from true toward generic (dose-response, all 8 slopes below zero). Per training seed the gain is robust in the hard conditions and seed-dependent in the easy ones.
+2. **An uncalibrated model is worse than none.** Generic loses to last-beacon in every condition, by 3 to 26 points.
+3. **The current policies don't beat "no prediction", and even perfect information does worse than a calibrated model in 6 of 8 conditions.** The policies were trained on a mixture of belief models, and their input doesn't say which one is active, so they apply one average staleness correction to all of them (PROJECT_STATUS.md #47). The calibrated-vs-generic comparison shares that confound equally and is paired. A follow-up with policies trained for their own belief model is running.
 
-This is labeled **Claim C** in `phase2_config.py`, matching the same explicit labeling discipline as Claim A and Claim B below: complementary to both, not a third accuracy proof. It shows that a real physics-calibration difference produces a measurable, cross-backend-consistent coordination effect under communication constraints — evidence supporting the technical differentiation this project's moat claim rests on, not proof of the moat by itself.
+**Robustness:**
+- **With a second "true vehicle"** (the least bound-limited calibration): calibrated beats generic by +14 to +19 points in 3 of 4 conditions, with no difference in the fourth.
+- **With MuJoCo as the truth engine:** results match the stand-in within 1–2 points (L3a with 1 s beacons: 98 / 88 / 99% vs 97 / 86 / 99%).
 
-**Honest limitations:** `success_rate` and off-axis drift do *not* transfer cleanly between backends — but `L0`–`L3a` are four separately-trained policies, so this reflects each training run's own idiosyncrasies as much as any backend effect, a real confound in the experiment design, not something introduced by the MuJoCo validation itself. No MuJoCo-based *training* has been done — every trained policy above learned on the stand-in only, per this project's training/validation split (`phase2_config.py` Decision 2); this result is about transfer of an already-trained policy, not about what MuJoCo-based training would produce. Absolute performance is proof-of-concept grade, not production-ready — success rates in the `15`–`30%` range. No real hardware validation has been done for the fleet work, same open item as the single-vehicle work below.
+**Limits:**
+- Simulation only, 2 vehicles, formation hold, BlueROV2.
+- In simulation `calibrated` equals the simulated vehicle, so this measures the value of model accuracy. How close a real calibration gets to a real vehicle is the single-vehicle result below.
+- Success rates are 48–100%, depending mostly on comm conditions.
 
 ## Single-Vehicle Calibration Results
 
@@ -382,14 +368,14 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ HoloOcean integration, frame conventions confirmed
 - ✅ Gym-compatible RL environment (`Arena`), three tasks, PPO training confirmed working
 - ✅ Automated pre-flight data-quality checks, automated identifiability reporting
-- ✅ Real, automated regression test suite (26 tests), CI-verified on every push
+- ✅ Automated test suite (130+ tests incl. real-data validation, fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
-- ✅ Two-agent coordination task and centralized PPO training, stand-in backend
+- ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
-- ✅ Multi-agent comm-degradation result reproduced on the validated MuJoCo backend (Claim C) — same qualitative shape as the stand-in, and the calibrated-vs-generic belief-error effect holds up quantitatively at moderate-to-severe degradation
+- ❌ Fleet v1 "Claim C" withdrawn — its metric didn't measure calibration (PROJECT_STATUS.md #46)
 - 🔄 HoloOcean-backed results provisional — backend frame fix and tick-rate guard need confirming on a HoloOcean machine (`verify_holoocean_frame_conventions.py`); with the stand-in physics, calibration improves all six axes on held-out data
-- 🔄 Fleet coordination policies are proof-of-concept grade (15–30% success rates), not production-ready
-- ⏳ No MuJoCo-based training yet — every fleet policy above is stand-in-trained, MuJoCo-validated only
+- 🔄 Fleet v2 policies don't yet exploit better teammate information (mixed-belief training confound); specialized-policy study running
+- ⏳ Fleet policies are trained on the stand-in engine; MuJoCo is used as an independent truth engine for evaluation
 - ⏳ Real hardware validation — not yet done, for either the single-vehicle or fleet work; looking for lab partners with BlueROV2 access
 
 ## Experiment Tracking (MLflow)
@@ -400,13 +386,10 @@ and `run_full_pipeline.py` - automatically logs to a local MLflow experiment
 missing or logging fails for any reason, the calibration itself is
 completely unaffected - you'll see a warning printed, never a crash.
 
-The fleet coordination scripts (`train_formation_baseline.py`,
-`evaluate_comm_degradation_curve.py` and its MuJoCo counterpart,
-`evaluate_baseline_sanity_mujoco.py`) log the same way, via a schema
-extension (v2) adding fleet-specific fields — comm-condition metadata,
-per-agent reward, coordination-success rate — as first-class entries
-alongside the original single-vehicle schema, same observational
-never-crash guarantee.
+Fleet v2 experiments (`run_fleet_experiment.py`) log to a separate `strathe_fleet` MLflow
+experiment: success rate and belief error per (comm condition, belief model), the headline
+paired differences, and the whole output folder as artifacts, with the same observational
+never-crash guarantee. (Retired fleet v1 scripts log under the older fleet schema.)
 
 ### Viewing logged runs
 

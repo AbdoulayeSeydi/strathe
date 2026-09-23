@@ -1,32 +1,10 @@
-# ci_smoke_experiment.yaml -- tiny fleet experiment run by CI on every push.
-# Exercises the full lab entry point (run_fleet_experiment.py) end to end
-# with the shipped policies, so a fresh clone can never again be missing a
-# module or MuJoCo scene file the fleet workflow needs. ~20s on a laptop.
-# Not a source of reportable numbers -- see default_experiment.yaml for that.
-
-name: "ci_smoke"
-
-vehicles:
-  - model_path: formation_hold_ppo_curriculum_L2
-    algorithm: ppo
-    role: calibrated
-  - model_path: formation_hold_ppo_curriculum_v5
-    algorithm: ppo
-    role: generic
-
-communication:
-  severity: L2
-
-task:
-  target_separation_m: 2.0
-  tolerance_m: 0.2
-  hold_steps: 20
-
-evaluation:
-  episodes: 32
-  comm_seeds: [1]
-  grid_seeds: 1
-
-dynamics_backend: stand_in
-
+# ci_smoke_experiment.yaml -- tiny fleet v2 run for CI (~20 s). Exercises the
+# full lab entry point end to end with a shipped policy; not a source of results.
+schema_version: 2
+name: ci_smoke
+policies: [{model_path: fleet_policy_seed1}]
+beliefs: [calibrated, generic, last_beacon]
+communication: {severity: L2, beacon_interval_s: 1.0}
+initial_conditions: {separations_m: [2.5, 4.5], closing_speeds_mps: [-0.35, 0.35]}
+evaluation: {comm_seeds: [1], workers: 1}
 output_dir: results/ci_smoke

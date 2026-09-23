@@ -1,266 +1,165 @@
-# Running Your Own Fleet Experiment
+# Running your own fleet experiment (fleet v2)
 
-This walkthrough shows four concrete changes you can make without editing
-any source code. Each change is a YAML edit only.
-
-Start by copying the shipped default config:
+Every change below is a YAML edit. Copy the shipped config and edit the copy:
 
 ```bash
 cd calibration
 cp default_experiment.yaml my_experiment.yaml
-```
-
-Then make any combination of the changes below, and run:
-
-```bash
 python run_fleet_experiment.py --config my_experiment.yaml
 ```
 
-Results go to whatever `output_dir` you set. The output structure is
-identical to the default run: `summary_report.md`, `experiment.yaml`
-(the resolved config), `metrics.json`, `metadata.json`, `plots/`.
+Every field reaches the simulation. The v1 runner validated task settings and
+comm overrides and then ignored them; both are now covered by regression tests
+in `tests/test_fleet_experiment.py`.
+
+Results go to `output_dir`:
+
+| File | What it is |
+|---|---|
+| `summary_report.md` | Plain-language results: headline comparison with 95% CIs, every condition, caveats |
+| `summary.csv` | One row per (comm condition, belief model), pooled over policies |
+| `episodes.csv` | Every episode, with its policy, start state and comm seed |
+| `metrics.json` | All of the above plus the statistics, machine-readable |
+| `metadata.json` | Git commit, whether the code had uncommitted changes, package versions, resolved config |
+| `experiment.yaml` | The resolved config; pass it back with `--config` to rerun exactly |
+| `plots/` | Success rate and belief error by condition, dose-response if applicable |
 
 ---
 
-## Change 1: Comm severity
-
-**What:** test a different acoustic degradation level — L0 (perfect),
-L1 (mild), L2 (moderate), L3a (severe), or L3b (severe + bandwidth-limited).
-
-**Edit in `my_experiment.yaml`:**
+## 1. Communication
 
 ```yaml
-# Before
+communication:
+  severities: [L2, L3a]      # one result cell per level
+  beacon_interval_s: 1.0     # or a list to sweep: [0.5, 1.0, 3.0]
+```
+
+| Level | Packet loss | Bandwidth |
+|---|---|---|
+| L0 | 0% | unlimited |
+| L1 | 10% | unlimited |
+| L2 | 30% | unlimited |
+| L3a | 60% | unlimited |
+| L3b | 60% | 1 byte short of a beacon (nothing gets through) |
+
+`beacon_interval_s` is how often each vehicle transmits its state. Real
+acoustic modems manage roughly one state update every 1–10 s. v1 beaconed
+10 times a second, which kept every belief within a few centimetres of the
+truth even at 60% loss. It must be a multiple of the 0.1 s tick.
+
+A custom condition, on top of one named level or on its own:
+
+```yaml
 communication:
   severity: L2
-
-# After — test severe degradation
-communication:
-  severity: L3a
+  overrides: {near_field_prob: 0.45, far_field_prob: 0.45, bytes_per_tick: 1e9}
+  speed_of_sound_mps: 1480.0
 ```
 
-**What to expect:** at L3a, `delivery_rate` drops to ~40%, and
-`delta_physics_belief_error` typically stays meaningfully negative
-(-0.022 on the stand-in backend in the reference run). At L0, delivery
-is near-perfect and `delta_physics_belief_error` is near zero — the
-calibrated physics advantage only appears when communication is unreliable.
+Custom levels are labelled `L2_custom` (or `custom` without a base level).
 
-**Or — test a custom condition without a named severity:**
+## 2. Belief models: what's being compared
+
+Between beacons each vehicle predicts where its teammate is. That prediction
+model is the experimental variable:
 
 ```yaml
-communication:
-  overrides:
-    near_field_prob: 0.45
-    far_field_prob: 0.45
-    speed_of_sound_mps: 1200.0  # shallower/warmer water
+beliefs:
+  - calibrated                  # physics with the true vehicle's parameters
+  - generic                     # physics with vehicle_spec.yaml defaults
+  - {physics_alpha: 0.5}        # parameters halfway from true to generic
+  - {physics_params: my_fit.yaml, label: my_fit}   # YOUR calibration file
+  - constant_velocity           # extrapolate the last beacon at its velocity
+  - last_beacon                 # no prediction at all
+  - oracle                      # perfect knowledge (upper bound)
+compare: {a: calibrated, b: generic}   # the headline paired comparison
 ```
 
-The label in the report will be `custom` rather than a named level.
-Any named severity can also be combined with overrides:
+With three or more of `calibrated`, `physics_alpha` and `generic`, the report
+adds a **dose-response**: success rate against how far the model's parameters
+are from the truth.
+
+`physics_params` lets a lab test **its own calibration** as a teammate model:
+how much coordination does your fit buy you compared with generic defaults?
+
+## 3. The task and episode length
 
 ```yaml
-communication:
-  severity: L2              # base: 30% drop probability
-  overrides:
-    speed_of_sound_mps: 1200.0  # override just this one parameter
-```
-
-The label will be `L2_custom`.
-
----
-
-## Change 2: Formation target separation
-
-**What:** change the target distance the two agents must hold.
-
-**Edit in `my_experiment.yaml`:**
-
-```yaml
-# Before
 task:
   target_separation_m: 2.0
   tolerance_m: 0.2
-  hold_steps: 20
-
-# After — tighter formation at 1m, harder hold criterion
-task:
-  target_separation_m: 1.0
-  tolerance_m: 0.1
-  hold_steps: 30
+  hold_steps: 20          # consecutive 0.1 s ticks inside tolerance = success
+  max_episode_steps: 200  # 20 s
+  collision_radius_m: 0.5
 ```
 
-**What to expect:** tighter formations and longer hold requirements
-make success harder — expect lower `success_rate` and higher
-`collision_rate`. The `delta_physics_belief_error` signal should be
-unaffected (it measures belief accuracy, not task success).
+The config is rejected if success would be impossible (`hold_steps > max_episode_steps`)
+or if holding formation would itself count as a collision.
 
-**Note on what's still hardcoded:** the initial conditions for each
-episode (starting separation 2.0–5.5m, starting velocity ±0.7 m/s)
-are not yet configurable via the YAML. This is a known remaining gap —
-see `LAB_USER_JOURNEY.md` Q5. Initial conditions will be YAML-exposed
-in a future version.
-
----
-
-## Change 3: Episode count and seeds
-
-**What:** run a faster/cheaper experiment for exploration, or a more
-statistically robust one for publication.
-
-**Edit in `my_experiment.yaml`:**
+## 4. Initial conditions
 
 ```yaml
-# Fast exploration -- ~90 seconds instead of 8 minutes
+initial_conditions:
+  separations_m: [2.0, 3.0, 4.0, 5.0]
+  closing_speeds_mps: [-0.5, 0.0, 0.5]   # + = the vehicles start moving apart
+```
+
+Every combination is run once per comm seed. The vehicles start level, facing
++x, with the closing speed split evenly between them.
+
+## 5. Your own policy
+
+```bash
+python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # ~40 min on an M1
+python validate_fleet_policy.py my_policy.zip
+```
+
+```yaml
+policies:
+  - {model_path: my_policy, algorithm: ppo}
+  - {model_path: fleet_policy_seed1}        # list several to pool over training seeds
+```
+
+The per-vehicle contract: observation `Box(13,)` and action `Box(6,)` in
+[−1, 1], one network applied to each vehicle separately. The observation
+layout is in `fleet_env.py`. The validator explains the common mismatches,
+for example a v1 centralized `Box(24,)` policy or a single-vehicle Arena
+policy. PPO is validated by this project's training; SAC and TD3 load but
+haven't been trained for fleet v2.
+
+## 6. Sample size
+
+```yaml
 evaluation:
-  episodes: 32
-  comm_seeds: [1]
-  grid_seeds: 1
-
-# Robust -- more seeds, tighter confidence intervals
-evaluation:
-  episodes: 640
-  comm_seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  grid_seeds: 5
+  comm_seeds: [1, 2, 3, 4, 5]   # each seed = a different packet-loss pattern
+  workers: 7                    # parallel processes (default: CPU count - 1)
 ```
 
-**Tip:** `comm_seeds` drives most of the variance in
-`delta_physics_belief_error`. Running with `comm_seeds: [1]` is fine
-for a quick sanity check; use 5+ seeds for any result you want to
-report. The std across seeds (`±0.0006` in the reference run) is your
-confidence measure.
+Episodes per cell = separations × closing speeds × comm seeds (8 × 5 × 5 = 200
+with the defaults). Comparisons between belief models are paired, so they need
+far fewer episodes than two independent samples would. If a CI in the report
+straddles zero, add comm seeds before drawing a conclusion.
+
+## 7. Physics engine
+
+```yaml
+dynamics_backend: stand_in   # or mujoco, or both
+```
+
+`mujoco` simulates the vehicles' true motion with MuJoCo's integrator. The
+belief models always use the stand-in equations, as an onboard model would.
 
 ---
 
-## Change 4: Swap in your own trained policy
+## Still not configurable
 
-**What:** use a policy you trained yourself instead of the pre-shipped
-curriculum models.
+| What | Why / where |
+|---|---|
+| More than 2 vehicles | `fleet_env.py` is built for 2; the per-vehicle observation and shared policy are the groundwork for N |
+| Tasks other than formation hold | `formation_hold_task.py` |
+| Start orientation (always level, facing +x) | `FleetSim.reset` |
+| Sensor noise on the vehicle's own state | not modelled yet |
 
-**Step 1 — train a policy** (skip if you already have one):
-
-```bash
-python train_formation_baseline.py --mode gate2 \
-    --total-timesteps 200000 \
-    --run-name my_policy_L2
-```
-
-This produces `formation_hold_ppo_my_policy_L2.zip` in `calibration/`.
-
-**Step 2 — validate compatibility** (pre-flight check, ~2 seconds):
-
-```bash
-python validate_policy_compatibility.py formation_hold_ppo_my_policy_L2.zip
-```
-
-Expected: `PASS: 'formation_hold_ppo_my_policy_L2.zip' -- obs (24,), act (12,), bounds [-1.0, 1.0]`
-
-If validation fails, the error message names exactly what's wrong
-(wrong observation shape, wrong action bounds, file not found, etc.)
-before any compute is spent.
-
-**Step 3 — edit `my_experiment.yaml`** (this step is required — copying the file is not enough):
-
-Open `my_experiment.yaml` in any text editor and change `vehicles[0].model_path`:
-
-
-```yaml
-# Before
-vehicles:
-  - model_path: formation_hold_ppo_curriculum_L2
-    algorithm: ppo
-    role: calibrated
-  - model_path: formation_hold_ppo_curriculum_v5
-    algorithm: ppo
-    role: generic
-
-# After -- your own policy
-vehicles:
-  - model_path: formation_hold_ppo_my_policy_L2   # your model, no .zip suffix needed
-    algorithm: ppo
-    role: my_policy
-  - model_path: formation_hold_ppo_curriculum_v5  # second entry validated but not used in sweep
-    algorithm: ppo
-    role: reference
-```
-
-Also change `name:` and `output_dir:` so your results don't overwrite the defaults:
-
-```yaml
-name: "my_policy_L2_experiment"
-output_dir: results/my_policy_L2_experiment
-```
-
-**Step 4 — run:**
-
-```bash
-python run_fleet_experiment.py --config my_experiment.yaml
-```
-
-The pre-flight compatibility check (step 2) runs automatically again
-inside `run_fleet_experiment.py` before any episodes execute.
-
-**Compatible policy requirements** (from `POLICY_INTERFACE_CONTRACT` in
-`validate_policy_compatibility.py`):
-- Observation space: `Box(24,)` float32
-- Action space: `Box(12,)` float32, bounded `[-1.0, 1.0]`
-- Algorithm: PPO (proven), SAC or TD3 (supported but unvalidated)
-
-Any policy trained via `train_formation_baseline.py` is guaranteed
-compatible. External policies trained on a different environment may
-not be — run `validate_policy_compatibility.py` first.
-
----
-
-## Putting it together — a complete custom experiment
-
-Here is a complete `my_experiment.yaml` that changes all four things
-at once. Copy this, edit the model path, and run it:
-
-```yaml
-name: "severe_degradation_tighter_formation"
-
-vehicles:
-  - model_path: formation_hold_ppo_my_policy_L2   # your policy
-    algorithm: ppo
-    role: my_policy
-  - model_path: formation_hold_ppo_curriculum_v5
-    algorithm: ppo
-    role: reference
-
-communication:
-  severity: L3a   # severe degradation
-
-task:
-  target_separation_m: 1.5   # tighter than the default 2.0m
-  tolerance_m: 0.15
-  hold_steps: 20
-
-evaluation:
-  episodes: 160
-  comm_seeds: [1, 2, 3, 4, 5]
-  grid_seeds: 5
-
-dynamics_backend: stand_in
-output_dir: results/severe_tight_experiment
-```
-
-```bash
-python run_fleet_experiment.py --config my_experiment.yaml
-```
-
----
-
-## What is NOT yet configurable via YAML
-
-These require source edits or a future config version:
-
-| Parameter | Current state | Where it lives |
-|-----------|--------------|----------------|
-| Initial episode separation range | Hardcoded 2.0–5.5m | `TwoAgentFormationEnv.__init__` |
-| Initial episode velocity range | Hardcoded ±0.7 m/s | `TwoAgentFormationEnv.__init__` |
-| Task type | Formation-hold only | `TwoAgentFormationEnv` |
-| Episode max length | Hardcoded 200 steps | `run_fleet_experiment.py` |
-| Raw packet-loss probabilities | Only named severities via `severity:` (though `overrides:` exposes the underlying fields) | `experiment_schema.py` `CommOverrides` |
-
-These are documented gaps, not silent limitations. See
-`LAB_USER_JOURNEY.md` for the full acceptance criteria list.
+The retired fleet v1 setup (`run_fleet_experiment_v1.py`, `default_experiment_v1.yaml`)
+still runs, for reproducing old results only. PROJECT_STATUS.md finding #46
+explains why its headline metric was withdrawn.

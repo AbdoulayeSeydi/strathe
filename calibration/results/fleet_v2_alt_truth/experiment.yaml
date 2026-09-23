@@ -1,0 +1,59 @@
+schema_version: 2
+name: fleet_v2_alt_truth
+policies:
+- model_path: fleet_policy_seed1
+  algorithm: ppo
+- model_path: fleet_policy_seed2
+  algorithm: ppo
+- model_path: fleet_policy_seed3
+  algorithm: ppo
+truth_params: calibrated_parameters_fleet_truth_alt.yaml
+beliefs:
+- oracle
+- calibrated
+- generic
+- last_beacon
+compare:
+  a: calibrated
+  b: generic
+communication:
+  severities:
+  - L2
+  - L3a
+  overrides: {}
+  beacon_interval_s:
+  - 1.0
+  - 3.0
+  speed_of_sound_mps: 1500.0
+task:
+  target_separation_m: 2.0
+  tolerance_m: 0.2
+  hold_steps: 20
+  max_episode_steps: 200
+  collision_radius_m: 0.5
+initial_conditions:
+  separations_m:
+  - 2.0
+  - 2.5
+  - 3.0
+  - 3.5
+  - 4.0
+  - 4.5
+  - 5.0
+  - 5.5
+  closing_speeds_mps:
+  - -0.7
+  - -0.35
+  - 0.0
+  - 0.35
+  - 0.7
+evaluation:
+  comm_seeds:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  workers: 7
+dynamics_backend: stand_in
+output_dir: results/fleet_v2_alt_truth

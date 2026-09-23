@@ -1,0 +1,48 @@
+# Fleet v2 "true vehicle": the physics BOTH simulated BlueROV2s run on.
+#
+# Chosen as the best held-out fit among the converged calibrations on file,
+# scored per axis on the 14 held-out runs (dates 16-02-2024, 19-02-2024) with
+# stand-in physics, improvement over generic default physics:
+#
+#   fit                        u      v      w      p      q      r    mean  params at bounds
+#   expA (THIS FILE)        +40.2  +59.4  +81.7  +83.4  +85.0  +51.2   66.8   15 of 22
+#   10hz_coriolis           +45.9  +57.7  +71.1  +81.6  +86.8  +50.9   65.7   9 (+3 outside, Ieff_roll=5.0)
+#   mujoco_full             +41.7  +59.4  +78.0  +83.3  +85.4  +41.0   64.8   13
+#   holoocean_coriolis      +39.8  +55.4  +73.2  +81.5  +83.4  +23.4   59.5   3
+#   a1 (fleet v1, retired)  +43.1  +17.3  +56.5  +67.8  +84.4   +2.2   45.2   0 (unconverged quick fit)
+#
+# Caveat: 15 of 22 parameters sit at vehicle_spec bounds. Those bounds are
+# physically motivated, so this is read as "the best physically plausible
+# fit", but it also means the fit is bound-limited. Fleet results are
+# therefore re-checked with holoocean_coriolis (3 at bounds, validated in
+# HoloOcean) as an alternative truth: see calibrated_parameters_fleet_truth_alt.yaml.
+provenance:
+  source: calibration_output_expA/calibrated_parameters.yaml
+  spec: vehicle_spec_expA_fix_all_added_mass.yaml
+  converged: true
+  heldout_dates: ["16-02-2024", "19-02-2024"]
+  heldout_improvement_pct_by_dof: {u: 40.2, v: 59.4, w: 81.7, p: 83.4, q: 85.0, r: 51.2}
+  selected_on: "2026-09-23"
+parameters:
+  Ieff_roll: 0.25500000000000006
+  Ieff_pitch: 0.23499999999999996
+  Ieff_yaw: 1.91988333323361
+  Xu: -49.99999999999998
+  Yv: -79.99999999999999
+  Zw: -99.99999999999999
+  Kp: -9.999999999999998
+  Mq: -4.999999999999999
+  Nr: -3.505347939189631
+  Xuu: -99.99999999999999
+  Yvv: -99.99999999999999
+  Zww: -149.99999999999997
+  Kpp: -9.999999999999998
+  Mqq: -9.999999999999998
+  Nrr: -1.5936177622991918
+  Xu_dot: 5.5009999999999994
+  Yv_dot: 12.699000000000002
+  Zw_dot: 14.599000000000002
+  net_buoyancy_z: -0.9999999999999999
+  cg_cb_offset_z: 0.05356593017280487
+  Xq_dot: -0.49999999999999994
+  Zq_dot: -0.49999999999999994

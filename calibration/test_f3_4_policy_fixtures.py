@@ -10,7 +10,7 @@ Fixture 2: A dummy model with deliberately wrong observation shape fails
 
 Fixture 3: A model trained entirely outside the shipped pretrained-model
            workflow (formation_hold_ppo_my_run3.zip, produced by gate2 in
-           this session) passes through run_fleet_experiment.py with zero
+           this session) passes through run_fleet_experiment_v1.py with zero
            source modifications. The ONLY change is a YAML config file.
            This is the concrete proof that "Strathe owns the environment and
            experiment; the researcher owns the policy."
@@ -193,7 +193,7 @@ def test_fixture2_check_fires_before_any_episode():
 def test_fixture3_external_model_zero_source_mods():
     """
     THE KEY TEST: a model trained entirely outside the shipped pretrained-
-    model workflow passes through run_fleet_experiment.py with zero source
+    model workflow passes through run_fleet_experiment_v1.py with zero source
     modifications.
 
     formation_hold_ppo_my_run3.zip was produced in this session by:
@@ -208,7 +208,7 @@ def test_fixture3_external_model_zero_source_mods():
         1. The .zip model file (externally produced)
         2. A YAML config (no source edits)
 
-    Proof: run_fleet_experiment.py completes successfully with return code 0.
+    Proof: run_fleet_experiment_v1.py completes successfully with return code 0.
     """
     external_model = "formation_hold_ppo_my_run3"
     if not os.path.exists(f"{external_model}.zip"):
@@ -253,7 +253,7 @@ def test_fixture3_external_model_zero_source_mods():
 
         # Zero source modifications -- only the config path is different.
         result = subprocess.run(
-            [sys.executable, "run_fleet_experiment.py", "--config", config_path],
+            [sys.executable, "run_fleet_experiment_v1.py", "--config", config_path],
             capture_output=True, text=True, timeout=300,
         )
 

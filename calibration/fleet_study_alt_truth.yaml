@@ -1,0 +1,17 @@
+# Robustness check for fleet_study.yaml: same policies, a DIFFERENT "true
+# vehicle" (holoocean_coriolis, the least bound-limited calibration). Does the
+# calibrated-vs-generic result depend on which calibration plays reality?
+# Policies were trained on calibrated_parameters_fleet_truth.yaml, so every
+# condition here also carries that train/test mismatch equally.
+schema_version: 2
+name: fleet_v2_alt_truth
+policies:
+  - {model_path: fleet_policy_seed1}
+  - {model_path: fleet_policy_seed2}
+  - {model_path: fleet_policy_seed3}
+truth_params: calibrated_parameters_fleet_truth_alt.yaml
+beliefs: [oracle, calibrated, generic, last_beacon]
+compare: {a: calibrated, b: generic}
+communication: {severities: [L2, L3a], beacon_interval_s: [1.0, 3.0]}
+evaluation: {comm_seeds: [1, 2, 3, 4, 5], workers: 7}
+output_dir: results/fleet_v2_alt_truth

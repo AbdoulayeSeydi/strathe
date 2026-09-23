@@ -1,0 +1,181 @@
+{
+  "summary": [
+    {
+      "comm": "L3a@1s",
+      "belief": "calibrated",
+      "n": 600,
+      "success_rate": 0.975,
+      "success_ci95": [
+        0.9591638663098296,
+        0.9847922970283705
+      ],
+      "collision_rate": 0.0,
+      "collision_ci95": [
+        0.0,
+        0.006361933328210577
+      ],
+      "mean_belief_error_m": 0.33781810276819524,
+      "mean_steps": 91.445,
+      "delivery_rate": 0.03745038616650449
+    },
+    {
+      "comm": "L3a@1s",
+      "belief": "generic",
+      "n": 600,
+      "success_rate": 0.885,
+      "success_ci95": [
+        0.8569873019737069,
+        0.9081140093635711
+      ],
+      "collision_rate": 0.013333333333333334,
+      "collision_ci95": [
+        0.006771272744898206,
+        0.026087675694560088
+      ],
+      "mean_belief_error_m": 0.6974671954063207,
+      "mean_steps": 109.59,
+      "delivery_rate": 0.037600226465932675
+    },
+    {
+      "comm": "L3a@1s",
+      "belief": "last_beacon",
+      "n": 600,
+      "success_rate": 0.9866666666666667,
+      "success_ci95": [
+        0.97391232430544,
+        0.9932287272551019
+      ],
+      "collision_rate": 0.0,
+      "collision_ci95": [
+        0.0,
+        0.006361933328210577
+      ],
+      "mean_belief_error_m": 0.4051532211738888,
+      "mean_steps": 90.655,
+      "delivery_rate": 0.03786867018896541
+    },
+    {
+      "comm": "L3a@3s",
+      "belief": "calibrated",
+      "n": 600,
+      "success_rate": 0.6566666666666666,
+      "success_ci95": [
+        0.6177842589604535,
+        0.6935556685967071
+      ],
+      "collision_rate": 0.006666666666666667,
+      "collision_ci95": [
+        0.0025954592764893545,
+        0.017014981607345086
+      ],
+      "mean_belief_error_m": 0.6362100947339324,
+      "mean_steps": 144.57833333333335,
+      "delivery_rate": 0.011137722538868505
+    },
+    {
+      "comm": "L3a@3s",
+      "belief": "generic",
+      "n": 600,
+      "success_rate": 0.475,
+      "success_ci95": [
+        0.43532774883024145,
+        0.5149903478361691
+      ],
+      "collision_rate": 0.04833333333333333,
+      "collision_ci95": [
+        0.03386067991337791,
+        0.06855293319310565
+      ],
+      "mean_belief_error_m": 1.5955514387949534,
+      "mean_steps": 156.66,
+      "delivery_rate": 0.011232493921084427
+    },
+    {
+      "comm": "L3a@3s",
+      "belief": "last_beacon",
+      "n": 600,
+      "success_rate": 0.6816666666666666,
+      "success_ci95": [
+        0.6433375698726372,
+        0.717684261018113
+      ],
+      "collision_rate": 0.005,
+      "collision_ci95": [
+        0.0017018468527197168,
+        0.014596467142208754
+      ],
+      "mean_belief_error_m": 0.7178817763726398,
+      "mean_steps": 146.59166666666667,
+      "delivery_rate": 0.011187164301455922
+    }
+  ],
+  "paired_contrast": [
+    {
+      "comm": "L3a@1s",
+      "a": "calibrated",
+      "b": "generic",
+      "n_pairs": 600,
+      "success_a": 0.975,
+      "success_b": 0.885,
+      "success_diff": 0.09,
+      "success_diff_ci95": [
+        0.06166666666666667,
+        0.11833333333333333
+      ],
+      "a_only_successes": 66,
+      "b_only_successes": 12,
+      "mcnemar_p": 3.485851300097458e-10,
+      "collision_diff": -0.013333333333333334,
+      "collision_diff_ci95": [
+        -0.023333333333333334,
+        -0.005
+      ],
+      "belief_error_diff_m": -0.3596490926381255,
+      "belief_error_diff_ci95": [
+        -0.3875317766028329,
+        -0.33344083155832305
+      ]
+    },
+    {
+      "comm": "L3a@3s",
+      "a": "calibrated",
+      "b": "generic",
+      "n_pairs": 600,
+      "success_a": 0.6566666666666666,
+      "success_b": 0.475,
+      "success_diff": 0.18166666666666667,
+      "success_diff_ci95": [
+        0.13666666666666666,
+        0.22833333333333333
+      ],
+      "a_only_successes": 171,
+      "b_only_successes": 62,
+      "mcnemar_p": 5.582964662955318e-13,
+      "collision_diff": -0.041666666666666664,
+      "collision_diff_ci95": [
+        -0.058333333333333334,
+        -0.025
+      ],
+      "belief_error_diff_m": -0.9593413440610209,
+      "belief_error_diff_ci95": [
+        -1.0275272653889092,
+        -0.8939265388565398
+      ]
+    }
+  ],
+  "dose_response": [],
+  "belief_success_link": [
+    {
+      "comm": "L3a@1s",
+      "n_conditions": 3,
+      "spearman_rho": -0.5,
+      "spearman_p": 0.6666666666666666
+    },
+    {
+      "comm": "L3a@3s",
+      "n_conditions": 3,
+      "spearman_rho": -0.5,
+      "spearman_p": 0.6666666666666666
+    }
+  ]
+}
