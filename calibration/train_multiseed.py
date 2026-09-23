@@ -39,6 +39,7 @@ from arena import Arena
 from evaluate_policy_arena import evaluate_policy
 from phase2_config import PHASE1_HELDOUT_DATES, assert_uses_phase1_split, check_result_type, output_dir_for, Claim
 from replay_comparison import load_calibrated_params
+from keep_awake import keep_awake
 
 
 def derive_real_waypoint(data_dir: str, heldout_dates: list) -> np.ndarray:
@@ -219,4 +220,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with keep_awake("multi-seed training"):  # PROJECT_STATUS.md #49
+        main()

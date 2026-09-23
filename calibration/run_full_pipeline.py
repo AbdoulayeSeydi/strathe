@@ -41,6 +41,8 @@ import sys
 import time
 from pathlib import Path
 
+from keep_awake import keep_awake
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -362,4 +364,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with keep_awake("calibration pipeline"):  # PROJECT_STATUS.md #49
+        main()

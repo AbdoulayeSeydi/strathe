@@ -67,6 +67,7 @@ from holoocean_backend import make_holoocean_simulate_fn, make_deterministic_env
 from mlflow_logging import log_calibration_run
 from mlflow_schema import STATUS_SUCCESS, STATUS_CHECKPOINT_FALLBACK
 from run_calibration import _get_git_commit
+from keep_awake import keep_awake
 
 
 def make_checkpoint_callback(checkpoint_path):
@@ -413,4 +414,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with keep_awake("HoloOcean calibration"):  # PROJECT_STATUS.md #49
+        main()
