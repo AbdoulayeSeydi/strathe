@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_fleet_experiment.py -- single entry point for Mera fleet coordination
+run_fleet_experiment.py -- single entry point for Strathe fleet coordination
 experiments (G6/F1, see conversation).
 
 Usage:
@@ -289,7 +289,7 @@ def run_experiment(config_path: str) -> None:
 
     # --- Step 1: Load and validate config ---
     print(f"\n{'='*70}")
-    print("MERA FLEET EXPERIMENT")
+    print("STRATHE FLEET EXPERIMENT")
     print(f"{'='*70}")
     print(f"Config: {config_path}")
     print(f"\n[1/4] Loading and validating experiment config...")

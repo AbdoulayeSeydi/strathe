@@ -12,7 +12,7 @@ Fixture 3: A model trained entirely outside the shipped pretrained-model
            workflow (formation_hold_ppo_my_run3.zip, produced by gate2 in
            this session) passes through run_fleet_experiment.py with zero
            source modifications. The ONLY change is a YAML config file.
-           This is the concrete proof that "Mera owns the environment and
+           This is the concrete proof that "Strathe owns the environment and
            experiment; the researcher owns the policy."
 
 Run from calibration/:
@@ -204,7 +204,7 @@ def test_fixture3_external_model_zero_source_mods():
     with different hyperparameters, in a separate run, by the developer
     acting as a researcher would.
 
-    The only input to Mera below is:
+    The only input to Strathe below is:
         1. The .zip model file (externally produced)
         2. A YAML config (no source edits)
 
@@ -223,7 +223,7 @@ def test_fixture3_external_model_zero_source_mods():
         output_dir = os.path.join(tmpdir, "results")
 
         # The ONLY change a researcher makes: a YAML config file.
-        # No edits to any source file in the Mera repo.
+        # No edits to any source file in the Strathe repo.
         config = {
             "name": "f3_4_external_model_proof",
             "vehicles": [

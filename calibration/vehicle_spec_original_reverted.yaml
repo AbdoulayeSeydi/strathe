@@ -2,7 +2,7 @@ schema_version: "0.3.0"
 
 metadata:
   description: >
-    BlueROV2 Heavy (8-thruster) vehicle spec for the Tryton
+    BlueROV2 Heavy (8-thruster) vehicle spec for the Strathe
     calibration pipeline. Separates MEASURED/PUBLISHED constants
     (fixed_parameters) from UNKNOWN physical parameters the optimizer
     solves for (calibration_targets). Every value carries source +

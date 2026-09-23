@@ -12,11 +12,11 @@ This runs at load time, before any episodes execute, matching
 preflight_check.py's "check before spending compute" precedent.
 
 HONEST SCOPE BOUNDARY (per F3's own interface contract):
-This validates everything Mera can reliably check automatically: shape,
+This validates everything Strathe can reliably check automatically: shape,
 dtype, bounds, and loadability. It CANNOT verify:
   - observation normalization (are the velocity values in the right range?)
   - action convention (does [-1,1] mean the same thing to this policy as
-    to Mera's action scaling?)
+    to Strathe's action scaling?)
   - observation field ordering (is field 0 surge velocity or something else?)
   - whether the policy was trained on the formation-hold task specifically
   - recurrent/stateful policies (shape checks pass but behavior will be wrong)
@@ -49,7 +49,7 @@ SUPPORTED_UNVALIDATED_ALGORITHMS = {"sac", "td3"}
 # in error messages, and pointed to as the single authoritative definition.
 # ---------------------------------------------------------------------------
 POLICY_INTERFACE_CONTRACT = """
-MERA FLEET POLICY INTERFACE CONTRACT (F3.1)
+STRATHE FLEET POLICY INTERFACE CONTRACT (F3.1)
 
 A compatible external policy is an SB3 PPO/SAC/TD3 model that:
   1. Can be loaded with the declared algorithm class (PPO.load/SAC.load/TD3.load)
@@ -71,7 +71,7 @@ to close now, but a real limitation to state explicitly):
   - Observation normalization: whether velocity/orientation values are in
     the range the policy expects from its own training distribution
   - Action scaling convention: whether [-1,1] means the same thing to
-    this policy as to Mera's own action_bound=30.0 N*m scaling
+    this policy as to Strathe's own action_bound=30.0 N*m scaling
   - Observation field ordering: whether field 0 is surge velocity,
     not some other quantity from a different environment
   - Whether the policy was trained on the formation-hold task specifically
@@ -82,7 +82,7 @@ to close now, but a real limitation to state explicitly):
     (target separation, reward weights, episode length, etc.)
 
 These are genuinely unknowable from the .zip file alone. F3.2 validates
-everything Mera can reliably check automatically. It does not and should
+everything Strathe can reliably check automatically. It does not and should
 not attempt to validate the rest.
 
 EXPLICIT SCOPE BOUNDARY (holds during F3 and after):
@@ -143,7 +143,7 @@ def load_policy(model_path: str, algorithm: str):
 
 
 def validate_policy_compatibility(model, env=None, model_path: str = "<unknown>"):
-    """Check that a loaded SB3 model is compatible with Mera's fleet
+    """Check that a loaded SB3 model is compatible with Strathe's fleet
     environment. Raises PolicyIncompatibleError with a specific, actionable
     message on the first failure found. Runs at pre-flight time, before any
     episodes execute.
@@ -267,7 +267,7 @@ def validate_all_policies(model_paths: list, algorithm: str, env=None) -> list:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Pre-flight compatibility check for SB3 policies against Mera's fleet environment."
+        description="Pre-flight compatibility check for SB3 policies against Strathe's fleet environment."
     )
     parser.add_argument("model_paths", nargs="+",
                          help="Path(s) to .zip model file(s) to check")
@@ -286,7 +286,7 @@ if __name__ == "__main__":
 
     try:
         validate_all_policies(args.model_paths, args.algorithm, env=env)
-        print("All checks passed. These policies are compatible with Mera's fleet environment.")
+        print("All checks passed. These policies are compatible with Strathe's fleet environment.")
     except PolicyIncompatibleError as e:
         print(f"\nFAILED: {e}")
         raise SystemExit(1)

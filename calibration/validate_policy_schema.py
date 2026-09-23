@@ -12,11 +12,11 @@ This runs at load time, before any episodes execute, matching
 preflight_check.py's "check before spending compute" precedent.
 
 HONEST SCOPE BOUNDARY (per F3's own interface contract):
-This validates everything Mera can reliably check automatically: shape,
+This validates everything Strathe can reliably check automatically: shape,
 dtype, bounds, and loadability. It CANNOT verify:
   - observation normalization (are the velocity values in the right range?)
   - action convention (does [-1,1] mean the same thing to this policy as
-    to Mera's action scaling?)
+    to Strathe's action scaling?)
   - observation field ordering (is field 0 surge velocity or something else?)
   - whether the policy was trained on the formation-hold task specifically
   - recurrent/stateful policies (shape checks pass but behavior will be wrong)
@@ -92,7 +92,7 @@ def load_policy(model_path: str, algorithm: str):
 
 
 def validate_policy_compatibility(model, env=None, model_path: str = "<unknown>"):
-    """Check that a loaded SB3 model is compatible with Mera's fleet
+    """Check that a loaded SB3 model is compatible with Strathe's fleet
     environment. Raises PolicyIncompatibleError with a specific, actionable
     message on the first failure found. Runs at pre-flight time, before any
     episodes execute.
@@ -216,7 +216,7 @@ def validate_all_policies(model_paths: list, algorithm: str, env=None) -> list:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Pre-flight compatibility check for SB3 policies against Mera's fleet environment."
+        description="Pre-flight compatibility check for SB3 policies against Strathe's fleet environment."
     )
     parser.add_argument("model_paths", nargs="+",
                          help="Path(s) to .zip model file(s) to check")
@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
     try:
         validate_all_policies(args.model_paths, args.algorithm, env=env)
-        print("All checks passed. These policies are compatible with Mera's fleet environment.")
+        print("All checks passed. These policies are compatible with Strathe's fleet environment.")
     except PolicyIncompatibleError as e:
         print(f"\nFAILED: {e}")
         raise SystemExit(1)

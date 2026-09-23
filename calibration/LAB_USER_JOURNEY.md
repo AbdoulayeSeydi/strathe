@@ -1,4 +1,4 @@
-# Lab User Journey — Mera Fleet Experiment Platform
+# Lab User Journey — Strathe Fleet Experiment Platform
 
 **Status:** Written after F0.1 (cold dogfood pass) and F0.2 (gap analysis).
 This document is the acceptance spec for F1–F7. Every engineering milestone
@@ -109,7 +109,7 @@ python run_fleet_experiment.py --config my_experiment.yaml
 
 ```
 ======================================================================
-MERA FLEET EXPERIMENT
+STRATHE FLEET EXPERIMENT
 ======================================================================
 Config: /path/to/default_experiment.yaml
 
