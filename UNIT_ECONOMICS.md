@@ -17,6 +17,13 @@ flagged explicitly, not smoothed over.*
 | Claim B (PPO training) | **Not confirmed this session** — real training happened earlier this project, but no exact wall-clock figure is on record | Flagged gap, not fabricated |
 | Optional identifiability report | ~15-17 minutes | Confirmed real, this session |
 
+## Update, 2026-09-23: faster stand-in replay and fleet training
+
+- **Stand-in calibration is 3x cheaper per evaluation.** `dynamics_model.simulate_trajectory` now runs on `fast_dynamics.py`, which uses the same equations with the mass matrix inverted once. Measured A/B on the same machine under the same load: one full-dataset objective evaluation (25 training runs) went from **47.5 s to 16.1 s**, with residuals identical to 9e-16. **Projected** full stand-in calibration: ~6.5 h → ~2.2 h. A full `--max-nfev 60` run is being timed to replace this projection with a measured number.
+- **Fleet policy training** (new cost line): 3M steps per policy takes ~41 min on one M1 core (`fleet_policy_seed*.json` record the exact wall-clock times). Three seeds in parallel take the same ~41 min on an 8-core machine. At the CPU rate above (~$0.17/h) that's ~$0.12 per policy.
+- **Fleet evaluation**: the 38,400-episode belief-to-success study takes ~30 min on 7 cores; the shipped default experiment takes ~5 min.
+- HoloOcean costs are unchanged by this, and HoloOcean numbers are provisional pending `verify_holoocean_frame_conventions.py` (PROJECT_STATUS.md #40).
+
 ## The real, honest uncertainty: how many HoloOcean segments does "done" take?
 
 This session needed **at least 5 real segments** to reach the current best validated result (finding #27's segment 5) — and the rotational-axis investigation alone consumed several more beyond that trying different hypotheses. There's no fixed number here; it depends on how much refinement a given vehicle's data needs. Presenting a range, not a false-precision single number:
