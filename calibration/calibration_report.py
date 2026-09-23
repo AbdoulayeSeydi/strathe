@@ -220,11 +220,11 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
 def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifiability: Optional[str] = None,
                  data_dir: Optional[str] = None, heldout_dates=("16-02-2024", "19-02-2024")) -> dict:
     spec = load_vehicle_spec(spec_path)
-    with open(os.path.join(result_dir, "calibrated_parameters.yaml")) as f:
+    with open(os.path.join(result_dir, "calibrated_parameters.yaml"), encoding="utf-8") as f:
         params = CalibrationParameters(**yaml.safe_load(f)["parameters"])
     mpath = os.path.join(result_dir, "metrics.json")
-    metrics = json.load(open(mpath)) if os.path.exists(mpath) else None
-    ident = json.load(open(identifiability)) if identifiability else None
+    metrics = json.load(open(mpath, encoding="utf-8")) if os.path.exists(mpath) else None
+    ident = json.load(open(identifiability, encoding="utf-8")) if identifiability else None
     axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates))
     pinned = pinned_parameters(params, spec)
     implausible = implausible_parameters(params)

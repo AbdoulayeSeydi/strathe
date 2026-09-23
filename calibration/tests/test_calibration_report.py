@@ -41,7 +41,7 @@ def test_real_converged_calibration(tmp_path):
     assert len(r["pinned"]) == 9
     assert r["generalization_ratio"] == pytest.approx(1.0077, abs=1e-3)
     assert not any("Record more" in s for s in r["next_steps"])  # every axis already >= 30% better
-    text = open(r["report"]).read()
+    text = open(r["report"], encoding="utf-8").read()
     assert "65% more accurately" in text and "Parameters your data can't tell apart" in text
 
 
@@ -54,7 +54,7 @@ def test_worse_than_default_axis_gets_a_clear_warning_and_advice(tmp_path):
     assert v["r"]["verdict"] == BAD and "WORSE" in v["r"]["why"]
     assert v["u"]["verdict"] == GOOD
     assert any("Record more" in s and "turning rate" in s for s in r["next_steps"])
-    assert "50% worse than on training runs" in open(r["report"]).read()
+    assert "50% worse than on training runs" in open(r["report"], encoding="utf-8").read()
 
 
 def test_small_improvement_is_caution(tmp_path):
@@ -68,7 +68,7 @@ def test_without_accuracy_numbers_the_report_still_flags_problems(tmp_path):
     params["Ieff_roll"] = 3.0
     r = build_report(_result_dir(tmp_path, params))
     assert r["verdicts"] == [] and r["implausible"][0]["name"] == "Ieff_roll"
-    assert "No held-out accuracy numbers" in open(r["report"]).read()
+    assert "No held-out accuracy numbers" in open(r["report"], encoding="utf-8").read()
 
 
 def test_accuracy_computed_from_logs_when_metrics_lack_it(tmp_path):

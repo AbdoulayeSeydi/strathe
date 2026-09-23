@@ -104,7 +104,7 @@ def test_foreign_ros_style_pwm_only_logs_round_trip(foreign_logs):
     _matches(out / "labrov-12-01-2024-run1.csv", originals["2024-01-12_log_a.csv"])
     _matches(out / "labrov-19-02-2024-run1.csv", originals["2024-02-19_log_b.csv"])
     assert "computed from PWM" in names["labrov-12-01-2024-run1.csv"]["wrench_source"]
-    assert json.loads((out / "ingest_report.json").read_text())["n_files"] == 2
+    assert json.loads((out / "ingest_report.json").read_text(encoding="utf-8"))["n_files"] == 2
 
 
 @needs_data
