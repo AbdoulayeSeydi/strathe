@@ -50,6 +50,7 @@ import yaml
 
 from data_split import split_by_date, discover_csv_files, DEFAULT_HELDOUT_FRACTION
 from dynamics_model import CalibrationParameters
+from stall_watchdog import StallWatchdog
 from objective import DatasetConfig, RunData, load_run, mean_run_rmse, rmse_by_dof
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
@@ -688,6 +689,9 @@ def main() -> None:
         verbose=2 if args.verbose else 0,
         x0_override=x0_override,
         on_iteration=None if args.parallel else make_checkpoint_callback(checkpoint_path),
+        # times every evaluation on 3 clocks and stack-dumps stalls into
+        # output_dir/stall_log.txt (not supported with --parallel's worker processes)
+        stall_watchdog=None if args.parallel else StallWatchdog(args.output_dir),
     )
     pipeline_config = PipelineConfig(
         data_dir=args.data_dir,

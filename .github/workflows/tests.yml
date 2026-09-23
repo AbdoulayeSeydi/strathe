@@ -38,6 +38,7 @@ jobs:
           test_two_agent_orchestrator.py test_mujoco_backend.py
           test_mlflow_fleet_schema.py test_track_b_config.py
           test_data_split.py test_phase2_config.py
+          test_mujoco_arena_core.py
       - name: Fleet experiment smoke run (lab entry point)
         working-directory: calibration
         env:

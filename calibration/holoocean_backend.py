@@ -136,6 +136,7 @@ def simulate_trajectory_holoocean(
     env,
     agent_name: str = "auv0",
     initial_location=None,
+    transport_term: bool = True,
 ) -> SimulationResult:
     """
     Same signature/shape as dynamics_model.simulate_trajectory(), but
@@ -145,7 +146,26 @@ def simulate_trajectory_holoocean(
     `env` must already exist (holoocean.make(...)) — this function does
     NOT create or destroy it, precisely so it can be reused across every
     optimizer evaluation without per-guess restart cost.
+
+    transport_term (default True since 2026-09-23): add R @ (omega x v) to
+    the world-frame linear acceleration command. HoloOcean integrates a
+    WORLD-frame acceleration while the vehicle's orientation evolves, and
+    d/dt(R v) = R (v_dot + omega x v); every result before this date omitted
+    the term. The identical omission in mujoco_backend.py was confirmed and
+    fixed against real MuJoCo (tests/test_mujoco_transport.py). NOT YET CONFIRMED IN
+    HOLOOCEAN ITSELF -- run verify_holoocean_frame_conventions.py on a
+    machine with HoloOcean before trusting new HoloOcean results. Pass
+    transport_term=False to reproduce pre-2026-09-23 HoloOcean numbers.
+
+    Tick rate: this function sends ONE acceleration command per logged
+    sample, so HoloOcean must advance exactly sim_config.dt per env.step().
+    HoloOcean's default is 30 ticks/s (1/30 s per step) unless the scenario
+    sets ticks_per_sec; at 10 Hz data that would simulate each logged
+    command for a third of its real duration. Environments built by
+    make_deterministic_environment() record their tick rate and a mismatch
+    raises here; for any other env, a warning is printed once.
     """
+    _check_tick_rate(env, sim_config.dt)
     params.validate()
     vehicle.validate()
     trajectory.validate()
@@ -204,7 +224,10 @@ def simulate_trajectory_holoocean(
 
         # Body-frame acceleration -> world-frame for HoloOcean's Custom
         # Dynamics input (confirmed: it wants global-frame accel).
-        world_lin_accel = R @ v_dot[:3]  # linear input confirmed unflipped — see module docstring
+        lin_accel_body = v_dot[:3]
+        if transport_term:
+            lin_accel_body = lin_accel_body + np.cross(v[3:], v[:3])  # d/dt(R v) = R (v_dot + w x v)
+        world_lin_accel = R @ lin_accel_body  # linear input confirmed unflipped — see module docstring
         world_ang_accel_raw = R @ v_dot[3:]  # practical approximation — see module docstring
         # CONFIRMED via diagnose_angular_input_sign.py (tested independently on
         # all 3 axes): HoloOcean's Custom Dynamics angular acceleration INPUT
@@ -305,7 +328,29 @@ def make_deterministic_environment(scenario_name: str = "SimpleUnderwater-Hoveri
         scenario["package_name"] = "Ocean"
 
     env = holoocean.make(scenario_cfg=scenario)
+    # HoloOcean's documented default when a scenario doesn't set it.
+    env._strathe_ticks_per_sec = float(scenario.get("ticks_per_sec", 30))
     return env
+
+
+_TICK_WARNED = set()
+
+
+def _check_tick_rate(env, data_dt: float) -> None:
+    tps = getattr(env, "_strathe_ticks_per_sec", None)
+    if tps is None:
+        if id(env) not in _TICK_WARNED:
+            _TICK_WARNED.add(id(env))
+            print(f"WARNING: HoloOcean tick rate unknown for this env; one command is sent per {data_dt} s "
+                  f"logged sample, so the scenario must run at {1 / data_dt:g} ticks/s. Build the env with "
+                  f"make_deterministic_environment() to have this checked.")
+        return
+    if abs(tps * data_dt - 1.0) > 1e-6:
+        raise ValueError(
+            f"HoloOcean runs at {tps:g} ticks/s ({1 / tps:.4f} s per env.step) but the data is sampled every "
+            f"{data_dt} s, and this backend sends one command per sample, so each logged command would be "
+            f"simulated for {1 / tps:.4f} s instead of {data_dt} s. Set the scenario's ticks_per_sec to "
+            f"{1 / data_dt:g} (sensor Hz values must not exceed it) and re-run.")
 
 
 def make_holoocean_simulate_fn(env, agent_name: str = "auv0"):

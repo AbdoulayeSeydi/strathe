@@ -299,43 +299,35 @@ This is labeled **Claim C** in `phase2_config.py`, matching the same explicit la
 **Methodology:** real BlueROV2 mission logs (public `oceansystemslab`
 dataset), held out by entire collection *date* (not a random split) — so
 validation checks generalization to entire unseen sessions, not just
-unseen samples. Real logged thruster commands replayed open-loop through
-both default and calibrated physics, evaluated inside real HoloOcean
-simulation, compared against real logged trajectories.
+unseen samples. Real logged thruster commands are replayed open-loop through
+default and calibrated physics and compared against the real logged
+velocities, per axis.
 
-**Headline: ~3–8% scale-normalized RMSE improvement** over uncalibrated
-default physics, on held-out real data (varies by calibration segment —
-see `PROJECT_STATUS.md` for the full history).
+**1. With the physics the calibration was fitted in (stand-in model), on the
+14 held-out runs** (`calibration/diagnose_rotational_weakness.py`),
+improvement over uncalibrated default physics:
 
-Per-axis breakdown (current best real result):
+| Calibration | Surge (u) | Sway (v) | Heave (w) | Roll rate (p) | Pitch rate (q) | Yaw rate (r) |
+|---|---|---|---|---|---|---|
+| expA (best converged fit) | +40% | +59% | +82% | +83% | +85% | +51% |
+| 10hz_coriolis (converged) | +46% | +58% | +71% | +82% | +87% | +51% |
+| holoocean_coriolis (Claim A) | +40% | +55% | +73% | +82% | +83% | +23% |
 
-| Axis | Improvement |
-|---|---|
-| Surge (u) | +61–63% |
-| Sway (v) | +29–30% |
-| Heave (w) | +27–35% |
-| Roll rate (p) | **known limitation — see below** |
-| Pitch rate (q) | +25–35% |
-| Yaw rate (r) | **known limitation — see below** |
+Calibration improves every axis, including roll and yaw. Caveat: every
+converged fit has several parameters sitting at their `vehicle_spec.yaml`
+bounds (PROJECT_STATUS.md, open items), so the bounds need review.
 
-We're being upfront about roll and yaw rate — they're real, honest results,
-not polished ones. Real, direct evidence rules out a data-coverage
-explanation (the real dataset excites every relevant coupling term
-comparably well). Two specific, well-motivated fixes have since been tested
-directly and refuted with real evidence: a custom per-DOF objective
-weighting, and a fix for a separately-confirmed non-physical parameter
-drift that fed directly into yaw's Coriolis coupling term. Neither helped —
-in fact both isolated tests showed `r` getting **worse**, not better,
-including one test where the specific coupling term this hypothesis was
-about changed by close to the largest amount that could be tested.
-
-The current leading hypothesis is that every real HoloOcean-backed
-refinement so far has trained on the same short (150-step, ~15 second)
-truncated window of each real run — a deliberate speed shortcut whose
-tradeoff was never revisited. Testing this properly means giving up that
-shortcut for a full-length run, a real, larger compute commitment not yet
-made. See `PROJECT_STATUS.md` findings #20–32 for the complete technical
-investigation, including the two ruled-out hypotheses.
+**2. Inside HoloOcean (an independent engine) — provisional.** The earlier
+HoloOcean result (~3–8% scale-normalized overall; surge +61–63%, sway
++29–30%, heave +27–35%, pitch +25–35%, roll and yaw *worse* than default)
+predates two problems found in the HoloOcean backend (PROJECT_STATUS.md
+finding #40): it omitted the rotating-frame term when handing HoloOcean a
+world-frame acceleration (the same omission was confirmed and fixed in the
+MuJoCo backend), and it never checked that HoloOcean's tick length matches
+the 0.1 s logs (HoloOcean defaults to 30 ticks/s). Both are fixed or guarded
+in code but not yet confirmed in HoloOcean itself, which can't run on macOS.
+Run `calibration/verify_holoocean_frame_conventions.py` on a Windows or Linux
+machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 
 ## Status
 
@@ -348,7 +340,7 @@ investigation, including the two ruled-out hypotheses.
 - ✅ Two-agent coordination task and centralized PPO training, stand-in backend
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
 - ✅ Multi-agent comm-degradation result reproduced on the validated MuJoCo backend (Claim C) — same qualitative shape as the stand-in, and the calibrated-vs-generic belief-error effect holds up quantitatively at moderate-to-severe degradation
-- 🔄 Rotational-axis accuracy (roll, yaw rate) — two hypotheses tested and ruled out; the training-window-truncation hypothesis is the clear next step
+- 🔄 HoloOcean-backed results provisional — backend frame fix and tick-rate guard need confirming on a HoloOcean machine (`verify_holoocean_frame_conventions.py`); with the stand-in physics, calibration improves all six axes on held-out data
 - 🔄 Fleet coordination policies are proof-of-concept grade (15–30% success rates), not production-ready
 - ⏳ No MuJoCo-based training yet — every fleet policy above is stand-in-trained, MuJoCo-validated only
 - ⏳ Real hardware validation — not yet done, for either the single-vehicle or fleet work; looking for lab partners with BlueROV2 access

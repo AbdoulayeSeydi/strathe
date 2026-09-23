@@ -238,6 +238,8 @@ class CalibrationConfig:
     # instrumentation
     on_iteration: Optional[Callable] = None  # called as on_iteration(call_count, param_vec, cost)
     log_path: Optional[str] = None           # if set, writes a JSON run log here
+    stall_watchdog: Optional[object] = None  # stall_watchdog.StallWatchdog: times every evaluation
+                                             # and dumps stacks if one runs far past normal
 
 
 @dataclass
@@ -290,10 +292,19 @@ def _initialize_x0(x0_base, lb, ub, rng, strategy, perturbation_frac):
     raise ValueError(f"Unknown initialization_strategy: {strategy!r}")
 
 
-def _wrap_residual_fn(base_fn: Callable, on_iteration: Optional[Callable]) -> Callable:
+def _wrap_residual_fn(base_fn: Callable, on_iteration: Optional[Callable],
+                      watchdog: Optional[object] = None) -> Callable:
     """Scipy's least_squares has no native callback= — this wraps the
     residual function itself (which scipy calls every evaluation anyway)
-    to report iteration count, current parameters, and cost."""
+    to report iteration count, current parameters, and cost. With a
+    watchdog, every evaluation is also timed on three clocks and stack-dumped
+    if it stalls (see stall_watchdog.py)."""
+    if watchdog is not None:
+        inner = base_fn
+
+        def base_fn(param_vec, *args):
+            with watchdog.measure("residual_evaluation"):
+                return inner(param_vec, *args)
     if on_iteration is None:
         return base_fn
 
@@ -561,7 +572,7 @@ def calibrate(
     else:
         x_scale = np.ones_like(x0_base)
 
-    residual_fn = _wrap_residual_fn(joint_residuals, config.on_iteration)
+    residual_fn = _wrap_residual_fn(joint_residuals, config.on_iteration, config.stall_watchdog)
 
     # --- fixed_params: build the free/fixed split, subset everything the
     # optimizer actually sees to free dimensions only. Fully inert (every

@@ -282,7 +282,8 @@ def get_body_position(model, data, body_id: int) -> np.ndarray:
 
 
 def _inject_full_override_wrench(model, data, desired_v_dot: np.ndarray, R: np.ndarray,
-                                   body_id: int = _BODY_ID, dof_adr: int = 0) -> None:
+                                   body_id: int = _BODY_ID, dof_adr: int = 0,
+                                   self_integrating_orientation: bool = False) -> None:
     """B0.7's confirmed full-override approach: cancel MuJoCo's own bias
     force (gravity + Coriolis, from ITS OWN mass matrix) and inject a
     wrench that makes the realized acceleration match desired_v_dot
@@ -337,7 +338,25 @@ def _inject_full_override_wrench(model, data, desired_v_dot: np.ndarray, R: np.n
     qfrc_bias = qfrc_bias_full[dof_adr:dof_adr + 6]
     M_mj = M_mj_full[dof_adr:dof_adr + 6, dof_adr:dof_adr + 6]
 
-    desired_qacc_mujoco_frame = np.concatenate([R @ desired_v_dot[:3], desired_v_dot[3:]])
+    # MuJoCo's free-joint linear qvel is WORLD-frame. When orientation
+    # genuinely evolves (self_integrating_orientation=True: MuJoCoArenaCore
+    # and forward-sim mode, which read body velocity back with the UPDATED
+    # rotation), the world linear acceleration that realizes body-frame
+    # v_b_dot is d/dt(R v_b) = R (v_b_dot + omega x v_b). That omega x v_b
+    # transport term used to be missing on those paths: a systematic
+    # sideways drift whenever a vehicle turned while moving (1.4 cm after
+    # 2 s at ~0.8 rad/s yaw) that did NOT shrink with physics_dt, which is
+    # how it was told apart from ordinary integrator differences -- see
+    # tests/test_mujoco_transport.py.
+    # Teacher-forced mode must NOT add it: it reads velocity back with the
+    # PRE-step rotation, matching the stand-in's fixed-orientation update
+    # v += v_dot*dt exactly (verified against real MuJoCo to ~1e-15).
+    world_lin_acc = R @ desired_v_dot[:3]
+    if self_integrating_orientation:
+        body_lin_vel = R.T @ data.qvel[dof_adr:dof_adr + 3]
+        body_ang_vel = data.qvel[dof_adr + 3:dof_adr + 6]
+        world_lin_acc = world_lin_acc + R @ np.cross(body_ang_vel, body_lin_vel)
+    desired_qacc_mujoco_frame = np.concatenate([world_lin_acc, desired_v_dot[3:]])
     generalized_wrench = M_mj @ desired_qacc_mujoco_frame + qfrc_bias
     # LINEAR part: xfrc_applied's force component is already world-frame,
     # matching the generalized force directly -- no further rotation.
@@ -496,7 +515,8 @@ def simulate_trajectory_mujoco(
 
                     v_dot, damping_force, g_eta = compute_acceleration_from_rotation_matrix(
                         params, vehicle, v, tau, R)
-                    _inject_full_override_wrench(model, data, v_dot, R, body_id, dof_adr)
+                    _inject_full_override_wrench(model, data, v_dot, R, body_id, dof_adr,
+                                                 self_integrating_orientation=True)
                     mujoco.mj_step(model, data)  # actually integrates orientation now, not overwritten after
 
                 R_final = _current_rotation_matrix(data, qpos_adr)
@@ -675,7 +695,8 @@ class MuJoCoArenaCore:
                 v = _extract_body_velocity_mujoco(self._data, R, self._dof_adr)
                 v_dot, _damping, _restoring = compute_acceleration_from_rotation_matrix(
                     self.params, self.vehicle, v, tau, R)
-                _inject_full_override_wrench(self._model, self._data, v_dot, R, _BODY_ID, self._dof_adr)
+                _inject_full_override_wrench(self._model, self._data, v_dot, R, _BODY_ID, self._dof_adr,
+                                             self_integrating_orientation=True)
                 mujoco.mj_step(self._model, self._data)
         finally:
             self._model.opt.timestep = original_timestep

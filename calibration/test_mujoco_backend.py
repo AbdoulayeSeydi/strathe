@@ -134,8 +134,24 @@ def _install_fake_mujoco():
     return fake_mujoco
 
 
+_real_mujoco_module = sys.modules.get("mujoco")
+_real_backend_module = sys.modules.pop("mujoco_backend", None)
 _fake_mujoco = _install_fake_mujoco()
 import mujoco_backend  # noqa: E402 -- must come after the fake mujoco is installed
+
+# Put the real modules back straight away. This file keeps its own
+# fake-bound `mujoco_backend` via the name above, but pytest imports every
+# test file before running any test, so leaving the fake in sys.modules made
+# every test file collected afterwards (and any test importing mujoco lazily)
+# run against the fake -- 12 unrelated failures depending only on file order.
+if _real_mujoco_module is not None:
+    sys.modules["mujoco"] = _real_mujoco_module
+else:
+    del sys.modules["mujoco"]
+if _real_backend_module is not None:
+    sys.modules["mujoco_backend"] = _real_backend_module
+else:
+    del sys.modules["mujoco_backend"]
 
 _vehicle = load_vehicle_spec(VEHICLE_SPEC_PATH).vehicle
 _params = load_calibrated_parameters("calibrated_parameters_a1.yaml")

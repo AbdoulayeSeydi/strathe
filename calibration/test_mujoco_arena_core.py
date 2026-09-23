@@ -9,9 +9,16 @@ calibrated_parameters_a1.yaml (via build_two_agent_cores' own
 established loading pattern), not toy values, for a meaningful check.
 
 Usage:
-    python3 test_mujoco_arena_core.py
+    pytest test_mujoco_arena_core.py      (or: python3 test_mujoco_arena_core.py)
 """
 import numpy as np
+
+try:
+    import pytest
+    _fixture = pytest.fixture
+except ImportError:  # still runnable as a plain script without pytest installed
+    def _fixture(*args, **kwargs):
+        return (lambda f: f) if not (args and callable(args[0])) else args[0]
 
 from mujoco_backend import MuJoCoArenaCore
 from arena_core import ArenaCore
@@ -21,14 +28,39 @@ from dynamics_model import SimulationConfig
 CALIBRATED_PARAMS_PATH = "calibrated_parameters_a1.yaml"
 
 
+def _load_real_setup():
+    _core_generic, core_calibrated = build_two_agent_cores(CALIBRATED_PARAMS_PATH)
+    return core_calibrated.params, core_calibrated.vehicle, SimulationConfig(dt=0.1, physics_dt=0.005)
+
+
+# pytest fixtures -- these tests used to hand values to each other through
+# return values, which pytest can't do (tests 2-4 errored as "fixture not
+# found" and never ran under pytest).
+@_fixture(scope="module")
+def _setup():
+    return _load_real_setup()
+
+
+@_fixture
+def params(_setup):
+    return _setup[0]
+
+
+@_fixture
+def vehicle(_setup):
+    return _setup[1]
+
+
+@_fixture
+def sim_config(_setup):
+    return _setup[2]
+
+
 def test_1_reset_interface():
     print("=" * 70)
     print("TEST 1: reset() interface")
     print("=" * 70)
-    _core_generic, core_calibrated = build_two_agent_cores(CALIBRATED_PARAMS_PATH)
-    params = core_calibrated.params
-    vehicle = core_calibrated.vehicle
-    sim_config = SimulationConfig(dt=0.1, physics_dt=0.005)
+    params, vehicle, sim_config = _load_real_setup()
 
     mujoco_core = MuJoCoArenaCore(params, vehicle, sim_config)
     state = mujoco_core.reset(position=np.array([1.0, 2.0, 3.0]),
@@ -39,7 +71,6 @@ def test_1_reset_interface():
     assert np.allclose(state.nu, [0.3, 0.1, 0.0, 0.0, 0.0, 0.05])
     assert np.allclose(state.orientation.as_matrix(), np.eye(3))
     print("  PASS\n")
-    return params, vehicle, sim_config
 
 
 def test_2_position_updates_under_thrust(params, vehicle, sim_config):
@@ -94,6 +125,10 @@ def test_3_compare_against_arenacore(params, vehicle, sim_config):
     print(f"  suspicious given genuinely different integrators; a LARGE value")
     print(f"  would indicate a real bug, not just integrator disagreement)")
     assert np.all(np.isfinite([max_pos_diff, max_nu_diff]))
+    # A real bound, not just finiteness: after fixing the missing omega x v
+    # transport term in mujoco_backend this gap is ~2e-4 m; with the bug it
+    # was ~4.3e-3 m. 1e-3 m separates the two with margin on both sides.
+    assert max_pos_diff < 1e-3, f"MuJoCo drifted {max_pos_diff:.5f} m from ArenaCore in 3 s"
     print("  PASS\n")
 
 
@@ -115,7 +150,8 @@ def test_4_longer_horizon_stays_finite(params, vehicle, sim_config):
 
 
 if __name__ == "__main__":
-    params, vehicle, sim_config = test_1_reset_interface()
+    test_1_reset_interface()
+    params, vehicle, sim_config = _load_real_setup()
     test_2_position_updates_under_thrust(params, vehicle, sim_config)
     test_3_compare_against_arenacore(params, vehicle, sim_config)
     test_4_longer_horizon_stays_finite(params, vehicle, sim_config)
