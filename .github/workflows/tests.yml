@@ -26,3 +26,20 @@ jobs:
       - name: Run regression suite
         working-directory: calibration
         run: pytest tests/ -v
+      # The fleet workflow (MuJoCo, comm channel, two-agent env) is what
+      # labs actually run, and tests/ never imports it -- which let
+      # modules it depends on go uncommitted without CI noticing.
+      - name: Run fleet test suite
+        working-directory: calibration
+        run: >
+          pytest -v
+          test_comm_channel.py test_experiment_schema.py
+          test_formation_hold_task.py test_two_agent_formation_env.py
+          test_two_agent_orchestrator.py test_mujoco_backend.py
+          test_mlflow_fleet_schema.py test_track_b_config.py
+          test_data_split.py test_phase2_config.py
+      - name: Fleet experiment smoke run (lab entry point)
+        working-directory: calibration
+        env:
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python run_fleet_experiment.py --config ci_smoke_experiment.yaml

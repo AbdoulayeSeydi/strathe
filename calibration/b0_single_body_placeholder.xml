@@ -1,0 +1,37 @@
+<mujoco model="track_b_b0_single_body_placeholder">
+  <!--
+    B0.3 -- Minimal single-body MJCF, Track B (MuJoCo backend).
+
+    Purpose: prove the basic MuJoCo pipeline runs at all (B0.4), before
+    any calibrated physics is wired in. This file is NOT physics-accurate
+    and must not be mistaken for a calibrated vehicle model.
+
+    - freejoint: gives the body full 6-DOF free-floating motion, required
+      for an AUV that is not fixed to any frame.
+    - mass = 11.2 kg: matches vehicle_spec.yaml's fixed mass_kg. This is
+      the one real, calibration-derived number in this file.
+    - diaginertia = 0.15 0.25 0.20 kg*m^2: PLACEHOLDER ONLY. Explicit,
+      finite, positive values chosen to be physically plausible for a
+      body of this mass, but NOT derived from vehicle_spec.yaml or any
+      calibration/optimization run. Do not treat these as real vehicle
+      parameters.
+    - No actuators, no hydrodynamics, no added mass, no damping, no
+      buoyancy, no cross-coupling: this is a pure passive rigid body for
+      B0.4's sanity run (step with zero applied force, confirm it
+      behaves plausibly). B0.5/B1 is where the real calibrated physics
+      (via compute_acceleration()) gets wired in -- not this file.
+  -->
+  <option gravity="0 0 -9.81"/>
+
+  <worldbody>
+    <body name="auv_placeholder" pos="0 0 0">
+      <freejoint/>
+      <!-- PLACEHOLDER inertial properties -- see file header. -->
+      <inertial pos="0 0 0" mass="11.2" diaginertia="0.15 0.25 0.20"/>
+      <!-- Visualization/collision geometry only. Does NOT drive mass
+           properties -- the explicit <inertial> above overrides any
+           geom-inferred mass/inertia. -->
+      <geom type="box" size="0.3 0.15 0.15" rgba="0.2 0.5 0.8 1"/>
+    </body>
+  </worldbody>
+</mujoco>
