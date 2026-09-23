@@ -189,6 +189,20 @@ result than "still investigating" — see Part 3, item 29.
 
 ## Part 3 — Detailed gap list: MVP → full product
 
+> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#47). Items below are unchanged text; this is what has moved since:
+>
+> | Item | Now |
+> |---|---|
+> | 1. Performance mystery | **Instrumented, not yet caught.** Every calibration evaluation is timed on wall/monotonic/CPU clocks and stack-dumped if it stalls (`stall_watchdog.py`); the clocks classify sleep vs waiting vs computing. |
+> | 3, 12. Thruster allocation, raw-PWM datasets | **Done for T200-based vehicles.** `thruster_model.py` reproduces the dataset's forces from raw PWM on every row; the allocation matrix can be built from geometry for other vehicles. ESC lag and battery sag are not modelled. |
+> | 9. Multi-agent | **Fleet v2 (2 vehicles):** per-vehicle policies, physical teammate beliefs, paired belief-to-success study. |
+> | 11, 13. Data ingestion, garbage input | **CSV done** (`data_ingestion.py`: columns, units, ROS frames, PWM, timestamps, with guards against silent unit/frame/time errors). ROS bags: export to CSV first. |
+> | 19. CI | Windows CI on every push, with the public dataset fetched so real-data tests run. HoloOcean-dependent code still can't run in CI; `verify_holoocean_frame_conventions.py` is the manual check. |
+> | 27, 30. Customer confidence reporting | **Done:** `calibration_report.py` writes a plain-language per-axis verdict, limits, confounded parameters and next steps. |
+> | 29. Rotational weakness | **Reframed:** with the stand-in physics, calibration improves held-out roll ~82% and yaw 23-51%. The weakness appears only in HoloOcean evaluation, whose backend had a frame omission and an unchecked tick rate (both fixed/guarded, unconfirmed in HoloOcean). |
+> | Unit economics | The stand-in replay is 3x faster (`fast_dynamics.py`, measured A/B); see UNIT_ECONOMICS.md. |
+
+
 Organized by category, roughly in priority tiers. Each item states not
 just what's missing but why it matters.
 
