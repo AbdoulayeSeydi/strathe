@@ -58,6 +58,7 @@ from optimizer import (
 )
 from mlflow_logging import log_calibration_run
 from mlflow_schema import STATUS_SUCCESS, STATUS_FAILED
+from keep_awake import keep_awake
 
 logger = logging.getLogger("calibration_pipeline")
 
@@ -769,4 +770,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with keep_awake("stand-in calibration"):  # PROJECT_STATUS.md #49
+        main()

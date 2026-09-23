@@ -39,6 +39,7 @@ from fleet_env import FleetConfig, FleetSim
 from fleet_vec_env import CommCondition, EpisodeSampler, FleetVecEnv
 from mlflow_run_utils import get_git_commit, get_git_dirty
 from optimizer import initial_parameters, load_vehicle_spec
+from keep_awake import keep_awake
 
 TRUTH_PARAMS_PATH = "calibrated_parameters_fleet_truth.yaml"
 VEHICLE_SPEC_PATH = "vehicle_spec.yaml"
@@ -143,4 +144,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with keep_awake("fleet policy training"):  # PROJECT_STATUS.md #49
+        main()

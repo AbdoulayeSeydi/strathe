@@ -39,6 +39,7 @@ from fleet_eval import CellSpec, CommSpec, run_cells
 from fleet_stats import paired_contrast, summarize
 from mlflow_run_utils import get_git_commit, get_git_dirty
 from optimizer import initial_parameters, load_vehicle_spec
+from keep_awake import keep_awake
 
 BELIEFS = ("calibrated", "generic", "last_beacon", "oracle")
 SEVERITIES = ("L0", "L1", "L2", "L3a")
@@ -126,4 +127,6 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    with keep_awake("fleet specialized study"):  # PROJECT_STATUS.md #49
+        rc = main()
+    sys.exit(rc)

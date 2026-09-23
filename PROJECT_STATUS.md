@@ -442,7 +442,19 @@ The first long run with the #42 watchdog was a full-dataset stand-in calibration
 
 The process advanced only during those few-second wakes, so a ~26 s evaluation stretched to as long as 67 min. That matches every past observation of the stall: hours of wall time, `py-spy` always showing real, moving computation when someone was present (awake), and no cause found in the code.
 
-**Fix:** on macOS, run long calibrations under `caffeinate -i` with the lid open (README, real workflow step 2). No code change is needed; the watchdog stays on every run.
+**Fix: `keep_awake.py`.** Every long-running entry point now blocks system sleep for as long as it runs. The entry points are `run_calibration`, `run_calibration_holoocean`, `run_full_pipeline`, `train_multiseed`, `train_fleet_policy`, `run_fleet_experiment` and `run_specialized_study`.
+
+| Platform | How sleep is blocked |
+|---|---|
+| macOS | `caffeinate -i -s -w <pid>` |
+| Windows | `SetThreadExecutionState` |
+| Linux | `systemd-inhibit` |
+
+- The block ends with the process, even if the process is killed. On macOS this is tested with a SIGKILL.
+- Set `STRATHE_ALLOW_SLEEP=1` to opt out.
+- If sleep can't be blocked, the run prints a warning and continues.
+- Closing a laptop lid still sleeps the machine.
+- The watchdog stays on every run as a check.
 
 **Unexplained, minor:** CPU time per evaluation was ~16 s before the sleeps and ~27 s after, with identical work per evaluation. This is plausibly macOS scheduling the process onto efficiency cores after a wake, but that is unconfirmed.
 
@@ -452,7 +464,7 @@ The process advanced only during those few-second wakes, so a ~26 s evaluation s
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. The bounds need review by someone who knows the vehicle.
 - **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.
-- ~~**The single-evaluation stall**~~ — caught and explained (#49): the machine was asleep. Use `caffeinate -i` for long runs on macOS.
+- ~~**The single-evaluation stall**~~ — caught and explained (#49): the machine was asleep. Long runs now keep the machine awake by themselves (`keep_awake.py`).
 - **The ~2.5%/tick angular-velocity decay** under Custom Dynamics (#15) remains a known residual.
 
 ---
@@ -461,6 +473,6 @@ The process advanced only during those few-second wakes, so a ~26 s evaluation s
 
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the parameters every fit pins, then re-fit.
-3. Run long calibrations under `caffeinate -i` (macOS); `stall_log.txt` and `eval_timing.csv` stay on as a check.
+3. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
 4. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
 5. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

@@ -46,6 +46,7 @@ from formation_hold_task import FormationHoldConfig
 from mlflow_run_utils import get_git_commit, get_git_dirty
 from optimizer import initial_parameters, load_vehicle_spec
 from validate_fleet_policy import FleetPolicyError, load_fleet_policy
+from keep_awake import keep_awake
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(HERE, "default_experiment.yaml")
@@ -372,4 +373,6 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    with keep_awake("fleet experiment"):  # PROJECT_STATUS.md #49
+        rc = main()
+    sys.exit(rc)

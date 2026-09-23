@@ -39,7 +39,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
   - The new stall watchdog times every evaluation on three clocks and dumps stack traces when one runs long.
   - It caught 7 stalls in an overnight run. In each, the process computed for ~26 s while up to 67 min passed on the wall clock.
   - Every one lines up to the second with a macOS sleep/wake event.
-  - Fix: run long calibrations under `caffeinate -i` (see step 2 below).
+  - Fix: every long-running script now keeps the machine awake by itself (`keep_awake.py`; see step 2 below).
 - **Stand-in calibration is 3× faster** (47.5 s → 16.1 s per full-dataset evaluation). The model is unchanged; the evaluation now uses the equivalence-tested fast integrator.
 
 **Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
@@ -49,7 +49,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 197 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 210 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Setup
 
@@ -147,14 +147,19 @@ separate scripts, run in order:
 2. **Stand-in calibration** (~16 s per evaluation on the full dataset on an
    M1; a `--max-nfev 60` run is a few hundred evaluations, so plan on hours):
    ```bash
-   caffeinate -i python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
+   python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
       --sampling-rate-hz 10.0 --heldout-dates 16-02-2024 19-02-2024 \
       --output-dir <output-dir> --max-nfev 60
    ```
-   **On macOS, keep `caffeinate -i` in front of long runs.** Without it the Mac
-   sleeps, and evaluations that take ~16 s stretch to over an hour
-   (PROJECT_STATUS.md #49). Keep the lid open, since `caffeinate -i` doesn't
-   stop lid-close sleep. Every run writes `eval_timing.csv`, which has each
+   **The machine is kept awake automatically while the run lasts.** This uses
+   `caffeinate` on macOS, `SetThreadExecutionState` on Windows and
+   `systemd-inhibit` on Linux. Without it, a Mac sleeps and evaluations that
+   take ~16 s stretch to over an hour (PROJECT_STATUS.md #49).
+   - The same applies to HoloOcean calibration, the demo pipeline, training
+     and fleet studies.
+   - On a laptop, keep the lid open, because closing it still sleeps the machine.
+   - Set `STRATHE_ALLOW_SLEEP=1` to turn this off.
+   - If it can't block sleep, the run prints a warning and carries on. Every run writes `eval_timing.csv`, which has each
    evaluation's time on three clocks. If an evaluation runs long, the run also
    writes `stall_log.txt`, which records whether the machine slept, the
    process waited, or it was really computing.
@@ -328,6 +333,7 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/run_fleet_experiment.py`, `fleet_experiment_schema.py`, `fleet_eval.py`, `fleet_stats.py`** — the lab entry point: YAML config, paired evaluation across processes, statistics (Wilson CIs, paired bootstrap, McNemar, dose-response), plain-language report.
 - **`calibration/train_fleet_policy.py`, `validate_fleet_policy.py`, `analyze_fleet_study.py`, `run_specialized_study.py`** — training, the policy contract check, and the study analyses.
 - **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical. Stand-in calibration uses it too, which makes it 3× faster per evaluation.
+- **`calibration/keep_awake.py`** — stops the machine sleeping during long runs (macOS, Windows, Linux).
 - **`calibration/stall_watchdog.py`** — times every calibration evaluation on three clocks and dumps stack traces for a stalled one (`eval_timing.csv`, `stall_log.txt`).
 - **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
 - **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
@@ -431,8 +437,8 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Gym-compatible RL environment (`Arena`), four tasks, PPO/SAC/TD3 training confirmed working
 - ✅ Automated pre-flight data-quality checks, automated identifiability reporting
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows), log ingestion with silent-error guards, plain-language calibration reports
-- ✅ Calibration stall diagnosed (the Mac was asleep), with a watchdog on every run
-- ✅ Automated test suite (197 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
+- ✅ Automated test suite (210 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
