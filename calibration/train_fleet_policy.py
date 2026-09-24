@@ -105,15 +105,26 @@ def main():
     ap.add_argument("--belief", default="mix",
                     help="'mix' (default: the documented mixture) or one fixed belief model for every episode: "
                          + ", ".join(FIXED_BELIEFS))
+    ap.add_argument("--disturbance", default="none",
+                    help="'none' (clean, default), 'fitted' (disturbances/bluerov2_rollpitch.yaml) or a fitted "
+                         "disturbance YAML: random roll/pitch torques shaped like real unexplained motion")
+    ap.add_argument("--disturbance-scale", type=float, default=1.0)
     ap.add_argument("--out", required=True, help="output path without .zip")
     args = ap.parse_args()
+    fleet_config = None
+    if args.disturbance != "none":
+        from disturbance import DEFAULT_FIT_PATH, load_disturbance
+        dpath = DEFAULT_FIT_PATH if args.disturbance == "fitted" else args.disturbance
+        fleet_config = FleetConfig(disturbance=load_disturbance(dpath, args.disturbance_scale,
+                                                                truth_params_path=args.truth_params))
 
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.vec_env import VecMonitor
     torch.set_num_threads(1)  # several trainings run side by side; don't oversubscribe cores
 
-    env = VecMonitor(build_training_env(args.n_sims, args.seed, args.truth_params, belief=args.belief))
+    env = VecMonitor(build_training_env(args.n_sims, args.seed, args.truth_params, fleet_config=fleet_config,
+                                        belief=args.belief))
     hyper = dict(n_steps=256, batch_size=1024, n_epochs=10, learning_rate=3e-4, gamma=0.99,
                  gae_lambda=0.95, clip_range=0.2, ent_coef=0.0,
                  policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])))
@@ -133,7 +144,10 @@ def main():
                                   "beacon_intervals_s": list(TRAIN_BEACON_INTERVALS_S),
                                   "belief_mix": BELIEF_MIX if args.belief == "mix" else None,
                                   "initial_separation_range_m": list(FleetConfig().initial_separation_range),
-                                  "initial_closing_speed_range_mps": list(FleetConfig().initial_closing_speed_range)},
+                                  "initial_closing_speed_range_mps": list(FleetConfig().initial_closing_speed_range),
+                                  "disturbance": (None if fleet_config is None else
+                                                  {"file": fleet_config.disturbance.source,
+                                                   "scale": fleet_config.disturbance.scale})},
         "git_commit": get_git_commit(), "git_uncommitted_changes": get_git_dirty(),
         "python": platform.python_version(),
         "elapsed_s": round(elapsed, 1), "transitions_per_s": round(args.timesteps / elapsed, 1),

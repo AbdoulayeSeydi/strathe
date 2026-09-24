@@ -1,0 +1,29 @@
+generated_at_utc: '2026-09-24T04:10:49.995459+00:00'
+spec_version: 0.3.0
+git_commit: 5cdfbff8b0d76127a2555b2d84e7be80008e7da6
+note: 'finalized from checkpoint, not formally converged: stopped at a plateau after
+  222 evaluations: best cost changed by <1e-8 relative over the last 80 (warm-started
+  from expA) (222 evaluations)'
+parameters:
+  Ieff_roll: 0.26499999999998974
+  Ieff_pitch: 0.23499999999999996
+  Ieff_yaw: 1.8904479151478764
+  Xu: -49.99999999999999
+  Yv: -79.99999999999996
+  Zw: -99.99999999999999
+  Kp: -9.999999999999998
+  Mq: -4.999999999999758
+  Nr: -3.172657218489177
+  Xuu: -99.99999999999999
+  Yvv: -99.99999999999999
+  Zww: -149.99999999999997
+  Kpp: -9.999999999999998
+  Mqq: -9.999999999999998
+  Nrr: -1.7702972270850568
+  Xu_dot: 11.372917426087309
+  Yv_dot: 11.282817775728004
+  Zw_dot: 24.529512058308836
+  net_buoyancy_z: 0.9999999999994112
+  cg_cb_offset_z: 0.011817706723532365
+  Xq_dot: 0.499999999994448
+  Zq_dot: -0.4424012597362632

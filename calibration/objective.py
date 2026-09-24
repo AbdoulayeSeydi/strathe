@@ -56,6 +56,26 @@ than a residual that also penalized position/orientation drift). Fine for
 this MVP; worth revisiting if the calibrated parameters turn out to be
 unstable/inconsistent across repeated fits.
 
+## Prediction horizon (PROJECT_STATUS.md #50)
+By default each run is replayed from its first sample to its last with
+velocity integrated open-loop (only orientation is teacher-forced). Motion
+the logged inputs don't cause -- this dataset's roll and pitch, see #50 --
+then accumulates for the whole run, and the only way the optimizer can
+limit it is to push that axis's damping to its bound: the classic
+output-error bias under unmodelled disturbances. horizon_samples=H instead
+re-anchors the simulation to the real logged velocity every H samples
+and scores only the H-1 predicted samples of each window (the anchor
+sample is exact by construction, so it is dropped). Disturbances then
+act like noise over a short window instead of an ever-growing drift.
+
+## Skill against "predict zero" (PROJECT_STATUS.md #50)
+An RMSE is only meaningful next to what a trivial predictor achieves.
+zero_baseline_rmse() is the error of predicting "no motion on this axis";
+skill = 1 - RMSE_model / RMSE_zero. Skill <= 0 means the model is no better
+than assuming the vehicle isn't moving on that axis, however much it beats
+default physics. compute_zero_baseline_scales() uses the same quantity to
+put each axis on that footing inside the objective.
+
 ## Objective function abstraction
 Only least-squares (RMSE) is implemented. joint_residuals() returns a raw
 residual vector, which is already the right shape to hand to any of
@@ -73,7 +93,7 @@ inside the optimizer's hot loop.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
@@ -117,10 +137,17 @@ class DatasetConfig:
     No default is provided on purpose.
     """
     sampling_rate_hz: float
+    # Move the point the logged torques are taken about (see
+    # shift_torque_reference and PROJECT_STATUS.md #50). (0, 0, 0) = use the
+    # log's torques unchanged (the original behaviour).
+    torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
 
     def validate(self) -> None:
         if self.sampling_rate_hz <= 0:
             raise ValueError(f"sampling_rate_hz must be positive, got {self.sampling_rate_hz}")
+        if len(self.torque_reference_offset_m) != 3 or not np.all(np.isfinite(self.torque_reference_offset_m)):
+            raise ValueError(f"torque_reference_offset_m must be 3 finite numbers (m, body FRD), "
+                             f"got {self.torque_reference_offset_m}")
 
     @property
     def dt(self) -> float:
@@ -168,12 +195,33 @@ def validate_run_dataframe(df: pd.DataFrame, filepath: str) -> None:
         raise ValueError(f"{filepath} contains NaN in required column(s): {nan_cols}")
 
 
+def shift_torque_reference(forces_torques: np.ndarray, offset_m) -> np.ndarray:
+    """Re-express (N,6) body wrenches [F; T] about a point at `offset_m`
+    (body FRD, metres) from the original reference: T' = T - r x F.
+
+    Why (PROJECT_STATUS.md #50): the reference BlueROV2 dataset computes
+    torques about a point 8.5 cm below the horizontal thrusters, so every
+    surge/sway command also logs a pitch/roll torque (logged Ty = -0.98
+    correlated with Fx, Tx = +0.95 with Fy). The dynamics model applies all
+    forces at its origin and has no drag moment to balance that torque, so it
+    predicts large pitch/roll the real vehicle never shows. offset
+    (0, 0, -0.085) moves the reference up to the thruster plane, which is
+    where the vehicle's drag acts in steady motion."""
+    r = np.asarray(offset_m, dtype=float)
+    if not np.any(r):
+        return forces_torques
+    out = np.array(forces_torques, dtype=float, copy=True)
+    out[:, 3:6] = out[:, 3:6] - np.cross(r, out[:, 0:3])
+    return out
+
+
 def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: DatasetConfig) -> RunData:
     """Step 3: DataFrame -> RunData. Orientation is converted ONCE here,
     not recomputed on every optimizer iteration (see Performance note)."""
     dataset_config.validate()
 
-    forces_torques = df[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].to_numpy()
+    forces_torques = shift_torque_reference(df[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].to_numpy(),
+                                            dataset_config.torque_reference_offset_m)
     real_nu = df[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy()
     roll, pitch = quaternion_to_roll_pitch(
         df["qx"].to_numpy(), df["qy"].to_numpy(),
@@ -217,11 +265,24 @@ def _coerce_params(params: ParamsLike) -> CalibrationParameters:
     return params if isinstance(params, CalibrationParameters) else CalibrationParameters.from_vector(params)
 
 
+def horizon_windows(n_samples: int, horizon_samples: Optional[int]) -> list:
+    """[(start, end)] prediction windows covering a run. None = one window
+    (the whole run). The last window is kept even if shorter than the
+    horizon, as long as it predicts at least one sample."""
+    if horizon_samples is None or horizon_samples >= n_samples:
+        return [(0, n_samples)]
+    if horizon_samples < 2:
+        raise ValueError(f"horizon_samples must be >= 2 (one anchor + one prediction), got {horizon_samples}")
+    return [(a, min(a + horizon_samples, n_samples)) for a in range(0, n_samples - 1, horizon_samples)
+            if min(a + horizon_samples, n_samples) - a >= 2]
+
+
 def _raw_residuals(
     params: CalibrationParameters,
     run: RunData,
     vehicle: VehicleConstants,
     simulate_fn: Optional[SimulateFn] = None,
+    horizon_samples: Optional[int] = None,
 ) -> np.ndarray:
     """(simulated - real) velocity residuals, shape (N,6), in each DOF's
     natural physical units (m/s for u,v,w; rad/s for p,q,r) — unweighted,
@@ -235,6 +296,15 @@ def _raw_residuals(
         caller of this function (residuals_for_run, joint_residuals,
         rmse_for_run, etc.) accepts and forwards this same parameter.
     """
+    if horizon_samples is not None and horizon_samples < run.n_samples:
+        # re-anchored prediction windows (see "Prediction horizon" above)
+        parts = []
+        for a, b in horizon_windows(run.n_samples, horizon_samples):
+            sub = replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
+                          real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy())
+            parts.append(_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
+        return np.concatenate(parts, axis=0)
+
     simulate = simulate_fn if simulate_fn is not None else simulate_trajectory
     sim_config = SimulationConfig(dt=run.dt)
     trajectory = TrajectoryInputs(nu0=run.nu0, forces_torques=run.forces_torques,
@@ -284,6 +354,29 @@ def compute_dof_scales(runs: Sequence[RunData], epsilon: float = 1e-3) -> np.nda
     return np.maximum(scales, epsilon)  # avoid divide-by-zero on a near-constant DOF
 
 
+def zero_baseline_rmse(runs: Sequence[RunData]) -> np.ndarray:
+    """Per-DOF RMSE of predicting zero velocity, shape (6,): the trivial
+    baseline every per-axis accuracy number should be read against (see
+    "Skill against predict zero" above). Averaged per run, like
+    rmse_by_dof results usually are."""
+    return np.mean([np.sqrt(np.mean(run.real_nu ** 2, axis=0)) for run in runs], axis=0)
+
+
+def compute_zero_baseline_scales(runs: Sequence[RunData], epsilon: float = 1e-3) -> np.ndarray:
+    """Per-DOF residual scales for the objective: the "predict zero" error
+    on the given (TRAINING) runs, so each axis is scored relative to the
+    trivial baseline for that axis rather than in its raw units. Pooled
+    over all samples (not averaged per run) so short runs don't distort it."""
+    all_nu = np.concatenate([run.real_nu for run in runs], axis=0)
+    return np.maximum(np.sqrt(np.mean(all_nu ** 2, axis=0)), epsilon)
+
+
+def skill_vs_zero(model_rmse: np.ndarray, zero_rmse: np.ndarray) -> np.ndarray:
+    """1 - RMSE_model / RMSE_zero per axis. 1 = perfect, 0 = no better than
+    predicting "no motion", negative = worse than that."""
+    return 1.0 - np.asarray(model_rmse, dtype=float) / np.asarray(zero_rmse, dtype=float)
+
+
 def residuals_for_run(
     params: ParamsLike,
     run: RunData,
@@ -291,6 +384,7 @@ def residuals_for_run(
     dof_scales: Optional[np.ndarray] = None,
     normalize_by_run_length: bool = True,
     simulate_fn: Optional[SimulateFn] = None,
+    horizon_samples: Optional[int] = None,
 ) -> np.ndarray:
     """
     Flattened residuals for the OPTIMIZER (not for human-readable RMSE —
@@ -311,18 +405,22 @@ def residuals_for_run(
 
     simulate_fn: see _raw_residuals — defaults to the analytical stand-in.
 
+    horizon_samples: None = replay the whole run open-loop (the original
+        objective); H = re-anchored H-sample prediction windows (see the
+        module docstring's "Prediction horizon" section).
+
     Flatten order: row-major (C order) — for each timestep, all 6 DOFs
     appear consecutively, then the next timestep. DOF varies fastest
     within a timestep block; time is the outer, slower-varying index.
     """
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
 
     if dof_scales is not None:
         residuals = residuals / dof_scales
 
     if normalize_by_run_length:
-        residuals = residuals / np.sqrt(run.n_samples)
+        residuals = residuals / np.sqrt(residuals.shape[0])
 
     return residuals.ravel()
 
@@ -334,6 +432,7 @@ def joint_residuals(
     dof_scales: Optional[np.ndarray] = None,
     normalize_by_run_length: bool = True,
     simulate_fn: Optional[SimulateFn] = None,
+    horizon_samples: Optional[int] = None,
 ) -> np.ndarray:
     """
     Concatenated residuals across MULTIPLE runs — what
@@ -350,10 +449,73 @@ def joint_residuals(
     """
     params = CalibrationParameters.from_vector(param_vec)
     all_residuals = [
-        residuals_for_run(params, run, vehicle, dof_scales, normalize_by_run_length, simulate_fn)
+        residuals_for_run(params, run, vehicle, dof_scales, normalize_by_run_length, simulate_fn,
+                          horizon_samples)
         for run in runs
     ]
     return np.concatenate(all_residuals)
+
+
+# --- parallel evaluation ----------------------------------------------------
+# One full-dataset stand-in evaluation is ~16 s of pure-Python integration on
+# an M1, and a fit needs several hundred. Runs are independent, so they are
+# spread over worker processes that each hold their own copy of the runs
+# (sent once, at pool start-up, not on every evaluation).
+_POOL_RUNS = None
+_POOL_VEHICLE = None
+
+
+def _pool_init(runs, vehicle):
+    import os as _os
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        _os.environ[var] = "1"
+    global _POOL_RUNS, _POOL_VEHICLE
+    _POOL_RUNS, _POOL_VEHICLE = runs, vehicle
+
+
+def _pool_residuals(job):
+    i, param_vec, dof_scales, normalize_by_run_length, horizon_samples = job
+    return residuals_for_run(CalibrationParameters.from_vector(param_vec), _POOL_RUNS[i], _POOL_VEHICLE,
+                             dof_scales, normalize_by_run_length, None, horizon_samples)
+
+
+class ParallelJointResiduals:
+    """Drop-in for joint_residuals (same call signature) that evaluates runs
+    in worker processes. Results are identical to joint_residuals, in the
+    same order. Stand-in physics only: a simulate_fn bound to a live engine
+    (HoloOcean, MuJoCo model/data) can't be shared across processes.
+    Use as a context manager, or call close()."""
+
+    def __init__(self, runs: Sequence[RunData], vehicle: VehicleConstants, workers: int):
+        from concurrent.futures import ProcessPoolExecutor
+        if workers < 2:
+            raise ValueError("ParallelJointResiduals needs workers >= 2; use joint_residuals otherwise")
+        self._runs = list(runs)
+        self._vehicle = vehicle
+        # longest runs first so no worker is left with a long run at the end
+        self._order = sorted(range(len(self._runs)), key=lambda i: -self._runs[i].n_samples)
+        self._pool = ProcessPoolExecutor(max_workers=workers, initializer=_pool_init,
+                                         initargs=(self._runs, vehicle))
+
+    def __call__(self, param_vec, runs, vehicle, dof_scales=None, normalize_by_run_length=True,
+                 simulate_fn=None, horizon_samples=None) -> np.ndarray:
+        if simulate_fn is not None:
+            raise ValueError("ParallelJointResiduals only supports the stand-in physics (simulate_fn=None)")
+        if len(runs) != len(self._runs) or any(a is not b for a, b in zip(runs, self._runs)):
+            raise ValueError("ParallelJointResiduals was built for a different set of runs")
+        vec = np.asarray(param_vec, dtype=float)
+        jobs = [(i, vec, dof_scales, normalize_by_run_length, horizon_samples) for i in self._order]
+        parts = dict(zip(self._order, self._pool.map(_pool_residuals, jobs)))
+        return np.concatenate([parts[i] for i in range(len(self._runs))])
+
+    def close(self) -> None:
+        self._pool.shutdown(wait=True, cancel_futures=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
 
 def rmse_for_run(
@@ -372,12 +534,13 @@ def rmse_for_run(
 def rmse_by_dof(
     params: ParamsLike, run: RunData, vehicle: VehicleConstants,
     simulate_fn: Optional[SimulateFn] = None,
+    horizon_samples: Optional[int] = None,
 ) -> np.ndarray:
     """Per-DOF RMSE, shape (6,) = [u,v,w,p,q,r]. Diagnostic: reveals which
     axis is actually driving the fit error, rather than one averaged number.
-    simulate_fn: see _raw_residuals."""
+    simulate_fn: see _raw_residuals. horizon_samples: see residuals_for_run."""
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle, simulate_fn)
+    residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
     return np.sqrt(np.mean(residuals ** 2, axis=0))
 
 

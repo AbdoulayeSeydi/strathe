@@ -189,7 +189,7 @@ result than "still investigating" — see Part 3, item 29.
 
 ## Part 3 — Detailed gap list: MVP → full product
 
-> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#49). Items below are unchanged text; this is what has moved since:
+> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#53). Items below are unchanged text; this is what has moved since:
 >
 > | Item | Now |
 > |---|---|
@@ -199,7 +199,9 @@ result than "still investigating" — see Part 3, item 29.
 > | 11, 13. Data ingestion, garbage input | **CSV done** (`data_ingestion.py`: columns, units, ROS frames, PWM, timestamps, with guards against silent unit/frame/time errors). ROS bags: export to CSV first. |
 > | 19. CI | Windows CI on every push, with the public dataset fetched so real-data tests run. HoloOcean-dependent code still can't run in CI; `verify_holoocean_frame_conventions.py` is the manual check. |
 > | 27, 30. Customer confidence reporting | **Done:** `calibration_report.py` writes a plain-language per-axis verdict, limits, confounded parameters and next steps. |
-> | 29. Rotational weakness | **Reframed:** with the stand-in physics, calibration improves held-out roll ~82% and yaw 23-51%. The weakness appears only in HoloOcean evaluation, whose backend had a frame omission and an unchecked tick rate (both fixed/guarded, unconfirmed in HoloOcean). |
+> | 29. Rotational weakness | **Corrected and partly fixed (#50-#52).** Yaw is predictive (skill +0.60 vs predicting no motion). Roll and pitch were *worse* than predicting no motion; the earlier "+82% vs default" hid that. The main cause was a thrust moment arm in the logged torques. Correcting it (`vehicle_spec.yaml` `data_conventions`) and refitting lifts roll/pitch to about zero skill. The rest of this dataset's roll/pitch motion isn't caused by the thrusters, so it can't be calibrated from these logs; that needs lab free-decay tests. Formation-holding is unaffected (15,200 paired episodes with realistic wobble). |
+> | Onboarding (six terminal commands) | **Done:** `python strathe.py calibrate --data <logs>` runs check, fit and report; `python strathe.py web` is a local web page for calibration, fleet runs, log conversion and reports (#53). |
+> | Disturbances / clean vs noisy modes | **Started:** a roll/pitch disturbance fitted to the real logs is a YAML switch (`disturbance:`) and a training flag (#51). Currents and sensor noise are not modelled yet. |
 > | Unit economics | The stand-in replay is 3x faster (`fast_dynamics.py`, measured A/B); see UNIT_ECONOMICS.md. |
 
 

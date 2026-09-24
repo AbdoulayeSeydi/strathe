@@ -440,7 +440,7 @@ The first long run with the #42 watchdog was a full-dataset stand-in calibration
 - Every one of the watchdog's 7 stall detections is timestamped within one second of a DarkWake: 05:13:13, 05:45:14, 06:52:05, 07:18:27, 07:25:01, 07:43:41, 08:05:45.
 - The system sleep setting on this machine is 1 minute.
 
-The process advanced only during those few-second wakes, so a ~26 s evaluation stretched to as long as 67 min. That matches every past observation of the stall: hours of wall time, `py-spy` always showing real, moving computation when someone was present (awake), and no cause found in the code.
+The raw evidence is in `calibration_output_fast_path_check/` (`eval_timing.csv`, `stall_log.txt`); that run was stopped once it had served this purpose. The process advanced only during those few-second wakes, so a ~26 s evaluation stretched to as long as 67 min. That matches every past observation of the stall: hours of wall time, `py-spy` always showing real, moving computation when someone was present (awake), and no cause found in the code.
 
 **Fix: `keep_awake.py`.** Every long-running entry point now blocks system sleep for as long as it runs. The entry points are `run_calibration`, `run_calibration_holoocean`, `run_full_pipeline`, `train_multiseed`, `train_fleet_policy`, `run_fleet_experiment` and `run_specialized_study`.
 
@@ -458,11 +458,137 @@ The process advanced only during those few-second wakes, so a ~26 s evaluation s
 
 **Unexplained, minor:** CPU time per evaluation was ~16 s before the sleeps and ~27 s after, with identical work per evaluation. This is plausibly macOS scheduling the process onto efficiency cores after a wake, but that is unconfirmed.
 
+### 50. Roll and pitch had no predictive skill, and the main cause is a thrust moment arm in the logged torques (2026-09-23)
+
+**The check.** Held-out replay of every calibration inside MuJoCo, with orientation evolving freely, as a fleet runs it: 14 runs, windows of 3, 15 and 60 s, 3,308 replays. MuJoCo matches the stand-in to within 0.5% of the error on every axis, and no replay diverged, so nothing here is MuJoCo-specific. Each axis was compared with the trivial prediction "no motion on this axis" (skill = 1 − RMSE / RMSE of predicting zero):
+
+| Calibration | u | v | w | p (roll) | q (pitch) | r (yaw) |
+|---|---|---|---|---|---|---|
+| generic | +0.47 | −0.62 | −1.74 | −8.39 | −11.69 | +0.09 |
+| expA | +0.73 | +0.49 | +0.55 | −0.34 | −0.54 | +0.62 |
+| 10hz_coriolis | +0.76 | +0.50 | +0.20 | −0.35 | −0.47 | +0.61 |
+| holoocean_coriolis | +0.76 | +0.45 | +0.10 | −0.95 | −1.78 | +0.43 |
+| mujoco_full | +0.77 | +0.51 | +0.47 | −0.39 | −0.73 | +0.54 |
+
+(MuJoCo, free-running 3 s windows. Whole-run teacher-forced replay gives the same picture, e.g. expA roll −0.49, pitch −0.84, yaw +0.60.)
+
+- **Yaw is fine.** It tracks the real motion at 0.92 correlation.
+- **Roll and pitch are worse than predicting no motion.** The "+82–87%" improvement over default physics reported earlier (#40) is real, but default physics is so poor on these axes (skill −8 to −12) that beating it by 85% still leaves negative skill. This corrects the README and #40, which read that number as "calibration improves roll".
+
+**Why.** It isn't sensor noise or timing:
+- The real roll/pitch motion is large (about 10–14°) and slow: 80–85% of its power is below 0.5 Hz.
+- The logged rates agree with the logged angles through Euler kinematics at 0.97 and 0.98 correlation, at zero lag.
+- The real angular acceleration barely follows the logged torque: correlation 0.03 for roll and 0.06 for pitch, against 0.56 for yaw.
+- The logged roll and pitch torques are almost entirely a by-product of horizontal thrust: Tx is +0.95 correlated with Fy, and Ty is −0.98 correlated with Fx. The dataset's own allocation matrix (thruster_model.BLUEROV2_HEAVY_ALLOCATION) puts the horizontal thrusters 8.5 cm above its torque reference point, so every surge or sway command also logs a pitch or roll torque.
+- The model applies all forces at its origin and has no drag moment to balance that torque, so it predicts large pitch and roll that the real vehicle doesn't show. In reality, drag at roughly thruster height balances it in steady motion.
+- The fit had already tried to express this coupling. `Xq_dot` (surge–pitch coupling) is pinned at its bound; the coupling it was reaching for is about 11.2 kg × 0.085 m ≈ 0.95 kg·m, beyond its ±0.5 bound.
+
+Re-expressing the logged torques about the thruster plane (`objective.shift_torque_reference`, offset (0, 0, −0.085) m) zeroes the horizontal thrusters' roll/pitch torques exactly and leaves their yaw torque untouched. After the shift:
+- The corrected torques track the real angular acceleration about 5× better: correlation 0.15 for roll (was 0.03) and 0.21 for pitch (was 0.06).
+- Without any refit, expA's held-out skill improves from −0.49 to −0.13 on roll and from −0.84 to −0.31 on pitch; yaw is unchanged.
+
+**Why every roll/pitch damping term pinned at its bound.** Each run was replayed open-loop from its first sample, so motion the inputs don't explain accumulates for the whole run. The only way the optimizer can limit that drift is more damping: the classic output-error bias under unmodelled disturbances.
+- A synthetic test with ground truth confirms it (`tests/test_objective_skill.py`). A hidden roll torque makes the whole-run objective prefer 1.6–1.9× the true roll damping, across three realizations.
+- The earlier widening of the `Kp` bound from −5 to −10 chased this artifact; the fit simply pinned again at the new bound.
+- Re-anchored prediction windows don't remove the bias. On the same synthetic data, 0.3–0.5 s windows pin the damping at the opposite bound, 1 s windows give 0.46–0.91× the truth, and 2 s windows give 1.1–1.4×. Short windows mistake a persistent disturbance for momentum; long ones mistake it for drift.
+- The logs also can't identify roll/pitch damping from how the motion oscillates: roll/pitch autocorrelation is nearly identical across all four dates, but there is no oscillation peak to measure. The motion is slow drift, mostly below 0.03 Hz.
+
+**What changed in the code:**
+- **Skill everywhere.** `objective.zero_baseline_rmse` and `skill_vs_zero` are new. `run_calibration.py` writes a `skill_vs_zero` block to `metrics.json` (whole-run and 3 s windows) and prints it. `calibration_report.py` now bases every verdict on skill: an axis at skill ≤ 0 gets "Don't rely on it", however much it beats the default model. The real 10hz_coriolis report now says exactly that for roll and pitch.
+- **`--torque-reference-offset-m X Y Z`** (run_calibration.py, `DatasetConfig`, fit_rollpitch_disturbance.py) re-expresses logged torques about another point.
+- **`--axis-scaling zero_rms`** scores each axis against its predict-zero error. It balances axes against each other but doesn't change the within-axis damping bias above.
+- **`--exclude-axes p q`** leaves axes the logs don't explain out of the fit and holds their axis-only parameters at `vehicle_spec.yaml`'s initial guesses. `cg_cb_offset_z` is held only when both are excluded. The report says "not calibrated" for those axes.
+- **`--prediction-horizon-s`** fits over re-anchored windows, which suits a model used over a known prediction horizon, such as a 1–3 s beacon interval. It is not a bias fix; see above.
+- **`--eval-workers N`** evaluates training runs in parallel with bit-identical results (`objective.ParallelJointResiduals`). It is 3.3× faster with 6 workers on the full dataset; the longest runs cap the gain.
+
+**Roll/pitch bounds, reviewed.**
+- `Ieff_roll` [0.255, 0.265] and `Ieff_pitch` [0.225, 0.235] stay tight on purpose. An independent BlueROV2 Heavy model gives 0.26 and 0.23, and the fit has near-zero sensitivity to them (#28). Widening them earlier only let them drift to non-physical values of 5–10 kg·m².
+- The damping bounds (`Kp`, `Kpp`, `Mq`, `Mqq`) are not the problem: whole-run replay pins them wherever the bound is. They are left as they are; the refits below show what the data supports once the torques are corrected.
+
+### 51. A roll/pitch disturbance fitted to the real logs, in MuJoCo and the stand-in (2026-09-23)
+
+With the torques corrected (#50), a simulated vehicle driven by the logged commands is much calmer than the real one. On held-out data, roll rate spread is 0.066 vs 0.144 rad/s and roll angle spread is 4.1° vs 11.3°. The remaining motion is not caused by the recorded thrusters (tether pull, waves or contact are the usual suspects), and a clean simulator leaves it out entirely.
+
+`disturbance.py` adds it back as an independent random torque on roll and on pitch: first-order coloured noise with a size (sigma) and a correlation time (tau).
+- It is added to the commanded wrench once per control tick, so MuJoCo and the stand-in see the same torque.
+- It never enters the beacons, because a teammate can't know about it.
+- It is seeded from the episode's identity (comm seed, vehicle, start state), so every belief condition and policy sees the same disturbances and comparisons stay paired.
+
+`fit_rollpitch_disturbance.py` fits sigma and tau per axis for a given parameter set.
+- Method: replay 60 s windows free-running, driven by the (corrected) logged thrust plus a candidate disturbance, and match three statistics: rate spread, rate autocorrelation at 0.1–1.5 s, and angle spread.
+- Fitted on 60 training windows by a coarse-to-fine grid, checked on 130 held-out windows.
+- Fit for the fleet truth (expA): roll 1.6 N·m, 0.7 s; pitch 2.16 N·m, 1.0 s (`disturbances/bluerov2_rollpitch.yaml`).
+
+| Held-out | Real | No disturbance | Fitted | Fitted, in MuJoCo |
+|---|---|---|---|---|
+| roll rate spread (rad/s) | 0.144 | 0.066 | 0.135 | 0.136 |
+| roll angle spread | 11.3° | 4.1° | 9.5° | 9.3° |
+| roll rate autocorrelation at 0.5 s / 1.0 s | +0.37 / +0.09 | +0.46 / +0.29 | +0.37 / +0.11 | +0.37 / +0.12 |
+| pitch rate spread (rad/s) | 0.202 | 0.084 | 0.214 | 0.214 |
+| pitch angle spread | 12.3° | 5.9° | 13.4° | 13.6° |
+| pitch rate autocorrelation at 0.5 s / 1.0 s | +0.27 / −0.10 | +0.35 / +0.02 | +0.35 / +0.04 | +0.34 / +0.02 |
+
+No window diverged. One limit: at 0.2 s the simulated rate decorrelates faster than the real one (+0.64–0.69 vs +0.79–0.80), so first-order noise is slightly too rough at short lags. A second-order process would fix that if it ever matters.
+
+**The fit is tied to its parameter set.** The file records a hash of the parameter file it was fitted for, and loading it with a different truth file warns you to re-fit.
+
+**How to use it:**
+- Fleet YAML: `disturbance: {roll_pitch: fitted, scale: 1.0}`. The default is `none`, the clean simulation, so every earlier result is reproducible unchanged.
+- Training: `train_fleet_policy.py --disturbance fitted`.
+- This is the first part of gap-list items #8 (disturbances) and #11 (clean vs noisy modes). Translational currents and sensor noise are not modelled yet.
+
+### 52. Roll/pitch doesn't matter for formation-holding; training with the disturbance doesn't help (2026-09-24)
+
+**Question.** Does the calibration's poor roll/pitch (#50) matter for the fleet use case?
+
+**Method.** `run_disturbance_study.py`: 15,200 paired episodes. Each condition used the same start states, packet drops and disturbance sequences. Conditions varied:
+- **Policies:** the shipped clean-trained policies (seeds 1–3) and two new policies trained with the fitted disturbance (`disturbance_policies/`, 3M steps each).
+- **Belief models:** `calibrated` and `last_beacon`.
+- **Comm:** L2 with 1 s beacons, and L3a with 3 s beacons.
+- **Disturbance:** off, as fitted (×1), and twice as rough (×2).
+- **Engines:** the stand-in throughout, with MuJoCo as a cross-check.
+
+Results: `calibration/results/fleet_v2_disturbance/`.
+
+| Clean-trained policies | off | ×1 | ×2 |
+|---|---|---|---|
+| L2 @ 1 s, calibrated / last beacon | 100% / 100% | 100% / 100% | 100% / 100% |
+| L3a @ 3 s, calibrated / last beacon | 64% / 67% | 66% / 67% | 66% / 69% |
+
+1. **Realistic roll and pitch don't change formation-holding.** Paired against the same episodes with the disturbance off, success moves by −0 to +2 points at ×1 and ×2, with every confidence interval covering zero (n = 1,200 per comparison). Mean separation error moves by under 1 cm, and collisions stay at 0–1%. The task depends on horizontal position and heading (the skilled axes, #50); the fitted roll/pitch wobble barely perturbs them.
+2. **Training with the disturbance doesn't help under it.** Paired by seed and episode at ×1, the difference is +2 points (−2, +6). The disturbance-trained seeds were 8 points better in the clean simulation at L3a (+4, +12), and they lose 4–6 points when the disturbance is switched on. With only two seeds this looks like seed-to-seed variation, not a property of disturbance training.
+3. **MuJoCo agrees with the stand-in** with the disturbance on: −1 point (−3, +1) over 1,600 paired episodes.
+
+**Decision.**
+- For formation-holding, the roll/pitch weakness is not a blocker. The fleet kit's results don't depend on it.
+- The disturbance stays available as a first-class "noisy" option (`disturbance:` in the YAML, `--disturbance fitted` for training).
+- It will matter for tasks that depend on attitude: camera or sonar pointing, docking, or anything near the surface. For those, the calibration needs roll/pitch data that the thrusters actually cause (free-decay tests, deliberate roll/pitch manoeuvres). That is a concrete first ask for a lab partner.
+
+### 53. One command, and a local web page, instead of several terminal steps (2026-09-24)
+
+`python strathe.py` (repository root) covers the workflow:
+- **`check`:** is this machine ready, and what to fix.
+- **`calibrate --data <logs>`:** runs the pre-flight check, the calibration with the recommended settings, and the plain-language report. It stops with a specific message at the first failing step.
+- **`fleet`, `ingest`, `report`:** each maps to its underlying script.
+- **`web`:** a local web page to start a calibration, fleet experiment or log conversion, watch the live log, and read the rendered report and output files.
+
+The recommended calibration settings are predict-zero axis scaling, parallel evaluation on all but one core, and the vehicle's torque-reference convention from `vehicle_spec.yaml`.
+
+The web page is local-only by construction (`strathe_web.py`, standard library only):
+- It listens on 127.0.0.1 and rejects any other Host header, which blocks DNS rebinding.
+- Every form carries a per-session token.
+- It can only start the fixed `strathe` commands (no shell).
+- It serves files only from the output folders of jobs it started.
+
+It was tested end to end in a real browser (fleet smoke run: start, live log, rendered report). That test caught one bug the unit tests had missed: fleet output folders named only in the job's log weren't viewable. It's fixed and now covered by a test. The individual scripts are unchanged for specialists.
+
 ## Honest open items
 
 - **Physics dead reckoning doesn't beat last-beacon** (finding #48): predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
-- **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. The bounds need review by someone who knows the vehicle.
+- **Roll and pitch have no predictive skill yet** (#50): after the torque-arm correction they are at about zero skill (no longer worse than predicting no motion), not positive. This dataset's roll/pitch motion is mostly not caused by the thrusters, so it can't identify roll/pitch damping. It doesn't matter for formation-holding (#52), but it will for attitude-dependent tasks. It needs free-decay tests and deliberate roll/pitch manoeuvres from a lab.
+- **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. For roll/pitch damping this is the output-error artifact of #50, not a bounds problem. The translational damping pins still need review by someone who knows the vehicle.
+- **The fleet truth vehicle is still expA** (fitted before the torque-arm correction). The fleet results are about the relative value of teammate-model accuracy, so they don't depend on this; switching the truth to the arm-corrected fit means re-running the studies and retraining the policies.
 - **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.
 - ~~**The single-evaluation stall**~~ — caught and explained (#49): the machine was asleep. Long runs now keep the machine awake by themselves (`keep_awake.py`).
 - **The ~2.5%/tick angular-velocity decay** under Custom Dynamics (#15) remains a known residual.
@@ -472,7 +598,8 @@ The process advanced only during those few-second wakes, so a ~26 s evaluation s
 ## What's actually next
 
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
-2. **Review `vehicle_spec.yaml` bounds** for the parameters every fit pins, then re-fit.
-3. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
-4. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
-5. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.
+2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
+3. **Roll/pitch data from a lab partner**: free-decay tests and deliberate roll/pitch manoeuvres, with the tether slack. That is the only route to real roll/pitch skill (#50, #52).
+4. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
+5. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
+6. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

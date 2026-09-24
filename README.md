@@ -18,7 +18,7 @@ This rests on a system-identification pipeline that fits physics to real BlueROV
 
 ## Recent fixes (September 2026)
 
-What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–49.
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–53.
 
 **Fleet coordination: rebuilt (fleet v2)**
 - **Claim C withdrawn (#46).** The v1 metric measured how far the *teammate* had moved since its last message, not anything about calibration. The same "calibrated advantage" appeared with both vehicles running identical physics.
@@ -34,7 +34,13 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - **Rotating-frame term (#39, #40).** Both physics backends were missing the rotating-frame (ω × v) term when converting the body-frame acceleration into the world-frame acceleration the engine integrates.
   - **MuJoCo:** fixed, and confirmed against real MuJoCo.
   - **HoloOcean:** fixed in code, plus a new check that HoloOcean's tick length matches the 0.1 s logs. Neither is confirmed in HoloOcean itself yet (it doesn't run on macOS), so HoloOcean numbers are provisional.
-- **Roll/yaw "weakness" (#40).** It isn't in the calibration. With the physics the fit was made in, calibration improves held-out roll by ~82% and yaw by 23–51%. The weakness only appeared inside HoloOcean, where the rotating-frame term was missing.
+- **Roll and pitch: corrected claim, and a real fix (#50).** An earlier version of this README said calibration "improves every axis, including roll". That compared against default physics, which is very poor on roll and pitch. Measured against simply predicting "no motion", calibrated roll and pitch were *worse* than zero. Yaw is fine (skill +0.60).
+  - **Cause:** the dataset takes thruster torques about a point 8.5 cm below the horizontal thrusters. Every forward or sideways thrust command therefore also logs a pitch or roll torque, which the real vehicle doesn't feel.
+  - **Fix:** torques are now re-expressed about the thruster plane (`vehicle_spec.yaml` → `data_conventions`). Refitting with that correction lifts held-out roll/pitch skill from −0.49/−0.84 to −0.03/−0.10, with no cost on the other axes.
+  - **What's left:** roll and pitch are still not *predictive*. Most of the real roll/pitch motion in this dataset isn't caused by the thrusters (tether, waves or contact), so this data can't calibrate it.
+- **Does that matter for the fleet? No (#52).** Formation-holding success is unchanged, over 15,200 paired episodes, when realistic roll/pitch wobble is added (−0 to +2 points, not significant).
+- **Roll/pitch disturbance, fitted to the real logs (#51).** Random roll/pitch torques whose size and timing reproduce the real vehicle's wobble on held-out logs, in MuJoCo and the stand-in. Turn it on with `disturbance:` in a fleet YAML; it's the first "noisy simulation" mode.
+- **Calibration reports now judge each axis against "predict no motion"**, so they can no longer call an axis trustworthy just because default physics is worse. New calibration options: `--axis-scaling zero_rms`, `--exclude-axes`, `--prediction-horizon-s`, `--eval-workers` (parallel, bit-identical), and `--torque-reference-offset-m` (#50).
 - **The "one evaluation takes 4 hours" stall is solved (#42, #49): the Mac was asleep.**
   - The new stall watchdog times every evaluation on three clocks and dumps stack traces when one runs long.
   - It caught 7 stalls in an overnight run. In each, the process computed for ~26 s while up to 67 min passed on the wall clock.
@@ -44,12 +50,34 @@ What changed, and why the numbers in this README differ from earlier versions. D
 
 **Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
 
+**Onboarding (#53)**: one command, `python strathe.py`, replaces the separate terminal steps, and `python strathe.py web` opens a local web page to run and read everything. See [Quick start](#quick-start).
+
 **Tests and CI**
 - A fake `mujoco` module in one test file leaked into every later file. Test results depended on file order.
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 210 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 257 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+
+## Quick start
+
+After `pip install -r requirements.txt`, everything goes through one command, run from any folder:
+
+```bash
+python strathe.py check
+```
+
+`check` confirms this machine can run Strathe and says what to fix if not. The other commands:
+
+| Command | What it does |
+|---|---|
+| `python strathe.py web` | Opens a local web page in your browser. From it you can start a calibration or a fleet experiment, watch it run, and read the report. |
+| `python strathe.py calibrate --data <logs folder> --name my_rov` | Checks the logs, calibrates with the recommended settings, and writes the plain-language report. |
+| `python strathe.py fleet` | Runs the shipped fleet experiment. Add `--config my_experiment.yaml` to run your own. |
+| `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Converts your own logs into Strathe's layout. |
+| `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
+
+The web page runs on this computer only. It can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
 
 ## Setup
 
@@ -144,13 +172,15 @@ separate scripts, run in order:
    before committing real compute time to a calibration that might not
    succeed.
 
-2. **Stand-in calibration** (~16 s per evaluation on the full dataset on an
-   M1; a `--max-nfev 60` run is a few hundred evaluations, so plan on hours):
+2. **Stand-in calibration.** This is what `strathe.py calibrate` runs. One evaluation of the full dataset takes about 16 s on one M1 core, or about 5 s with `--eval-workers 6`; a fit takes a few hundred evaluations.
    ```bash
    python run_calibration.py --data-dir <path> --spec vehicle_spec.yaml \
       --sampling-rate-hz 10.0 --heldout-dates 16-02-2024 19-02-2024 \
-      --output-dir <output-dir> --max-nfev 60
+      --output-dir <output-dir> --max-nfev 60 --eval-workers 6 --axis-scaling zero_rms
    ```
+   - **Torque convention.** Logged torques are re-expressed about the point set in `vehicle_spec.yaml` → `data_conventions` (the thruster plane for the BlueROV2 dataset, PROJECT_STATUS.md #50). Override it with `--torque-reference-offset-m X Y Z`.
+   - **Output.** `metrics.json` records each axis's held-out skill against predicting no motion, and the objective settings used.
+   - **If a run stops early** (interrupted, or out of evaluations), `python finalize_checkpoint.py --checkpoint <output-dir>/checkpoint.yaml --data-dir <path> --heldout-dates ...` turns its best parameters into a normal, clearly-marked "not converged" result.
    **The machine is kept awake automatically while the run lasts.** This uses
    `caffeinate` on macOS, `SetThreadExecutionState` on Windows and
    `systemd-inhibit` on Linux. Without it, a Mac sleeps and evaluations that
@@ -159,7 +189,9 @@ separate scripts, run in order:
      and fleet studies.
    - On a laptop, keep the lid open, because closing it still sleeps the machine.
    - Set `STRATHE_ALLOW_SLEEP=1` to turn this off.
-   - If it can't block sleep, the run prints a warning and carries on. Every run writes `eval_timing.csv`, which has each
+   - If it can't block sleep, the run prints a warning and carries on.
+
+   Every run writes `eval_timing.csv`, which has each
    evaluation's time on three clocks. If an evaluation runs long, the run also
    writes `stall_log.txt`, which records whether the machine slept, the
    process waited, or it was really computing.
@@ -312,7 +344,12 @@ Training your own per-vehicle policy (~40 min on an M1 for 3M steps):
 python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # --belief <model> to specialize
 python validate_fleet_policy.py my_policy.zip
 ```
-Shipped policies: `fleet_policy_seed1-3.zip` (trained on a mixture of belief models) and `specialized_policies/fleet_policy_<belief>_seed1-2.zip` (each trained for one belief model; see results).
+Shipped policies:
+- `fleet_policy_seed1-3.zip`: trained on a mixture of belief models.
+- `specialized_policies/fleet_policy_<belief>_seed1-2.zip`: each trained for one belief model (see results).
+- `disturbance_policies/fleet_policy_dist_seed1-2.zip`: trained with the fitted roll/pitch disturbance on.
+
+Add realistic roll/pitch wobble to any experiment with `disturbance: {roll_pitch: fitted}` in its YAML (CUSTOM_EXPERIMENT.md section 8).
 
 Reproduce the studies below: `python run_fleet_experiment.py --config fleet_study.yaml` (~30 min), `fleet_study_alt_truth.yaml`, `fleet_study_mujoco.yaml`, then `python analyze_fleet_study.py results/<dir>` for per-seed checks.
 
@@ -333,6 +370,9 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/run_fleet_experiment.py`, `fleet_experiment_schema.py`, `fleet_eval.py`, `fleet_stats.py`** — the lab entry point: YAML config, paired evaluation across processes, statistics (Wilson CIs, paired bootstrap, McNemar, dose-response), plain-language report.
 - **`calibration/train_fleet_policy.py`, `validate_fleet_policy.py`, `analyze_fleet_study.py`, `run_specialized_study.py`** — training, the policy contract check, and the study analyses.
 - **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical. Stand-in calibration uses it too, which makes it 3× faster per evaluation.
+- **`strathe.py`, `calibration/strathe_cli.py`, `strathe_web.py`** — the one-command entry point and the local web page (see Quick start).
+- **`calibration/disturbance.py`, `fit_rollpitch_disturbance.py`, `disturbances/`** — the roll/pitch disturbance model, its fitting script, and the shipped fit for the fleet truth vehicle.
+- **`calibration/run_disturbance_study.py`, `disturbance_policies/`** — the study showing roll/pitch doesn't affect formation-holding, and the two policies trained with the disturbance.
 - **`calibration/keep_awake.py`** — stops the machine sleeping during long runs (macOS, Windows, Linux).
 - **`calibration/stall_watchdog.py`** — times every calibration evaluation on three clocks and dumps stack traces for a stalled one (`eval_timing.csv`, `stall_log.txt`).
 - **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
@@ -404,19 +444,24 @@ unseen samples. Real logged thruster commands are replayed open-loop through
 default and calibrated physics and compared against the real logged
 velocities, per axis.
 
-**1. With the physics the calibration was fitted in (stand-in model), on the
-14 held-out runs** (`calibration/diagnose_rotational_weakness.py`),
-improvement over uncalibrated default physics:
+**1. Stand-in and MuJoCo (the engines this product uses), on the 14 held-out
+runs.** For each axis, the table shows **skill**: 1 − error / error of simply
+predicting "no motion on this axis". 1 is perfect, 0 is no better than
+predicting no motion, and negative is worse. Whole runs are replayed with the
+real orientation fed in; free-running 3 s windows in MuJoCo give the same
+picture (PROJECT_STATUS.md #50).
 
 | Calibration | Surge (u) | Sway (v) | Heave (w) | Roll rate (p) | Pitch rate (q) | Yaw rate (r) |
 |---|---|---|---|---|---|---|
-| expA (best converged fit) | +40% | +59% | +82% | +83% | +85% | +51% |
-| 10hz_coriolis (converged) | +46% | +58% | +71% | +82% | +87% | +51% |
-| holoocean_coriolis (Claim A) | +40% | +55% | +73% | +82% | +83% | +23% |
+| default physics (uncalibrated) | +0.52 | −0.22 | −1.29 | −7.97 | −11.25 | +0.19 |
+| expA (fleet truth vehicle) | +0.71 | +0.51 | +0.58 | −0.49 | −0.84 | +0.60 |
+| **armfix (recommended: torque-arm corrected)** | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
 
-Calibration improves every axis, including roll and yaw. Caveat: every
-converged fit has several parameters sitting at their `vehicle_spec.yaml`
-bounds (PROJECT_STATUS.md, open items), so the bounds need review.
+- **Surge, sway, heave and yaw are predictive**, and calibration clearly helps.
+- **Roll and pitch are not predictive yet.** The torque-arm correction took them from worse-than-nothing to about zero. Most of the real roll/pitch motion in this dataset isn't caused by the thrusters, so no fit to this data can predict it.
+- That doesn't affect fleet formation-holding (PROJECT_STATUS.md #52). It would matter for attitude-sensitive tasks, and calibrating it needs roll/pitch tests from a lab (free-decay tests, deliberate roll/pitch manoeuvres).
+- An earlier version of this table showed "+82–87% improvement" on roll and pitch. That was improvement over default physics, which is very poor on those axes; it didn't mean the model predicts them.
+- Caveat: every converged fit has several parameters at their `vehicle_spec.yaml` bounds. For roll/pitch damping that's an artifact of fitting motion the thrusters don't cause (#50); the translational ones need a review by someone who knows the vehicle.
 
 **2. Inside HoloOcean (an independent engine) — provisional.** The earlier
 HoloOcean result (~3–8% scale-normalized overall; surge +61–63%, sway
@@ -438,12 +483,16 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Automated pre-flight data-quality checks, automated identifiability reporting
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows), log ingestion with silent-error guards, plain-language calibration reports
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (210 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (257 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
 - ❌ Fleet v1 "Claim C" withdrawn — its metric didn't measure calibration (PROJECT_STATUS.md #46)
-- 🔄 HoloOcean-backed results provisional — backend frame fix and tick-rate guard need confirming on a HoloOcean machine (`verify_holoocean_frame_conventions.py`); with the stand-in physics, calibration improves all six axes on held-out data
+- 🔄 HoloOcean-backed results provisional — backend frame fix and tick-rate guard need confirming on a HoloOcean machine (`verify_holoocean_frame_conventions.py`)
+- 🔄 Roll/pitch not predictive yet: torque-arm correction brought them from worse than "no motion" to about zero skill; this dataset can't calibrate them further. Doesn't affect formation-holding (15,200 paired episodes); needs lab roll/pitch tests for attitude-sensitive tasks
+- ✅ Surge, sway, heave and yaw predictive on held-out data (skill +0.51 to +0.72)
+- ✅ Roll/pitch disturbance fitted to real logs (noisy-simulation mode), MuJoCo and stand-in
+- ✅ One-command onboarding (`python strathe.py`) and a local web page (`python strathe.py web`)
 - ✅ Specialized-policy follow-up: better teammate information → better coordination (+28 pts); calibrated beats generic by +11 to +26
 - 🔄 Physics dead reckoning doesn't beat last-beacon yet — intent-sharing beacons are the next lever
 - ⏳ Fleet policies are trained on the stand-in engine; MuJoCo is used as an independent truth engine for evaluation

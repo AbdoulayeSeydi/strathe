@@ -37,6 +37,7 @@ import yaml
 
 from build_two_agent_cores import load_calibrated_parameters
 from fleet_belief import BeliefSpec, interpolate_params
+from disturbance import load_disturbance
 from fleet_env import FleetConfig
 from fleet_eval import CellSpec, CommSpec, run_cells
 from fleet_experiment_schema import (ConfigError, PhysicsAlphaBelief, PhysicsParamsBelief,
@@ -82,9 +83,12 @@ def fleet_config_for(cfg, backend: str) -> FleetConfig:
                                influence_radius=max(1.5, t.collision_radius_m + 1.0))
     seps = cfg.initial_conditions.separations_m
     speeds = cfg.initial_conditions.closing_speeds_mps
+    dist_path = cfg.disturbance.path()
+    disturbance = (load_disturbance(dist_path, cfg.disturbance.scale, truth_params_path=cfg.truth_params)
+                   if dist_path else None)
     return FleetConfig(max_episode_steps=t.max_episode_steps, task=task, dynamics_backend=backend,
                        initial_separation_range=(min(seps), max(seps)),
-                       initial_closing_speed_range=(min(speeds), max(speeds)))
+                       initial_closing_speed_range=(min(speeds), max(speeds)), disturbance=disturbance)
 
 
 def build_cells(cfg, truth, generic, vehicle) -> tuple:
@@ -151,6 +155,13 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
              "only thing that changes between the conditions below. Both vehicles' true physics is "
              f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "
              "positions and the same lost packets.\n")
+    if cfg.disturbance.path():
+        L.append(f"**Roll/pitch disturbance on** (`{os.path.basename(cfg.disturbance.path())}`, scale "
+                 f"{cfg.disturbance.scale:g}): each vehicle is pushed by random roll and pitch torques fitted to the "
+                 "motion real BlueROV2 logs show but the thrusters don't explain. Every condition sees the same "
+                 "disturbances.\n")
+    else:
+        L.append("Clean simulation: no roll/pitch disturbance (set `disturbance:` in the YAML to add one).\n")
     if contrasts:
         L.append(f"## Headline: `{a}` vs `{b}`\n")
         L += headline_sentences(contrasts, a, b)
@@ -264,7 +275,9 @@ def _log_mlflow(cfg, out_dir, summary, contrasts):
         mlflow.set_experiment("strathe_fleet")
         with mlflow.start_run(run_name=cfg.name or "fleet_experiment"):
             mlflow.set_tags({"script": "run_fleet_experiment.py", "schema_version": "2",
-                             "git_commit": get_git_commit(), "dynamics_backend": cfg.dynamics_backend})
+                             "git_commit": get_git_commit(), "dynamics_backend": cfg.dynamics_backend,
+                             "disturbance": (f"{os.path.basename(cfg.disturbance.path())}x{cfg.disturbance.scale:g}"
+                                             if cfg.disturbance.path() else "none")})
             for s in summary:
                 key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
                 mlflow.log_metric(f"success.{key}", s["success_rate"])
@@ -288,7 +301,9 @@ def run_experiment(config_path: str) -> dict:
     generic = initial_parameters(spec)
     print(f"  OK: {len(cfg.policies)} policy(ies), beliefs {[belief_label(b) for b in cfg.beliefs]}, "
           f"comm {[l for l, _, _ in cfg.communication.levels()]} x beacon {cfg.communication.beacon_interval_s} s, "
-          f"backend {cfg.dynamics_backend}")
+          f"backend {cfg.dynamics_backend}, disturbance "
+          + (f"{os.path.basename(cfg.disturbance.path())} x{cfg.disturbance.scale:g}" if cfg.disturbance.path()
+             else "off"))
 
     print("\n[2/4] Checking policies against the per-vehicle contract...")
     for p in cfg.policies:

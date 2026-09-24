@@ -1,0 +1,118 @@
+{
+  "dataset": {
+    "train_dates": [
+      "12-01-2024",
+      "14-02-2024"
+    ],
+    "heldout_dates": [
+      "16-02-2024",
+      "19-02-2024"
+    ],
+    "n_train_files": 25,
+    "n_heldout_files": 14
+  },
+  "optimizer": {
+    "converged": false,
+    "cost": 11.511271897545807,
+    "nfev": 222,
+    "message": "finalized from checkpoint, not formally converged: stopped at a plateau after 222 evaluations: best cost changed by <1e-8 relative over the last 80 (warm-started from expA)"
+  },
+  "rmse": {
+    "default_train": 0.8503066597568388,
+    "default_heldout": 0.8447976606711816,
+    "calibrated_train": 0.4458748574901705,
+    "calibrated_heldout": 0.4434063543624243
+  },
+  "per_dof": {
+    "default_train": [
+      0.24533194863984498,
+      0.3525951641436761,
+      0.4596061500877391,
+      0.74009773994537,
+      1.753391185911907,
+      0.5404609017948258
+    ],
+    "default_heldout": [
+      0.2298737995566528,
+      0.33966947194024166,
+      0.45057215945861995,
+      0.6670894085546754,
+      1.7844952363365014,
+      0.5152596588293451
+    ],
+    "calibrated_train": [
+      0.1549609954696681,
+      0.11544139812232126,
+      0.09259880621518538,
+      0.6477012097242852,
+      0.8160329550919484,
+      0.23204644510667247
+    ],
+    "calibrated_heldout": [
+      0.14557500489245115,
+      0.10449184049851383,
+      0.08913870190048365,
+      0.6397179569205268,
+      0.8193003621149966,
+      0.23351425511696597
+    ]
+  },
+  "skill_vs_zero": {
+    "zero_heldout": [
+      0.4828532234168418,
+      0.19942968840036743,
+      0.18595947925674056,
+      0.13906416740577723,
+      0.19952292385070308,
+      0.5803201671420436
+    ],
+    "calibrated_heldout_full_replay": [
+      0.6985108562343014,
+      0.47604671432500056,
+      0.5206552402880393,
+      -3.600163858558079,
+      -3.106296892120797,
+      0.597611338811513
+    ],
+    "calibrated_heldout_short_windows": [
+      0.70480225714293,
+      0.49182208486968915,
+      0.5437811101369053,
+      -3.3862241165110145,
+      -2.929318561376647,
+      0.6291218954371434
+    ],
+    "short_window_s": 3.0,
+    "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than predicting no motion"
+  },
+  "objective": {
+    "axis_scaling": "zero_rms",
+    "prediction_horizon_samples": null,
+    "excluded_axes": [
+      "p",
+      "q"
+    ],
+    "torque_reference_offset_m": [
+      0.0,
+      0.0,
+      -0.085
+    ],
+    "held_parameters": {
+      "Kp": -0.3,
+      "Kpp": -0.5,
+      "Ieff_roll": 0.26,
+      "Mq": -0.3,
+      "Mqq": -0.5,
+      "Ieff_pitch": 0.23,
+      "cg_cb_offset_z": 0.02
+    }
+  },
+  "reproducibility": {
+    "git_commit": "5cdfbff8b0d76127a2555b2d84e7be80008e7da6",
+    "spec_path": "vehicle_spec.yaml",
+    "data_dir": "../data/raw/Bluerov2_trajectory_dataset",
+    "checkpoint": "/Users/abdoulayeseydi/marine_sim_mvp/calibration_output_armfix_rp_excluded/checkpoint.yaml",
+    "timestamp_utc": "2026-09-24T04:10:49.976274+00:00"
+  },
+  "success": false
+}

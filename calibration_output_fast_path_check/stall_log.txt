@@ -1,0 +1,611 @@
+
+=== STALL DETECTED: residual_evaluation running 947.2s wall / 9.0s monotonic / 8.3s cpu (threshold 161.2s) at 2026-09-23 05:13:13 ===
+likely: machine_asleep_or_suspended
+load average: (2.47998046875, 2.52685546875, 2.9580078125)
+rusage: user 2446.6s sys 4.9s maxrss 1141489664 majflt 2317 nvcsw 1718 nivcsw 73959
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 96 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 152 took wall 1864.1s, monotonic 26.1s, cpu 23.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 978.5s wall / 8.8s monotonic / 8.7s cpu (threshold 161.3s) at 2026-09-23 05:45:14 ===
+likely: machine_asleep_or_suspended
+load average: (9.0478515625, 5.0546875, 3.9169921875)
+rusage: user 2496.7s sys 5.1s maxrss 1141489664 majflt 2345 nvcsw 1732 nivcsw 83011
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 74 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 154 took wall 4044.3s, monotonic 28.8s, cpu 26.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 944.7s wall / 16.6s monotonic / 16.3s cpu (threshold 161.3s) at 2026-09-23 06:52:05 ===
+likely: machine_asleep_or_suspended
+load average: (9.25927734375, 5.62744140625, 4.1748046875)
+rusage: user 2530.9s sys 5.2s maxrss 1141489664 majflt 2438 nvcsw 1768 nivcsw 94859
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 93 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 155 took wall 2028.4s, monotonic 26.4s, cpu 25.9s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 498.5s wall / 2.5s monotonic / 2.4s cpu (threshold 161.4s) at 2026-09-23 07:18:27 ===
+likely: machine_asleep_or_suspended
+load average: (11.4755859375, 6.2451171875, 4.4169921875)
+rusage: user 2542.9s sys 5.2s maxrss 1141489664 majflt 2438 nvcsw 1772 nivcsw 95888
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 74 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 156 took wall 522.7s, monotonic 26.6s, cpu 26.0s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 369.6s wall / 21.6s monotonic / 21.4s cpu (threshold 161.4s) at 2026-09-23 07:25:01 ===
+likely: machine_asleep_or_suspended
+load average: (11.87744140625, 6.814453125, 4.705078125)
+rusage: user 2587.8s sys 5.4s maxrss 1141489664 majflt 2438 nvcsw 1778 nivcsw 106808
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 93 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 157 took wall 374.7s, monotonic 26.7s, cpu 26.2s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 1089.4s wall / 15.8s monotonic / 15.6s cpu (threshold 161.5s) at 2026-09-23 07:43:41 ===
+likely: machine_asleep_or_suspended
+load average: (7.19189453125, 6.27880859375, 4.615234375)
+rusage: user 2634.0s sys 5.5s maxrss 1141489664 majflt 2438 nvcsw 1782 nivcsw 113063
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 93 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 159 took wall 2075.0s, monotonic 28.8s, cpu 27.1s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 338.1s wall / 11.5s monotonic / 11.2s cpu (threshold 161.7s) at 2026-09-23 08:05:45 ===
+likely: machine_asleep_or_suspended
+load average: (6.58154296875, 6.23291015625, 4.64794921875)
+rusage: user 2656.6s sys 5.6s maxrss 1141489664 majflt 2530 nvcsw 1830 nivcsw 121922
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 97 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 160 took wall 362.0s, monotonic 35.4s, cpu 28.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 322.0s wall / 27.9s monotonic / 26.6s cpu (threshold 265.6s) at 2026-09-23 09:42:42 ===
+likely: machine_asleep_or_suspended
+load average: (7.42626953125, 4.2890625, 3.626953125)
+rusage: user 7984.1s sys 60.3s maxrss 1141489664 majflt 6082 nvcsw 10034 nivcsw 5006896
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 74 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 356 took wall 322.2s, monotonic 28.1s, cpu 26.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 338.6s wall / 25.8s monotonic / 25.6s cpu (threshold 265.8s) at 2026-09-23 09:52:20 ===
+likely: machine_asleep_or_suspended
+load average: (7.900390625, 6.17138671875, 4.50537109375)
+rusage: user 8090.0s sys 60.7s maxrss 1141489664 majflt 6362 nvcsw 10137 nivcsw 5034808
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 100 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 360 took wall 339.6s, monotonic 26.8s, cpu 26.3s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 349.3s wall / 9.7s monotonic / 8.2s cpu (threshold 269.4s) at 2026-09-23 10:30:50 ===
+likely: machine_asleep_or_suspended
+load average: (9.07275390625, 7.0439453125, 5.2978515625)
+rusage: user 9970.1s sys 82.6s maxrss 1141489664 majflt 8591 nvcsw 23473 nivcsw 6999233
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 75 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 431 took wall 469.9s, monotonic 28.9s, cpu 26.9s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 1687.0s wall / 17.4s monotonic / 17.2s cpu (threshold 269.5s) at 2026-09-23 11:01:30 ===
+likely: machine_asleep_or_suspended
+load average: (5.22021484375, 6.3095703125, 5.14794921875)
+rusage: user 10032.8s sys 82.9s maxrss 1141489664 majflt 8712 nvcsw 23539 nivcsw 7019480
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 98 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 433 took wall 1695.6s, monotonic 26.0s, cpu 25.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 1054.2s wall / 51.7s monotonic / 45.2s cpu (threshold 303.4s) at 2026-09-23 11:47:24 ===
+likely: machine_asleep_or_suspended
+load average: (17.2080078125, 24.375, 16.93212890625)
+rusage: user 11193.2s sys 91.8s maxrss 1141489664 majflt 9943 nvcsw 29167 nivcsw 8038701
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 100 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 460 took wall 1057.3s, monotonic 54.8s, cpu 47.8s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 985.7s wall / 22.4s monotonic / 18.2s cpu (threshold 307.1s) at 2026-09-23 12:04:48 ===
+likely: machine_asleep_or_suspended
+load average: (48.4267578125, 31.392578125, 19.74072265625)
+rusage: user 11214.6s sys 92.7s maxrss 1141489664 majflt 10030 nvcsw 41024 nivcsw 8056511
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 93 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 707 in _update_fun
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 743 in fun
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 340 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 461 took wall 1818.7s, monotonic 83.4s, cpu 51.9s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 1000.6s wall / 26.1s monotonic / 24.8s cpu (threshold 427.5s) at 2026-09-23 12:45:46 ===
+likely: machine_asleep_or_suspended
+load average: (4.58251953125, 11.53271484375, 17.2421875)
+rusage: user 11832.3s sys 101.7s maxrss 1141489664 majflt 10834 nvcsw 43256 nivcsw 9171238
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 74 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 480 took wall 1003.1s, monotonic 28.5s, cpu 26.9s -> machine_asleep_or_suspended ===
+
+=== STALL DETECTED: residual_evaluation running 909.6s wall / 0.7s monotonic / 0.5s cpu (threshold 427.5s) at 2026-09-23 13:02:09 ===
+likely: machine_asleep_or_suspended
+load average: (6.27783203125, 11.25048828125, 16.9130859375)
+rusage: user 11862.8s sys 102.0s maxrss 1141489664 majflt 10897 nvcsw 43275 nivcsw 9214567
+Current thread 0x000000016ef1b000 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 162 in _dump
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 168 in _safe
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/stall_watchdog.py", line 147 in _watch
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 994 in run
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1043 in _bootstrap_inner
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py", line 1014 in _bootstrap
+
+Thread 0x00000001f72ede80 (most recent call first):
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 74 in acceleration_trig
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/fast_dynamics.py", line 223 in simulate_velocity_teacher_forced
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/dynamics_model.py", line 599 in simulate_trajectory
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 242 in _raw_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 319 in residuals_for_run
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/objective.py", line 353 in joint_residuals
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 307 in base_fn
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 315 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 336 in wrapped
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 263 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 424 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 912 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 710 in _dense_difference
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_numdiff.py", line 611 in approx_derivative
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 454 in __call__
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 719 in _update_jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_differentiable_functions.py", line 750 in jac
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 376 in trf_bounds
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/trf.py", line 124 in trf
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/optimize/_lsq/least_squares.py", line 1019 in least_squares
+  File "/Users/abdoulayeseydi/marine_sim_mvp/venv/lib/python3.13/site-packages/scipy/_lib/_util.py", line 662 in inner
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/optimizer.py", line 609 in calibrate
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 360 in run_pipeline
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 710 in main
+  File "/Users/abdoulayeseydi/marine_sim_mvp/calibration/run_calibration.py", line 772 in <module>
+
+=== stall ended: eval 482 took wall 33497.6s, monotonic 56.4s, cpu 30.7s -> machine_asleep_or_suspended ===

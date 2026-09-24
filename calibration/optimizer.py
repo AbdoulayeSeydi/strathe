@@ -70,7 +70,7 @@ import yaml
 from scipy.optimize import least_squares
 
 from dynamics_model import CalibrationParameters, VehicleConstants
-from objective import joint_residuals, mean_run_rmse, RunData
+from objective import joint_residuals, mean_run_rmse, ParallelJointResiduals, RunData
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +209,11 @@ class CalibrationConfig:
     # objective knobs, passed through to joint_residuals
     dof_scales: Optional[np.ndarray] = None
     normalize_by_run_length: bool = True
+    eval_workers: int = 1   # >1 = evaluate runs in that many worker processes
+        # (objective.ParallelJointResiduals; identical results, stand-in physics only)
+    horizon_samples: Optional[int] = None   # None = replay whole runs open-loop (original
+        # objective); H = re-anchored H-sample prediction windows. See
+        # objective.py "Prediction horizon" and PROJECT_STATUS.md #50.
     simulate_fn: Optional[Callable] = None  # None = the analytical stand-in (default,
         # unchanged behavior). Pass a HoloOcean-bound callable (see
         # holoocean_backend.make_holoocean_simulate_fn) to calibrate against
@@ -370,7 +375,7 @@ def _write_log(path: str, log: CalibrationLog, restarts: list) -> None:
 def _parallel_restart_worker(x0_free, lb_free, ub_free, x_scale_free,
                               full_template, free_mask, train_runs, vehicle,
                               dof_scales, normalize_by_run_length, method,
-                              loss, f_scale, ftol, xtol, gtol, max_nfev):
+                              loss, f_scale, ftol, xtol, gtol, max_nfev, horizon_samples=None):
     """
     Module-level (NOT a closure/lambda) so it's picklable under Windows'
     'spawn' multiprocessing start method - required, not a style choice.
@@ -394,7 +399,7 @@ def _parallel_restart_worker(x0_free, lb_free, ub_free, x_scale_free,
         fun=wrapped_residual_fn, x0=x0_free, bounds=(lb_free, ub_free),
         method=method, loss=loss, f_scale=f_scale, ftol=ftol, xtol=xtol,
         gtol=gtol, max_nfev=max_nfev, x_scale=x_scale_free, verbose=0,
-        args=(train_runs, vehicle, dof_scales, normalize_by_run_length, None),
+        args=(train_runs, vehicle, dof_scales, normalize_by_run_length, None, horizon_samples),
     )
     full_x0 = full_template.copy()
     full_x0[free_mask] = x0_free
@@ -500,6 +505,7 @@ def calibrate_parallel(
                 full_template, free_mask, train_runs, vehicle, config.dof_scales,
                 config.normalize_by_run_length, config.method, config.loss,
                 config.f_scale, config.ftol, config.xtol, config.gtol, config.max_nfev,
+                config.horizon_samples,
             )
             for x0_free in x0_list
         ]
@@ -572,7 +578,20 @@ def calibrate(
     else:
         x_scale = np.ones_like(x0_base)
 
-    residual_fn = _wrap_residual_fn(joint_residuals, config.on_iteration, config.stall_watchdog)
+    parallel_eval = None
+    if config.eval_workers > 1 and config.simulate_fn is None:
+        parallel_eval = ParallelJointResiduals(train_runs, vehicle, config.eval_workers)
+    try:
+        return _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, lb, ub, x_scale,
+                               parallel_eval or joint_residuals)
+    finally:
+        if parallel_eval is not None:
+            parallel_eval.close()
+
+
+def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, lb, ub, x_scale,
+                    base_residual_fn) -> CalibrationResult:
+    residual_fn = _wrap_residual_fn(base_residual_fn, config.on_iteration, config.stall_watchdog)
 
     # --- fixed_params: build the free/fixed split, subset everything the
     # optimizer actually sees to free dimensions only. Fully inert (every
@@ -619,7 +638,8 @@ def calibrate(
             max_nfev=config.max_nfev,
             x_scale=x_scale_free,
             verbose=config.verbose,
-            args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn),
+            args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn,
+                  config.horizon_samples),
         )
         # Reconstruct FULL-length x0/x — every downstream consumer
         # (CalibrationParameters.from_vector, checkpoint files, reporting)
