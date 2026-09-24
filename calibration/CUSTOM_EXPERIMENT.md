@@ -161,7 +161,12 @@ A real BlueROV2 in the reference logs rolls and pitches by roughly 10–14°, an
 the recorded thruster commands don't explain that motion. It comes from
 something unlogged, such as tether pull, waves or contact. With `fitted`, each
 vehicle is also pushed by random roll and pitch torques whose size and timing
-were fitted so the simulated wobble matches those logs (PROJECT_STATUS.md #51).
+were fitted to bring the simulated wobble as close to those logs as the truth
+vehicle allows (PROJECT_STATUS.md #51, #54). With the current truth, the
+disturbance brings roll/pitch rates and their timing closer to the real logs,
+but the simulated vehicle tilts further than the real one with or without it.
+Roll/pitch can't be calibrated from this dataset (#50), and formation-holding
+doesn't depend on them (#52).
 
 - The torques act on the true vehicles only. They never appear in the beacons,
   because a teammate can't know about them.
