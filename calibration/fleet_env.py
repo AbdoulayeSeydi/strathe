@@ -44,6 +44,7 @@ from typing import Optional
 import numpy as np
 
 from comm_channel import BandwidthConfig, CommChannel, PacketLossConfig, MESSAGE_TYPE_POSITION_BEACON
+from disturbance import DisturbanceConfig, RollPitchDisturbance, episode_seed
 from dynamics_model import CalibrationParameters, SimulationConfig, VehicleConstants
 from fast_dynamics import FastCore
 from fleet_belief import Beacon, BeliefSpec
@@ -79,6 +80,12 @@ class FleetConfig:
     # sitting at zero separation: reward_sep_weight * target_separation each.
     absorbing_collision_penalty: bool = True
     task: FormationHoldConfig = field(default_factory=FormationHoldConfig)
+    # Random roll/pitch torques shaped like the real motion the logged
+    # thrusters don't explain (disturbance.py, PROJECT_STATUS.md #51). None =
+    # clean simulation (the original behaviour). Added to each vehicle's
+    # commanded wrench before the physics step; never part of the beacon,
+    # since a teammate can't know it.
+    disturbance: Optional[DisturbanceConfig] = None
 
     @property
     def beacon_every_ticks(self) -> int:
@@ -105,6 +112,8 @@ class FleetConfig:
                              f"success would be impossible")
         if self.dynamics_backend not in ("stand_in", "mujoco"):
             raise ValueError(f"dynamics_backend must be 'stand_in' or 'mujoco', got {self.dynamics_backend!r}")
+        if self.disturbance is not None:
+            self.disturbance.validate()
         self.task.validate()
 
 
@@ -163,6 +172,7 @@ class FleetSim:
         self.set_belief(belief or BeliefSpec("last_beacon", "last_beacon"))
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
+        self._disturbances = None
 
     # --- configuration that may change between episodes -------------------
     def set_comm(self, packet_loss_config=None, bandwidth_config=None, speed_of_sound_mps=1500.0,
@@ -196,6 +206,11 @@ class FleetSim:
         self.task.reset()
         for b in self.beliefs:
             b.reset()
+        dist = self.cfg.disturbance
+        # seeded from the episode's identity only, so paired conditions (same
+        # start state and comm seed, different belief model) share disturbances
+        self._disturbances = ([RollPitchDisturbance(dist, self.cfg.dt, episode_seed(comm_seed, i, d0, v0))
+                               for i in range(N_AGENTS)] if dist is not None and dist.active else None)
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
         return self._observations()
@@ -205,8 +220,8 @@ class FleetSim:
         Returns (obs list, shared reward, terminated, truncated, info)."""
         norm = [np.clip(np.asarray(a, dtype=float), -1.0, 1.0) for a in actions]
         taus = [a * self.cfg.action_bound for a in norm]
-        for core, tau in zip(self.cores, taus):
-            core.step(tau)
+        for i, (core, tau) in enumerate(zip(self.cores, taus)):
+            core.step(tau if self._disturbances is None else tau + self._disturbances[i].next())
         self._tick += 1
         self._last_tau = taus
         t = self._tick * self.cfg.dt

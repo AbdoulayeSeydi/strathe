@@ -149,6 +149,31 @@ dynamics_backend: stand_in   # or mujoco, or both
 `mujoco` simulates the vehicles' true motion with MuJoCo's integrator. The
 belief models always use the stand-in equations, as an onboard model would.
 
+## 8. Roll/pitch disturbance (clean vs noisy simulation)
+
+```yaml
+disturbance:
+  roll_pitch: fitted     # none (default) | fitted | path/to/your_fit.yaml
+  scale: 1.0             # 0 = off, 1 = as fitted to real logs, 2 = twice as rough
+```
+
+A real BlueROV2 in the reference logs rolls and pitches by roughly 10–14°, and
+the recorded thruster commands don't explain that motion. It comes from
+something unlogged, such as tether pull, waves or contact. With `fitted`, each
+vehicle is also pushed by random roll and pitch torques whose size and timing
+were fitted so the simulated wobble matches those logs (PROJECT_STATUS.md #51).
+
+- The torques act on the true vehicles only. They never appear in the beacons,
+  because a teammate can't know about them.
+- Every condition in an experiment sees the same disturbances, so comparisons
+  stay paired.
+- The shipped fit belongs to the shipped truth vehicle. With your own
+  `truth_params`, the run warns you; re-fit with
+  `python fit_rollpitch_disturbance.py --params your_truth.yaml`.
+
+To train a policy that has experienced the disturbance, run
+`python train_fleet_policy.py --disturbance fitted --out my_policy`.
+
 ---
 
 ## Still not configurable
@@ -158,7 +183,8 @@ belief models always use the stand-in equations, as an onboard model would.
 | More than 2 vehicles | `fleet_env.py` is built for 2; the per-vehicle observation and shared policy are the groundwork for N |
 | Tasks other than formation hold | `formation_hold_task.py` |
 | Start orientation (always level, facing +x) | `FleetSim.reset` |
-| Sensor noise on the vehicle's own state | not modelled yet |
+| Sensor noise on the vehicle's own state | not modelled yet (roll/pitch *disturbance* is, see section 8) |
+| Water current / translational disturbance | not modelled yet |
 
 The retired fleet v1 setup (`run_fleet_experiment_v1.py`, `default_experiment_v1.yaml`)
 still runs, for reproducing old results only. PROJECT_STATUS.md finding #46

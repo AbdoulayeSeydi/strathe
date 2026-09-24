@@ -25,6 +25,9 @@ and any comm override crashed with a KeyError.)
       closing_speeds_mps: [-0.7, -0.35, 0.0, 0.35, 0.7]   # + = starting to separate
     evaluation: {comm_seeds: [1, 2, 3, 4, 5], workers: null}
     dynamics_backend: stand_in       # stand_in | mujoco | both
+    disturbance:                     # optional; default = clean simulation
+      roll_pitch: fitted             # none | fitted | path/to/your_fit.yaml
+      scale: 1.0                     # 0 = off, 1 = as fitted to real logs, 2 = twice as rough
     output_dir: results/my_experiment
 
 BELIEF PRESETS -- how each vehicle predicts its teammate between beacons:
@@ -194,6 +197,27 @@ class EvaluationConfig(BaseModel):
     workers: Optional[int] = Field(default=None, ge=1)
 
 
+class DisturbanceBlock(BaseModel):
+    """Random roll/pitch torques fitted to the motion real logs show but the
+    thrusters don't explain (disturbance.py). 'fitted' = the shipped fit for
+    the BlueROV2 fleet truth (disturbances/bluerov2_rollpitch.yaml)."""
+    roll_pitch: str = "none"
+    scale: float = Field(default=1.0, ge=0.0)
+
+    @model_validator(mode="after")
+    def _exists(self):
+        if self.roll_pitch not in ("none", "fitted") and not os.path.exists(self.roll_pitch):
+            raise ValueError(f"disturbance.roll_pitch must be 'none', 'fitted' or an existing file, "
+                             f"got {self.roll_pitch!r}")
+        return self
+
+    def path(self) -> Optional[str]:
+        if self.roll_pitch == "none" or self.scale == 0:
+            return None
+        from disturbance import DEFAULT_FIT_PATH
+        return DEFAULT_FIT_PATH if self.roll_pitch == "fitted" else self.roll_pitch
+
+
 class FleetExperimentConfig(BaseModel):
     schema_version: Literal[2]
     name: str = ""
@@ -207,6 +231,7 @@ class FleetExperimentConfig(BaseModel):
     initial_conditions: InitialConditions = Field(default_factory=InitialConditions)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     dynamics_backend: Literal["stand_in", "mujoco", "both"] = "stand_in"
+    disturbance: DisturbanceBlock = Field(default_factory=DisturbanceBlock)
     output_dir: str
 
     @model_validator(mode="after")
