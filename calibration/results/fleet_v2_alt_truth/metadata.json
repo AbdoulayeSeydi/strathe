@@ -1,5 +1,5 @@
 {
-  "git_commit": "4f76640a9cc933f326652b1ea6d122ef4e4c0e13",
+  "git_commit": "1f4460f249eb42973cd54332b18c45a73c4ab1b6",
   "git_uncommitted_changes": true,
   "python": "3.13.5",
   "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
@@ -10,8 +10,8 @@
     "torch": "2.13.0",
     "mujoco": "3.12.0"
   },
-  "timestamp": "2026-09-23T01:02:43.126238",
-  "elapsed_s": 589.6,
+  "timestamp": "2026-09-24T13:40:22.580395",
+  "elapsed_s": 334.8,
   "n_episodes": 9600,
   "resolved_config": {
     "schema_version": 2,
@@ -97,6 +97,10 @@
       "workers": 7
     },
     "dynamics_backend": "stand_in",
+    "disturbance": {
+      "roll_pitch": "none",
+      "scale": 1.0
+    },
     "output_dir": "results/fleet_v2_alt_truth"
   }
 }

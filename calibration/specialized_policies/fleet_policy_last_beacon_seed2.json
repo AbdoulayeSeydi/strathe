@@ -46,11 +46,12 @@
     "initial_closing_speed_range_mps": [
       -0.7,
       0.7
-    ]
+    ],
+    "disturbance": null
   },
-  "git_commit": "b2ea5fbce3c78fdc9a37274cecd1a56f1e9e6641",
+  "git_commit": "1f4460f249eb42973cd54332b18c45a73c4ab1b6",
   "git_uncommitted_changes": true,
   "python": "3.13.5",
-  "elapsed_s": 3539.7,
-  "transitions_per_s": 847.5
+  "elapsed_s": 6925.0,
+  "transitions_per_s": 433.2
 }

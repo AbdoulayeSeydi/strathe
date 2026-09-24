@@ -6,13 +6,13 @@ Success-rate differences in percentage points, paired over matched episodes, wit
 
 | Comm | fleet_policy_seed1 | fleet_policy_seed2 | fleet_policy_seed3 |
 |---|---|---|---|
-| L3a@1s | +6 [+0, +12] * | +10 [+5, +14] * | +12 [+8, +16] * |
-| L3a@3s | +16 [+8, +25] * | +14 [+6, +22] * | +24 [+17, +32] * |
+| L3a@1s | +14 [+8, +19] * | +17 [+12, +23] * | +14 [+10, +19] * |
+| L3a@3s | -2 [-10, +8] | +24 [+16, +32] * | +18 [+11, +26] * |
 
 ## 2. Each belief model minus `last_beacon` (no prediction)
 
 | Comm | `calibrated` | `generic` |
 |---|---|---|
-| L3a@1s | -1 [-2, +0] | -10 [-13, -8] * |
-| L3a@3s | -2 [-6, +2] | -21 [-26, -16] * |
+| L3a@1s | +1 [-1, +2] | -14 [-17, -11] * |
+| L3a@3s | +2 [-2, +6] | -12 [-17, -7] * |
 

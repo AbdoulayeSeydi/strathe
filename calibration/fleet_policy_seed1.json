@@ -25,6 +25,7 @@
   },
   "truth_params": "calibrated_parameters_fleet_truth.yaml",
   "training_distribution": {
+    "belief": "mix",
     "severities": [
       "L0",
       "L1",
@@ -50,11 +51,12 @@
     "initial_closing_speed_range_mps": [
       -0.7,
       0.7
-    ]
+    ],
+    "disturbance": null
   },
-  "git_commit": "932d60152ffe758f34ce1ae59884f8fb9decfa19",
+  "git_commit": "1f4460f249eb42973cd54332b18c45a73c4ab1b6",
+  "git_uncommitted_changes": true,
   "python": "3.13.5",
-  "elapsed_s": 2461.1,
-  "transitions_per_s": 1219.0,
-  "provenance_note": "Trained 2026-09-22 22:47 with the fleet v2 code before it was committed; git_commit is the parent commit. fleet_env.py, fleet_belief.py, fleet_vec_env.py, fast_dynamics.py and train_fleet_policy.py were unchanged between training and their first commit (the fleet v2 PR), so that commit reproduces this policy's training code."
+  "elapsed_s": 3887.9,
+  "transitions_per_s": 771.6
 }

@@ -57,9 +57,9 @@
       "scale": 1.0
     }
   },
-  "git_commit": "5cdfbff8b0d76127a2555b2d84e7be80008e7da6",
+  "git_commit": "1f4460f249eb42973cd54332b18c45a73c4ab1b6",
   "git_uncommitted_changes": true,
   "python": "3.13.5",
-  "elapsed_s": 2157.0,
-  "transitions_per_s": 1390.9
+  "elapsed_s": 7549.3,
+  "transitions_per_s": 397.4
 }

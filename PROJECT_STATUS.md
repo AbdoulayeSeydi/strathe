@@ -582,6 +582,54 @@ The web page is local-only by construction (`strathe_web.py`, standard library o
 
 It was tested end to end in a real browser (fleet smoke run: start, live log, rendered report). That test caught one bug the unit tests had missed: fleet output folders named only in the job's log weren't viewable. It's fixed and now covered by a test. The individual scripts are unchanged for specialists.
 
+### 54. Fleet truth switched to the torque-arm-corrected calibration; everything retrained and rerun (2026-09-24)
+
+`calibrated_parameters_fleet_truth.yaml` now holds `calibration_output_armfix` (#50). The previous truth is kept as `calibrated_parameters_fleet_truth_previous_expA.yaml`.
+
+**Before retraining:**
+- The new truth was stress-tested under random and bang-bang commands (4,000 stand-in and 800 MuJoCo steps): no divergence, and rate and velocity ranges matched the old truth.
+
+**Retrained on the new truth** (3M steps each):
+- 3 mixed-belief policies.
+- 8 specialized policies (4 belief models × 2 seeds).
+- 2 disturbance-trained policies.
+
+**Rerun:** the main study, the alt-truth and MuJoCo robustness studies, the specialized study and the disturbance study.
+
+**Main study (38,400 paired episodes), old truth → new truth:**
+
+| Comm | calibrated | generic | last beacon | oracle | calibrated − generic (new, 95% CI) |
+|---|---|---|---|---|---|
+| L0 @ 3 s | 90 → 97 | 88 → 76 | 100 → 98 | 84 → 100 | +21 (+17, +25) |
+| L1 @ 3 s | 90 → 94 | 78 → 70 | 99 → 94 | 84 → 100 | +25 (+20, +29) |
+| L2 @ 3 s | 89 → 86 | 64 → 64 | 90 → 84 | 82 → 100 | +22 (+17, +26) |
+| L3a @ 1 s | 97 → 98 | 86 → 84 | 99 → 96 | 86 → 100 | +13 (+10, +16) |
+| L3a @ 3 s | 64 → 68 | 48 → 52 | 67 → 65 | 69 → 93 | +16 (+12, +21) |
+
+1. **Calibrated beats generic**, as before, and the effect is now larger at 3 s beacons.
+   - Per training seed: +10 to +38 in these conditions, significant for every seed except one at L3a @ 3 s.
+   - All 8 dose-response slopes are negative with CIs excluding zero.
+2. **Generic is worse than no prediction** by 12–25 points in those conditions.
+3. **Calibrated now ties last-beacon** (−1 to +3, all CIs cover zero). Under the old truth it trailed by 2–7 points.
+4. **The #47 mixed-policy confound is gone.** Perfect information now beats calibrated everywhere it can (+3 to +24), even with mixed-trained policies.
+5. **Robustness holds.**
+   - Alt truth: +13 to +21 in 3 of 4 conditions (−1, not significant, at L2 @ 1 s).
+   - MuJoCo truth: +15 and +14 at L3a, vs +13 and +16 on the stand-in.
+
+**Specialized study: calibrated-trained policies vary a lot between training seeds.**
+- Both study seeds often failed to settle at 3 s beacons, with timeouts rather than collisions: L0 @ 3 s 35% and 45%, L1 @ 3 s 52% and 64%. Generic-trained policies scored 70–75% there.
+- The calibrated predictor itself wasn't worse: prediction error at L0 @ 3 s was 57 cm vs last-beacon's 43 cm, similar to before.
+- Two further seeds, trained and evaluated identically (`results/fleet_v2_specialized/replication_calibrated_seeds3-4.md`), reached 98% and 57% at L0 @ 3 s.
+- So this is training variance, not a systematic failure. With this truth, training for the calibrated model alone is unreliable at 3 s beacons.
+- The mixed-trained policies are consistent across seeds, so they carry the calibration claims.
+- Where the specialized comparison holds, calibrated still beats generic: +10 at L3a @ 1 s and +9 at L3a @ 3 s.
+- The replication policies ship in `specialized_policies/replication/`. The study's own inputs are unchanged.
+
+**Disturbance study, rerun:**
+- Realistic or doubled roll/pitch wobble still doesn't change formation success: +0 (−2, +2) and −0 (−3, +2), n = 1,200.
+- Disturbance-trained policies score 6–8 points higher at L3a @ 3 s, but equally with the disturbance off. That's more likely seed variation than learned robustness.
+- MuJoCo agrees: −1 (−2, +0).
+
 ## Honest open items
 
 - **Physics dead reckoning doesn't beat last-beacon** (finding #48): predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.

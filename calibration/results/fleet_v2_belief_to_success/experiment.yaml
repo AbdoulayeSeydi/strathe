@@ -62,4 +62,7 @@ evaluation:
   - 5
   workers: 7
 dynamics_backend: stand_in
+disturbance:
+  roll_pitch: none
+  scale: 1.0
 output_dir: results/fleet_v2_belief_to_success
