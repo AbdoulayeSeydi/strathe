@@ -14,6 +14,13 @@ Writes <result>/calibration_report.md answering, in plain language:
   4. What should I do next to make it better?
 A short technical appendix keeps the numbers for specialists.
 
+Verdicts are based on SKILL: how much better than simply assuming "no
+motion on this axis" the calibrated model predicts each motion on unseen
+sessions (skill = 1 - error / no-motion error). Beating the default model
+is not enough: in the reference dataset the default model is so poor at
+roll and pitch that a calibration can beat it by 80% and still predict
+roll and pitch worse than "no motion" (PROJECT_STATUS.md #50).
+
 Inputs: the calibration output folder (calibrated_parameters.yaml, and
 metrics.json if run_calibration.py wrote one), optionally the JSON from
 automated_identifiability_report.py. If metrics.json has no per-axis
@@ -57,26 +64,39 @@ AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot"], "v": ["Yv", "Yvv", "Yv_dot"], "w": 
 PHYSICAL_REFERENCE = {"Ieff_roll": (0.26, "BlueROV2 Heavy rigid-body Ixx, public Gazebo model"),
                       "Ieff_pitch": (0.23, "BlueROV2 Heavy rigid-body Iyy, public Gazebo model")}
 MAX_PLAUSIBLE_RATIO = 5.0
+GOOD_SKILL = 0.3   # explains at least ~half the motion's variance: 1 - (1 - 0.3)^2 = 0.51
 
 GOOD, CAUTION, BAD = "Trust it", "Use with care", "Don't rely on it"
 
 
 def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[str], heldout_dates) -> Optional[tuple]:
-    """(default_rmse[6], calibrated_rmse[6]) on held-out sessions."""
+    """(default_rmse[6], calibrated_rmse[6], zero_rmse[6] or None) on held-out
+    sessions. zero_rmse is the error of predicting no motion; None when neither
+    metrics.json nor the logs can provide it."""
+    d = c = z = None
     if metrics and "per_dof" in metrics and "calibrated_heldout" in metrics["per_dof"]:
         pd_ = metrics["per_dof"]
-        return np.array(pd_["default_heldout"]), np.array(pd_["calibrated_heldout"])
-    if data_dir is None:
+        d, c = np.array(pd_["default_heldout"]), np.array(pd_["calibrated_heldout"])
+        if (metrics.get("skill_vs_zero") or {}).get("zero_heldout") is not None:
+            z = np.array(metrics["skill_vs_zero"]["zero_heldout"])
+    if z is None and data_dir is not None:
+        from data_split import discover_csv_files, split_by_date
+        from objective import DatasetConfig, load_run, rmse_by_dof, zero_baseline_rmse
+        files = discover_csv_files(data_dir)[0]
+        split = split_by_date(files, heldout_dates=heldout_dates)
+        # same torque convention the calibration used (metrics.json), else the spec's
+        offset = ((metrics or {}).get("objective") or {}).get("torque_reference_offset_m")
+        if offset is None:
+            from run_calibration import spec_torque_reference_offset
+            offset = spec_torque_reference_offset(spec)
+        runs = [load_run(f, DatasetConfig(10.0, tuple(offset))) for f in split.heldout_files]
+        z = zero_baseline_rmse(runs)
+        if c is None:
+            d = np.mean([rmse_by_dof(initial_parameters(spec), r, spec.vehicle) for r in runs], axis=0)
+            c = np.mean([rmse_by_dof(params, r, spec.vehicle) for r in runs], axis=0)
+    if c is None:
         return None
-    from data_split import discover_csv_files, split_by_date
-    from objective import DatasetConfig, load_run, rmse_by_dof
-    files = discover_csv_files(data_dir)[0]
-    split = split_by_date(files, heldout_dates=heldout_dates)
-    runs = [load_run(f, DatasetConfig(10.0)) for f in split.heldout_files]
-    default = initial_parameters(spec)
-    d = np.mean([rmse_by_dof(default, r, spec.vehicle) for r in runs], axis=0)
-    c = np.mean([rmse_by_dof(params, r, spec.vehicle) for r in runs], axis=0)
-    return d, c
+    return d, c, z
 
 
 def pinned_parameters(params, spec) -> list:
@@ -104,23 +124,51 @@ def implausible_parameters(params) -> list:
     return out
 
 
-def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names) -> list:
+def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zero_rmse=None,
+                  excluded_axes=()) -> list:
+    """One verdict per axis. The main test is skill against predicting "no
+    motion" (see module docstring); improvement over the default model is
+    reported too but can't earn a "Trust it" on its own."""
     verdicts = []
     for i, (k, label) in enumerate(AXES):
         imp = 100 * (default_rmse[i] - calib_rmse[i]) / default_rmse[i]
+        skill = None if zero_rmse is None else float(1 - calib_rmse[i] / zero_rmse[i])
         involved = [p for p in AXIS_PARAMS[k] if p in pinned_names or p in implausible_names]
-        if imp < 10:
+        if k in excluded_axes:
+            v, why = BAD, ("not calibrated: your logs don't explain this motion, so it was left out of the fit and "
+                           "the simulator uses the reference values from vehicle_spec.yaml")
+        elif skill is not None and skill <= 0:
+            v, why = BAD, (f"it predicts this motion no better than simply assuming the vehicle isn't moving on this "
+                           f"axis (skill {skill:+.2f}), even though it is {imp:.0f}% better than the default model"
+                           if imp > 0 else
+                           f"it predicts this motion worse than assuming no motion (skill {skill:+.2f}) and WORSE "
+                           f"than the default model")
+        elif imp < 10:
             v, why = BAD, ("the calibrated model predicts this motion no better than the default model"
                            if imp >= 0 else "the calibrated model predicts this motion WORSE than the default model")
-        elif imp < 30 or involved:
+        elif skill is None:
+            v, why = CAUTION, (f"it improves prediction by {'only ' if imp < 30 else ''}{imp:.0f}% over the default "
+                               f"model, but it couldn't be compared with simply assuming no motion (re-run with "
+                               f"--data-dir)")
+        elif skill < GOOD_SKILL or imp < 30 or involved:
             v = CAUTION
-            why = (f"it improves prediction by {imp:.0f}%, but relies on " + ", ".join(f"{PLAIN[p]}" for p in involved)
-                   + (" which hit their allowed limits or look physically implausible" if involved else "")
-                   if involved else f"it improves prediction by only {imp:.0f}%")
+            reasons = []
+            if skill < GOOD_SKILL:
+                reasons.append(f"it only partly predicts this motion (skill {skill:+.2f}; 1 = perfect, 0 = no better "
+                               f"than assuming no motion)")
+            elif imp < 30:
+                reasons.append(f"it improves prediction by only {imp:.0f}% over the default model")
+            if involved:
+                reasons.append("it relies on " + ", ".join(PLAIN[p] for p in involved)
+                               + " which hit their allowed limits or look physically implausible")
+            why = "; ".join(reasons)
         else:
-            v, why = GOOD, f"it predicts this motion {imp:.0f}% more accurately than the default model on unseen sessions"
-        verdicts.append({"axis": k, "label": label, "improvement_pct": imp, "verdict": v, "why": why,
-                         "default_rmse": float(default_rmse[i]), "calibrated_rmse": float(calib_rmse[i])})
+            v, why = GOOD, (f"it predicts this motion well on unseen sessions (skill {skill:+.2f}; 1 = perfect) and "
+                            f"{imp:.0f}% more accurately than the default model")
+        verdicts.append({"axis": k, "label": label, "improvement_pct": imp, "skill": skill, "verdict": v, "why": why,
+                         "excluded": k in excluded_axes,
+                         "default_rmse": float(default_rmse[i]), "calibrated_rmse": float(calib_rmse[i]),
+                         "zero_rmse": None if zero_rmse is None else float(zero_rmse[i])})
     return verdicts
 
 
@@ -128,7 +176,16 @@ def next_steps(verdicts, pinned, implausible, ident) -> list:
     steps = []
     # more data helps axes the model predicts poorly; axes flagged only because a
     # parameter hit a limit need the limits reviewed instead (next step)
-    weak = [v for v in verdicts if v["improvement_pct"] < 30]
+    unexplained = [v for v in verdicts if v.get("excluded") or (v.get("skill") is not None and v["skill"] <= 0)]
+    weak = [v for v in verdicts if v not in unexplained and
+            (v["improvement_pct"] < 30 or (v.get("skill") is not None and v["skill"] < GOOD_SKILL))]
+    if unexplained:
+        steps.append("Your logs don't explain " + ", ".join(v["label"] for v in unexplained)
+                     + ": that motion isn't caused by the recorded thruster commands (tether pull, waves or contact "
+                       "are common causes). To calibrate it, record tests where the thrusters cause it: tip the "
+                       "vehicle and let it settle (a free-decay test), and command deliberate roll/pitch moves, "
+                       "with the tether slack. Until then, treat the simulator's values for those motions as "
+                       "reference values, not measurements.")
     if weak:
         steps.append("Record more manoeuvres that exercise " + ", ".join(v["label"] for v in weak)
                      + ": short, sharp, varied commands on those axes, in several separate sessions.")
@@ -153,9 +210,12 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
         good = [v for v in verdicts if v["verdict"] == GOOD]
         overall = np.mean([v["improvement_pct"] for v in verdicts])
         L.append("## Bottom line\n")
-        L.append(f"On recording sessions the calibration never saw, the calibrated simulator predicts your vehicle's "
-                 f"motion **{overall:.0f}% more accurately** than the default model, averaged over the six motion axes. "
-                 f"It is trustworthy for **{len(good)} of 6** axes.\n")
+        L.append(f"It is trustworthy for **{len(good)} of 6** motion axes"
+                 + (f": {', '.join(v['label'] for v in good)}." if good else ".")
+                 + f" On recording sessions the calibration never saw, it predicts your vehicle's motion "
+                 f"{overall:.0f}% more accurately than the default model on average, but that comparison alone can "
+                 f"flatter a poor default; each verdict below also checks the model against simply assuming no "
+                 f"motion.\n")
         L.append("## Can I trust it for this motion?\n")
         L.append("| Motion | Verdict | Why |")
         L.append("|---|---|---|")
@@ -205,11 +265,15 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
     L.append("")
     if verdicts:
         L.append("## Technical appendix\n")
-        L.append("Held-out RMSE per axis (m/s or rad/s), default vs calibrated physics:\n")
-        L.append("| Axis | Default | Calibrated | Improvement |")
-        L.append("|---|---|---|---|")
+        L.append("Held-out RMSE per axis (m/s or rad/s): predicting no motion, default physics, calibrated physics. "
+                 "Skill = 1 - calibrated / no-motion.\n")
+        L.append("| Axis | No motion | Default | Calibrated | Improvement vs default | Skill |")
+        L.append("|---|---|---|---|---|---|")
         for v in verdicts:
-            L.append(f"| {v['axis']} | {v['default_rmse']:.4f} | {v['calibrated_rmse']:.4f} | {v['improvement_pct']:+.1f}% |")
+            z = "n/a" if v["zero_rmse"] is None else f"{v['zero_rmse']:.4f}"
+            sk = "n/a" if v["skill"] is None else f"{v['skill']:+.2f}"
+            L.append(f"| {v['axis']} | {z} | {v['default_rmse']:.4f} | {v['calibrated_rmse']:.4f} | "
+                     f"{v['improvement_pct']:+.1f}% | {sk} |")
         if ident:
             L.append(f"\nIdentifiability: Jacobian condition number {ident.get('condition_number', float('nan')):.3g} "
                      f"from {ident.get('n_train_runs_used', '?')} training runs.")
@@ -229,7 +293,9 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     pinned = pinned_parameters(params, spec)
     implausible = implausible_parameters(params)
     names_flagged = {p["name"] for p in pinned}, {p["name"] for p in implausible}
-    verdicts = axis_verdicts(*axes, *names_flagged) if axes else []
+    excluded = tuple((metrics or {}).get("objective", {}).get("excluded_axes", ()))
+    verdicts = (axis_verdicts(axes[0], axes[1], *names_flagged, zero_rmse=axes[2], excluded_axes=excluded)
+                if axes else [])
     gen_gap = None
     if metrics and "rmse" in metrics and "calibrated_train" in metrics["rmse"]:
         gen_gap = metrics["rmse"]["calibrated_heldout"] / metrics["rmse"]["calibrated_train"]
@@ -249,7 +315,8 @@ def main(argv=None) -> int:
     ap.add_argument("--result", required=True, help="calibration output folder")
     ap.add_argument("--spec", default="vehicle_spec.yaml")
     ap.add_argument("--identifiability", help="JSON from automated_identifiability_report.py")
-    ap.add_argument("--data-dir", help="logs, to compute held-out per-axis accuracy if metrics.json lacks it")
+    ap.add_argument("--data-dir", help="logs, to compute held-out per-axis accuracy (and the no-motion baseline) "
+                                       "if metrics.json lacks them")
     ap.add_argument("--heldout-dates", nargs="+", default=["16-02-2024", "19-02-2024"])
     args = ap.parse_args(argv)
     r = build_report(args.result, args.spec, args.identifiability, args.data_dir, args.heldout_dates)

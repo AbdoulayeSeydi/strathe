@@ -22,6 +22,25 @@ assumptions:
 vehicle:
   name: bluerov2_heavy
 
+# How the LOGS express the vehicle's wrench, as opposed to the physics
+# being calibrated. Applied when logs are loaded (objective.DatasetConfig);
+# run_calibration.py --torque-reference-offset-m overrides it.
+data_conventions:
+  torque_reference_offset_m: [0.0, 0.0, -0.085]
+  torque_reference_rationale: >
+    The reference dataset (and thruster_model.BLUEROV2_HEAVY_ALLOCATION,
+    which reproduces it) takes torques about a point 8.5 cm below the
+    horizontal thrusters, so every surge/sway command also logs a
+    pitch/roll torque (logged Ty -0.98 correlated with Fx, Tx +0.95 with
+    Fy). The dynamics model has no drag moment to balance it and predicted
+    large pitch/roll the real vehicle doesn't show. Re-expressing the
+    torques about the thruster plane lifted held-out roll/pitch skill from
+    -0.49/-0.84 to about zero with no cost on other axes
+    (PROJECT_STATUS.md #50). Set to [0, 0, 0] if your logs already give
+    torques about the point your drag acts through.
+  source: "measured from the dataset's own allocation matrix and logs"
+  confidence: measured
+
 environment:
   current_velocity_mps: 0.0
   current_direction_deg: 0.0

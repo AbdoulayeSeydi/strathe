@@ -51,7 +51,8 @@ import yaml
 from data_split import split_by_date, discover_csv_files, DEFAULT_HELDOUT_FRACTION
 from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
-from objective import DatasetConfig, RunData, load_run, mean_run_rmse, rmse_by_dof
+from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, load_run, mean_run_rmse,
+                       rmse_by_dof, skill_vs_zero, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
     CalibrationConfig, calibrate, calibrate_parallel,
@@ -86,6 +87,13 @@ class PipelineConfig:
         # (multiple processes writing one checkpoint file is a real race
         # condition) - main() skips setting it when parallel=True.
     max_workers: Optional[int] = None  # None = os.cpu_count() default
+    axis_scaling: str = "none"  # "none" = raw units (original objective); "zero_rms" = each
+        # axis divided by its "predict zero" error on the training runs (PROJECT_STATUS.md #50)
+    torque_reference_offset_m: Optional[tuple] = None  # None = vehicle_spec.yaml's
+        # data_conventions.torque_reference_offset_m (or none); see objective.shift_torque_reference
+    exclude_axes: tuple = ()  # subset of ("p", "q"): axes the logged inputs don't explain. Their
+        # residuals get zero weight and their axis-only parameters are held at vehicle_spec.yaml's
+        # initial_guess instead of being fitted (see EXCLUDABLE_AXIS_PARAMS)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +169,11 @@ class PerDofSummary:
     default_heldout: np.ndarray
     calibrated_train: np.ndarray
     calibrated_heldout: np.ndarray
+    # "predict zero" baseline and skill = 1 - RMSE/RMSE_zero (PROJECT_STATUS.md #50);
+    # skill <= 0 means no better than assuming no motion on that axis
+    zero_heldout: Optional[np.ndarray] = None
+    skill_heldout: Optional[np.ndarray] = None          # whole-run replay
+    skill_heldout_short: Optional[np.ndarray] = None    # SKILL_EVAL_HORIZON_S windows
 
 
 @dataclass
@@ -215,6 +228,11 @@ class CalibrationReport:
     calibrated_parameters: CalibrationParameters
     reproducibility: ReproducibilitySummary
     success: bool
+    objective_axis_scaling: str = "none"
+    objective_horizon_samples: Optional[int] = None
+    objective_excluded_axes: tuple = ()
+    objective_torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
+    objective_held_parameters: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +264,49 @@ def _load_runs_parallel(filepaths: list, dataset_config: DatasetConfig, workers:
         return list(executor.map(lambda fp: load_run(fp, dataset_config), filepaths))
 
 
-def _average_rmse_by_dof(params, runs: list, vehicle) -> np.ndarray:
-    return np.mean([rmse_by_dof(params, run, vehicle) for run in runs], axis=0)
+def _average_rmse_by_dof(params, runs: list, vehicle, horizon_samples: Optional[int] = None) -> np.ndarray:
+    return np.mean([rmse_by_dof(params, run, vehicle, horizon_samples=horizon_samples) for run in runs], axis=0)
+
+
+def spec_torque_reference_offset(loaded_spec) -> tuple:
+    """vehicle_spec.yaml's data_conventions.torque_reference_offset_m, or (0, 0, 0)."""
+    raw = (loaded_spec.raw.get("data_conventions") or {}).get("torque_reference_offset_m", [0.0, 0.0, 0.0])
+    if len(raw) != 3:
+        raise ValueError(f"data_conventions.torque_reference_offset_m must have 3 numbers, got {raw}")
+    return tuple(float(x) for x in raw)
+
+
+# Parameters that ONLY shape one rotational axis's own dynamics. When that axis
+# is excluded from the objective nothing else constrains them, so they are
+# held at vehicle_spec.yaml's initial_guess. cg_cb_offset_z (the righting
+# moment) shapes both roll and pitch, so it is held only when both are
+# excluded. PROJECT_STATUS.md #50: in the reference dataset roll and pitch
+# motion is not driven by the logged thruster torques, and fitting it pushes
+# every roll/pitch damping term to its bound.
+EXCLUDABLE_AXIS_PARAMS = {"p": ["Kp", "Kpp", "Ieff_roll"], "q": ["Mq", "Mqq", "Ieff_pitch"]}
+
+
+def excluded_axis_setup(exclude_axes, dof_scales, default_params) -> tuple:
+    """(dof_scales with excluded axes zero-weighted, {param: held value})."""
+    exclude_axes = tuple(dict.fromkeys(exclude_axes))
+    bad = set(exclude_axes) - set(EXCLUDABLE_AXIS_PARAMS)
+    if bad:
+        raise ValueError(f"only {sorted(EXCLUDABLE_AXIS_PARAMS)} can be excluded, got {sorted(bad)}")
+    scales = np.ones(6) if dof_scales is None else np.array(dof_scales, dtype=float)
+    held = {}
+    for ax in exclude_axes:
+        scales[DOF_LABELS.index(ax)] = np.inf  # residual / inf = 0: the axis carries no weight
+        for name in EXCLUDABLE_AXIS_PARAMS[ax]:
+            held[name] = float(getattr(default_params, name))
+    if {"p", "q"} <= set(exclude_axes):
+        held["cg_cb_offset_z"] = float(default_params.cg_cb_offset_z)
+    return scales, held
+
+
+# skill is also reported over short re-anchored windows: 3 s is the longest
+# beacon interval the fleet studies use, i.e. how far ahead a teammate model
+# actually has to predict in this product
+SKILL_EVAL_HORIZON_S = 3.0
 
 
 def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
@@ -286,6 +345,18 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "calibrated_train": report.per_dof.calibrated_train.tolist(),
             "calibrated_heldout": report.per_dof.calibrated_heldout.tolist(),
         },
+        "skill_vs_zero": None if report.per_dof.zero_heldout is None else {
+            "zero_heldout": report.per_dof.zero_heldout.tolist(),
+            "calibrated_heldout_full_replay": report.per_dof.skill_heldout.tolist(),
+            "calibrated_heldout_short_windows": report.per_dof.skill_heldout_short.tolist(),
+            "short_window_s": SKILL_EVAL_HORIZON_S,
+            "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than predicting no motion",
+        },
+        "objective": {"axis_scaling": report.objective_axis_scaling,
+                      "prediction_horizon_samples": report.objective_horizon_samples,
+                      "excluded_axes": list(report.objective_excluded_axes),
+                      "torque_reference_offset_m": list(report.objective_torque_reference_offset_m),
+                      "held_parameters": report.objective_held_parameters},
         "parameter_deltas": [
             {"name": d.name, "default": d.default, "calibrated": d.calibrated,
              "magnitude_ratio": d.magnitude_ratio, "crossed_zero": d.crossed_zero}
@@ -327,7 +398,13 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                 len(split.heldout_groups), split.heldout_groups)
 
     loaded_spec = load_vehicle_spec(config.spec_path)
-    dataset_config = DatasetConfig(sampling_rate_hz=config.sampling_rate_hz)
+    if config.torque_reference_offset_m is None:
+        config.torque_reference_offset_m = spec_torque_reference_offset(loaded_spec)
+    dataset_config = DatasetConfig(sampling_rate_hz=config.sampling_rate_hz,
+                                   torque_reference_offset_m=tuple(config.torque_reference_offset_m))
+    if any(config.torque_reference_offset_m):
+        logger.info("Logged torques re-expressed about a point offset %s m from the log's reference",
+                    list(config.torque_reference_offset_m))
     vehicle = loaded_spec.vehicle
 
     logger.info("Loading runs (%d worker thread(s))...", config.workers)
@@ -349,6 +426,23 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
 
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
     config.calibration_config.log_path = str(Path(config.output_dir) / "optimizer_result.json")
+    if config.axis_scaling == "zero_rms":
+        config.calibration_config.dof_scales = compute_zero_baseline_scales(train_runs)
+        logger.info("Axis scaling: each axis divided by its 'predict zero' error on training runs %s",
+                    np.round(config.calibration_config.dof_scales, 4).tolist())
+    elif config.axis_scaling != "none":
+        raise ValueError(f"axis_scaling must be 'none' or 'zero_rms', got {config.axis_scaling!r}")
+    if config.exclude_axes:
+        scales, held = excluded_axis_setup(config.exclude_axes, config.calibration_config.dof_scales,
+                                           default_params)
+        config.calibration_config.dof_scales = scales
+        config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
+        logger.info("Excluded axes %s from the objective; holding %s at vehicle_spec.yaml values",
+                    list(config.exclude_axes), held)
+    if config.calibration_config.horizon_samples is not None:
+        logger.info("Objective: re-anchored %d-sample prediction windows (%.1f s)",
+                    config.calibration_config.horizon_samples,
+                    config.calibration_config.horizon_samples / config.sampling_rate_hz)
 
     logger.info("Running calibration: %d restart(s), loss=%s, seed=%s",
                 config.calibration_config.n_restarts, config.calibration_config.loss,
@@ -378,6 +472,11 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         calibrated_train=_average_rmse_by_dof(cal_result.parameters, train_runs, vehicle),
         calibrated_heldout=_average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle),
     )
+    per_dof.zero_heldout = zero_baseline_rmse(heldout_runs)
+    per_dof.skill_heldout = skill_vs_zero(per_dof.calibrated_heldout, per_dof.zero_heldout)
+    short = max(2, int(round(SKILL_EVAL_HORIZON_S * config.sampling_rate_hz)))
+    per_dof.skill_heldout_short = skill_vs_zero(
+        _average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle, short), per_dof.zero_heldout)
     evaluation_s = time.monotonic() - t_eval
     total_s = time.monotonic() - t_start
 
@@ -444,6 +543,11 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         calibrated_parameters=cal_result.parameters,
         reproducibility=reproducibility,
         success=cal_result.converged,
+        objective_axis_scaling=config.axis_scaling,
+        objective_horizon_samples=config.calibration_config.horizon_samples,
+        objective_excluded_axes=tuple(config.exclude_axes),
+        objective_torque_reference_offset_m=tuple(config.torque_reference_offset_m),
+        objective_held_parameters=config.calibration_config.fixed_params,
     )
 
     _save_artifacts(report, config.output_dir)
@@ -504,6 +608,12 @@ class ConsoleReporter:
         for i, lbl in enumerate(DOF_LABELS):
             print(f"  {lbl}: {r.per_dof.calibrated_train[i]:.4f} / {r.per_dof.calibrated_heldout[i]:.4f}")
 
+        if r.per_dof.skill_heldout is not None:
+            print(f"\nHeld-out skill vs predicting no motion (1 = perfect, <= 0 = no better than zero):")
+            print(f"  {'':<6}{'whole run':>11}{f'{SKILL_EVAL_HORIZON_S:g} s windows':>14}")
+            for i, lbl in enumerate(DOF_LABELS):
+                print(f"  {lbl:<6}{r.per_dof.skill_heldout[i]:>+11.2f}{r.per_dof.skill_heldout_short[i]:>+14.2f}")
+
         print("\nParameter changes (default -> calibrated):")
         for d in r.parameter_deltas:
             print(f"  {d.name:<16}{d.default:>10.4f} -> {d.calibrated:>10.4f}  ({d.format_change()})")
@@ -538,6 +648,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          help='e.g. --heldout-dates 16-02-2024 19-02-2024')
     parser.add_argument("--heldout-fraction", type=float, default=DEFAULT_HELDOUT_FRACTION)
     parser.add_argument("--n-restarts", type=int, default=1)
+    parser.add_argument("--eval-workers", type=int, default=1,
+                        help="evaluate the training runs in this many worker processes per optimizer "
+                             "evaluation (identical results; ~N-fold faster). Not combinable with --parallel")
+    parser.add_argument("--torque-reference-offset-m", type=float, nargs=3, default=None,
+                        metavar=("X", "Y", "Z"),
+                        help="re-express the logged torques about a point this far (body FRD, m) from the "
+                             "log's own reference. Default: vehicle_spec.yaml's data_conventions "
+                             "(0 0 -0.085 for the BlueROV2 Heavy dataset, PROJECT_STATUS.md #50); "
+                             "0 0 0 = use the logged torques as they are")
+    parser.add_argument("--axis-scaling", choices=["none", "zero_rms"], default="none",
+                        help="'zero_rms' scores each axis relative to its 'predict zero' error on the "
+                             "training runs, instead of raw m/s and rad/s (PROJECT_STATUS.md #50)")
+    parser.add_argument("--exclude-axes", nargs="+", choices=["p", "q"], default=[],
+                        help="leave these rotational axes out of the fit and hold their axis-only "
+                             "parameters at vehicle_spec.yaml's initial_guess -- for data whose roll/pitch "
+                             "motion isn't driven by the logged thrusters (PROJECT_STATUS.md #50)")
+    parser.add_argument("--prediction-horizon-s", type=float, default=None,
+                        help="score re-anchored prediction windows of this length instead of replaying "
+                             "whole runs open-loop; stops unexplained motion (e.g. roll/pitch) from "
+                             "accumulating and biasing damping to its bounds (PROJECT_STATUS.md #50)")
     parser.add_argument("--initialization-strategy", choices=["fixed", "perturbed", "random"],
                          default="perturbed",
                          help="How each restart's starting point is chosen. 'fixed' repeats the "
@@ -693,6 +823,9 @@ def main() -> None:
         # times every evaluation on 3 clocks and stack-dumps stalls into
         # output_dir/stall_log.txt (not supported with --parallel's worker processes)
         stall_watchdog=None if args.parallel else StallWatchdog(args.output_dir),
+        eval_workers=1 if args.parallel else max(1, args.eval_workers),
+        horizon_samples=(None if args.prediction_horizon_s is None
+                         else max(2, int(round(args.prediction_horizon_s * args.sampling_rate_hz)))),
     )
     pipeline_config = PipelineConfig(
         data_dir=args.data_dir,
@@ -705,6 +838,10 @@ def main() -> None:
         workers=args.workers,
         parallel=args.parallel,
         max_workers=args.max_workers,
+        axis_scaling=args.axis_scaling,
+        exclude_axes=tuple(args.exclude_axes),
+        torque_reference_offset_m=(None if args.torque_reference_offset_m is None
+                                   else tuple(args.torque_reference_offset_m)),
     )
 
     try:
