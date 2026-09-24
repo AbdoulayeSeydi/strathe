@@ -164,6 +164,7 @@ def test_pipeline_records_skill_and_objective_settings(tmp_path):
     m = json.load(open(os.path.join(tmp_path, "metrics.json"), encoding="utf-8"))
     assert m["objective"] == {"axis_scaling": "zero_rms", "prediction_horizon_samples": 20,
                               "excluded_axes": ["p", "q"], "torque_reference_offset_m": [0.0, 0.0, -0.085],
+                              "current_world_mps": None,        # still water: vehicle_spec.yaml's tank default
                               "held_parameters": m["objective"]["held_parameters"]}
     assert {"Kp", "Kpp", "Mq", "Mqq", "cg_cb_offset_z"} <= set(m["objective"]["held_parameters"])
     sk = m["skill_vs_zero"]

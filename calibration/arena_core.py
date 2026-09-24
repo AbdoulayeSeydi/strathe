@@ -71,6 +71,9 @@ class ArenaCore:
         self.vehicle = vehicle
         self.sim_config = sim_config
         self.state = ArenaState.initial()
+        # Water current in WORLD axes (m/s), or None for still water
+        # (dynamics_model._relative_to_water). Set before each step().
+        self.current_world = None
 
     def reset(self, position: np.ndarray = None, nu: np.ndarray = None) -> ArenaState:
         self.state = ArenaState(
@@ -101,6 +104,8 @@ class ArenaCore:
 
         for _ in range(n_substeps):
             roll, pitch, _yaw = orientation.as_euler("xyz")
+            current_body = (None if self.current_world is None
+                            else orientation.inv().apply(np.asarray(self.current_world, dtype=float)))
 
             # Kinematics FIRST, using state as it stood at the START of
             # this sub-step — no old/new velocity mixing.
@@ -110,7 +115,7 @@ class ArenaCore:
 
             # THEN update velocity using this sub-step's acceleration.
             v_dot, _damping, _restoring = compute_acceleration(
-                self.params, self.vehicle, v, tau, roll, pitch
+                self.params, self.vehicle, v, tau, roll, pitch, current_body
             )
             v = v + v_dot * sub_dt
 

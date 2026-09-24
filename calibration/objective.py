@@ -141,6 +141,11 @@ class DatasetConfig:
     # shift_torque_reference and PROJECT_STATUS.md #50). (0, 0, 0) = use the
     # log's torques unchanged (the original behaviour).
     torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
+    # Known water current during the recordings, in the LOG's world frame
+    # (the frame its orientation quaternions are expressed in), m/s. None =
+    # still water (a tank). Open-water logs taken in a current the model
+    # doesn't know about bias every drag estimate (PROJECT_STATUS.md #55).
+    current_world_mps: Optional[tuple] = None
 
     def validate(self) -> None:
         if self.sampling_rate_hz <= 0:
@@ -148,6 +153,9 @@ class DatasetConfig:
         if len(self.torque_reference_offset_m) != 3 or not np.all(np.isfinite(self.torque_reference_offset_m)):
             raise ValueError(f"torque_reference_offset_m must be 3 finite numbers (m, body FRD), "
                              f"got {self.torque_reference_offset_m}")
+        if self.current_world_mps is not None and (len(self.current_world_mps) != 3
+                                                   or not np.all(np.isfinite(self.current_world_mps))):
+            raise ValueError(f"current_world_mps must be 3 finite numbers (m/s), got {self.current_world_mps}")
 
     @property
     def dt(self) -> float:
@@ -166,6 +174,7 @@ class RunData:
     dt: float
     sample_rate_hz: float
     date: Optional[str] = None      # best-effort from filename; None if unparseable
+    current_body: Optional[np.ndarray] = None  # (N,3) known water current in body axes per sample
     n_samples: int = field(init=False)
 
     def __post_init__(self):
@@ -228,6 +237,11 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         df["qz"].to_numpy(), df["qw"].to_numpy(),
     )
     roll_pitch = np.stack([roll, pitch], axis=1)
+    current_body = None
+    if dataset_config.current_world_mps is not None and np.any(dataset_config.current_world_mps):
+        from scipy.spatial.transform import Rotation
+        rot = Rotation.from_quat(df[["qx", "qy", "qz", "qw"]].to_numpy())
+        current_body = rot.inv().apply(np.asarray(dataset_config.current_world_mps, dtype=float))
 
     try:
         date = extract_date(filepath)
@@ -243,6 +257,7 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         dt=dataset_config.dt,
         sample_rate_hz=dataset_config.sampling_rate_hz,
         date=date,
+        current_body=current_body,
     )
 
 
@@ -301,14 +316,15 @@ def _raw_residuals(
         parts = []
         for a, b in horizon_windows(run.n_samples, horizon_samples):
             sub = replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
-                          real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy())
+                          real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(),
+                          current_body=None if run.current_body is None else run.current_body[a:b])
             parts.append(_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
         return np.concatenate(parts, axis=0)
 
     simulate = simulate_fn if simulate_fn is not None else simulate_trajectory
     sim_config = SimulationConfig(dt=run.dt)
     trajectory = TrajectoryInputs(nu0=run.nu0, forces_torques=run.forces_torques,
-                                    roll_pitch_series=run.roll_pitch)
+                                    roll_pitch_series=run.roll_pitch, current_body_series=run.current_body)
     result = simulate(params, vehicle, sim_config, trajectory)
 
     if simulate_fn is None:

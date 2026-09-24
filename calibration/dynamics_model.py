@@ -303,6 +303,8 @@ class TrajectoryInputs:
     forces_torques: np.ndarray      # shape (N,6) logged Fx,Fy,Fz,Tx,Ty,Tz
     roll_pitch_series: np.ndarray   # shape (N,2) REAL LOGGED roll,pitch
                                      # (radians) — see TEACHER_FORCED_ORIENTATION
+    current_body_series: Optional[np.ndarray] = None  # (N,3) water current in body
+                                     # axes per sample (m/s); None = still water
 
     def validate(self) -> None:
         n = self.forces_torques.shape[0]
@@ -312,6 +314,9 @@ class TrajectoryInputs:
             raise ValueError(f"roll_pitch_series must be (N,2), got {self.roll_pitch_series.shape}")
         if self.nu0.shape != (6,):
             raise ValueError(f"nu0 must be shape (6,), got {self.nu0.shape}")
+        if self.current_body_series is not None and (
+                self.current_body_series.shape != (n, 3) or not np.all(np.isfinite(self.current_body_series))):
+            raise ValueError(f"current_body_series must be finite (N,3), got {self.current_body_series.shape}")
         for name, arr in [("forces_torques", self.forces_torques),
                            ("roll_pitch_series", self.roll_pitch_series),
                            ("nu0", self.nu0)]:
@@ -446,6 +451,28 @@ def _coriolis_centripetal_force(M: np.ndarray, v: np.ndarray) -> np.ndarray:
     return C @ v
 
 
+def _relative_to_water(v, current_body):
+    """(v_r, transport) for a water current. v is velocity over ground; the
+    hydrodynamic forces act on the velocity RELATIVE TO THE WATER,
+    v_r = v - [c_b; 0], where c_b is the current in body axes. For a current
+    that is constant and irrotational in the world frame, Fossen (2011)
+    Property 10.1 gives M v_r_dot + C(v_r) v_r + D(v_r) v_r + g = tau with the
+    full (rigid-body + added) mass matrix, and since c_b = R^T V_c,
+    d(c_b)/dt = -omega x c_b, so v_dot = v_r_dot + [-omega x c_b; 0].
+    Returns (v, None) when there is no current, so the no-current path is
+    bit-for-bit the original computation."""
+    if current_body is None:
+        return v, None
+    cb = np.asarray(current_body, dtype=float)
+    if not np.any(cb):
+        return v, None
+    v_r = np.array(v, dtype=float, copy=True)
+    v_r[:3] -= cb
+    transport = np.zeros(6)
+    transport[:3] = -np.cross(v[3:6], cb)
+    return v_r, transport
+
+
 def compute_acceleration(
     params: CalibrationParameters,
     vehicle: VehicleConstants,
@@ -453,6 +480,7 @@ def compute_acceleration(
     tau: np.ndarray,
     roll: float,
     pitch: float,
+    current_body=None,
 ):
     """
     THE single-step physics calculation — computes body-frame acceleration
@@ -473,7 +501,12 @@ def compute_acceleration(
 
     Returns (v_dot, damping_force, g_eta) — the latter two purely for
     optional debug/diagnostic use, matching debug_info's existing fields.
+
+    current_body: optional (3,) water current velocity in BODY axes at this
+    instant (m/s). None or zero = still water, identical to before. See
+    _relative_to_water for the physics.
     """
+    v, transport = _relative_to_water(v, current_body)
     M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
     damping_force = linear_damping * v + quad_damping * np.abs(v) * v
     g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
@@ -484,6 +517,8 @@ def compute_acceleration(
     # old division when M is diagonal (confirmed: solving a diagonal
     # system is mathematically identical to elementwise division).
     v_dot = np.linalg.solve(M, tau + damping_force - g_eta - coriolis_force)
+    if transport is not None:
+        v_dot = v_dot + transport
     return v_dot, damping_force, g_eta
 
 
@@ -524,6 +559,7 @@ def compute_acceleration_from_rotation_matrix(
     v,
     tau,
     R,
+    current_world=None,
 ):
     """Identical physics to compute_acceleration() -- same mass/damping/
     Coriolis logic, reused directly via the SAME
@@ -538,12 +574,19 @@ def compute_acceleration_from_rotation_matrix(
     mujoco_backend.py's genuine forward-simulation path) and would
     otherwise have to extract roll/pitch just to call
     compute_acceleration(), introducing an avoidable Euler-angle
-    extraction step."""
+    extraction step.
+
+    current_world: optional (3,) water current in WORLD axes (m/s); R turns
+    it into body axes (see _relative_to_water)."""
+    current_body = None if current_world is None else np.asarray(R).T @ np.asarray(current_world, dtype=float)
+    v, transport = _relative_to_water(v, current_body)
     M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
     damping_force = linear_damping * v + quad_damping * np.abs(v) * v
     g_eta = _restoring_forces_from_rotation_matrix(R, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
     coriolis_force = _coriolis_centripetal_force(M, v)
     v_dot = np.linalg.solve(M, tau + damping_force - g_eta - coriolis_force)
+    if transport is not None:
+        v_dot = v_dot + transport
     return v_dot, damping_force, g_eta
 
 
@@ -598,13 +641,15 @@ def simulate_trajectory(
         from fast_dynamics import simulate_velocity_teacher_forced
         nu = simulate_velocity_teacher_forced(params, vehicle, n_substeps, sub_dt, trajectory.nu0,
                                               np.asarray(trajectory.forces_torques, dtype=float),
-                                              np.asarray(trajectory.roll_pitch_series, dtype=float))
+                                              np.asarray(trajectory.roll_pitch_series, dtype=float),
+                                              trajectory.current_body_series)
         n_steps = 0  # skip the reference loop
 
     for k in range(n_steps - 1):
         v = nu[k]
         tau = trajectory.forces_torques[k]
         roll, pitch = trajectory.roll_pitch_series[k]
+        cb = None if trajectory.current_body_series is None else trajectory.current_body_series[k]
 
         # Sub-step between logged samples k and k+1, holding tau/roll/pitch
         # constant across sub-steps (zero-order hold — real data isn't
@@ -613,7 +658,7 @@ def simulate_trajectory(
         # function's existing per-external-sample debug granularity.
         damping_force = g_eta = v_dot = None
         for _ in range(n_substeps):
-            v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch)
+            v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch, cb)
             v = v + v_dot * sub_dt
 
         nu[k + 1] = v

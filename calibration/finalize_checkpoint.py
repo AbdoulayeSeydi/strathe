@@ -38,13 +38,17 @@ def _per_dof(params, runs, vehicle, horizon=None):
 
 def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_dir: str, sampling_rate_hz: float,
              torque_offset=None, axis_scaling: str = "none", exclude_axes=(), horizon_samples=None,
-             reason: str = "") -> dict:
+             reason: str = "", current_world=None) -> dict:
     with open(checkpoint, encoding="utf-8") as f:
         ck = yaml.safe_load(f)
     params = CalibrationParameters(**ck["best_parameters_so_far"])
     spec = load_vehicle_spec(spec_path)
     offset = tuple(torque_offset) if torque_offset is not None else spec_torque_reference_offset(spec)
-    dc = DatasetConfig(sampling_rate_hz, offset)
+    if current_world is None:
+        from current import current_from_spec
+        current_world = current_from_spec(spec)
+    current_world = None if current_world is None or not np.any(current_world) else tuple(map(float, current_world))
+    dc = DatasetConfig(sampling_rate_hz, offset, current_world)
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=heldout_dates)
     train = [load_run(f, dc) for f in split.train_files]
     held = [load_run(f, dc) for f in split.heldout_files]
@@ -80,6 +84,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
                                      "predicting no motion"},
         "objective": {"axis_scaling": axis_scaling, "prediction_horizon_samples": horizon_samples,
                       "excluded_axes": list(exclude_axes), "torque_reference_offset_m": list(offset),
+                      "current_world_mps": None if current_world is None else list(current_world),
                       "held_parameters": held_params},
         "reproducibility": {"git_commit": _get_git_commit(), "spec_path": spec_path, "data_dir": data_dir,
                             "checkpoint": os.path.abspath(checkpoint),
@@ -110,12 +115,13 @@ def main(argv=None) -> int:
     ap.add_argument("--axis-scaling", choices=["none", "zero_rms"], default="none")
     ap.add_argument("--exclude-axes", nargs="+", choices=["p", "q"], default=[])
     ap.add_argument("--prediction-horizon-samples", type=int, default=None)
+    ap.add_argument("--current-world-mps", type=float, nargs=3, default=None)
     ap.add_argument("--reason", default="")
     args = ap.parse_args(argv)
     out = args.output_dir or os.path.dirname(os.path.abspath(args.checkpoint))
     m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
                  args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
-                 args.prediction_horizon_samples, args.reason)
+                 args.prediction_horizon_samples, args.reason, args.current_world_mps)
     sk = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
     print(f"Wrote {out}/calibrated_parameters.yaml and metrics.json (NOT converged: {m['optimizer']['message']})")
     print("Held-out skill vs predicting no motion [u v w p q r]: " + " ".join(f"{x:+.2f}" for x in sk))
