@@ -305,7 +305,7 @@ Example: `calibration_output_10hz_coriolis/calibration_report.md`.
 
 **The setup, in one paragraph.**
 - **Two simulated BlueROV2s must hold 2 m ± 0.2 m apart** for 2 s within a 20 s episode, without coming within 0.5 m.
-- **Both run the same "true" physics**: `calibrated_parameters_fleet_truth.yaml`, the best held-out calibration.
+- **Both run the same "true" physics**: `calibrated_parameters_fleet_truth.yaml`, the torque-arm-corrected calibration (armfix; see Single-Vehicle Calibration Results).
 - **Each broadcasts its state** (position, orientation, velocity, last thrust) every `beacon_interval_s` over an acoustic channel that drops packets.
 - **Between beacons, each vehicle predicts its teammate with a belief model**, which is the only thing varied between conditions:
   - `calibrated`: physics with the true parameters
@@ -391,7 +391,7 @@ reading to just use the model.
 
 **Main study** (`fleet_study.yaml`):
 - **Episodes:** 3 training seeds × 8 belief models × 4 loss levels × 2 beacon intervals × 200 paired episodes.
-- **Setup:** true physics = the best held-out calibration, stand-in engine.
+- **Setup:** true physics = the torque-arm-corrected calibration (armfix), stand-in engine.
 - **Outputs:** full tables and plots in `calibration/results/fleet_v2_belief_to_success/`, per-seed checks in `extended_analysis.md`.
 
 Formation success rate by teammate-prediction model:
@@ -454,8 +454,8 @@ picture (PROJECT_STATUS.md #50).
 | Calibration | Surge (u) | Sway (v) | Heave (w) | Roll rate (p) | Pitch rate (q) | Yaw rate (r) |
 |---|---|---|---|---|---|---|
 | default physics (uncalibrated) | +0.52 | −0.22 | −1.29 | −7.97 | −11.25 | +0.19 |
-| expA (fleet truth vehicle) | +0.71 | +0.51 | +0.58 | −0.49 | −0.84 | +0.60 |
-| **armfix (recommended: torque-arm corrected)** | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
+| expA (fleet truth until 2026-09-24) | +0.71 | +0.51 | +0.58 | −0.49 | −0.84 | +0.60 |
+| **armfix (recommended, and the fleet truth vehicle)** | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
 
 - **Surge, sway, heave and yaw are predictive**, and calibration clearly helps.
 - **Roll and pitch are not predictive yet.** The torque-arm correction took them from worse-than-nothing to about zero. Most of the real roll/pitch motion in this dataset isn't caused by the thrusters, so no fit to this data can predict it.

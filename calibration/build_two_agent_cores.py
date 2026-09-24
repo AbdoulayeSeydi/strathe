@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import yaml
 
@@ -19,11 +21,10 @@ def load_calibrated_parameters(yaml_path: str) -> CalibrationParameters:
 
     provenance = data.get("provenance")
     if provenance and not provenance.get("converged", True):
-        print(f"NOTE: {yaml_path}'s calibration did NOT reach strict convergence "
-              f"(cost={provenance.get('cost')}, max_nfev={provenance.get('max_nfev')}, "
-              f"max_train_runs used: see build_calibrated_parameters.py's own run log) -- "
-              f"fine for A1's comparative purpose, not a Claim-A-grade result. "
-              f"See build_calibrated_parameters.py's provenance block for detail.")
+        detail = provenance.get("note") or (f"cost={provenance.get('cost')}, "
+                                           f"max_nfev={provenance.get('max_nfev')}")
+        print(f"NOTE: {os.path.basename(yaml_path)}'s calibration is not formally converged ({detail}); "
+              f"see the provenance block in that file.")
     return params
 
 

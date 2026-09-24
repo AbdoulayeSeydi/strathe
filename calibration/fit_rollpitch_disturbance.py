@@ -214,6 +214,9 @@ def main(argv=None) -> int:
                 "training_windows": len(tw), "heldout_windows": len(hw), "window_s": WINDOW / 10},
         "real_heldout": real_held,
         "sim_heldout": checks["held-out, fitted disturbance"][0],
+        # without the disturbance, for comparison: a disturbance only ADDS motion, so where the
+        # model already over-tilts (angle spread above the real one) it can't fix that
+        "sim_heldout_no_disturbance": checks["held-out, no disturbance"][0],
     }
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("# Roll/pitch disturbance fitted to the real BlueROV2 logs. See disturbance.py.\n")
