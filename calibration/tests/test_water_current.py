@@ -313,3 +313,20 @@ def test_dataset_config_rotates_the_known_current_into_body_axes():
     run = load_run(f, DatasetConfig(10.0, current_world_mps=(0.1, -0.2, 0.0)))
     assert plain.current_body is None and run.current_body.shape == (run.n_samples, 3)
     assert np.allclose(np.linalg.norm(run.current_body, axis=1), np.hypot(0.1, 0.2))
+
+
+def test_arena_default_step_is_stable_under_random_commands():
+    """Regression (PROJECT_STATUS.md #55): the old 0.02 s default diverged within
+    200 steps in every episode under uniformly random commands."""
+    from arena import Arena
+    for cur in (None, CurrentConfig(speed_mps=(0, 0.4), direction_deg=(0, 360))):
+        env = Arena(TRUTH, VEHICLE, task="waypoint", current=cur)
+        env.reset(seed=1)
+        env.action_space.seed(1)
+        for _ in range(5):
+            env.reset()
+            for _ in range(200):
+                _, r, term, trunc, _ = env.step(env.action_space.sample())
+                assert np.isfinite(r)
+                if term or trunc:
+                    break

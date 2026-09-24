@@ -333,7 +333,7 @@ class Arena(gym.Env):
         params: CalibrationParameters,
         vehicle: VehicleConstants,
         dt: float = 0.1,
-        physics_dt: float = 0.02,
+        physics_dt: float = 0.005,
         max_episode_steps: int = 200,
         waypoint_radius: float = 0.5,
         fixed_waypoint: Optional[np.ndarray] = None,
@@ -354,6 +354,13 @@ class Arena(gym.Env):
             orientation alignment, AND low speed simultaneously.
             "obstacle_avoidance" - route around a randomized obstacle to
             reach the goal; see ObstacleAvoidanceConfig/ObstacleAvoidanceTask.
+        physics_dt: internal integration step. Was 0.02 s until 2026-09-24:
+            explicit Euler at 0.02 s is unstable against this vehicle's
+            roll/pitch damping-to-inertia ratio once rates get large, and
+            uniformly random commands diverged within 200 steps in every
+            episode for every calibration on file (PROJECT_STATUS.md #55).
+            0.005 s (the SimulationConfig and fleet default) never did.
+            Single-vehicle results trained before that date used 0.02 s.
         current: optional water current (current.CurrentConfig); None = still
             water, the original behaviour. A new current is drawn each reset()
             from the environment's own seeded RNG; the observation is unchanged

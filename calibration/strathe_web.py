@@ -197,6 +197,8 @@ button{margin-top:12px;padding:8px 14px;border:0;border-radius:6px;background:va
 pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;max-height:520px;font-size:12.5px;white-space:pre-wrap}
 table{border-collapse:collapse;width:100%;margin:8px 0;display:block;overflow-x:auto}td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
 .ok{color:var(--ok)}.bad{color:var(--bad)}a{color:var(--accent)}code{font-size:90%}
+fieldset.current{border:1px solid var(--line);border-radius:8px;margin:14px 0 0;padding:8px 12px 12px}
+legend{font-weight:600;padding:0 4px}label.inline{display:flex;gap:8px;align-items:center;font-weight:400}
 """
 
 
@@ -238,6 +240,20 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <label for=fleet-shipped>Shipped experiment</label><select id=fleet-shipped name=shipped>{fleet_opts}</select>
 <label for=fleet-config>…or your own experiment YAML (full path; leave empty to use the one above)</label>
 <input type=text id=fleet-config name=config value="">
+<fieldset class=current><legend>Water current (optional; off = still water, like a tank)</legend>
+<label class=inline><input type=checkbox id=cur-on name=current_on value=1> Add a water current</label>
+<label for=cur-speed>Speed in m/s: one value, or a range drawn per episode (e.g. <code>0.2</code> or
+<code>0.1-0.3</code>)</label><input type=text id=cur-speed name=current_speed value="0.2">
+<label for=cur-dir>Direction the water flows toward, in degrees (<code>90</code>, a range like <code>0-90</code>,
+or <code>any</code>)</label><input type=text id=cur-dir name=current_direction value="any">
+<label for=cur-sstd>Slow fluctuation of speed, m/s (optional)</label>
+<input type=text id=cur-sstd name=current_speed_std value="0">
+<label for=cur-dstd>Slow fluctuation of direction, degrees (optional)</label>
+<input type=text id=cur-dstd name=current_direction_std value="0">
+<label for=cur-ts>Fluctuation time scale, seconds</label><input type=text id=cur-ts name=current_time_scale value="30">
+<label class=inline><input type=checkbox id=cur-known name=current_known value=1 checked> Teammate models know the
+average current</label>
+</fieldset>
 <button>Start experiment</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
@@ -373,8 +389,12 @@ class StratheHandler(BaseHTTPRequestHandler):
                 if shipped not in SHIPPED_FLEET_CONFIGS:
                     raise ValueError("Pick one of the shipped experiments.")
                 config = os.path.join(cli.CAL_DIR, shipped)
-            return self.manager.start("fleet", f"Fleet experiment: {os.path.basename(config)}",
-                                      ["fleet", "--config", config], [])
+            args = ["fleet", "--config", config]
+            title = f"Fleet experiment: {os.path.basename(config)}"
+            if form.get("current_on"):
+                args += current_cli_args(form)
+                title += " + water current"
+            return self.manager.start("fleet", title, args, [])
         if path == "/jobs/ingest":
             spec = os.path.abspath(os.path.expanduser(form.get("spec", "").strip()))
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))
@@ -385,6 +405,46 @@ class StratheHandler(BaseHTTPRequestHandler):
             return self.manager.start("ingest", f"Convert logs: {os.path.basename(spec)}",
                                       ["ingest", "--spec", spec, "--out", out], [out])
         return None
+
+
+def _number_or_range(text: str, name: str, allow_any: bool = False) -> list:
+    """'0.2' -> ['0.2']; '0.1-0.3' or '0.1 0.3' -> ['0.1', '0.3']; 'any' -> ['0', '360']."""
+    t = (text or "").strip().lower()
+    if allow_any and t in ("any", "all", "*"):
+        return ["0.0", "360.0"]
+    parts = [p for p in re.split(r"\s*(?:-|to|,|\s)\s*", t) if p] if not t.startswith("-") else [t]
+    try:
+        vals = [float(p) for p in parts]
+    except ValueError:
+        raise ValueError(f"{name}: expected a number or a range like 0.1-0.3, got {text!r}")
+    if len(vals) not in (1, 2):
+        raise ValueError(f"{name}: expected one number or two (a range), got {text!r}")
+    return [repr(v) for v in vals]
+
+
+def current_cli_args(form: dict) -> list:
+    """Validated `strathe fleet --current-...` arguments from the web form."""
+    speed = _number_or_range(form.get("current_speed", ""), "Current speed")
+    direction = _number_or_range(form.get("current_direction", "any"), "Current direction", allow_any=True)
+    extra = {}
+    for key, flag in (("current_speed_std", "--current-speed-std"), ("current_direction_std", "--current-direction-std"),
+                      ("current_time_scale", "--current-time-scale")):
+        raw = (form.get(key) or "").strip()
+        if raw:
+            try:
+                extra[flag] = float(raw)
+            except ValueError:
+                raise ValueError(f"{key.replace('_', ' ')}: expected a number, got {raw!r}")
+    rng = lambda xs: float(xs[0]) if len(xs) == 1 else [float(xs[0]), float(xs[1])]
+    cli.current_block(rng(speed), rng(direction), extra.get("--current-speed-std", 0.0),
+                      extra.get("--current-direction-std", 0.0), extra.get("--current-time-scale", 30.0),
+                      bool(form.get("current_known")))   # raises ValueError with a specific message
+    args = ["--current-speed", *speed, "--current-direction", *direction]
+    for flag, v in extra.items():
+        args += [flag, repr(v)]
+    if not form.get("current_known"):
+        args.append("--current-unknown-to-beliefs")
+    return args
 
 
 def make_server(port: int = 8765, manager: Optional[JobManager] = None) -> ThreadingHTTPServer:

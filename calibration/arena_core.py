@@ -111,6 +111,9 @@ class ArenaCore:
             # this sub-step — no old/new velocity mixing.
             world_lin_vel = orientation.apply(v[:3])
             position = position + world_lin_vel * sub_dt
+            if not np.all(np.isfinite(v)):
+                raise FloatingPointError("ArenaCore.step() diverged (non-finite velocity) — physics_dt too "
+                                         "large for this parameter set, or an unstable parameter combination.")
             orientation = orientation * Rotation.from_rotvec(v[3:] * sub_dt)
 
             # THEN update velocity using this sub-step's acceleration.
