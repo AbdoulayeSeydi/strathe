@@ -26,6 +26,11 @@ All three work today, with the scope limits at the end of this document.
 
 ## The commands
 
+The simplest route is `python strathe.py web` from the repository root: a local
+web page to start experiments, watch them run and read the reports.
+`python strathe.py fleet [--config my_experiment.yaml]` does the same from the
+terminal. The underlying scripts:
+
 ```bash
 cd calibration
 python run_fleet_experiment.py                               # Level 1: ~5 min on an M1 (3 policies, 16 cells)
