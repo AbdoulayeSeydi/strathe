@@ -19,7 +19,7 @@ This rests on a system-identification pipeline that fits physics to real BlueROV
 
 ## Recent fixes (September 2026)
 
-What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–53.
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–55.
 
 **Fleet coordination: rebuilt (fleet v2)**
 - **Claim C withdrawn (#46).** The v1 metric measured how far the *teammate* had moved since its last message, not anything about calibration. The same "calibrated advantage" appeared with both vehicles running identical physics.
@@ -50,6 +50,8 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - **Stand-in calibration is 3× faster** (47.5 s → 16.1 s per full-dataset evaluation). The model is unchanged; the evaluation now uses the equivalence-tested fast integrator.
 
 **Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
+
+**Water current (#55)**: open-water labs can now add a current, off by default and configurable. You set speed and direction (fixed or drawn per episode), vertical flow, slow fluctuation, and whether teammate models know it. It's available in the fleet YAML, `strathe fleet` flags, the web page, the single-vehicle environment, and calibration from logs recorded in a known current. See [the fleet workflow](#the-fleet-coordination-workflow-fleet-v2) and [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
 
 **Onboarding (#53)**: one command, `python strathe.py`, replaces the separate terminal steps, and `python strathe.py web` opens a local web page to run and read everything. See [Quick start](#quick-start).
 
@@ -302,6 +304,14 @@ It writes `calibration_report.md`, with:
 
 Example: `calibration_output_10hz_coriolis/calibration_report.md`.
 
+**4. Logs recorded in open water.** The reference data comes from a tank, so still water is the default. If your recordings were made in a known current, give it to the calibration. Otherwise the whole current shows up as unexplained error and skews the drag values. In synthetic tests with a 0.2 m/s current, ignoring it left 0.2 m/s of error and shifted the drag values by 1–5%, depending on the vehicle; supplying it recovered them exactly (PROJECT_STATUS.md #55).
+```bash
+python strathe.py calibrate --data <logs> --current-world-mps 0.15 -0.05 0   # vx vy vz, in the logs' world frame
+```
+Or set `environment.current_*` in your `vehicle_spec.yaml`.
+
+**Limit:** this handles a current that is **known and roughly constant during each recording** (measured with an ADCP, or DVL water-track vs bottom-track). Estimating an unknown current, or one that changes within a recording, from the logs themselves isn't built yet.
+
 ## The fleet coordination workflow (fleet v2)
 
 **The setup, in one paragraph.**
@@ -352,6 +362,23 @@ Shipped policies:
 
 Add realistic roll/pitch wobble to any experiment with `disturbance: {roll_pitch: fitted}` in its YAML (CUSTOM_EXPERIMENT.md section 8).
 
+**Open water: add a water current** (off by default). In the experiment YAML:
+```yaml
+current: {speed_mps: [0.0, 0.3], direction_deg: [0, 360]}   # a speed and heading drawn per episode
+```
+Options:
+- speed and direction, fixed or drawn per episode
+- vertical flow
+- slow fluctuation
+- whether teammate models know the current
+
+The same options are available as flags on `python strathe.py fleet --current-speed 0.2 ...`, and as fields on the web page's fleet form. See CUSTOM_EXPERIMENT.md section 9. `current_policies/` holds two policies trained in random currents up to 0.3 m/s. The single-vehicle environment takes the same setting: `Arena(..., current=CurrentConfig(...))`.
+
+What a current does to formation-holding (`run_current_study.py`, 34,800 paired episodes, PROJECT_STATUS.md #55):
+- **Little, directly.** With 1 s beacons, nothing changes up to 0.3 m/s. With lossy 3 s beacons, 0.3 m/s costs 5 points.
+- **The teammate model needs to know the current.** At 0.2–0.3 m/s, a calibrated model that knows it beats one that doesn't by 6–13 points. Once aware, it beats no prediction by +8 at 0.3 m/s (vs +3 in still water).
+- **Training policies in currents didn't help;** the still-water policies already cope.
+
 Reproduce the studies below: `python run_fleet_experiment.py --config fleet_study.yaml` (~30 min), `fleet_study_alt_truth.yaml`, `fleet_study_mujoco.yaml`, then `python analyze_fleet_study.py results/<dir>` for per-seed checks.
 
 The retired fleet v1 setup still runs (`run_fleet_experiment_v1.py`) for reproducing old results only.
@@ -372,6 +399,7 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/train_fleet_policy.py`, `validate_fleet_policy.py`, `analyze_fleet_study.py`, `run_specialized_study.py`** — training, the policy contract check, and the study analyses.
 - **`calibration/fast_dynamics.py`** — the same 6-DOF equations as `ArenaCore`, 6.4x faster (equivalence-tested), which makes fleet training practical. Stand-in calibration uses it too, which makes it 3× faster per evaluation.
 - **`strathe.py`, `calibration/strathe_cli.py`, `strathe_web.py`** — the one-command entry point and the local web page (see Quick start).
+- **`calibration/current.py`, `run_current_study.py`, `current_policies/`** — the configurable water current, the study of its effect on formation-holding, and two policies trained in random currents.
 - **`calibration/disturbance.py`, `fit_rollpitch_disturbance.py`, `disturbances/`** — the roll/pitch disturbance model, its fitting script, and the shipped fit for the fleet truth vehicle.
 - **`calibration/run_disturbance_study.py`, `disturbance_policies/`** — the study showing roll/pitch doesn't affect formation-holding, and the two policies trained with the disturbance.
 - **`calibration/keep_awake.py`** — stops the machine sleeping during long runs (macOS, Windows, Linux).
@@ -503,6 +531,9 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Surge, sway, heave and yaw predictive on held-out data (skill +0.51 to +0.72)
 - ✅ Roll/pitch disturbance fitted to real logs (noisy-simulation mode), MuJoCo and stand-in
 - ✅ One-command onboarding (`python strathe.py`) and a local web page (`python strathe.py web`)
+- ✅ Water current (open water): configurable and off by default, in both engines, the fleet, the single-vehicle environment, the CLI, the web page and calibration from logs in a known current
+- ⏳ Estimating an unknown or changing current from logs; currents that vary across space
+- ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent
 - 🔄 Physics dead reckoning now ties last-beacon (no longer trails); intent-sharing beacons are the next lever

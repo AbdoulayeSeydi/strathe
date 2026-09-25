@@ -13,7 +13,7 @@ metadata:
 assumptions:
   - "Added mass matrix is diagonal — off-diagonal added-mass coupling assumed negligible."
   - "CG/CB offset only modeled in z — x=y=0 assumed (no known lateral CG/CB asymmetry)."
-  - "Ocean current assumed zero — dataset was collected in a tank/pool, not open water. See environment.current below; this assumption breaks for real open-water customer data."
+  - "The CALIBRATION logs were recorded in still water (a tank/pool), so environment.current below is zero. Open-water logs recorded in a known current: set it here or pass run_calibration.py --current-world-mps. Simulated currents for fleet and single-vehicle experiments are configured per experiment (current: in the experiment YAML), not here. See PROJECT_STATUS.md #55."
   - "Thruster PWM->thrust conversion is assumed ALREADY DONE in the input dataset (Fx..Tz, thrust1-8 columns) — thruster-level dynamics (deadband, lag, saturation) are NOT calibrated in this MVP. See thruster_model.calibrated: false."
   - "Payload is the vehicle's baseline configuration — no additional payload mass/CG shift modeled. See payload section."
   - "Linear (Xu) vs quadratic (Xuu) damping identifiability varies by axis — confirmed via two independent measurements to be a data-coverage issue for some axes (Xu/Xuu, Yv/Yvv) but likely a missing-physics symptom for others (Mq/Mqq) — see validation.identifiability_note."
@@ -42,14 +42,20 @@ data_conventions:
   confidence: measured
 
 environment:
+  # The water current during the CALIBRATION recordings, in the logs' world
+  # frame: horizontal speed, the direction it flows toward (degrees from the
+  # world x axis toward +y), and vertical flow (+ down). Used by
+  # run_calibration.py unless --current-world-mps overrides it.
   current_velocity_mps: 0.0
   current_direction_deg: 0.0
+  current_vertical_mps: 0.0
   source: "assumed — dataset collected in tank/pool, not open water"
   confidence: assumed
   note: >
-    If future customer deployment logs come from open water, this can no
-    longer be assumed zero — would need direct measurement or promotion
-    to a calibration target.
+    For open-water logs, measure the current (ADCP, or DVL water-track vs
+    bottom-track) and set it here. A current that varies within a
+    recording, or an unknown one, would need to become a per-run
+    calibration target, which isn't built yet.
 
 payload:
   description: "Baseline vehicle configuration, no additional payload."

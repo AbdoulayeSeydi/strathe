@@ -11,7 +11,7 @@ Usage:
 """
 from typing import Literal
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 Confidence = Literal["published", "literature", "estimated", "assumed"]
 
@@ -112,8 +112,9 @@ class Vehicle(BaseModel):
 
 
 class Environment(BaseModel):
-    current_velocity_mps: float
+    current_velocity_mps: float = Field(ge=0.0)
     current_direction_deg: float
+    current_vertical_mps: float = 0.0
     source: str
     confidence: Confidence
     note: str

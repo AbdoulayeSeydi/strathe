@@ -89,7 +89,9 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
         if offset is None:
             from run_calibration import spec_torque_reference_offset
             offset = spec_torque_reference_offset(spec)
-        runs = [load_run(f, DatasetConfig(10.0, tuple(offset))) for f in split.heldout_files]
+        current = ((metrics or {}).get("objective") or {}).get("current_world_mps")
+        runs = [load_run(f, DatasetConfig(10.0, tuple(offset), None if current is None else tuple(current)))
+                for f in split.heldout_files]
         z = zero_baseline_rmse(runs)
         if c is None:
             d = np.mean([rmse_by_dof(initial_parameters(spec), r, spec.vehicle) for r in runs], axis=0)

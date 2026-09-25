@@ -179,6 +179,38 @@ doesn't depend on them (#52).
 To train a policy that has experienced the disturbance, run
 `python train_fleet_policy.py --disturbance fitted --out my_policy`.
 
+## 9. Water current (open water)
+
+```yaml
+current:                   # leave out for still water (the default: a tank)
+  speed_mps: 0.2           # or [0.0, 0.3]: a speed drawn per episode
+  direction_deg: 90        # direction the water flows toward, or [0, 360] for any direction
+  vertical_mps: 0.0        # + = downward flow
+  variability:             # optional slow fluctuation around the episode's mean
+    speed_std_mps: 0.05
+    direction_std_deg: 10
+    time_scale_s: 30       # at least 1 s; fluctuations should be slow
+  known_to_beliefs: true   # do physics teammate models know the episode's mean current?
+```
+
+How it works:
+- The calibrated drag and added-mass forces act on each vehicle's velocity *relative to the water*. Positions move with velocity over ground, so an unpowered vehicle drifts with the current.
+- Both vehicles feel the same current.
+- Policies don't observe the current directly. They see their own velocity over ground, as with a DVL tracking the bottom.
+- Every condition in an experiment sees the same currents, so comparisons stay paired.
+
+Choosing the options:
+- **`known_to_beliefs: false`** makes the physics teammate models ignore the current. Use it to measure what estimating the current is worth to your fleet.
+- **Ranges (`[min, max]`)** draw a new speed or direction each episode. That's the usual way to test robustness.
+
+To train a policy that has experienced currents:
+```bash
+python train_fleet_policy.py --current-speed 0 0.3 --current-direction 0 360 --out my_policy
+```
+Add `--current-speed-std`, `--current-direction-std` and `--current-time-scale` for fluctuation. The single-vehicle environment takes the same settings: `Arena(..., current=CurrentConfig(...))`.
+
+To calibrate from logs recorded in a known current, see the README ("Bring your own vehicle's logs").
+
 ---
 
 ## Still not configurable
@@ -189,7 +221,7 @@ To train a policy that has experienced the disturbance, run
 | Tasks other than formation hold | `formation_hold_task.py` |
 | Start orientation (always level, facing +x) | `FleetSim.reset` |
 | Sensor noise on the vehicle's own state | not modelled yet (roll/pitch *disturbance* is, see section 8) |
-| Water current / translational disturbance | not modelled yet |
+| A current that varies across space (shear, eddies) | the current is uniform over the fleet; it can vary in time (section 9) |
 
 The retired fleet v1 setup (`run_fleet_experiment_v1.py`, `default_experiment_v1.yaml`)
 still runs, for reproducing old results only. PROJECT_STATUS.md finding #46

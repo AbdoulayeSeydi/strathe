@@ -193,3 +193,76 @@ def test_outputs_announced_in_the_log_are_viewable(server):
     if os.path.exists(report):
         assert request("GET", f"/view?path={quote(report)}")[0] == 200
     assert manager.allowed_file(os.path.join(cli.CAL_DIR, "fleet_env.py")) is None
+
+
+# ----------------------------------------------------------------- water current (CLI and web)
+
+def test_fleet_with_a_current_runs_a_generated_experiment(tmp_path, monkeypatch):
+    import yaml
+    from fleet_experiment_schema import load_fleet_experiment
+    monkeypatch.setattr(cli, "JOBS_DIR", str(tmp_path))
+    calls = []
+    rc = cli.main(["fleet", "--config", os.path.join(cli.CAL_DIR, "ci_smoke_experiment.yaml"),
+                   "--current-speed", "0.1", "0.3", "--current-direction", "90", "--current-speed-std", "0.02",
+                   "--current-unknown-to-beliefs"], runner=lambda cmd: calls.append(cmd) or 0)
+    assert rc == 0 and calls[0][1] == "run_fleet_experiment.py"
+    generated = calls[0][calls[0].index("--config") + 1]
+    assert generated.startswith(str(tmp_path))
+    exp = yaml.safe_load(open(generated, encoding="utf-8"))
+    assert exp["current"] == {"speed_mps": [0.1, 0.3], "direction_deg": 90.0, "known_to_beliefs": False,
+                              "variability": {"speed_std_mps": 0.02, "direction_std_deg": 0.0, "time_scale_s": 30.0}}
+    assert exp["output_dir"].startswith(str(tmp_path))          # never overwrites shipped results
+    cwd = os.getcwd()
+    try:
+        os.chdir(cli.CAL_DIR)
+        cfg = load_fleet_experiment(generated)                  # the generated file is a valid experiment
+    finally:
+        os.chdir(cwd)
+    assert cfg.current.to_config().speed_mps == (0.1, 0.3)
+
+
+def test_fleet_rejects_an_invalid_current(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "JOBS_DIR", str(tmp_path))
+    assert cli.main(["fleet", "--current-speed", "-0.2"], runner=lambda c: 0) == 2
+    assert "speed_mps" in capsys.readouterr().out
+    assert cli.main(["fleet", "--current-speed", "0.1", "0.2", "0.3"], runner=lambda c: 0) == 2
+
+
+def test_web_form_current_fields_become_cli_flags():
+    args = web.current_cli_args({"current_speed": "0.1-0.3", "current_direction": "any", "current_known": "1",
+                                 "current_speed_std": "0.05", "current_direction_std": "", "current_time_scale": "20"})
+    assert args[:6] == ["--current-speed", "0.1", "0.3", "--current-direction", "0.0", "360.0"]
+    assert "--current-speed-std" in args and "--current-time-scale" in args
+    assert "--current-direction-std" not in args and "--current-unknown-to-beliefs" not in args
+    args = web.current_cli_args({"current_speed": "0.2", "current_direction": "45"})
+    assert args == ["--current-speed", "0.2", "--current-direction", "45.0", "--current-unknown-to-beliefs"]
+    for bad in ({"current_speed": "fast"}, {"current_speed": "5"}, {"current_speed": "0.1 0.2 0.3"},
+                {"current_speed": "0.2", "current_time_scale": "0.1"}, {"current_speed": "0.2", "current_speed_std": "x"}):
+        with pytest.raises(ValueError):
+            web.current_cli_args({"current_direction": "any", **bad})
+
+
+def test_web_fleet_form_with_a_current(server):
+    request, token, started, *_ = server
+    status, _, headers = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
+                                                         "current_on": "1", "current_speed": "0.2",
+                                                         "current_direction": "any", "current_known": "1"})
+    assert status == 303
+    cmd = started[-1]
+    assert cmd[3:5] == ["fleet", "--config"] and cmd[6:9] == ["--current-speed", "0.2", "--current-direction"]
+    status, body, _ = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
+                                                      "current_on": "1", "current_speed": "9"})
+    assert status == 400 and "speed" in body
+    # the checkbox off = still water, whatever the other fields say
+    request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml", "current_speed": "0.2"})
+    assert "--current-speed" not in started[-1]
+    assert "Add a water current" in request("GET", "/")[1]
+
+
+def test_calibrate_passes_a_known_current_through(tmp_path):
+    calls = []
+    cli.main(["calibrate", "--data", str(tmp_path), "--current-world-mps", "0.1", "-0.2", "0"],
+             runner=lambda cmd: calls.append(cmd) or 0)
+    fit = calls[1]
+    i = fit.index("--current-world-mps")
+    assert fit[i + 1:i + 4] == ["0.1", "-0.2", "0.0"]

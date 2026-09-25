@@ -88,7 +88,8 @@ def fleet_config_for(cfg, backend: str) -> FleetConfig:
                    if dist_path else None)
     return FleetConfig(max_episode_steps=t.max_episode_steps, task=task, dynamics_backend=backend,
                        initial_separation_range=(min(seps), max(seps)),
-                       initial_closing_speed_range=(min(speeds), max(speeds)), disturbance=disturbance)
+                       initial_closing_speed_range=(min(speeds), max(speeds)), disturbance=disturbance,
+                       current=cfg.current.to_config() if cfg.current is not None else None)
 
 
 def build_cells(cfg, truth, generic, vehicle) -> tuple:
@@ -162,6 +163,12 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
                  "disturbances.\n")
     else:
         L.append("Clean simulation: no roll/pitch disturbance (set `disturbance:` in the YAML to add one).\n")
+    cur = cfg.current.to_config() if cfg.current is not None else None
+    if cur is not None and cur.active:
+        L.append(f"**Water current on:** {cur.describe()}. Both vehicles feel the same current; the policy sees only "
+                 "its own velocity over ground. Every condition sees the same currents.\n")
+    else:
+        L.append("Still water: no current (set `current:` in the YAML for open-water conditions).\n")
     if contrasts:
         L.append(f"## Headline: `{a}` vs `{b}`\n")
         L += headline_sentences(contrasts, a, b)
@@ -277,7 +284,9 @@ def _log_mlflow(cfg, out_dir, summary, contrasts):
             mlflow.set_tags({"script": "run_fleet_experiment.py", "schema_version": "2",
                              "git_commit": get_git_commit(), "dynamics_backend": cfg.dynamics_backend,
                              "disturbance": (f"{os.path.basename(cfg.disturbance.path())}x{cfg.disturbance.scale:g}"
-                                             if cfg.disturbance.path() else "none")})
+                                             if cfg.disturbance.path() else "none"),
+                             "current": (cfg.current.to_config().describe() if cfg.current is not None
+                                         and cfg.current.to_config().active else "none")})
             for s in summary:
                 key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
                 mlflow.log_metric(f"success.{key}", s["success_rate"])
@@ -303,7 +312,9 @@ def run_experiment(config_path: str) -> dict:
           f"comm {[l for l, _, _ in cfg.communication.levels()]} x beacon {cfg.communication.beacon_interval_s} s, "
           f"backend {cfg.dynamics_backend}, disturbance "
           + (f"{os.path.basename(cfg.disturbance.path())} x{cfg.disturbance.scale:g}" if cfg.disturbance.path()
-             else "off"))
+             else "off")
+          + ", current " + (cfg.current.to_config().describe() if cfg.current is not None
+                            and cfg.current.to_config().active else "none"))
 
     print("\n[2/4] Checking policies against the per-vehicle contract...")
     for p in cfg.policies:

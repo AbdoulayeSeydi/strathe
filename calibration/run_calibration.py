@@ -89,6 +89,8 @@ class PipelineConfig:
     max_workers: Optional[int] = None  # None = os.cpu_count() default
     axis_scaling: str = "none"  # "none" = raw units (original objective); "zero_rms" = each
         # axis divided by its "predict zero" error on the training runs (PROJECT_STATUS.md #50)
+    current_world_mps: Optional[tuple] = None  # known current during the logs (log world frame);
+        # None = vehicle_spec.yaml's environment block (still water for the tank dataset)
     torque_reference_offset_m: Optional[tuple] = None  # None = vehicle_spec.yaml's
         # data_conventions.torque_reference_offset_m (or none); see objective.shift_torque_reference
     exclude_axes: tuple = ()  # subset of ("p", "q"): axes the logged inputs don't explain. Their
@@ -232,6 +234,7 @@ class CalibrationReport:
     objective_horizon_samples: Optional[int] = None
     objective_excluded_axes: tuple = ()
     objective_torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
+    objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
 
 
@@ -356,6 +359,8 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                       "prediction_horizon_samples": report.objective_horizon_samples,
                       "excluded_axes": list(report.objective_excluded_axes),
                       "torque_reference_offset_m": list(report.objective_torque_reference_offset_m),
+                      "current_world_mps": (None if report.objective_current_world_mps is None
+                                            else list(report.objective_current_world_mps)),
                       "held_parameters": report.objective_held_parameters},
         "parameter_deltas": [
             {"name": d.name, "default": d.default, "calibrated": d.calibrated,
@@ -400,8 +405,18 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
     loaded_spec = load_vehicle_spec(config.spec_path)
     if config.torque_reference_offset_m is None:
         config.torque_reference_offset_m = spec_torque_reference_offset(loaded_spec)
+    if config.current_world_mps is None:
+        from current import current_from_spec
+        spec_current = current_from_spec(loaded_spec)
+        config.current_world_mps = None if spec_current is None else tuple(float(x) for x in spec_current)
     dataset_config = DatasetConfig(sampling_rate_hz=config.sampling_rate_hz,
-                                   torque_reference_offset_m=tuple(config.torque_reference_offset_m))
+                                   torque_reference_offset_m=tuple(config.torque_reference_offset_m),
+                                   current_world_mps=(None if config.current_world_mps is None
+                                                      or not any(config.current_world_mps)
+                                                      else tuple(config.current_world_mps)))
+    if dataset_config.current_world_mps is not None:
+        logger.info("Logs recorded in a known water current of %s m/s (log world frame)",
+                    list(dataset_config.current_world_mps))
     if any(config.torque_reference_offset_m):
         logger.info("Logged torques re-expressed about a point offset %s m from the log's reference",
                     list(config.torque_reference_offset_m))
@@ -547,6 +562,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_horizon_samples=config.calibration_config.horizon_samples,
         objective_excluded_axes=tuple(config.exclude_axes),
         objective_torque_reference_offset_m=tuple(config.torque_reference_offset_m),
+        objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
     )
 
@@ -657,6 +673,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              "log's own reference. Default: vehicle_spec.yaml's data_conventions "
                              "(0 0 -0.085 for the BlueROV2 Heavy dataset, PROJECT_STATUS.md #50); "
                              "0 0 0 = use the logged torques as they are")
+    parser.add_argument("--current-world-mps", type=float, nargs=3, default=None, metavar=("VX", "VY", "VZ"),
+                        help="known water current during the recordings, in the logs' world frame (m/s). "
+                             "Default: vehicle_spec.yaml's environment block (still water for the tank "
+                             "dataset); 0 0 0 = still water (PROJECT_STATUS.md #55)")
     parser.add_argument("--axis-scaling", choices=["none", "zero_rms"], default="none",
                         help="'zero_rms' scores each axis relative to its 'predict zero' error on the "
                              "training runs, instead of raw m/s and rad/s (PROJECT_STATUS.md #50)")
@@ -842,6 +862,7 @@ def main() -> None:
         exclude_axes=tuple(args.exclude_axes),
         torque_reference_offset_m=(None if args.torque_reference_offset_m is None
                                    else tuple(args.torque_reference_offset_m)),
+        current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
     )
 
     try:

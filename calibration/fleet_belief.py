@@ -85,6 +85,11 @@ class TeammateBelief:
         elif self._beacon is not None:
             self._advance_one_tick()
 
+    def set_water_current(self, current_world: Optional[np.ndarray]) -> None:
+        """The ambient current this belief assumes (world frame, m/s), or None.
+        Only physics beliefs use it; beacon-based ones already see drift in the
+        teammate's reported velocity."""
+
     def _on_new_beacon(self, beacon: Beacon, now_tick: int) -> None:
         pass
 
@@ -136,6 +141,9 @@ class PhysicsBelief(TeammateBelief):
                  physics_dt: float = 0.005):
         self._core = FastCore(params, vehicle, SimulationConfig(dt=dt, physics_dt=physics_dt))
         super().__init__(dt)
+
+    def set_water_current(self, current_world):
+        self._core.current_world = None if current_world is None else [float(x) for x in current_world]
 
     def _on_new_beacon(self, beacon, now_tick):
         self._core.reset(position=beacon.position, nu=beacon.nu,

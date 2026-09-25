@@ -333,7 +333,7 @@ class Arena(gym.Env):
         params: CalibrationParameters,
         vehicle: VehicleConstants,
         dt: float = 0.1,
-        physics_dt: float = 0.02,
+        physics_dt: float = 0.005,
         max_episode_steps: int = 200,
         waypoint_radius: float = 0.5,
         fixed_waypoint: Optional[np.ndarray] = None,
@@ -344,6 +344,7 @@ class Arena(gym.Env):
         docking_orientation_tol_rad: float = 0.2,
         docking_max_speed: float = 0.3,
         obstacle_avoidance_config: Optional[ObstacleAvoidanceConfig] = None,
+        current: Optional["CurrentConfig"] = None,
     ):
         """
         task: "waypoint" (default, ORIGINAL behavior, unchanged) - touch
@@ -353,10 +354,25 @@ class Arena(gym.Env):
             orientation alignment, AND low speed simultaneously.
             "obstacle_avoidance" - route around a randomized obstacle to
             reach the goal; see ObstacleAvoidanceConfig/ObstacleAvoidanceTask.
+        physics_dt: internal integration step. Was 0.02 s until 2026-09-24:
+            explicit Euler at 0.02 s is unstable against this vehicle's
+            roll/pitch damping-to-inertia ratio once rates get large, and
+            uniformly random commands diverged within 200 steps in every
+            episode for every calibration on file (PROJECT_STATUS.md #55).
+            0.005 s (the SimulationConfig and fleet default) never did.
+            Single-vehicle results trained before that date used 0.02 s.
+        current: optional water current (current.CurrentConfig); None = still
+            water, the original behaviour. A new current is drawn each reset()
+            from the environment's own seeded RNG; the observation is unchanged
+            (the policy sees its velocity over ground).
         """
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
         self._core = ArenaCore(params, vehicle, sim_config)
+        if current is not None:
+            current.validate()
+        self._current_cfg = current if current is not None and current.active else None
+        self._current = None
         self.max_episode_steps = max_episode_steps
         self.waypoint_radius = waypoint_radius
         self._fixed_waypoint = None if fixed_waypoint is None else np.array(fixed_waypoint, dtype=float)
@@ -389,6 +405,10 @@ class Arena(gym.Env):
         self._step_count = 0
         spawn_override, waypoint_override = self._task_obj.reset(self)
         self._core.reset(position=spawn_override)
+        if self._current_cfg is not None:
+            from current import WaterCurrent
+            self._current = WaterCurrent(self._current_cfg, self._core.sim_config.dt,
+                                         int(self.np_random.integers(2**63 - 1)))
         if waypoint_override is not None:
             self._waypoint = np.array(waypoint_override, dtype=float)
         elif self._fixed_waypoint is not None:
@@ -402,11 +422,13 @@ class Arena(gym.Env):
                           self.action_space.low, self.action_space.high)
         self._last_action = action  # available to any task that needs it (e.g. control-effort reward)
         tau = action * self._action_bound  # rescale [-1,1] -> real force/torque units
+        self._core.current_world = None if self._current is None else self._current.next()
         self._core.step(tau)
         self._step_count += 1
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
-        info = {"distance": distance, "position": self._core.state.position.copy()}
+        info = {"distance": distance, "position": self._core.state.position.copy(),
+                "current_world": None if self._current is None else self._core.current_world.copy()}
         truncated = self._step_count >= self.max_episode_steps
 
         reward, terminated, task_info = self._task_obj.step(self, distance, truncated)

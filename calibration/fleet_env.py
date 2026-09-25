@@ -44,6 +44,7 @@ from typing import Optional
 import numpy as np
 
 from comm_channel import BandwidthConfig, CommChannel, PacketLossConfig, MESSAGE_TYPE_POSITION_BEACON
+from current import CurrentConfig, WaterCurrent
 from disturbance import DisturbanceConfig, RollPitchDisturbance, episode_seed
 from dynamics_model import CalibrationParameters, SimulationConfig, VehicleConstants
 from fast_dynamics import FastCore
@@ -86,6 +87,11 @@ class FleetConfig:
     # commanded wrench before the physics step; never part of the beacon,
     # since a teammate can't know it.
     disturbance: Optional[DisturbanceConfig] = None
+    # Water current (current.py, PROJECT_STATUS.md #55). None = still water
+    # (the tank the reference data comes from; the original behaviour). Both
+    # vehicles feel the same current; the policy doesn't observe it directly,
+    # only through its own velocity over ground.
+    current: Optional[CurrentConfig] = None
 
     @property
     def beacon_every_ticks(self) -> int:
@@ -114,6 +120,8 @@ class FleetConfig:
             raise ValueError(f"dynamics_backend must be 'stand_in' or 'mujoco', got {self.dynamics_backend!r}")
         if self.disturbance is not None:
             self.disturbance.validate()
+        if self.current is not None:
+            self.current.validate()
         self.task.validate()
 
 
@@ -129,6 +137,14 @@ class _MuJoCoTruth:
 
     def step(self, tau):
         self._core.step(tau)
+
+    @property
+    def current_world(self):
+        return self._core.current_world
+
+    @current_world.setter
+    def current_world(self, value):
+        self._core.current_world = value
 
     def position_array(self):
         return self._core.state.position.copy()
@@ -173,6 +189,7 @@ class FleetSim:
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
         self._disturbances = None
+        self._current = None
 
     # --- configuration that may change between episodes -------------------
     def set_comm(self, packet_loss_config=None, bandwidth_config=None, speed_of_sound_mps=1500.0,
@@ -211,6 +228,15 @@ class FleetSim:
         # start state and comm seed, different belief model) share disturbances
         self._disturbances = ([RollPitchDisturbance(dist, self.cfg.dt, episode_seed(comm_seed, i, d0, v0))
                                for i in range(N_AGENTS)] if dist is not None and dist.active else None)
+        cur = self.cfg.current
+        # one current for both vehicles (the same water), seeded like the disturbances
+        self._current = (WaterCurrent(cur, self.cfg.dt, episode_seed(comm_seed, N_AGENTS, d0, v0, salt=(0xC0,)))
+                         if cur is not None and cur.active else None)
+        known = self._current.mean_world if (self._current is not None and cur.known_to_beliefs) else None
+        for b in self.beliefs:
+            b.set_water_current(known)
+        for core in self.cores:
+            core.current_world = None
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
         return self._observations()
@@ -220,6 +246,11 @@ class FleetSim:
         Returns (obs list, shared reward, terminated, truncated, info)."""
         norm = [np.clip(np.asarray(a, dtype=float), -1.0, 1.0) for a in actions]
         taus = [a * self.cfg.action_bound for a in norm]
+        current_now = None
+        if self._current is not None:
+            current_now = self._current.next()
+            for core in self.cores:
+                core.current_world = current_now
         for i, (core, tau) in enumerate(zip(self.cores, taus)):
             core.step(tau if self._disturbances is None else tau + self._disturbances[i].next())
         self._tick += 1
@@ -265,6 +296,7 @@ class FleetSim:
             "belief_errors": belief_errors,
             "delivered": [bool(d) for d in delivered],
             "terminal_reason": task_info.get("terminal_reason"),
+            "current_world": current_now,
             "reward_components": dict(task_info["reward_components"], collision_tail=-collision_tail_penalty),
         }
         return self._observations(estimates), float(reward), bool(terminated), bool(truncated and not terminated), info

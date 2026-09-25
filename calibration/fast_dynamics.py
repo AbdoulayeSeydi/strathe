@@ -66,9 +66,23 @@ class FastDynamics:
         dynamics_model.compute_acceleration(...)[0]."""
         return self.acceleration_trig(v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch))
 
-    def acceleration_trig(self, v, tau, sr: float, cr: float, sp: float, cp: float) -> list:
+    def acceleration_current(self, v, tau, roll: float, pitch: float, cb) -> list:
+        """acceleration() in a water current; cb = current in body axes (3).
+        Same physics as dynamics_model._relative_to_water: forces from the
+        velocity relative to the water, plus the -omega x cb transport term."""
+        return self.acceleration_trig(v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch), cb)
+
+    def acceleration_trig(self, v, tau, sr: float, cr: float, sp: float, cp: float, cb=None) -> list:
         """acceleration() with sin/cos of roll and pitch precomputed (they are
-        constant across a teacher-forced sample's sub-steps)."""
+        constant across a teacher-forced sample's sub-steps). cb: optional
+        water current in body axes (see acceleration_current)."""
+        if cb is not None and (cb[0] or cb[1] or cb[2]):
+            p_, q_, r_ = v[3], v[4], v[5]
+            vd = self.acceleration_trig([v[0] - cb[0], v[1] - cb[1], v[2] - cb[2], p_, q_, r_], tau, sr, cr, sp, cp)
+            vd[0] -= q_ * cb[2] - r_ * cb[1]
+            vd[1] -= r_ * cb[0] - p_ * cb[2]
+            vd[2] -= p_ * cb[1] - q_ * cb[0]
+            return vd
         M, Minv, lin, quad = self.M, self.Minv, self.lin, self.quad
         # Momentum p = M v (full matrix -- keeps off-diagonal coupling exact).
         p = [M[i][0] * v[0] + M[i][1] * v[1] + M[i][2] * v[2]
@@ -144,6 +158,9 @@ class FastCore:
         self.dyn = FastDynamics(params, vehicle)
         self._n_sub = sim_config.n_substeps
         self._sub_dt = sim_config.sub_dt
+        # Water current in WORLD axes (m/s), or None for still water. Set it
+        # before each step() (fleet_env / current.py update it per tick).
+        self.current_world = None
         self.reset()
 
     def reset(self, position=None, nu=None, orientation: Optional[Rotation] = None):
@@ -162,13 +179,22 @@ class FastCore:
         R = self.R
         dt = self._sub_dt
         acc = self.dyn.acceleration
+        Vc = self.current_world
+        if Vc is not None and not (Vc[0] or Vc[1] or Vc[2]):
+            Vc = None
         try:
             for _ in range(self._n_sub):
                 roll, pitch = roll_pitch_from_matrix(R)
                 u, vv, w = v[0], v[1], v[2]
                 pos = [pos[i] + (R[i][0] * u + R[i][1] * vv + R[i][2] * w) * dt for i in range(3)]
-                R = _matmul3(R, _rotvec_matrix(v[3] * dt, v[4] * dt, v[5] * dt))
-                vd = acc(v, tau, roll, pitch)
+                if Vc is None:
+                    R = _matmul3(R, _rotvec_matrix(v[3] * dt, v[4] * dt, v[5] * dt))
+                    vd = acc(v, tau, roll, pitch)
+                else:
+                    # current in body axes at the START of the sub-step (same R as the kinematics)
+                    cb = [R[0][i] * Vc[0] + R[1][i] * Vc[1] + R[2][i] * Vc[2] for i in range(3)]
+                    R = _matmul3(R, _rotvec_matrix(v[3] * dt, v[4] * dt, v[5] * dt))
+                    vd = self.dyn.acceleration_current(v, tau, roll, pitch, cb)
                 v = [v[i] + vd[i] * dt for i in range(6)]
         except (OverflowError, ValueError) as e:
             # math.sin/sqrt raise instead of returning inf/nan once a diverging
@@ -204,7 +230,7 @@ class FastCore:
 
 def simulate_velocity_teacher_forced(params: CalibrationParameters, vehicle: VehicleConstants,
                                      n_substeps: int, sub_dt: float, nu0, forces_torques,
-                                     roll_pitch_series) -> np.ndarray:
+                                     roll_pitch_series, current_body_series=None) -> np.ndarray:
     """dynamics_model.simulate_trajectory's integration loop (teacher-forced
     roll/pitch, Forward Euler sub-steps), on FastDynamics. Returns (N, 6)."""
     dyn = FastDynamics(params, vehicle)
@@ -215,12 +241,14 @@ def simulate_velocity_teacher_forced(params: CalibrationParameters, vehicle: Veh
     v = [float(x) for x in nu0]
     F = forces_torques.tolist()
     RP = roll_pitch_series.tolist()
+    CB = None if current_body_series is None else np.asarray(current_body_series, dtype=float).tolist()
     for k in range(n - 1):
         tau = F[k]
         roll, pitch = RP[k]
+        cb = None if CB is None else CB[k]
         sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
         for _ in range(n_substeps):
-            vd = acc(v, tau, sr, cr, sp, cp)
+            vd = acc(v, tau, sr, cr, sp, cp, cb)
             v = [v[0] + vd[0] * sub_dt, v[1] + vd[1] * sub_dt, v[2] + vd[2] * sub_dt,
                  v[3] + vd[3] * sub_dt, v[4] + vd[4] * sub_dt, v[5] + vd[5] * sub_dt]
         out[k + 1] = v

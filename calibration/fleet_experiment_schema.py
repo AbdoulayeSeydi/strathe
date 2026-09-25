@@ -28,6 +28,12 @@ and any comm override crashed with a KeyError.)
     disturbance:                     # optional; default = clean simulation
       roll_pitch: fitted             # none | fitted | path/to/your_fit.yaml
       scale: 1.0                     # 0 = off, 1 = as fitted to real logs, 2 = twice as rough
+    current:                         # optional water current; default = still water (tank)
+      speed_mps: 0.2                 # or [0.0, 0.3]: drawn per episode
+      direction_deg: 90              # direction the water flows toward, or [0, 360]
+      vertical_mps: 0.0
+      variability: {speed_std_mps: 0.05, direction_std_deg: 10, time_scale_s: 30}
+      known_to_beliefs: true         # physics teammate models know the episode's mean current
     output_dir: results/my_experiment
 
 BELIEF PRESETS -- how each vehicle predicts its teammate between beacons:
@@ -218,6 +224,42 @@ class DisturbanceBlock(BaseModel):
         return DEFAULT_FIT_PATH if self.roll_pitch == "fitted" else self.roll_pitch
 
 
+class CurrentVariability(BaseModel):
+    speed_std_mps: float = Field(default=0.0, ge=0.0)
+    direction_std_deg: float = Field(default=0.0, ge=0.0)
+    time_scale_s: float = Field(default=30.0, ge=1.0)
+
+
+class CurrentBlock(BaseModel):
+    """Water current (current.py). Absent = still water. A number or a
+    [min, max] pair for speed and direction; pairs are drawn per episode."""
+    speed_mps: Union[float, list[float]] = 0.0
+    direction_deg: Union[float, list[float]] = 0.0
+    vertical_mps: float = 0.0
+    variability: CurrentVariability = Field(default_factory=CurrentVariability)
+    known_to_beliefs: bool = True
+
+    @model_validator(mode="after")
+    def _valid(self):
+        self.to_config()   # raises ValueError with a specific message
+        return self
+
+    def to_config(self):
+        from current import CurrentConfig
+        def rng(x):
+            if isinstance(x, list):
+                if len(x) != 2:
+                    raise ValueError(f"a range must be [min, max], got {x}")
+                return (float(x[0]), float(x[1]))
+            return float(x)
+        cfg = CurrentConfig(speed_mps=rng(self.speed_mps), direction_deg=rng(self.direction_deg),
+                            vertical_mps=self.vertical_mps, speed_std_mps=self.variability.speed_std_mps,
+                            direction_std_deg=self.variability.direction_std_deg,
+                            time_scale_s=self.variability.time_scale_s, known_to_beliefs=self.known_to_beliefs)
+        cfg.validate()
+        return cfg
+
+
 class FleetExperimentConfig(BaseModel):
     schema_version: Literal[2]
     name: str = ""
@@ -232,6 +274,7 @@ class FleetExperimentConfig(BaseModel):
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     dynamics_backend: Literal["stand_in", "mujoco", "both"] = "stand_in"
     disturbance: DisturbanceBlock = Field(default_factory=DisturbanceBlock)
+    current: Optional[CurrentBlock] = None
     output_dir: str
 
     @model_validator(mode="after")

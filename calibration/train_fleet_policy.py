@@ -109,14 +109,34 @@ def main():
                     help="'none' (clean, default), 'fitted' (disturbances/bluerov2_rollpitch.yaml) or a fitted "
                          "disturbance YAML: random roll/pitch torques shaped like real unexplained motion")
     ap.add_argument("--disturbance-scale", type=float, default=1.0)
+    ap.add_argument("--current-speed", type=float, nargs="+", metavar="MPS",
+                    help="water current speed: one value, or MIN MAX to draw one per episode (default: still water)")
+    ap.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG",
+                    help="direction the water flows toward: one value, or MIN MAX (default 0 360: any direction)")
+    ap.add_argument("--current-speed-std", type=float, default=0.0, help="slow speed fluctuation (m/s)")
+    ap.add_argument("--current-direction-std", type=float, default=0.0, help="slow direction fluctuation (deg)")
+    ap.add_argument("--current-time-scale", type=float, default=30.0, help="fluctuation time scale (s)")
+    ap.add_argument("--current-unknown-to-beliefs", action="store_true",
+                    help="physics teammate models don't know the current (default: they know its episode mean)")
     ap.add_argument("--out", required=True, help="output path without .zip")
     args = ap.parse_args()
-    fleet_config = None
+    fleet_kwargs = {}
     if args.disturbance != "none":
         from disturbance import DEFAULT_FIT_PATH, load_disturbance
         dpath = DEFAULT_FIT_PATH if args.disturbance == "fitted" else args.disturbance
-        fleet_config = FleetConfig(disturbance=load_disturbance(dpath, args.disturbance_scale,
-                                                                truth_params_path=args.truth_params))
+        fleet_kwargs["disturbance"] = load_disturbance(dpath, args.disturbance_scale,
+                                                       truth_params_path=args.truth_params)
+    if args.current_speed:
+        from current import CurrentConfig
+        pick = lambda xs, name: xs[0] if len(xs) == 1 else (xs[0], xs[1]) if len(xs) == 2 else ap.error(
+            f"--{name} takes one value or MIN MAX")
+        fleet_kwargs["current"] = CurrentConfig(
+            speed_mps=pick(args.current_speed, "current-speed"),
+            direction_deg=pick(args.current_direction, "current-direction"),
+            speed_std_mps=args.current_speed_std, direction_std_deg=args.current_direction_std,
+            time_scale_s=args.current_time_scale, known_to_beliefs=not args.current_unknown_to_beliefs)
+        fleet_kwargs["current"].validate()
+    fleet_config = FleetConfig(**fleet_kwargs) if fleet_kwargs else None
 
     import torch
     from stable_baselines3 import PPO
@@ -145,9 +165,11 @@ def main():
                                   "belief_mix": BELIEF_MIX if args.belief == "mix" else None,
                                   "initial_separation_range_m": list(FleetConfig().initial_separation_range),
                                   "initial_closing_speed_range_mps": list(FleetConfig().initial_closing_speed_range),
-                                  "disturbance": (None if fleet_config is None else
-                                                  {"file": fleet_config.disturbance.source,
-                                                   "scale": fleet_config.disturbance.scale})},
+                                  "disturbance": (None if fleet_config is None or fleet_config.disturbance is None
+                                                  else {"file": fleet_config.disturbance.source,
+                                                        "scale": fleet_config.disturbance.scale}),
+                                  "current": (None if fleet_config is None or fleet_config.current is None
+                                              else fleet_config.current.describe())},
         "git_commit": get_git_commit(), "git_uncommitted_changes": get_git_dirty(),
         "python": platform.python_version(),
         "elapsed_s": round(elapsed, 1), "transitions_per_s": round(args.timesteps / elapsed, 1),

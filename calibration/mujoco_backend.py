@@ -462,10 +462,11 @@ def simulate_trajectory_mujoco(
                 v = nu[k]
                 tau = trajectory.forces_torques[k]
                 roll, pitch = trajectory.roll_pitch_series[k]
+                cb = None if trajectory.current_body_series is None else trajectory.current_body_series[k]
 
                 damping_force = g_eta = v_dot = None
                 for _ in range(n_substeps):
-                    v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch)
+                    v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch, cb)
 
                     R = _set_teacher_forced_state(data, roll, pitch, v, qpos_adr, dof_adr)
                     _inject_full_override_wrench(model, data, v_dot, R, body_id, dof_adr)
@@ -479,6 +480,10 @@ def simulate_trajectory_mujoco(
                     debug_info["restoring_force"][k] = g_eta
                     debug_info["acceleration"][k] = v_dot
         else:
+            if trajectory.current_body_series is not None:
+                raise NotImplementedError(
+                    "a per-sample body-axes current only makes sense with teacher-forced orientation; "
+                    "for forward simulation in a current use MuJoCoArenaCore.current_world")
             # B1.6: genuine forward simulation -- initialize once, then
             # let MuJoCo self-integrate for the entire trajectory.
             roll0, pitch0 = trajectory.roll_pitch_series[0]
@@ -665,6 +670,10 @@ class MuJoCoArenaCore:
         self._data = mujoco.MjData(self._model)
         self._qpos_adr, self._dof_adr = _body_qpos_dof_addr(self._model, _BODY_ID)
         self.state = ArenaState.initial()
+        # Water current in WORLD axes (m/s), or None for still water; the
+        # calibrated forces act on the velocity relative to it
+        # (dynamics_model._relative_to_water). Set before each step().
+        self.current_world = None
 
     def reset(self, position: np.ndarray = None, nu: np.ndarray = None) -> ArenaState:
         """Same signature/defaults as ArenaCore.reset() exactly --
@@ -694,7 +703,7 @@ class MuJoCoArenaCore:
                 R = _current_rotation_matrix(self._data, self._qpos_adr)
                 v = _extract_body_velocity_mujoco(self._data, R, self._dof_adr)
                 v_dot, _damping, _restoring = compute_acceleration_from_rotation_matrix(
-                    self.params, self.vehicle, v, tau, R)
+                    self.params, self.vehicle, v, tau, R, current_world=self.current_world)
                 _inject_full_override_wrench(self._model, self._data, v_dot, R, _BODY_ID, self._dof_adr,
                                              self_integrating_orientation=True)
                 mujoco.mj_step(self._model, self._data)
