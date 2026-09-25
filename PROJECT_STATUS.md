@@ -630,9 +630,81 @@ It was tested end to end in a real browser (fleet smoke run: start, live log, re
 - Disturbance-trained policies score 6–8 points higher at L3a @ 3 s, but equally with the disturbance off. That's more likely seed variation than learned robustness.
 - MuJoCo agrees: −1 (−2, +0).
 
+### 55. Water current for open-water labs: configurable, off by default, in every engine and in calibration (2026-09-24)
+
+Until now the simulation assumed still water. `vehicle_spec.yaml` had current fields, but nothing in the physics read them, which ruled out open-water labs.
+
+**Physics** (`dynamics_model._relative_to_water`, Fossen 2011 Property 10.1):
+- The calibrated drag, added-mass and Coriolis forces act on the velocity relative to the water; position integrates velocity over ground.
+- The current, seen in body axes, rotates as the vehicle turns. That adds a −ω × v_c term.
+- It's implemented in the reference dynamics, the fast stand-in, the single-vehicle core and MuJoCo. Zero or absent current is bit-identical to before.
+
+**Tests** (`tests/test_water_current.py`, 31 tests):
+- An unpowered vehicle ends up drifting at exactly the current, on all three engines.
+- A spinning vehicle moving with the water stays with it. A mutation check confirms this test fails without the −ω × v_c term: 0.024 m/s error vs 0.00003.
+- Station-keeping takes exactly the drag of the current.
+- The fast and reference physics agree, and MuJoCo agrees with the stand-in.
+- Configuration validation, per-episode draws, and fluctuation statistics (spread and time scale).
+- Pairing: both vehicles share the same water, and the currents are identical across teammate models.
+- The single-vehicle environment, and the YAML block.
+
+**Configuration** (`current.py`, off unless asked for):
+- Speed and direction, fixed or drawn per episode from a range.
+- Vertical flow.
+- Slow fluctuation of speed and direction (Ornstein–Uhlenbeck, with a time scale of at least 1 s).
+- Whether physics teammate models know the episode's mean current.
+
+It's available through:
+- a `current:` block in the fleet YAML, stated in the report
+- `strathe fleet --current-speed/--current-direction/...`, which writes a copy of the experiment to `strathe_jobs/` so shipped results are never overwritten
+- fields on the web page's fleet form, validated on the server
+- `train_fleet_policy.py --current-*`
+- `Arena(..., current=CurrentConfig(...))`
+
+**Calibration from open-water logs.**
+- `DatasetConfig.current_world_mps` sets the current, as does `run_calibration.py` / `strathe calibrate --current-world-mps`. The default is `vehicle_spec.yaml`'s environment block, still water for the tank dataset. The logged quaternions rotate it into body axes per sample.
+- Synthetic ground truth with a 0.2 m/s current: when the current is supplied, linear and quadratic surge drag are recovered exactly. Ignoring it leaves 0.2 m/s of unexplained error, and shifts the drag terms by 1–5% depending on the vehicle's other parameters (5% with expA, 1% with the current truth).
+- **Limit:** this handles a current that is known and roughly constant within each recording. Estimating an unknown or changing current from the logs themselves isn't built, and neither is a current that varies across space.
+
+**Stress test before shipping** (all passed after one fix):
+- 500 random episodes with currents up to 3 m/s, vertical flow ±0.5 m/s and fluctuation, under uniformly random full-strength thrust: no divergence. The stand-in and MuJoCo stay within 0.33 m of each other after 30 s of chaotic forcing.
+- Unpowered drift matches any current to better than 0.01 cm/s after 60 s.
+- 9,000 fleet steps with current and roll/pitch disturbance together, on both engines: no crash, and the true trajectory is identical across teammate models.
+- Gymnasium's `check_env` passes on all four single-vehicle tasks with a current.
+- The calibration pipeline runs end to end with a known current.
+- The web form works end to end in a real browser.
+
+**Bug found by the stress test, fixed.** The single-vehicle environment (`Arena`) defaulted to a 0.02 s physics step.
+- At that step, uniformly random commands diverged within 200 steps in every episode, for every calibration on file, with or without current. Explicit Euler is unstable at 0.02 s against this vehicle's roll/pitch damping-to-inertia ratio at high rates.
+- The default is now 0.005 s, the fleet's and the physics default, which never diverged. `ArenaCore` now raises its own `FloatingPointError` instead of an obscure scipy quaternion error.
+- Single-vehicle policies trained before this date (Claim B) used 0.02 s. PPO's exploration evidently stayed out of the unstable region, but those results were produced with the old step.
+
+**Study** (`run_current_study.py`, 34,800 paired episodes, `results/fleet_v2_current/`):
+- **Conditions:** currents of 0, 0.1, 0.2 and 0.3 m/s in a random direction each episode, plus 0.2 m/s with fluctuation.
+- **Teammate models:** calibrated that knows the current, calibrated unaware of it, and last beacon.
+- **Policies:** the three still-water-trained ones, and two new ones trained in random currents up to 0.3 m/s (`current_policies/`).
+- **Comm:** L2 with 1 s beacons, L3a with 3 s beacons.
+- **Engines:** the stand-in, with MuJoCo as a cross-check.
+
+Findings:
+1. **Currents barely hurt formation-holding.**
+   - With 1 s beacons, nothing changes up to 0.3 m/s.
+   - At L3a with 3 s beacons, still-water policies lose 5 points at 0.3 m/s (−7, −2), and 0–2 points (not significant) at 0.1–0.2 m/s.
+   - Policies act on their own velocity over ground, so the current reaches them mostly through the teammate estimate.
+2. **Knowing the current is what matters.** At L3a with 3 s beacons, a calibrated model that knows the current beats one that doesn't:
+   - still-water policies: +6 (+2, +10) at 0.2 m/s, +8 (+4, +13) at 0.3 m/s, and +4 (+0, +8) with fluctuation
+   - current-trained policies: +6, +7 and +13 at 0.1, 0.2 and 0.3 m/s
+3. **In a current, calibrated prediction pulls ahead of no prediction, if it knows the current.**
+   - Still-water policies, calibrated-and-aware vs last beacon: +3 (not significant) in still water, +8 (+3, +12) at 0.3 m/s.
+   - The unaware model only ties last beacon.
+   - So a fleet working in currents should estimate the ambient current and give it to its teammate model.
+4. **Training in currents didn't help.** The current-trained policies were 0–4 points below the still-water ones, paired by seed. The still-water policies already cope, because they see their own velocity over ground.
+5. **MuJoCo agrees with the stand-in:** −0 (−2, +1), n = 2,400.
+
 ## Honest open items
 
-- **Physics dead reckoning doesn't beat last-beacon** (finding #48): predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
+- **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
+- **Currents: unknown or changing currents** can't yet be estimated from logs, and currents don't vary across space (#55). A fleet that works in currents should estimate the ambient current and give it to its teammate model.
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
 - **Roll and pitch have no predictive skill yet** (#50): after the torque-arm correction they are at about zero skill (no longer worse than predicting no motion), not positive. This dataset's roll/pitch motion is mostly not caused by the thrusters, so it can't identify roll/pitch damping. It doesn't matter for formation-holding (#52), but it will for attitude-dependent tasks. It needs free-decay tests and deliberate roll/pitch manoeuvres from a lab.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. For roll/pitch damping this is the output-error artifact of #50, not a bounds problem. The translational damping pins still need review by someone who knows the vehicle.

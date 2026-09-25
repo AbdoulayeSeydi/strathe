@@ -241,7 +241,7 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <label for=fleet-config>…or your own experiment YAML (full path; leave empty to use the one above)</label>
 <input type=text id=fleet-config name=config value="">
 <fieldset class=current><legend>Water current (optional; off = still water, like a tank)</legend>
-<label class=inline><input type=checkbox id=cur-on name=current_on value=1> Add a water current</label>
+<label class=inline><input type=checkbox id=cur-on name=current_on value=1 aria-label="Add a water current"> Add a water current</label>
 <label for=cur-speed>Speed in m/s: one value, or a range drawn per episode (e.g. <code>0.2</code> or
 <code>0.1-0.3</code>)</label><input type=text id=cur-speed name=current_speed value="0.2">
 <label for=cur-dir>Direction the water flows toward, in degrees (<code>90</code>, a range like <code>0-90</code>,
@@ -251,7 +251,7 @@ or <code>any</code>)</label><input type=text id=cur-dir name=current_direction v
 <label for=cur-dstd>Slow fluctuation of direction, degrees (optional)</label>
 <input type=text id=cur-dstd name=current_direction_std value="0">
 <label for=cur-ts>Fluctuation time scale, seconds</label><input type=text id=cur-ts name=current_time_scale value="30">
-<label class=inline><input type=checkbox id=cur-known name=current_known value=1 checked> Teammate models know the
+<label class=inline><input type=checkbox id=cur-known name=current_known value=1 checked aria-label="Teammate models know the average current"> Teammate models know the
 average current</label>
 </fieldset>
 <button>Start experiment</button></form></div>

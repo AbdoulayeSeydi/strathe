@@ -29,7 +29,9 @@ All three work today, with the scope limits at the end of this document.
 The simplest route is `python strathe.py web` from the repository root: a local
 web page to start experiments, watch them run and read the reports.
 `python strathe.py fleet [--config my_experiment.yaml]` does the same from the
-terminal. The underlying scripts:
+terminal. Open-water labs can add a water current from the web form, with
+`--current-speed` / `--current-direction`, or with a `current:` block in the YAML
+(CUSTOM_EXPERIMENT.md section 9). The underlying scripts:
 
 ```bash
 cd calibration

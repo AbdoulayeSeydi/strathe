@@ -189,7 +189,7 @@ result than "still investigating" — see Part 3, item 29.
 
 ## Part 3 — Detailed gap list: MVP → full product
 
-> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#53). Items below are unchanged text; this is what has moved since:
+> **Status update, 2026-09-23** (details in PROJECT_STATUS.md #39-#55). Items below are unchanged text; this is what has moved since:
 >
 > | Item | Now |
 > |---|---|
@@ -201,7 +201,8 @@ result than "still investigating" — see Part 3, item 29.
 > | 27, 30. Customer confidence reporting | **Done:** `calibration_report.py` writes a plain-language per-axis verdict, limits, confounded parameters and next steps. |
 > | 29. Rotational weakness | **Corrected and partly fixed (#50-#52).** Yaw is predictive (skill +0.60 vs predicting no motion). Roll and pitch were *worse* than predicting no motion; the earlier "+82% vs default" hid that. The main cause was a thrust moment arm in the logged torques. Correcting it (`vehicle_spec.yaml` `data_conventions`) and refitting lifts roll/pitch to about zero skill. The rest of this dataset's roll/pitch motion isn't caused by the thrusters, so it can't be calibrated from these logs; that needs lab free-decay tests. Formation-holding is unaffected (15,200 paired episodes with realistic wobble). |
 > | Onboarding (six terminal commands) | **Done:** `python strathe.py calibrate --data <logs>` runs check, fit and report; `python strathe.py web` is a local web page for calibration, fleet runs, log conversion and reports (#53). |
-> | Disturbances / clean vs noisy modes | **Started:** a roll/pitch disturbance fitted to the real logs is a YAML switch (`disturbance:`) and a training flag (#51). Currents and sensor noise are not modelled yet. |
+> | Disturbances / clean vs noisy modes | **Started:** a roll/pitch disturbance fitted to the real logs is a YAML switch (`disturbance:`) and a training flag (#51). Sensor noise is not modelled yet. |
+> | Water current (open water) | **Done, off by default (#55):** speed and direction (fixed or drawn per episode), vertical flow, slow fluctuation, and whether teammate models know it. Works in both engines, the fleet, the single-vehicle env, the CLI, the web page and training. Calibration accepts a known, roughly constant current per recording. Not built: estimating an unknown or changing current from logs, and currents that vary across space. |
 > | Unit economics | The stand-in replay is 3x faster (`fast_dynamics.py`, measured A/B); see UNIT_ECONOMICS.md. |
 
 
