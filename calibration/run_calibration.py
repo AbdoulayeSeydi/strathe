@@ -236,6 +236,7 @@ class CalibrationReport:
     objective_torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
+    objective_sampling_rate_hz: float = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +362,8 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                       "torque_reference_offset_m": list(report.objective_torque_reference_offset_m),
                       "current_world_mps": (None if report.objective_current_world_mps is None
                                             else list(report.objective_current_world_mps)),
-                      "held_parameters": report.objective_held_parameters},
+                      "held_parameters": report.objective_held_parameters,
+                      "sampling_rate_hz": report.objective_sampling_rate_hz},
         "parameter_deltas": [
             {"name": d.name, "default": d.default, "calibrated": d.calibrated,
              "magnitude_ratio": d.magnitude_ratio, "crossed_zero": d.crossed_zero}
@@ -564,6 +566,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_torque_reference_offset_m=tuple(config.torque_reference_offset_m),
         objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
+        objective_sampling_rate_hz=config.sampling_rate_hz,
     )
 
     _save_artifacts(report, config.output_dir)
@@ -842,7 +845,8 @@ def main() -> None:
         on_iteration=None if args.parallel else make_checkpoint_callback(checkpoint_path),
         # times every evaluation on 3 clocks and stack-dumps stalls into
         # output_dir/stall_log.txt (not supported with --parallel's worker processes)
-        stall_watchdog=None if args.parallel else StallWatchdog(args.output_dir),
+        stall_watchdog=None if args.parallel else StallWatchdog(args.output_dir,
+                                                                delegated=args.eval_workers > 1),
         eval_workers=1 if args.parallel else max(1, args.eval_workers),
         horizon_samples=(None if args.prediction_horizon_s is None
                          else max(2, int(round(args.prediction_horizon_s * args.sampling_rate_hz)))),

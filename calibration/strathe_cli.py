@@ -3,8 +3,11 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
 
     python strathe.py check                              is my machine set up?
     python strathe.py calibrate --data <logs folder>     calibrate a vehicle, end to end
+    python strathe.py calibrate --ingest-spec my.yaml    ... straight from your own logs (CSV or ROS bags)
     python strathe.py report --result <output folder>    plain-language report for a result
-    python strathe.py fleet [--config my_experiment.yaml]  run a fleet experiment
+    python strathe.py arena --params <calibration>       one vehicle: train and test a controller on a task
+    python strathe.py fleet [--config my_experiment.yaml]  two vehicles: run a fleet experiment
+    python strathe.py train-fleet --params <calibration> train a fleet policy for your vehicle
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -12,11 +15,15 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
 be run from any folder.)
 
 `calibrate` replaces the old sequence of separate terminal commands:
+  0. (with --ingest-spec) convert your logs  (data_ingestion.py)
   1. pre-flight data checks            (preflight_check.py)
   2. calibration with the recommended settings (run_calibration.py)
-  3. the plain-language report         (calibration_report.py)
-and stops with a clear message at the first step that fails. Every step is
-still a normal script that specialists can run on its own.
+  3. which parameters the data can pin down (automated_identifiability_report.py)
+  4. the plain-language report         (calibration_report.py)
+and stops with a clear message at the first step that fails (step 3 only
+warns). The logs' sampling rate and torque convention come from the
+ingestion report when there is one. Every step is still a normal script that
+specialists can run on its own.
 """
 from __future__ import annotations
 
@@ -40,12 +47,46 @@ RECOMMENDED_CALIBRATION_FLAGS = ["--axis-scaling", "zero_rms"]
 REQUIRED_PACKAGES = [("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"), ("yaml", "pyyaml"),
                      ("pydantic", "pydantic"), ("mujoco", "mujoco"), ("stable_baselines3", "stable-baselines3"),
                      ("torch", "torch")]
-OPTIONAL_PACKAGES = [("mlflow", "mlflow", "experiment tracking"),
+OPTIONAL_PACKAGES = [("rosbags", "rosbags", "reading ROS 1/ROS 2 bags directly"),
+                     ("mlflow", "mlflow", "experiment tracking"),
                      ("holoocean", "holoocean", "HoloOcean engine (not needed for calibration or the fleet kit)")]
 
 
 def _abs(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
+
+
+def spec_file(path: str) -> str:
+    """Absolute path of a vehicle description given on the command line (see spec_path); must exist."""
+    p = spec_path(path)
+    p = p if os.path.isabs(p) else os.path.join(CAL_DIR, p)
+    if not os.path.exists(p):
+        raise ValueError(f"vehicle description not found: {p}")
+    return p
+
+
+def spec_path(path: str) -> str:
+    """A vehicle description given on the command line: relative to where the user is, else one of the
+    files shipped in calibration/ (the scripts run from there)."""
+    p = os.path.expanduser(path)
+    if os.path.isabs(p):
+        return p
+    if os.path.exists(p):
+        return os.path.abspath(p)
+    return p
+
+
+def ingest_summary(data: str) -> dict:
+    """The ingest_report.json data_ingestion.py wrote into a logs folder, or {}."""
+    import json
+    path = os.path.join(data, "ingest_report.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
 
 
 def default_workers() -> int:
@@ -62,18 +103,37 @@ def safe_name(name: str) -> str:
 
 # ----------------------------------------------------------------- commands as argv lists
 
-def preflight_argv(data: str, spec: str, heldout_dates: Optional[list]) -> list:
+def preflight_argv(data: str, spec: str, heldout_dates: Optional[list], rate: Optional[float] = None) -> list:
     argv = ["preflight_check.py", "--data-dir", _abs(data), "--spec", spec]
+    if rate is not None:
+        argv += ["--sampling-rate-hz", f"{rate:g}"]
     return argv + (["--heldout-dates", *heldout_dates] if heldout_dates else [])
 
 
 def calibrate_argv(data: str, out: str, spec: str, heldout_dates: Optional[list], workers: int,
-                   max_nfev: int, extra: Optional[list] = None) -> list:
+                   max_nfev: int, extra: Optional[list] = None, rate: Optional[float] = None) -> list:
     argv = ["run_calibration.py", "--data-dir", _abs(data), "--spec", spec, "--output-dir", _abs(out),
             "--max-nfev", str(max_nfev), "--eval-workers", str(workers), *RECOMMENDED_CALIBRATION_FLAGS]
+    if rate is not None:
+        argv += ["--sampling-rate-hz", f"{rate:g}"]
     if heldout_dates:
         argv += ["--heldout-dates", *heldout_dates]
     return argv + list(extra or [])
+
+
+def finalize_argv(out: str, data: str, spec: str, heldout_dates: Optional[list], rate: Optional[float],
+                  extra: list, reason: str) -> list:
+    """finalize_checkpoint.py with the same objective settings the calibration step was given."""
+    argv = ["finalize_checkpoint.py", "--checkpoint", os.path.join(_abs(out), "checkpoint.yaml"),
+            "--data-dir", _abs(data), "--spec", spec, *RECOMMENDED_CALIBRATION_FLAGS, *extra, "--reason", reason]
+    if rate is not None:
+        argv += ["--sampling-rate-hz", f"{rate:g}"]
+    return argv + (["--heldout-dates", *heldout_dates] if heldout_dates else [])
+
+
+def identifiability_argv(out: str, data: str, spec: str, workers: int) -> list:
+    return ["automated_identifiability_report.py", "--result", _abs(out), "--data-dir", _abs(data), "--spec", spec,
+            "--workers", str(workers)]
 
 
 def report_argv(result: str, data: Optional[str], spec: str, heldout_dates: Optional[list]) -> list:
@@ -110,9 +170,14 @@ def current_block(speed, direction, speed_std: float = 0.0, direction_std: float
 
 
 def experiment_with_current(config: Optional[str], block: dict, jobs_dir: Optional[str] = None) -> str:
-    """Copy an experiment YAML with a `current:` block added and its output
-    redirected into jobs_dir (so shipped results are never overwritten).
-    Returns the new YAML's path."""
+    """Copy an experiment YAML with a `current:` block added (see experiment_with_overrides)."""
+    return experiment_with_overrides(config, {"current": block}, jobs_dir)
+
+
+def experiment_with_overrides(config: Optional[str], overrides: dict, jobs_dir: Optional[str] = None) -> str:
+    """Copy an experiment YAML with some top-level fields replaced (current, thrusters,
+    vehicle_spec, truth_params) and its output redirected into jobs_dir (so shipped
+    results are never overwritten). Returns the new YAML's path."""
     import time
     import yaml
     jobs_dir = jobs_dir or JOBS_DIR
@@ -120,14 +185,17 @@ def experiment_with_current(config: Optional[str], block: dict, jobs_dir: Option
     with open(src, encoding="utf-8") as f:
         exp = yaml.safe_load(f)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    name = safe_name(f"{exp.get('name') or os.path.splitext(os.path.basename(src))[0]}_current")
+    suffix = "_current" if set(overrides) == {"current"} else "_custom"
+    name = safe_name(f"{exp.get('name') or os.path.splitext(os.path.basename(src))[0]}{suffix}")
     os.makedirs(jobs_dir, exist_ok=True)
     exp["name"] = name
-    exp["current"] = block
+    exp.update(overrides)
     exp["output_dir"] = os.path.join(jobs_dir, f"{name}_{stamp}")
     out = os.path.join(jobs_dir, f"{name}_{stamp}.yaml")
+    what = ", ".join({"current": "a water current", "thrusters": "thruster limits", "vehicle_spec": "your vehicle "
+                      "description", "truth_params": "your calibration"}.get(k, k) for k in overrides)
     with open(out, "w", encoding="utf-8") as f:
-        f.write(f"# Generated by `strathe fleet` from {src}, with a water current added.\n")
+        f.write(f"# Generated by `strathe fleet` from {src}, with {what}.\n")
         yaml.safe_dump(exp, f, sort_keys=False)
     return out
 
@@ -184,36 +252,90 @@ def cmd_check(args, runner=None) -> int:
 
 
 def cmd_calibrate(args, runner=None) -> int:
-    data = _abs(args.data)
-    if not os.path.isdir(data):
-        print(f"❌ data folder not found: {data}")
+    if bool(args.data) == bool(args.ingest_spec):
+        print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
         return 2
     out = _abs(args.out) if args.out else os.path.join(REPO_DIR, f"calibration_output_{safe_name(args.name)}")
-    extra = []
-    if args.torque_reference_offset_m:
-        extra += ["--torque-reference-offset-m", *map(str, args.torque_reference_offset_m)]
-    if args.exclude_axes:
-        extra += ["--exclude-axes", *args.exclude_axes]
-    if args.current_world_mps:
-        extra += ["--current-world-mps", *map(str, args.current_world_mps)]
-    steps = [
-        ("Checking your data before spending compute on it", preflight_argv(data, args.spec, args.heldout_dates)),
-        (f"Calibrating (this takes a while: minutes on a small log set, about an hour on the reference dataset; "
-         f"the machine is kept awake)", calibrate_argv(data, out, args.spec, args.heldout_dates, args.workers,
-                                                        args.max_nfev, extra)),
-        ("Writing the plain-language report", report_argv(out, data, args.spec, args.heldout_dates)),
+    spec = spec_path(args.spec)
+    if args.ingest_spec:
+        if not os.path.exists(_abs(args.ingest_spec)):
+            print(f"❌ ingestion spec not found: {_abs(args.ingest_spec)}")
+            return 2
+        data = os.path.join(out, "ingested_logs")
+    else:
+        data = _abs(args.data)
+        if not os.path.isdir(data):
+            print(f"❌ data folder not found: {data}")
+            return 2
+
+    memo = {}
+
+    def settings():
+        """Sampling rate and torque convention: flags, else the ingestion report, else the defaults.
+        Read once, after any ingestion step has run."""
+        if "v" in memo:
+            return memo["v"]
+        info = ingest_summary(data)
+        rate = args.sampling_rate_hz or info.get("sampling_rate_hz")
+        extra = []
+        offset = args.torque_reference_offset_m or info.get("torque_reference_offset_m")
+        if offset is not None:
+            extra += ["--torque-reference-offset-m", *map(str, offset)]
+        if args.exclude_axes:
+            extra += ["--exclude-axes", *args.exclude_axes]
+        if args.current_world_mps:
+            extra += ["--current-world-mps", *map(str, args.current_world_mps)]
+        if rate is None:
+            print("ℹ️  No sampling rate given and no ingest_report.json in the data folder: assuming 10 Hz "
+                  "(pass --sampling-rate-hz if your logs are at another rate).")
+        elif not args.sampling_rate_hz:
+            print(f"ℹ️  Logs are at {rate:g} Hz (from ingest_report.json)."
+                  + (f" Torques re-expressed about {offset} m, as the ingestion recorded." if offset else ""))
+        memo["v"] = (None if rate is None else float(rate)), extra
+        return memo["v"]
+
+    steps = []
+    if args.ingest_spec:
+        steps.append(("Converting your logs into Strathe's layout", lambda: ingest_argv(args.ingest_spec, data),
+                      "Your logs couldn't be converted; the message above says what's wrong with them or with "
+                      "the ingestion spec (templates are in calibration/templates/).", True))
+    steps += [
+        ("Checking your data before spending compute on it",
+         lambda: preflight_argv(data, spec, args.heldout_dates, settings()[0]),
+         "The data check found problems; its messages above say what to fix.", True),
+        ("Calibrating (this takes a while: minutes on a small log set, about an hour on the reference dataset; "
+         "the machine is kept awake)",
+         lambda: calibrate_argv(data, out, spec, args.heldout_dates, args.workers, args.max_nfev, *settings()[::-1]),
+         "Calibration didn't finish. If it ran out of evaluations, re-run with a larger --max-nfev, or turn the "
+         "best result so far (checkpoint.yaml in the output folder) into a usable, clearly-marked result with "
+         "calibration/finalize_checkpoint.py.", True),
     ]
-    for i, (title, argv) in enumerate(steps, 1):
+    if not args.skip_identifiability:
+        steps.append(("Checking which values your data can pin down (a few minutes)",
+                      lambda: identifiability_argv(out, data, spec, args.workers),
+                      "The check of which values the data can pin down failed; the report is written without "
+                      "that section.", False))
+    steps.append(("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
+                  "The report couldn't be written; the calibration itself is saved in the output folder.", True))
+    for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
         _banner(i, len(steps), title)
+        argv = make_argv()
         rc = run_step(argv, runner)
-        if rc != 0:
-            hint = {1: "The data check found problems; its messages above say what to fix.",
-                    2: "Calibration didn't finish. If it ran out of evaluations, re-run with a larger --max-nfev, "
-                       "or turn the best result so far (checkpoint.yaml in the output folder) into a usable, "
-                       "clearly-marked result with calibration/finalize_checkpoint.py.",
-                    3: "The report couldn't be written; the calibration itself is saved in the output folder."}[i]
+        if rc != 0 and argv[0] == "run_calibration.py" and os.path.exists(os.path.join(out, "checkpoint.yaml")):
+            # the fit stopped early (usually: the --max-nfev budget ran out). Keep the best result so far as a
+            # clearly-marked, not-converged result and carry on, rather than leaving the lab with nothing.
+            print(f"\n⚠️  The fit stopped before converging (exit code {rc}; usually the evaluation budget, "
+                  f"--max-nfev {args.max_nfev}, ran out). Saving the best result so far, marked NOT converged; "
+                  f"the report will say so. Re-run with a larger --max-nfev for a converged fit.", flush=True)
+            rate, extra = settings()
+            rc = run_step(finalize_argv(out, data, spec, args.heldout_dates, rate, extra,
+                                        f"the optimizer stopped before converging (budget --max-nfev "
+                                        f"{args.max_nfev})"), runner)
+        if rc != 0 and fatal:
             print(f"\n❌ Step {i} failed (exit code {rc}). {hint}")
             return rc
+        if rc != 0:
+            print(f"\n⚠️  Step {i} failed (exit code {rc}). {hint}")
     report = os.path.join(out, "calibration_report.md")
     print(f"\n✅ Done.\n   Report:     {report}\n   Parameters: {os.path.join(out, 'calibrated_parameters.yaml')}")
     if runner is None and os.path.exists(report):
@@ -230,7 +352,7 @@ def _print_bottom_line(report_path: str) -> None:
 
 
 def cmd_report(args, runner=None) -> int:
-    return run_step(report_argv(args.result, args.data, args.spec, args.heldout_dates), runner)
+    return run_step(report_argv(args.result, args.data, spec_path(args.spec), args.heldout_dates), runner)
 
 
 def _range_arg(xs, name):
@@ -243,20 +365,101 @@ def _range_arg(xs, name):
     raise ValueError(f"--{name} takes one value or MIN MAX")
 
 
+def _file_arg(path: Optional[str], what: str) -> Optional[str]:
+    if path is None:
+        return None
+    p = _abs(path)
+    if not os.path.exists(p):
+        raise ValueError(f"{what} not found: {p}")
+    return p
+
+
+def thrusters_arg(value: Optional[str]) -> Optional[str]:
+    """--thrusters: the preset name, or a YAML file with a thrusters block (made absolute). Validated."""
+    if not value:
+        return None
+    v = value if not value.endswith((".yaml", ".yml")) else _file_arg(value, "thrusters file")
+    from fleet_experiment_schema import resolve_thrusters
+    resolve_thrusters(v)  # raises ValueError with a specific message
+    return v
+
+
 def cmd_fleet(args, runner=None) -> int:
     config = args.config
-    if args.current_speed is not None:
-        try:
-            block = current_block(_range_arg(args.current_speed, "current-speed"),
-                                  _range_arg(args.current_direction, "current-direction"),
-                                  args.current_speed_std, args.current_direction_std, args.current_time_scale,
-                                  not args.current_unknown_to_beliefs)
-        except ValueError as e:
-            print(f"❌ {e}")
-            return 2
-        config = experiment_with_current(config, block)
-        print(f"Running {os.path.basename(config)} (your experiment with a water current added)", flush=True)
+    overrides = {}
+    try:
+        if args.current_speed is not None:
+            overrides["current"] = current_block(_range_arg(args.current_speed, "current-speed"),
+                                                 _range_arg(args.current_direction, "current-direction"),
+                                                 args.current_speed_std, args.current_direction_std,
+                                                 args.current_time_scale, not args.current_unknown_to_beliefs)
+        if args.thrusters:
+            overrides["thrusters"] = thrusters_arg(args.thrusters)
+        if args.vehicle_spec:
+            overrides["vehicle_spec"] = _file_arg(args.vehicle_spec, "vehicle description")
+        if args.params:
+            overrides["truth_params"] = _file_arg(args.params, "calibration file")
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 2
+    if overrides:
+        config = experiment_with_overrides(config, overrides)
+        print(f"Running {os.path.basename(config)} (your experiment with "
+              + ", ".join(sorted(overrides)).replace("truth_params", "your calibration") + " set)", flush=True)
     return run_step(fleet_argv(config), runner)
+
+
+def cmd_arena(args, runner=None) -> int:
+    try:
+        argv = ["run_arena_experiment.py", "--params", _file_arg(args.params, "calibration file"),
+                "--spec", spec_file(args.spec),
+                "--task", args.task, "--seeds", str(args.seeds), "--timesteps", str(args.timesteps),
+                "--episodes", str(args.episodes), "--workers", str(args.workers)]
+        if args.compare_generic:
+            argv.append("--compare-generic")
+        if args.policy:
+            argv += ["--policy", _file_arg(args.policy, "policy")]
+        if args.current_speed is not None:
+            current_block(_range_arg(args.current_speed, "current-speed"),
+                          _range_arg(args.current_direction, "current-direction"),
+                          args.current_speed_std, args.current_direction_std, args.current_time_scale)
+            argv += ["--current-speed", *map(str, args.current_speed),
+                     "--current-direction", *map(str, args.current_direction),
+                     "--current-speed-std", str(args.current_speed_std),
+                     "--current-direction-std", str(args.current_direction_std),
+                     "--current-time-scale", str(args.current_time_scale)]
+        if args.thrusters:
+            argv += ["--thrusters", thrusters_arg(args.thrusters)]
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 2
+    import time
+    out = _abs(args.out) if args.out else os.path.join(JOBS_DIR, f"arena_{safe_name(args.task)}_"
+                                                                  f"{time.strftime('%Y%m%d-%H%M%S')}")
+    argv += ["--out", out]
+    print(f"Report: {os.path.join(out, 'report.md')}", flush=True)
+    return run_step(argv, runner)
+
+
+def cmd_train_fleet(args, runner=None) -> int:
+    try:
+        argv = ["train_fleet_policy.py", "--truth-params", _file_arg(args.params, "calibration file"),
+                "--spec", spec_file(args.spec),
+                "--timesteps", str(args.timesteps), "--seed", str(args.seed), "--belief", args.belief,
+                "--out", _abs(args.out)]
+        if args.current_speed is not None:
+            current_block(_range_arg(args.current_speed, "current-speed"),
+                          _range_arg(args.current_direction, "current-direction"))
+            argv += ["--current-speed", *map(str, args.current_speed),
+                     "--current-direction", *map(str, args.current_direction)]
+        if args.thrusters:
+            argv += ["--thrusters", thrusters_arg(args.thrusters)]
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 2
+    print(f"Policy: {_abs(args.out)}.zip — use it in a fleet experiment YAML under policies: "
+          f"(see CUSTOM_EXPERIMENT.md section 5)", flush=True)
+    return run_step(argv, runner)
 
 
 def cmd_ingest(args, runner=None) -> int:
@@ -276,7 +479,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check", help="check that this machine can run Strathe").set_defaults(fn=cmd_check)
 
     c = sub.add_parser("calibrate", help="calibrate a vehicle from its logs, end to end")
-    c.add_argument("--data", required=True, help="folder of logs in Strathe's CSV layout (see `ingest`)")
+    c.add_argument("--data", help="folder of logs in Strathe's CSV layout (see `ingest`)")
+    c.add_argument("--ingest-spec", help="or: your ingestion spec (CSV or ROS bag logs, forces or thruster PWM); "
+                                         "the logs are converted first. Templates: calibration/templates/")
+    c.add_argument("--sampling-rate-hz", type=float,
+                   help="the logs' sampling rate (default: from ingest_report.json, else 10 Hz)")
+    c.add_argument("--skip-identifiability", action="store_true",
+                   help="skip the check of which values the data can pin down (saves a few minutes)")
     c.add_argument("--name", default="my_vehicle", help="short name for this calibration (names the output folder)")
     c.add_argument("--out", help="output folder (default: calibration_output_<name> in the repository)")
     c.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description (default: the BlueROV2 Heavy)")
@@ -285,7 +494,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--workers", type=int, default=default_workers(), help="CPU cores to use")
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
-                   help="advanced: re-express logged torques about another point (see run_calibration.py --help)")
+                   help="advanced: re-express logged torques about another point (default: what the ingestion "
+                        "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")
     c.add_argument("--current-world-mps", type=float, nargs=3, metavar=("VX", "VY", "VZ"),
                    help="open-water logs: the known, roughly constant water current during the recordings, in "
                         "the logs' world frame (m/s). Default: vehicle_spec.yaml (still water)")
@@ -311,7 +521,47 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--current-time-scale", type=float, default=30.0, help="fluctuation time scale (s)")
     f.add_argument("--current-unknown-to-beliefs", action="store_true",
                    help="teammate models don't know the current (default: they know its mean)")
+    f.add_argument("--thrusters", help="limit commands to what the thrusters can deliver: bluerov2_heavy, or a YAML "
+                                       "file with a thrusters block (your ingest spec works)")
+    f.add_argument("--params", help="your calibrated_parameters.yaml as the vehicles' true physics")
+    f.add_argument("--vehicle-spec", help="your vehicle description (vehicle_spec.yaml format)")
     f.set_defaults(fn=cmd_fleet)
+
+    a = sub.add_parser("arena", help="one vehicle: train and test a controller on a task with your calibration")
+    a.add_argument("--params", default=os.path.join(CAL_DIR, "calibrated_parameters_fleet_truth.yaml"),
+                   help="your calibrated_parameters.yaml (default: the shipped BlueROV2 calibration)")
+    a.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description (default: the BlueROV2 Heavy)")
+    a.add_argument("--task", default="waypoint", choices=["waypoint", "station_keeping", "docking",
+                                                          "obstacle_avoidance"])
+    a.add_argument("--seeds", type=int, default=2, help="training seeds per condition")
+    a.add_argument("--timesteps", type=int, default=150_000, help="training steps per policy (~5 min each)")
+    a.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
+    a.add_argument("--compare-generic", action="store_true",
+                   help="also train on the default (uncalibrated) physics, to see whether calibration matters")
+    a.add_argument("--policy", help="evaluate your own trained PPO policy (.zip) instead of training")
+    a.add_argument("--current-speed", type=float, nargs="+", metavar="MPS")
+    a.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG")
+    a.add_argument("--current-speed-std", type=float, default=0.0)
+    a.add_argument("--current-direction-std", type=float, default=0.0)
+    a.add_argument("--current-time-scale", type=float, default=30.0)
+    a.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
+    a.add_argument("--workers", type=int, default=default_workers())
+    a.add_argument("--out", help="output folder (default: strathe_jobs/arena_<task>_<time>)")
+    a.set_defaults(fn=cmd_arena)
+
+    t = sub.add_parser("train-fleet", help="train a fleet (two-vehicle) policy for your vehicle")
+    t.add_argument("--params", required=True, help="your calibrated_parameters.yaml")
+    t.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description")
+    t.add_argument("--timesteps", type=int, default=3_000_000, help="(~40 min on an M1 at the default)")
+    t.add_argument("--seed", type=int, default=1)
+    t.add_argument("--belief", default="mix",
+                   help="teammate model(s) to train with: mix (recommended) or calibrated/generic/last_beacon/"
+                        "constant_velocity/oracle")
+    t.add_argument("--current-speed", type=float, nargs="+", metavar="MPS")
+    t.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG")
+    t.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
+    t.add_argument("--out", required=True, help="policy path without .zip")
+    t.set_defaults(fn=cmd_train_fleet)
 
     i = sub.add_parser("ingest", help="convert your own logs into Strathe's CSV layout")
     i.add_argument("--spec", required=True, help="ingestion spec YAML (see data_ingestion.py)")

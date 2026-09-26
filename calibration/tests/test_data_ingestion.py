@@ -199,7 +199,7 @@ def test_multiple_runs_per_session_get_numbered(tmp_path):
 @pytest.mark.parametrize("over,match", [
     ({"time": {"column": "t", "sampling_rate_hz": 10}}, "exactly one of"),
     ({"orientation": {}}, "exactly one of"),
-    ({"wrench": {"thrusters": {"pwm_columns": ["a"], "directions": [1]}}}, "needs a preset"),
+    ({"wrench": {"thrusters": {"pwm_columns": ["a"], "directions": [1]}}}, "exactly one of: preset, layout"),
     ({"vehicle": "has spaces"}, "pattern"),
 ])
 def test_invalid_specs_are_rejected(tmp_path, over, match):

@@ -90,3 +90,12 @@ def test_watchdog_failures_never_reach_the_calibration(tmp_path, capsys):
         pass
     wd.close()
     assert "watchdog disabled" in capsys.readouterr().err
+
+
+def test_parallel_evaluations_are_not_mislabelled_as_waiting():
+    """With --eval-workers the parent only waits on its workers, so its own CPU time is near zero on
+    every normal evaluation; that must read as computing, while sleep is still detected."""
+    from stall_watchdog import classify
+    assert classify(7.6, 7.6, 0.02) == "process_waiting (swap / I/O / CPU starved)"
+    assert classify(7.6, 7.6, 0.02, delegated=True) == "computing (in worker processes)"
+    assert classify(4000.0, 28.0, 0.02, delegated=True) == "machine_asleep_or_suspended"

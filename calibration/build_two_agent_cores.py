@@ -13,14 +13,15 @@ from optimizer import load_vehicle_spec
 VEHICLE_SPEC_PATH = "vehicle_spec.yaml"
 
 
-def load_calibrated_parameters(yaml_path: str) -> CalibrationParameters:
+def load_calibrated_parameters(yaml_path: str, quiet: bool = False) -> CalibrationParameters:
+    """quiet: skip the not-converged note (worker processes; the parent prints it once)."""
     with open(yaml_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     params = CalibrationParameters(**data["parameters"])
     params.validate()
 
     provenance = data.get("provenance")
-    if provenance and not provenance.get("converged", True):
+    if provenance and not provenance.get("converged", True) and not quiet:
         detail = provenance.get("note") or (f"cost={provenance.get('cost')}, "
                                            f"max_nfev={provenance.get('max_nfev')}")
         print(f"NOTE: {os.path.basename(yaml_path)}'s calibration is not formally converged ({detail}); "

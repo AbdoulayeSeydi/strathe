@@ -345,6 +345,7 @@ class Arena(gym.Env):
         docking_max_speed: float = 0.3,
         obstacle_avoidance_config: Optional[ObstacleAvoidanceConfig] = None,
         current: Optional["CurrentConfig"] = None,
+        thrusters=None,
     ):
         """
         task: "waypoint" (default, ORIGINAL behavior, unchanged) - touch
@@ -365,6 +366,11 @@ class Arena(gym.Env):
             water, the original behaviour. A new current is drawn each reset()
             from the environment's own seeded RNG; the observation is unchanged
             (the policy sees its velocity over ground).
+        thrusters: optional thruster_model.ThrusterConfig (for_simulation() form);
+            None = every commanded wrench up to action_bound is delivered (the
+            original behaviour). When set, commands are limited to what the
+            thrusters can deliver (thruster_model.achievable_wrench), and
+            info["tau_applied"] reports the wrench actually applied.
         """
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
@@ -372,6 +378,7 @@ class Arena(gym.Env):
         if current is not None:
             current.validate()
         self._current_cfg = current if current is not None and current.active else None
+        self._thrusters = thrusters
         self._current = None
         self.max_episode_steps = max_episode_steps
         self.waypoint_radius = waypoint_radius
@@ -422,13 +429,16 @@ class Arena(gym.Env):
                           self.action_space.low, self.action_space.high)
         self._last_action = action  # available to any task that needs it (e.g. control-effort reward)
         tau = action * self._action_bound  # rescale [-1,1] -> real force/torque units
+        if self._thrusters is not None:
+            tau = self._thrusters.achievable_wrench(tau)
         self._core.current_world = None if self._current is None else self._current.next()
         self._core.step(tau)
         self._step_count += 1
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
         info = {"distance": distance, "position": self._core.state.position.copy(),
-                "current_world": None if self._current is None else self._core.current_world.copy()}
+                "current_world": None if self._current is None else self._core.current_world.copy(),
+                "tau_applied": np.asarray(tau, dtype=float)}
         truncated = self._step_count >= self.max_episode_steps
 
         reward, terminated, task_info = self._task_obj.step(self, distance, truncated)

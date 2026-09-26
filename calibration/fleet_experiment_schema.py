@@ -34,6 +34,10 @@ and any comm override crashed with a KeyError.)
       vertical_mps: 0.0
       variability: {speed_std_mps: 0.05, direction_std_deg: 10, time_scale_s: 30}
       known_to_beliefs: true         # physics teammate models know the episode's mean current
+    vehicle_spec: vehicle_spec.yaml  # optional: your vehicle's description (mass, inertia, bounds)
+    thrusters: bluerov2_heavy        # optional: limit commands to what the thrusters can deliver;
+                                     # bluerov2_heavy, an inline thrusters block, or a YAML file with
+                                     # one (your ingest spec works). Default: no thruster limits.
     output_dir: results/my_experiment
 
 BELIEF PRESETS -- how each vehicle predicts its teammate between beacons:
@@ -275,12 +279,27 @@ class FleetExperimentConfig(BaseModel):
     dynamics_backend: Literal["stand_in", "mujoco", "both"] = "stand_in"
     disturbance: DisturbanceBlock = Field(default_factory=DisturbanceBlock)
     current: Optional[CurrentBlock] = None
+    vehicle_spec: str = "vehicle_spec.yaml"
+    thrusters: Optional[Union[str, dict]] = None
     output_dir: str
+
+    def thruster_config(self):
+        """The thrusters in simulation form (torques about the model's origin), or None."""
+        return resolve_thrusters(self.thrusters)
 
     @model_validator(mode="after")
     def _cross_checks(self):
         if not os.path.exists(self.truth_params):
             raise ValueError(f"truth_params file not found: {self.truth_params!r}")
+        if not os.path.exists(self.vehicle_spec):
+            raise ValueError(f"vehicle_spec file not found: {self.vehicle_spec!r}")
+        try:
+            from optimizer import load_vehicle_spec
+            load_vehicle_spec(self.vehicle_spec)
+        except Exception as e:
+            raise ValueError(f"vehicle_spec {self.vehicle_spec!r} is invalid: {e}") from e
+        if self.thrusters is not None:
+            resolve_thrusters(self.thrusters)  # raises ValueError with a specific message
         labels = [belief_label(b) for b in self.beliefs]
         if len(set(labels)) != len(labels):
             raise ValueError(f"belief labels must be unique, got {labels}")
@@ -303,6 +322,23 @@ class FleetExperimentConfig(BaseModel):
 
 class ConfigError(ValueError):
     pass
+
+
+def resolve_thrusters(block):
+    """thrusters: field -> thruster_model.ThrusterConfig for the simulators, or None.
+    'bluerov2_heavy' is shorthand for the preset; a string ending in .yaml/.yml is a file holding a
+    thrusters block (an ingest spec works); a mapping is an inline block."""
+    if block is None:
+        return None
+    import thruster_model as tm
+    if isinstance(block, str) and not block.endswith((".yaml", ".yml")):
+        block = {"preset": block}
+    elif isinstance(block, str) and not os.path.exists(block):
+        raise ValueError(f"thrusters file not found: {block!r}")
+    try:
+        return tm.thruster_block(block).for_simulation()
+    except (OSError, KeyError) as e:
+        raise ValueError(f"thrusters: {e}") from e
 
 
 def load_fleet_experiment(path: str) -> FleetExperimentConfig:

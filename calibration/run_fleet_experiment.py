@@ -89,7 +89,8 @@ def fleet_config_for(cfg, backend: str) -> FleetConfig:
     return FleetConfig(max_episode_steps=t.max_episode_steps, task=task, dynamics_backend=backend,
                        initial_separation_range=(min(seps), max(seps)),
                        initial_closing_speed_range=(min(speeds), max(speeds)), disturbance=disturbance,
-                       current=cfg.current.to_config() if cfg.current is not None else None)
+                       current=cfg.current.to_config() if cfg.current is not None else None,
+                       thrusters=cfg.thruster_config())
 
 
 def build_cells(cfg, truth, generic, vehicle) -> tuple:
@@ -148,7 +149,7 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
     L.append(f"{datetime.now():%Y-%m-%d %H:%M} · {n_eps} episodes · {elapsed / 60:.1f} min"
              + (" · **ran with uncommitted code changes**" if dirty else "") + "\n")
     L.append("## What was tested\n")
-    L.append("Two simulated BlueROV2s must hold "
+    L.append("Two simulated vehicles must hold "
              f"{cfg.task.target_separation_m} m ± {cfg.task.tolerance_m} m apart for {cfg.task.hold_steps} "
              f"consecutive ticks (0.1 s each) within {cfg.task.max_episode_steps} ticks, without coming closer than "
              f"{cfg.task.collision_radius_m} m. They share their state over an acoustic link that loses packets. "
@@ -169,6 +170,16 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
                  "its own velocity over ground. Every condition sees the same currents.\n")
     else:
         L.append("Still water: no current (set `current:` in the YAML for open-water conditions).\n")
+    th = cfg.thruster_config()
+    if th is not None:
+        import thruster_model as tm
+        L.append(f"**Thruster limits on:** {tm.describe(th)}. Every command is limited to what these thrusters can "
+                 "deliver; the beacons carry the delivered force.\n")
+    else:
+        L.append(f"No thruster limits: any command up to ±{FleetConfig().action_bound:g} N / N·m per axis is "
+                 "delivered (set `thrusters:` in the YAML to use your vehicle's real thrusters).\n")
+    if os.path.basename(cfg.vehicle_spec) != "vehicle_spec.yaml" or os.path.dirname(os.path.abspath(cfg.vehicle_spec)) != HERE:
+        L.append(f"Vehicle description: `{cfg.vehicle_spec}`.\n")
     if contrasts:
         L.append(f"## Headline: `{a}` vs `{b}`\n")
         L += headline_sentences(contrasts, a, b)
@@ -286,7 +297,9 @@ def _log_mlflow(cfg, out_dir, summary, contrasts):
                              "disturbance": (f"{os.path.basename(cfg.disturbance.path())}x{cfg.disturbance.scale:g}"
                                              if cfg.disturbance.path() else "none"),
                              "current": (cfg.current.to_config().describe() if cfg.current is not None
-                                         and cfg.current.to_config().active else "none")})
+                                         and cfg.current.to_config().active else "none"),
+                             "thrusters": str(cfg.thrusters) if cfg.thrusters is not None else "none",
+                             "vehicle_spec": cfg.vehicle_spec})
             for s in summary:
                 key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
                 mlflow.log_metric(f"success.{key}", s["success_rate"])
@@ -305,7 +318,7 @@ def run_experiment(config_path: str) -> dict:
     print("=" * 70 + "\nSTRATHE FLEET EXPERIMENT (v2)\n" + "=" * 70)
     print(f"Config: {config_path}\n\n[1/4] Validating config...")
     cfg = load_fleet_experiment(config_path)
-    spec = load_vehicle_spec(VEHICLE_SPEC_PATH)
+    spec = load_vehicle_spec(cfg.vehicle_spec)
     truth = load_calibrated_parameters(cfg.truth_params)
     generic = initial_parameters(spec)
     print(f"  OK: {len(cfg.policies)} policy(ies), beliefs {[belief_label(b) for b in cfg.beliefs]}, "
@@ -314,7 +327,8 @@ def run_experiment(config_path: str) -> dict:
           + (f"{os.path.basename(cfg.disturbance.path())} x{cfg.disturbance.scale:g}" if cfg.disturbance.path()
              else "off")
           + ", current " + (cfg.current.to_config().describe() if cfg.current is not None
-                            and cfg.current.to_config().active else "none"))
+                            and cfg.current.to_config().active else "none")
+          + ", thrusters " + ("limited" if cfg.thrusters is not None else "unlimited"))
 
     print("\n[2/4] Checking policies against the per-vehicle contract...")
     for p in cfg.policies:

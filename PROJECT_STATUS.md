@@ -701,10 +701,60 @@ Findings:
 4. **Training in currents didn't help.** The current-trained policies were 0–4 points below the still-water ones, paired by seed. The still-water policies already cope, because they see their own velocity over ground.
 5. **MuJoCo agrees with the stand-in:** −0 (−2, +1), n = 2,400.
 
+### 56. A lab's own vehicle, end to end: raw logs to calibration, report, and one- and two-vehicle experiments (2026-09-25)
+
+The audit of the lab-facing gaps found each piece existed but a lab couldn't chain them. It then found four bugs that stopped or silently corrupted the chain. Everything below is on `strathe` and the web page.
+
+**What a lab can do now:**
+- **Raw logs to report in one command:** `strathe calibrate --ingest-spec <spec>`. It converts the logs, checks them, fits, checks what the data can pin down, and writes the report. It stops at the first failing step with a plain message; the identifiability step only warns. Ready-to-edit specs are in `templates/`, with a README.
+- **ROS bags read directly** (`rosbag_reader.py`, using `rosbags`, no ROS install):
+  - ROS 1 `.bag`, ROS 2 `.mcap` and `.db3`. For pre-Iron `.db3` bags with custom messages, the lab lists the `.msg` files.
+  - Columns are `<topic>.<field>[i]`, and timestamps come from message headers.
+  - Every topic goes onto one grid: velocities linearly interpolated, orientation slerped, PWM held.
+  - It warns about gaps and repeated stamps. It refuses missing topics and fields, non-numeric fields and out-of-range indices.
+- **Any thruster layout** (`thruster_model.thruster_block`):
+  - A per-thruster `layout` (position, direction, reversed), an allocation CSV, or the BlueROV2 Heavy preset.
+  - The T200 curve (with voltage) or the lab's own curve.
+  - Under-actuated vehicles are accepted, and ingestion names the axes the thrusters can't push. The rank < 6 check used to reject them outright.
+  - The custom-layout template is the Heavy written as a layout; a test checks it equals the preset about the thruster plane.
+- **Torque reference recorded.** The ingestion report records which torque reference the calibration should use: the preset keeps the dataset's point 8.5 cm below the thrusters (#50), and a layout is already about the thruster plane. `strathe calibrate` applies it.
+- **Thruster limits in the simulators** (`thrusters:`; `ThrusterConfig.achievable_wrench`):
+  - A command is split over the thrusters by least squares, then scaled down as a whole until no thruster exceeds its curve. Direction is preserved, as ArduSub's mixer does. Axes the thrusters can't push get nothing.
+  - It works in `Arena`, the fleet on both engines, fleet training, fleet YAML, `strathe fleet/arena/train-fleet --thrusters` and the web forms. Fleet beacons carry the delivered force.
+  - Off by default. With it off, every number is bit-identical to before, and a test checks this. With the Heavy's limits, pitch torque tops out at ~18 N·m, where any policy could command 30 N·m before.
+- **A lab's vehicle description and calibration in fleet experiments** (`vehicle_spec:`, `truth_params:`; `strathe fleet --params --vehicle-spec`), and fleet training for it (`strathe train-fleet`, `train_fleet_policy.py --spec --thrusters`).
+- **Single-vehicle experiments** (`run_arena_experiment.py`, `strathe arena`):
+  - PPO policies trained on the lab's calibration, plus a hand-written controller and random commands, all on the same episodes.
+  - Optionally, policies trained on default physics, with the paired difference and a 95% bootstrap CI.
+  - A water current and thruster limits are optional. `--policy` evaluates the lab's own policy.
+- **Identifiability with the fit's own objective** (`automated_identifiability_report.py --result`). The old script used the default objective: no torque shift, no current, whole-run replay, no axis scaling, all 22 parameters free, even the held ones. The new one:
+  - uses the recorded sampling rate, torque point, current, axis scaling, excluded axes, prediction windows and held parameters
+  - takes the Jacobian over the free parameters only, in parallel (identical to serial)
+  - reports correlated pairs, and groups the data constrains more than 1000× less than the best-constrained combination, in bounds-width units
+
+  The report explains both in plain words.
+
+**Bugs found and fixed:**
+1. **The data check crashed on every converted log.** `check_sampling_rate_windowed.py` infers the rate from the logged x, y, z positions, which ingestion doesn't produce. So `strathe calibrate` could never have run on a lab's converted logs; the reference dataset has positions, which hid it. The check now uses the rate the timestamps gave and fails if calibration is told a different one. Without positions or timestamps it says the rate is assumed.
+2. **`strathe calibrate` always assumed 10 Hz.** The canonical CSVs carry no time column, and the rate ingestion measured was never passed on. On the reference runs resampled to 20 Hz, integrating at the assumed 10 Hz made held-out error 5–11% worse on surge, sway, heave and yaw. Now the rate flows from `ingest_report.json` (or `--sampling-rate-hz`) into the data check, the fit, `metrics.json`, the identifiability check and the report.
+3. **Orientation was interpolated linearly when resampling.** The reference data has 239 orientation jumps over 20° within 0.1 s, some near 180° (sensor glitches). Across them, component-wise interpolation gives quaternions far from unit length. Upsampling the real runs to 20 Hz hit one with norm 0.72 and refused the file. A canonical quaternion's sign flip gives a random orientation for one sample too. The CSV and bag paths both slerp now, raw norms are still checked, and jumps over 45° per sample are reported.
+4. **Resampling grids drifted.** `np.arange(t0, t1, dt)` with Unix-epoch `t0` steps by a rounded `dt` (~2e-8 s off), drifting ~1e-5 s over a few minutes. Grids are now `t0 + k/rate`, and a rounding guard keeps the final sample.
+
+Also: when the fit ran out of its evaluation budget, `strathe calibrate` stopped with a failure. The lab was left to run `finalize_checkpoint.py` by hand, with the right objective flags. Now it keeps the best result so far with the same settings, marks it not converged, and still runs the identifiability check and the report.
+
+Also: with `--eval-workers`, the stall watchdog labelled every normal evaluation "process_waiting (CPU starved)", because the parent only waits on its workers. It didn't flag stalls, but the label was misleading. Parallel evaluations are now labelled "computing (in worker processes)"; sleep is still detected.
+
+<<STRESS_RESULTS>>
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
 - **Currents: unknown or changing currents** can't yet be estimated from logs, and currents don't vary across space (#55). A fleet that works in currents should estimate the ambient current and give it to its teammate model.
+- **Lab data, not built yet (#56):**
+  - reading ArduPilot `.bin` / MAVLink `.tlog` logs directly (export to CSV, or record a ROS bag)
+  - thruster response lag and battery sag within a run
+  - two different vehicles in one fleet
+  - the thruster model isn't itself calibrated: the curve and layout are taken as given
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
 - **Roll and pitch have no predictive skill yet** (#50): after the torque-arm correction they are at about zero skill (no longer worse than predicting no motion), not positive. This dataset's roll/pitch motion is mostly not caused by the thrusters, so it can't identify roll/pitch damping. It doesn't matter for formation-holding (#52), but it will for attitude-dependent tasks. It needs free-decay tests and deliberate roll/pitch manoeuvres from a lab.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. For roll/pitch damping this is the output-error artifact of #50, not a bounds problem. The translational damping pins still need review by someone who knows the vehicle.

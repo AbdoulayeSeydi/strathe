@@ -92,6 +92,13 @@ class FleetConfig:
     # vehicles feel the same current; the policy doesn't observe it directly,
     # only through its own velocity over ground.
     current: Optional[CurrentConfig] = None
+    # The vehicle's real thrusters (thruster_model.ThrusterConfig, in its
+    # for_simulation() form). None = any commanded wrench up to action_bound
+    # on every axis is delivered (the original behaviour). When set, each
+    # command is limited to what the thrusters can deliver: split over the
+    # thrusters, scaled down if any would exceed its curve, and axes the
+    # thrusters can't push get nothing. Beacons carry the delivered wrench.
+    thrusters: Optional[object] = None
 
     @property
     def beacon_every_ticks(self) -> int:
@@ -246,6 +253,8 @@ class FleetSim:
         Returns (obs list, shared reward, terminated, truncated, info)."""
         norm = [np.clip(np.asarray(a, dtype=float), -1.0, 1.0) for a in actions]
         taus = [a * self.cfg.action_bound for a in norm]
+        if self.cfg.thrusters is not None:
+            taus = [self.cfg.thrusters.achievable_wrench(t) for t in taus]
         current_now = None
         if self._current is not None:
             current_now = self._current.next()

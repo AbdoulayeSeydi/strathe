@@ -1,0 +1,43 @@
+# Ingest spec: ROS bags from a BlueROV2 running ArduSub + MAVROS, read directly
+# (no ROS install needed). Works with ROS 1 .bag files and ROS 2 bag folders
+# (.mcap or .db3). Columns are <topic>.<field path>; check yours with
+# `rosbag info` / `ros2 bag info`, and change the topic names below to match.
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+#
+# Needs a body-frame velocity source (DVL or visual odometry). MAVROS publishes
+# it on /mavros/local_position/velocity_body when the autopilot has one; any
+# nav_msgs/Odometry topic works too (twist.twist.linear.x etc. are body frame).
+
+vehicle: my_bluerov2
+source:
+  files: "bags/*.bag"          # ROS 2: "bags/*" (each bag is a folder with metadata.yaml)
+  format: rosbag
+  stamp: header                # header: the message's own timestamp (default) | receive: when the bag recorded it
+  # message_types: [msgs/mavros_msgs/msg/RCOut.msg]   # only for ROS 2 .db3 bags with non-standard messages
+resample_hz: 10                # every topic is put on this one time grid
+session_date: {from: recording}    # the date the bag was recorded
+frame: flu                     # ROS convention (REP-103): FLU body, ENU world; converted to FRD/NED
+body_velocity:
+  columns:
+    u: /mavros/local_position/velocity_body.twist.linear.x
+    v: /mavros/local_position/velocity_body.twist.linear.y
+    w: /mavros/local_position/velocity_body.twist.linear.z
+    p: /mavros/imu/data.angular_velocity.x
+    q: /mavros/imu/data.angular_velocity.y
+    r: /mavros/imu/data.angular_velocity.z
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion:
+    x: /mavros/imu/data.orientation.x
+    y: /mavros/imu/data.orientation.y
+    z: /mavros/imu/data.orientation.z
+    w: /mavros/imu/data.orientation.w
+wrench:
+  thrusters:
+    # servo outputs 1-8 = motors 1-8 on a BlueROV2 Heavy (the PWM actually sent to each ESC)
+    pwm_columns: ["/mavros/rc/out.channels[0]", "/mavros/rc/out.channels[1]", "/mavros/rc/out.channels[2]",
+                  "/mavros/rc/out.channels[3]", "/mavros/rc/out.channels[4]", "/mavros/rc/out.channels[5]",
+                  "/mavros/rc/out.channels[6]", "/mavros/rc/out.channels[7]"]
+    preset: bluerov2_heavy
+    voltage: 15.0

@@ -85,10 +85,12 @@ def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVAL
 
 
 def build_training_env(n_sims: int, seed: int, truth_path: str = TRUTH_PARAMS_PATH,
-                       fleet_config: FleetConfig = None, belief: str = "mix") -> FleetVecEnv:
-    vehicle = load_vehicle_spec(VEHICLE_SPEC_PATH).vehicle
+                       fleet_config: FleetConfig = None, belief: str = "mix",
+                       spec_path: str = VEHICLE_SPEC_PATH) -> FleetVecEnv:
+    spec = load_vehicle_spec(spec_path)
+    vehicle = spec.vehicle
     truth = load_calibrated_parameters(truth_path)
-    generic = initial_parameters(load_vehicle_spec(VEHICLE_SPEC_PATH))
+    generic = initial_parameters(spec)
     belief_sampler = (make_belief_sampler(truth, generic) if belief == "mix"
                       else make_fixed_belief_sampler(belief, truth, generic))
     sampler = EpisodeSampler(comm_conditions(), belief_sampler)
@@ -118,9 +120,16 @@ def main():
     ap.add_argument("--current-time-scale", type=float, default=30.0, help="fluctuation time scale (s)")
     ap.add_argument("--current-unknown-to-beliefs", action="store_true",
                     help="physics teammate models don't know the current (default: they know its episode mean)")
+    ap.add_argument("--spec", default=VEHICLE_SPEC_PATH, help="vehicle description (default: the BlueROV2 Heavy)")
+    ap.add_argument("--thrusters", default=None,
+                    help="limit commands to what the thrusters can deliver: bluerov2_heavy, or a YAML file with a "
+                         "thrusters block (an ingest spec works). Default: no thruster limits")
     ap.add_argument("--out", required=True, help="output path without .zip")
     args = ap.parse_args()
     fleet_kwargs = {}
+    if args.thrusters:
+        from fleet_experiment_schema import resolve_thrusters
+        fleet_kwargs["thrusters"] = resolve_thrusters(args.thrusters)
     if args.disturbance != "none":
         from disturbance import DEFAULT_FIT_PATH, load_disturbance
         dpath = DEFAULT_FIT_PATH if args.disturbance == "fitted" else args.disturbance
@@ -144,7 +153,7 @@ def main():
     torch.set_num_threads(1)  # several trainings run side by side; don't oversubscribe cores
 
     env = VecMonitor(build_training_env(args.n_sims, args.seed, args.truth_params, fleet_config=fleet_config,
-                                        belief=args.belief))
+                                        belief=args.belief, spec_path=args.spec))
     hyper = dict(n_steps=256, batch_size=1024, n_epochs=10, learning_rate=3e-4, gamma=0.99,
                  gae_lambda=0.95, clip_range=0.2, ent_coef=0.0,
                  policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])))
@@ -159,7 +168,8 @@ def main():
         "contract": {"observation": "Box(13,) float32", "action": "Box(6,) float32 in [-1, 1]", "per_vehicle": True},
         "algorithm": "ppo", "seed": args.seed, "timesteps": args.timesteps, "n_sims": args.n_sims,
         "hyperparameters": {k: v for k, v in hyper.items() if k != "policy_kwargs"} | {"net_arch": [128, 128]},
-        "truth_params": args.truth_params,
+        "truth_params": args.truth_params, "vehicle_spec": args.spec,
+        "thrusters": args.thrusters,
         "training_distribution": {"belief": args.belief, "severities": list(TRAIN_SEVERITIES),
                                   "beacon_intervals_s": list(TRAIN_BEACON_INTERVALS_S),
                                   "belief_mix": BELIEF_MIX if args.belief == "mix" else None,
@@ -174,7 +184,7 @@ def main():
         "python": platform.python_version(),
         "elapsed_s": round(elapsed, 1), "transitions_per_s": round(args.timesteps / elapsed, 1),
     }
-    with open(f"{args.out}.json", "w") as f:
+    with open(f"{args.out}.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print(f"saved {args.out}.zip and {args.out}.json ({elapsed / 60:.1f} min)")
 

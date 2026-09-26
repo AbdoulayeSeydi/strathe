@@ -14,8 +14,39 @@ Usage:
         --spec vehicle_spec.yaml
 """
 import argparse
+import glob
+import json
+import os
 import subprocess
 import sys
+
+
+def sampling_rate_source(data_dir: str, requested_hz: float) -> tuple:
+    """How the sampling rate can be checked for this folder: ('ingested', message, ok) when
+    data_ingestion.py measured it from the logs' own timestamps; ('no_positions', message, True)
+    when the files have no x/y/z columns to infer it from (the rate given is used as is);
+    ('infer', None, None) to run check_sampling_rate_windowed.py on the logged positions."""
+    report = os.path.join(data_dir, "ingest_report.json")
+    if os.path.exists(report):
+        with open(report, encoding="utf-8") as f:
+            measured = json.load(f).get("sampling_rate_hz")
+        if measured:
+            ok = abs(measured - requested_hz) <= 0.01 * measured
+            msg = (f"The logs' own timestamps give {measured:g} Hz (measured during conversion, "
+                   f"ingest_report.json); calibration will use {requested_hz:g} Hz.")
+            if not ok:
+                msg += (f" These disagree: pass --sampling-rate-hz {measured:g} (strathe calibrate does this "
+                        f"automatically), or the physics will be integrated at the wrong time step.")
+            return "ingested", msg, ok
+    files = sorted(glob.glob(os.path.join(data_dir, "**", "*.csv"), recursive=True))
+    if files:
+        with open(files[0], encoding="utf-8") as f:
+            header = f.readline().strip().split(",")
+        if not {"x", "y", "z"} <= set(header):
+            return ("no_positions", f"These logs have no position columns (x, y, z) to infer the rate from, and "
+                    f"no timestamps; calibration will assume {requested_hz:g} Hz. If that's wrong, pass "
+                    f"--sampling-rate-hz (converting logs with timestamps records it automatically).", True)
+    return "infer", None, None
 
 
 def run_check(name: str, cmd: list) -> bool:
@@ -47,12 +78,18 @@ def main():
 
     results = {}
 
-    results["sampling_rate"] = run_check(
-        "Sampling rate validation",
-        [sys.executable, "check_sampling_rate_windowed.py",
-         "--data-dir", args.data_dir,
-         "--candidates", *[str(c) for c in args.rate_candidates]],
-    )
+    how, msg, ok = sampling_rate_source(args.data_dir, args.sampling_rate_hz)
+    if how == "infer":
+        results["sampling_rate"] = run_check(
+            "Sampling rate validation",
+            [sys.executable, "check_sampling_rate_windowed.py",
+             "--data-dir", args.data_dir,
+             "--candidates", *[str(c) for c in args.rate_candidates]],
+        )
+    else:
+        print(f"\n{'=' * 70}\nPRE-FLIGHT CHECK: Sampling rate\n{'=' * 70}\n{msg}")
+        print(f"\n{'PASS' if ok else 'FAIL'}: Sampling rate")
+        results["sampling_rate"] = ok
     _coriolis_cmd = [sys.executable, "check_coriolis_excitation.py",
                       "--data-dir", args.data_dir, "--sampling-rate-hz", str(args.sampling_rate_hz)]
     if args.heldout_dates:

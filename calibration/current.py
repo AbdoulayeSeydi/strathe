@@ -100,7 +100,8 @@ class CurrentConfig:
         cfg.validate()
         return cfg
 
-    def describe(self) -> str:
+    def describe(self, teammates: bool = True) -> str:
+        """teammates=False for a single vehicle, where known_to_beliefs means nothing."""
         s_lo, s_hi = _as_range(self.speed_mps, "speed_mps")
         d_lo, d_hi = _as_range(self.direction_deg, "direction_deg")
         speed = f"{s_lo:g} m/s" if s_lo == s_hi else f"{s_lo:g}-{s_hi:g} m/s (drawn per episode)"
@@ -111,8 +112,9 @@ class CurrentConfig:
         if self.speed_std_mps or self.direction_std_deg:
             parts.append(f"fluctuating by {self.speed_std_mps:g} m/s and {self.direction_std_deg:g} deg over "
                          f"~{self.time_scale_s:g} s")
-        parts.append("known to physics teammate models" if self.known_to_beliefs
-                     else "unknown to teammate models")
+        if teammates:
+            parts.append("known to physics teammate models" if self.known_to_beliefs
+                         else "unknown to teammate models")
         return ", ".join(parts)
 
 

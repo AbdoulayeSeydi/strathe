@@ -85,7 +85,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         "objective": {"axis_scaling": axis_scaling, "prediction_horizon_samples": horizon_samples,
                       "excluded_axes": list(exclude_axes), "torque_reference_offset_m": list(offset),
                       "current_world_mps": None if current_world is None else list(current_world),
-                      "held_parameters": held_params},
+                      "held_parameters": held_params, "sampling_rate_hz": sampling_rate_hz},
         "reproducibility": {"git_commit": _get_git_commit(), "spec_path": spec_path, "data_dir": data_dir,
                             "checkpoint": os.path.abspath(checkpoint),
                             "timestamp_utc": datetime.now(timezone.utc).isoformat()},
@@ -103,12 +103,13 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     return metrics
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--spec", default="vehicle_spec.yaml")
-    ap.add_argument("--heldout-dates", nargs="+", required=True)
+    ap.add_argument("--heldout-dates", nargs="+", default=None,
+                    help="default: the latest 20%% of recording dates, as run_calibration.py does")
     ap.add_argument("--output-dir", help="default: the checkpoint's folder")
     ap.add_argument("--sampling-rate-hz", type=float, default=10.0)
     ap.add_argument("--torque-reference-offset-m", type=float, nargs=3, default=None)
@@ -117,7 +118,11 @@ def main(argv=None) -> int:
     ap.add_argument("--prediction-horizon-samples", type=int, default=None)
     ap.add_argument("--current-world-mps", type=float, nargs=3, default=None)
     ap.add_argument("--reason", default="")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     out = args.output_dir or os.path.dirname(os.path.abspath(args.checkpoint))
     m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
                  args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
