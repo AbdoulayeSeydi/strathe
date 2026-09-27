@@ -154,7 +154,7 @@ def main(argv=None) -> int:
                  "they are 0 here. Put your sensors' datasheet values in if you know them.")
     if sensors["position"] == "dead_reckoning":
         notes.append("position_std_m is the error of the starting position fix; set it to your fix's accuracy.")
-    doc = {"sensors": sensors,
+    doc = {"sensors": sensors, "provenance": "measured",
            "fit": {"date": date.today().isoformat(), "method": "fit_sensor_noise.py (robust second difference)",
                    "logs": os.path.basename(os.path.abspath(args.data_dir)), "recordings": len(rows),
                    "sampling_rate_hz": rate, "notes": notes},

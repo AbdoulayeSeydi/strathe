@@ -21,4 +21,5 @@ sensors:
   depth_std_m: 0.01            # pressure sensor, 1 cm
   position: dead_reckoning     # horizontal position integrated from DVL + compass: it drifts
   position_std_m: 0.2          # starting position fix (surface GPS / USBL), 20 cm
+provenance: assumed           # not measured on any open-water vehicle; reports say so
 source_note: assumptions, not a fit (see the header)

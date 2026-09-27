@@ -272,13 +272,16 @@ def noise_fields(prefix: str, both: bool = False, teammates: bool = False) -> st
     return f"""<fieldset class=current><legend>Clean or noisy simulation</legend>
 <label for={prefix}-mode>Mode</label><select id={prefix}-mode name=mode>
 <option value="">Clean (exact sensors, no disturbance; the default)</option>
-<option value=noisy>Noisy: realistic sensor noise + the fitted roll/pitch disturbance</option>{both_opt}</select>
+<option value=noisy>Noisy: sensor noise (typical, assumed sizes, unless set below) + the fitted roll/pitch disturbance</option>{both_opt}</select>
 <label for={prefix}-noise>Sensor noise (DVL, gyro, attitude, compass, depth, and a position that drifts)</label>
 <select id={prefix}-noise name=noise><option value="">From the mode (clean: none; noisy: typical)</option>
 <option value=none>None (exact readings)</option>
-<option value=tank>Tank: fitted to the reference tank logs (small)</option>
-<option value=typical>Typical DVL + AHRS vehicle, dead reckoning</option>
-<option value=file>From my own file (below; made with <code>strathe fit-noise</code>)</option></select>
+<option value=tank>Tank: measured from the reference tank logs (small)</option>
+<option value=typical>Typical DVL + AHRS vehicle, dead reckoning (assumed sizes, not measured)</option>
+<option value=file>From my own file (below)</option></select>
+<p class=muted>Your own file: measure your sensors from your logs with <code>python strathe.py fit-noise --data
+&lt;logs&gt; --out my_noise.yaml</code> in a terminal (there's no form for it yet), then give its path below.
+<code>typical</code> is a placeholder of a common size for open water until you have your own.</p>
 <label for={prefix}-nscale>Sensor noise size: 1 = as described, 2 = twice as noisy</label>
 <input type=text id={prefix}-nscale name=noise_scale value="1">
 <label for={prefix}-nfile>Sensor-noise file, full path (only if “From my own file”)</label>
@@ -321,7 +324,9 @@ def noise_cli_args(form: dict, allow_both: bool = False, teammates: bool = False
 
 def algorithm_select(prefix: str) -> str:
     return f"""<label for={prefix}-alg>Training algorithm</label><select id={prefix}-alg name=algorithm>
-<option value=ppo>PPO (the default)</option><option value=sac>SAC</option><option value=td3>TD3</option></select>"""
+<option value=ppo>PPO (the default)</option><option value=sac>SAC</option><option value=td3>TD3</option></select>
+<p class=muted>SAC and TD3 were validated on the reference BlueROV2 (one vehicle: waypoint; fleet: formation hold).
+For your vehicle, train a few seeds of each and compare them before choosing.</p>"""
 
 
 def engine_disturbance_fields(prefix: str) -> str:

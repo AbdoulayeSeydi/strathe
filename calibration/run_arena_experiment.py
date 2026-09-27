@@ -483,7 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="clean (exact sensors, no disturbance; default) or noisy (sensor noise 'typical' + roll/pitch "
                          "disturbance 'fitted'); --noise and --disturbance override either part")
     ap.add_argument("--noise", default=None,
-                    help="sensor noise: none, tank, typical, or a file from fit_sensor_noise.py (default: from --mode)")
+                    help="sensor noise: none, tank (measured), typical (assumed sizes, not measured), or a file from "
+                         "fit_sensor_noise.py (default: from --mode)")
     ap.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
     ap.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                     help="net buoyancy change from the calibration in N (- = heavier, e.g. a payload), or MIN MAX "

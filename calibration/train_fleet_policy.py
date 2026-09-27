@@ -158,7 +158,7 @@ def main():
                     help="clean (exact sensors, no disturbance; default) or noisy (sensor noise 'typical' + roll/pitch "
                          "disturbance 'fitted'); --noise and --disturbance override either part")
     ap.add_argument("--noise", default=None,
-                    help="sensor noise: none, tank (fitted to the reference tank logs), typical (DVL + AHRS dead "
+                    help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes; DVL + AHRS dead "
                          "reckoning), or a file from fit_sensor_noise.py (default: from --mode)")
     ap.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
     ap.add_argument("--buoyancy", type=float, nargs="+", metavar="N",

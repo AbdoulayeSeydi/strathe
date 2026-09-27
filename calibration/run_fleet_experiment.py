@@ -234,6 +234,12 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
         L.append(f"Policies grouped by their label (or training algorithm): {', '.join(f'`{g}`' for g in groups)}. "
                  "Every group runs the same episodes; a group's training seeds are averaged per episode before "
                  f"groups are compared. Differences are against `{groups[0]}`.\n")
+        seeds = {g: sum(1 for p in cfg.policies if p.group == g) for g in groups}
+        L.append("These differences hold for this vehicle, this task and these training seeds. "
+                 + (f"Groups with a single policy ({', '.join(f'`{g}`' for g, n in seeds.items() if n < 2)}) can't "
+                    "separate an algorithm from the luck of one training seed; train two or three seeds each. "
+                    if any(n < 2 for n in seeds.values()) else "")
+                 + "SAC and TD3 were validated against PPO on the reference BlueROV2 only (PROJECT_STATUS.md #58).\n")
         by = {(g["policy_group"], g["comm"]): g for g in group_summary}
         comms = list(dict.fromkeys(g["comm"] for g in group_summary))
         L.append("| Comm | " + " | ".join(f"`{g}`" for g in groups) + " | "

@@ -108,8 +108,11 @@ held-out logs.
 **Q13. Clean vs noisy: does my result survive realistic sensors?** PASS.
 `mode: both` (`--mode both`, or the web form) runs every condition clean and
 noisy on the same episodes and adds a paired "Does noise matter?" table. The
-noise can be the shipped `typical` or `tank` preset or your own, measured from
-your logs with `strathe fit-noise` (CUSTOM_EXPERIMENT.md section 12).
+noise can be the shipped `tank` preset (measured from the reference tank logs),
+the `typical` preset (**assumed** sizes for a DVL + AHRS vehicle, not measured on
+any open-water vehicle), or your own, measured from your logs with
+`strathe fit-noise` (command line only; the web forms can then use the file)
+(CUSTOM_EXPERIMENT.md section 12).
 Success is always judged on the true positions.
 
 **Q14. What if the vehicle is heavier or lighter than when it was calibrated?**
@@ -120,6 +123,9 @@ trims; the teammate models know about it only if you say so (section 13).
 `strathe train-fleet --algorithm sac|td3`; list the policies with labels
 (`--policies ppo=... sac=...`) and the report compares them episode by episode
 (section 14). How SAC and TD3 compare with PPO here: PROJECT_STATUS.md #58.
+That validation is on the reference BlueROV2 and the formation task only; for
+your vehicle, train two or three seeds of each and compare them in one run
+(section 14 shows the commands).
 
 **Q12. Can I use my own vehicle, not the reference BlueROV2?** PASS. Calibrate
 it from its logs (below), then set `truth_params`, `vehicle_spec` and

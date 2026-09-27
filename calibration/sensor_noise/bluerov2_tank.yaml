@@ -1,4 +1,5 @@
 # Sensor noise measured from a vehicle's logs. See sensor_noise.py.
+provenance: measured
 sensors:
   velocity_std_mps: 0.001693
   velocity_bias_mps: 0.0

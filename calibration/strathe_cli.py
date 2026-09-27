@@ -784,7 +784,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--mode", choices=["clean", "noisy", "both"],
                    help="clean (exact sensors, no disturbance), noisy (sensor noise + roll/pitch disturbance), or "
                         "both: every condition run clean and noisy, compared episode by episode")
-    g.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    g.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
     g.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
     g.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                    help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
@@ -814,10 +814,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also train on the default (uncalibrated) physics, to see whether calibration matters")
     a.add_argument("--policy", help="evaluate your own trained policy (.zip: PPO, SAC or TD3) instead of training")
     a.add_argument("--algorithm", choices=["ppo", "sac", "td3"], default="ppo",
-                   help="training algorithm (default ppo; sac and td3 as validated in PROJECT_STATUS.md #37)")
+                   help="training algorithm (default ppo; sac and td3 with the settings validated on the reference BlueROV2 in PROJECT_STATUS.md #37; on your vehicle, compare seeds)")
     a.add_argument("--mode", choices=["clean", "noisy"],
                    help="clean (default) or noisy: realistic sensor noise + the fitted roll/pitch disturbance")
-    a.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    a.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
     a.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
     a.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                    help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
@@ -842,7 +842,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--params", required=True, help="your calibrated_parameters.yaml")
     t.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description")
     t.add_argument("--algorithm", choices=["ppo", "sac", "td3"], default="ppo",
-                   help="ppo (default), sac or td3 (see PROJECT_STATUS.md #58)")
+                   help="ppo (default), sac or td3. SAC/TD3 were validated on the reference BlueROV2 and the formation task (PROJECT_STATUS.md #58); for your vehicle, train a few seeds of each and compare them with `strathe fleet --policies ppo=... sac=...`")
     t.add_argument("--timesteps", type=int, default=None,
                    help="default: 3M for ppo, 1M for sac/td3 (~40 min each on an M1)")
     t.add_argument("--seed", type=int, default=1)
@@ -854,7 +854,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
     t.add_argument("--mode", choices=["clean", "noisy"],
                    help="train clean (default) or noisy: sensor noise + roll/pitch disturbance")
-    t.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    t.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
     t.add_argument("--noise-scale", type=float, default=1.0)
     t.add_argument("--disturbance", help="roll/pitch disturbance: none, fitted, or a fit file (default: from --mode)")
     t.add_argument("--disturbance-scale", type=float, default=1.0)

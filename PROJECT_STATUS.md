@@ -976,6 +976,12 @@ Presets:
 
 Tests: 52 new (`tests/test_noise_buoyancy_algorithms.py`) + 1 web; 449 + 142 fleet, all passing. CI also runs a fleet smoke run with `--mode both --buoyancy -2 2`.
 
+**Caveats, stated where labs see them** (follow-up, same day):
+- **`typical` sensor noise is assumed, not measured.** Every description of it now says so: the noise files carry `provenance: assumed|measured`, and reports, `--help` text and the web menu print it. The study reports open with it.
+- **SAC/TD3 were validated on the reference BlueROV2 and the formation task only.** This is now stated in the README, CUSTOM_EXPERIMENT section 14 (with the commands to train and compare seeds of each on your own vehicle), LIMITS.md, the web form, `--help`, the algorithm study report, and every fleet report that compares policy groups. That report also warns when a group has a single training seed.
+- **Commands without a web form are now listed:** `fit-noise`, `report`, `check` and a standalone `estimate-current`. The README had said every command had a form. The web page explains how to make a noise file in a terminal and then use it on the form.
+- Three tests keep the labels in place.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
