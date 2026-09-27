@@ -254,6 +254,41 @@ full path{hint}</label><input type=text id={prefix}-params name=params value=""{
 </fieldset>"""
 
 
+def engine_disturbance_fields(prefix: str) -> str:
+    """Physics engine and roll/pitch disturbance choices (same field names in every form)."""
+    return f"""<fieldset class=current><legend>Physics engine and roll/pitch disturbance</legend>
+<label for={prefix}-engine>Physics engine for the tests</label><select id={prefix}-engine name=backend>
+<option value=stand_in>Stand-in (fast; the default)</option><option value=mujoco>MuJoCo</option>
+<option value=both>Both, side by side</option></select>
+<label for={prefix}-dist>Random roll/pitch torques (like the tether and waves in the real logs)</label>
+<select id={prefix}-dist name=disturbance><option value=none>None (clean simulation)</option>
+<option value=fitted>Fitted to the reference BlueROV2 logs</option><option value=file>From my own fit file (below)</option></select>
+<label for={prefix}-dscale>Disturbance size: 1 = as fitted, 2 = twice as rough</label>
+<input type=text id={prefix}-dscale name=disturbance_scale value="1">
+<label for={prefix}-dfile>Disturbance fit file, full path (only if “From my own fit file”)</label>
+<input type=text id={prefix}-dfile name=disturbance_file value="">
+</fieldset>"""
+
+
+def fleet_settings_fields() -> str:
+    comm = "".join(f"<label class=inline><input type=checkbox name=comm value={c} aria-label='Comm level {c}'> {c} "
+                   f"({d})</label>" for c, d in (("L0", "no loss"), ("L1", "10% loss"), ("L2", "30% loss"),
+                                                 ("L3a", "60% loss"), ("L3b", "60% loss + too little bandwidth")))
+    beliefs = "".join(f"<label class=inline><input type=checkbox name=beliefs value={b} aria-label='Teammate model "
+                      f"{b}'> {b}</label>" for b in cli.BELIEF_NAMES)
+    return f"""<fieldset class=current><legend>Experiment settings (optional; anything left blank keeps the YAML's value)</legend>
+<p class=muted>Packet-loss levels (one result cell each):</p>{comm}
+<label for=fs-beacon>Seconds between beacons (one or more, e.g. <code>1 3</code>)</label><input type=text id=fs-beacon name=beacon_interval value="">
+<p class=muted>Teammate models to compare:</p>{beliefs}
+<label for=fs-sep>Target separation, m</label><input type=text id=fs-sep name=target_separation value="">
+<label for=fs-tol>Tolerance, m</label><input type=text id=fs-tol name=tolerance value="">
+<label for=fs-hold>Hold steps (ticks of 0.1 s)</label><input type=text id=fs-hold name=hold_steps value="">
+<label for=fs-eps>Episode length (ticks of 0.1 s)</label><input type=text id=fs-eps name=episode_steps value="">
+<label for=fs-seeds>Sample size: packet-loss seeds per starting condition</label><input type=text id=fs-seeds name=seeds value="">
+<label for=fs-starts>Starting separations, m (e.g. <code>2.5 3.5 4.5</code>)</label><input type=text id=fs-starts name=separations value="">
+</fieldset>"""
+
+
 def home_page(manager: JobManager, token: str) -> bytes:
     fleet_opts = "".join(f"<option value='{c}'>{c}</option>" for c in SHIPPED_FLEET_CONFIGS
                          if os.path.exists(os.path.join(cli.CAL_DIR, c)))
@@ -282,6 +317,9 @@ default: the latest 20%)</label>
 <input type=text id=cal-rate name=rate value="">
 <label for=cal-cur>Open water: the water current during the recordings, <code>vx vy vz</code> in m/s in the logs'
 world frame (optional; empty = still water)</label><input type=text id=cal-cur name=current_world value="">
+<label class=inline><input type=checkbox id=cal-estcur name=estimate_current value=1 aria-label="Estimate the water current in each recording"> Open water, current unknown:
+estimate each recording's current from the logs (alternates with the fit; about 2-3x the time). Leave the
+current field above empty.</label>
 <label for=cal-nfev>Optimizer budget, evaluations (default 100; more = slower but may fit better)</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
 <label class=inline><input type=checkbox id=cal-excl name=exclude_rp value=1 aria-label="Leave roll and pitch out of the fit"> Leave roll and pitch out of the fit
@@ -301,6 +339,7 @@ whether the calibration matters. Roughly 5 minutes per policy at the default bud
 <label for=ar-eps>Evaluation episodes</label><input type=text id=ar-eps name=episodes value="100">
 <label class=inline><input type=checkbox id=ar-cmp name=compare_generic value=1 checked aria-label="Compare with training on default physics"> Compare with training on
 default (uncalibrated) physics</label>
+{engine_disturbance_fields("ar")}
 {current_fieldset("acur", teammates=False)}
 <button>Start single-vehicle experiment</button></form></div>
 <div class=card><h2>Run a fleet experiment</h2>
@@ -311,6 +350,8 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <label for=fleet-config>…or your own experiment YAML (full path; leave empty to use the one above)</label>
 <input type=text id=fleet-config name=config value="">
 {vehicle_fields("fl")}
+{fleet_settings_fields()}
+{engine_disturbance_fields("fl")}
 {current_fieldset("cur", teammates=True)}
 <button>Start experiment</button></form></div>
 <div class=card><h2>Train a fleet policy for your vehicle</h2>
@@ -422,7 +463,9 @@ class StratheHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if length > 100_000:
             return self._error(413, "Form too large.")
-        form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode("utf-8")).items()}
+        parsed = parse_qs(self.rfile.read(length).decode("utf-8"))
+        form = {k: v[0] for k, v in parsed.items()}
+        form["_multi"] = {k: v for k, v in parsed.items() if len(v) > 1}  # checkboxes sharing a name
         if not secrets.compare_digest(form.get("token", ""), self.token):
             return self._error(403, "This form has expired; reload the page and try again.")
         try:
@@ -467,6 +510,10 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--max-nfev", str(int(_number(nfev, "Optimizer budget", 1, 100000)))]
             if form.get("exclude_rp"):
                 args += ["--exclude-axes", "p", "q"]
+            if form.get("estimate_current"):
+                if form.get("current_world", "").strip():
+                    raise ValueError("Give either the known water current or tick 'estimate the current', not both.")
+                args.append("--estimate-current")
             if heldout:
                 args += ["--heldout-dates", *heldout]
             return self.manager.start("calibrate", f"Calibration: {name}", args, [out])
@@ -482,6 +529,7 @@ class StratheHandler(BaseHTTPRequestHandler):
                     "--out", out]
             if form.get("compare_generic"):
                 args.append("--compare-generic")
+            args += engine_disturbance_cli_args(form, default_engine="stand_in")
             title = f"One vehicle: {task.replace('_', ' ')}"
             if form.get("current_on"):
                 args += [a for a in current_cli_args({**form, "current_known": "1"})]
@@ -513,7 +561,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 if shipped not in SHIPPED_FLEET_CONFIGS:
                     raise ValueError("Pick one of the shipped experiments.")
                 config = os.path.join(cli.CAL_DIR, shipped)
-            args = ["fleet", "--config", config, *vehicle_cli_args(form, "--vehicle-spec")]
+            args = ["fleet", "--config", config, *vehicle_cli_args(form, "--vehicle-spec"),
+                    *fleet_settings_cli_args(form), *engine_disturbance_cli_args(form)]
             title = f"Fleet experiment: {os.path.basename(config)}"
             if form.get("current_on"):
                 args += current_cli_args(form)
@@ -546,6 +595,64 @@ def _number(text: str, name: str, lo: float, hi: float) -> float:
     if not lo <= v <= hi:
         raise ValueError(f"{name}: must be between {lo:g} and {hi:g}, got {v:g}")
     return v
+
+
+def engine_disturbance_cli_args(form: dict, default_engine: Optional[str] = None) -> list:
+    """--backend / --disturbance / --disturbance-scale from the form, validated. For the fleet, an
+    engine left at the default and no disturbance keep the experiment YAML's own values."""
+    args = []
+    engine = form.get("backend", "stand_in")
+    if engine not in ("stand_in", "mujoco", "both"):
+        raise ValueError("Pick a physics engine.")
+    if default_engine is not None or engine != "stand_in":
+        args += ["--backend", engine]
+    choice = form.get("disturbance", "none")
+    if choice == "none":
+        return args
+    scale = _number(form.get("disturbance_scale", "1") or "1", "Disturbance size", 0, 10)
+    if choice == "fitted":
+        return args + ["--disturbance", "fitted", "--disturbance-scale", repr(scale)]
+    if choice == "file":
+        path = _existing_file(form.get("disturbance_file", ""), "Disturbance fit file", (".yaml", ".yml"))
+        from disturbance import load_disturbance
+        load_disturbance(path)  # raises ValueError if it isn't a disturbance fit
+        return args + ["--disturbance", path, "--disturbance-scale", repr(scale)]
+    raise ValueError("Pick a disturbance option.")
+
+
+def fleet_settings_cli_args(form: dict) -> list:
+    """`strathe fleet` experiment-setting flags from the fleet form, validated; blanks are skipped."""
+    multi = form.get("_multi") or {}
+    args = []
+    comm = multi.get("comm") or ([form["comm"]] if form.get("comm") else [])
+    if any(c not in cli.SEVERITIES for c in comm):
+        raise ValueError("Unknown packet-loss level.")
+    if comm:
+        args += ["--comm", *comm]
+    beliefs = multi.get("beliefs") or ([form["beliefs"]] if form.get("beliefs") else [])
+    if any(b not in cli.BELIEF_NAMES for b in beliefs):
+        raise ValueError("Unknown teammate model.")
+    if beliefs:
+        if len(beliefs) < 2:
+            raise ValueError("Pick at least two teammate models to compare.")
+        args += ["--beliefs", *beliefs]
+    if form.get("beacon_interval", "").strip():
+        vals = form["beacon_interval"].replace(",", " ").split()
+        args += ["--beacon-interval", *[repr(_number(v, "Seconds between beacons", 0.1, 60)) for v in vals]]
+    for key, flag, name, lo, hi, as_int in (
+            ("target_separation", "--target-separation", "Target separation", 0.1, 100, False),
+            ("tolerance", "--tolerance", "Tolerance", 0.01, 10, False),
+            ("hold_steps", "--hold-steps", "Hold steps", 1, 10000, True),
+            ("episode_steps", "--episode-steps", "Episode length", 1, 100000, True),
+            ("seeds", "--seeds", "Sample size", 1, 1000, True)):
+        raw = form.get(key, "").strip()
+        if raw:
+            v = _number(raw, name, lo, hi)
+            args += [flag, str(int(v)) if as_int else repr(v)]
+    if form.get("separations", "").strip():
+        vals = form["separations"].replace(",", " ").split()
+        args += ["--separations", *[repr(_number(v, "Starting separation", 0.1, 100)) for v in vals]]
+    return args
 
 
 def vehicle_cli_args(form: dict, spec_flag: str = "--spec") -> list:

@@ -20,6 +20,11 @@ calibration matter for that?
   currents), so the calibrated-vs-default difference is paired.
 - Two references that need no training: random commands, and a simple
   hand-written controller that pushes toward the target.
+- Options (all off by default): a water current (--current-speed ...), thruster
+  limits (--thrusters), random roll/pitch torques (--disturbance fitted
+  [--disturbance-scale 2]), and the physics engine for the tests (--backend
+  mujoco, or both). Policies train on the fast stand-in with the same current,
+  thrusters and disturbance; the test engine is your choice.
 
 Writes report.md (plain language), results.json, episodes.csv and the
 trained policies to --out. This is simulation only: the "vehicle" is your
@@ -52,12 +57,11 @@ TASK_PLAIN = {
 
 # ----------------------------------------------------------------- environment
 
-def env_kwargs(args_like: dict) -> dict:
-    """Everything needed to rebuild the environment in a worker process (picklable)."""
-    return {k: args_like[k] for k in ("spec", "task", "max_episode_steps", "current", "thrusters")}
+ENGINE_PLAIN = {"stand_in": "stand-in", "mujoco": "MuJoCo"}
 
 
-def make_env(params, ek: dict):
+def make_env(params, ek: dict, backend: str = "stand_in"):
+    """ek: everything needed to rebuild the environment in a worker process (picklable)."""
     from arena import Arena
     from current import CurrentConfig
     from optimizer import load_vehicle_spec
@@ -67,8 +71,12 @@ def make_env(params, ek: dict):
     if ek.get("thrusters"):
         from fleet_experiment_schema import resolve_thrusters
         thrusters = resolve_thrusters(ek["thrusters"])
+    disturbance = None
+    if ek.get("disturbance"):
+        from disturbance import load_disturbance
+        disturbance = load_disturbance(ek["disturbance"], ek.get("disturbance_scale", 1.0))
     return Arena(params, vehicle, task=ek["task"], max_episode_steps=ek["max_episode_steps"], current=current,
-                 thrusters=thrusters)
+                 thrusters=thrusters, backend=backend, disturbance=disturbance)
 
 
 def physics_for(label: str, params_path: str, spec: str, quiet: bool = True):
@@ -101,7 +109,7 @@ def evaluate_job(job: dict) -> list:
     import torch
     torch.set_num_threads(1)
     truth = physics_for("calibrated", job["params"], job["env"]["spec"])
-    env = make_env(truth, job["env"])
+    env = make_env(truth, job["env"], job.get("engine", "stand_in"))
     kind = job["controller"]
     if kind == "policy":
         from stable_baselines3 import PPO
@@ -126,7 +134,8 @@ def evaluate_job(job: dict) -> list:
             done = term or trunc
         reason = info.get("terminal_reason")
         cur = info.get("current_world")
-        rows.append({"controller": job["label"], "physics": job.get("physics", ""), "seed": job.get("seed", ""),
+        rows.append({"controller": job["label"], "engine": job.get("engine", "stand_in"),
+                     "physics": job.get("physics", ""), "seed": job.get("seed", ""),
                      "episode_seed": int(ep_seed), "success": int(reason == TERMINAL_REASON_GOAL),
                      "collision": int(reason == TERMINAL_REASON_COLLISION), "steps": steps,
                      "final_distance_m": round(float(info["distance"]), 4), "effort_Ns": round(effort, 2),
@@ -136,21 +145,23 @@ def evaluate_job(job: dict) -> list:
 
 # ----------------------------------------------------------------- statistics and report
 
-def summarize(rows: list, label: str) -> dict:
+def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
     from fleet_stats import wilson_ci
-    r = [x for x in rows if x["controller"] == label]
+    r = [x for x in rows if x["controller"] == label and x.get("engine", "stand_in") == engine]
     n, s = len(r), sum(x["success"] for x in r)
     lo, hi = wilson_ci(s, n)
     ok = [x["steps"] for x in r if x["success"]]
-    return {"controller": label, "episodes": n, "success_rate": s / n if n else float("nan"), "ci": [lo, hi],
+    return {"controller": label, "engine": engine, "episodes": n, "success_rate": s / n if n else float("nan"), "ci": [lo, hi],
             "collision_rate": sum(x["collision"] for x in r) / n if n else float("nan"),
             "mean_time_to_success_s": round(0.1 * float(np.mean(ok)), 2) if ok else None,
             "mean_final_distance_m": round(float(np.mean([x["final_distance_m"] for x in r])), 3) if r else None,
             "mean_effort_Ns": round(float(np.mean([x["effort_Ns"] for x in r])), 1) if r else None}
 
 
-def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int = 0) -> Optional[dict]:
+def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int = 0,
+                      engine: str = "stand_in") -> Optional[dict]:
     """Success(a) - success(b), paired by (training seed, episode seed); 95% bootstrap CI over episodes."""
+    rows = [x for x in rows if x.get("engine", "stand_in") == engine]
     ra = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == a}
     rb = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == b}
     keys = sorted(set(ra) & set(rb))
@@ -163,7 +174,7 @@ def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int 
             "n_pairs": len(keys)}
 
 
-def write_report(path: str, meta: dict, summaries: list, contrast: Optional[dict]) -> None:
+def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> None:
     pct = lambda x: f"{100 * x:.0f}%"
     L = [f"# Single-vehicle experiment: {meta['name']}\n",
          f"{datetime.now():%Y-%m-%d %H:%M} · {meta['n_episodes']} evaluation episodes per controller · "
@@ -174,8 +185,13 @@ def write_report(path: str, meta: dict, summaries: list, contrast: Optional[dict
          + (f", in a water current: {meta['current_described']}" if meta.get("current_described") else ", in still water")
          + (f", with thruster limits: {meta['thrusters_described']}" if meta.get("thrusters_described")
             else ", with no thruster limits (any command up to ±30 N / N·m per axis)")
+         + (f", pushed by random roll/pitch torques ({meta['disturbance_described']})"
+            if meta.get("disturbance_described") else ", with no roll/pitch disturbance (clean simulation)")
+         + f". Physics engine for the tests: {' and '.join(ENGINE_PLAIN[e] for e in meta['engines'])}"
+         + (" (policies are trained on the stand-in, then tested on each)" if meta["engines"] != ["stand_in"] else "")
          + ". Every controller below drives that same vehicle through the same episodes (same targets"
-         + (", same currents" if meta.get("current_described") else "") + ").\n",
+         + (", same currents" if meta.get("current_described") else "")
+         + (", same disturbances" if meta.get("disturbance_described") else "") + ").\n",
          "Controllers:\n",
          f"- **trained on your calibration**: PPO trained in the simulator on your calibrated physics "
          f"({meta['seeds']} training seed(s), {meta['timesteps']:,} steps each)"]
@@ -184,18 +200,28 @@ def write_report(path: str, meta: dict, summaries: list, contrast: Optional[dict
                  "vehicle description, i.e. what you would have without calibrating")
     L += ["- **hand-written controller**: pushes toward the target in proportion to the distance; no training",
           "- **random commands**: a floor every controller should beat\n", "## Results\n",
-          "| Controller | Success (95% CI) | Mean time to succeed | Mean final distance | Mean effort* |",
-          "|---|---|---|---|---|"]
+          "| Controller | Engine | Success (95% CI) | Mean time to succeed | Mean final distance | Mean effort* |",
+          "|---|---|---|---|---|---|"]
     for s in summaries:
         t = "n/a" if s["mean_time_to_success_s"] is None else f"{s['mean_time_to_success_s']:.1f} s"
-        L.append(f"| {s['controller']} | {pct(s['success_rate'])} ({pct(s['ci'][0])}–{pct(s['ci'][1])}) | {t} | "
+        L.append(f"| {s['controller']} | {ENGINE_PLAIN[s['engine']]} | {pct(s['success_rate'])} "
+                 f"({pct(s['ci'][0])}–{pct(s['ci'][1])}) | {t} | "
                  f"{s['mean_final_distance_m']:.2f} m | {s['mean_effort_Ns']:.0f} |")
+    if len(meta["engines"]) == 2:
+        by = {(s["controller"], s["engine"]): s["success_rate"] for s in summaries}
+        gaps = [abs(by[(c, "stand_in")] - by[(c, "mujoco")]) for c in {s["controller"] for s in summaries}
+                if (c, "stand_in") in by and (c, "mujoco") in by]
+        L.append(f"\nThe two engines agree to within {100 * max(gaps):.0f} points of success on every controller."
+                 if gaps else "")
     L.append("\n*Effort: the delivered forces (N) and torques (N·m), in absolute value, summed over the episode and "
              "multiplied by the 0.1 s step. It's a relative measure of how hard the thrusters work (lower = gentler), "
              "not a physical energy.\n")
-    if contrast is not None:
+    for engine, contrast in (contrasts or {}).items():
+        if contrast is None:
+            continue
         sig = contrast["ci"][0] > 0 or contrast["ci"][1] < 0
-        L.append("## Does the calibration matter for this task?\n")
+        L.append("## Does the calibration matter for this task?"
+                 + (f" ({ENGINE_PLAIN[engine]})" if len(contrasts) > 1 else "") + "\n")
         L.append(f"Policies trained on your calibration succeed {100 * contrast['diff']:+.0f} points "
                  f"({100 * contrast['ci'][0]:+.0f} to {100 * contrast['ci'][1]:+.0f}, 95% CI; "
                  f"{contrast['n_pairs']} paired episodes) compared with policies trained on default physics. "
@@ -229,8 +255,18 @@ def run(args) -> dict:
                                    "direction_std_deg": args.current_direction_std,
                                    "time_scale_s": args.current_time_scale}}
         CurrentConfig.from_dict(current)  # validates
+    dist_path = None
+    dist_desc = None
+    if args.disturbance != "none" and args.disturbance_scale > 0:
+        from disturbance import DEFAULT_FIT_PATH, load_disturbance
+        dist_path = DEFAULT_FIT_PATH if args.disturbance == "fitted" else os.path.abspath(args.disturbance)
+        d = load_disturbance(dist_path, args.disturbance_scale, truth_params_path=args.params)  # validates; warns once
+        dist_desc = (f"`{os.path.basename(dist_path)}` x{args.disturbance_scale:g}: roll {d.roll.sigma_nm * d.scale:.2f} "
+                     f"N·m, pitch {d.pitch.sigma_nm * d.scale:.2f} N·m typical size")
+    engines = ["stand_in", "mujoco"] if args.backend == "both" else [args.backend]
     ek = {"spec": os.path.abspath(args.spec), "task": args.task, "max_episode_steps": args.max_episode_steps,
-          "current": current, "thrusters": args.thrusters}
+          "current": current, "thrusters": args.thrusters, "disturbance": dist_path,
+          "disturbance_scale": args.disturbance_scale}
     thr_desc = None
     if args.thrusters:
         import thruster_model as tm
@@ -259,22 +295,25 @@ def run(args) -> dict:
     label = {"calibrated": "trained on your calibration", "generic": "trained on default physics",
              "your policy": "your policy"}
     eval_jobs = [{"controller": "policy", "policy": p["policy"], "physics": p["physics"], "seed": p["seed"],
-                  "label": label[p["physics"]], "params": params, "env": ek, "episode_seeds": episode_seeds}
-                 for p in policies]
-    eval_jobs += [{"controller": c, "label": lab, "params": params, "env": ek, "episode_seeds": episode_seeds}
-                  for c, lab in (("hand_written", "hand-written controller"), ("random", "random commands"))]
+                  "label": label[p["physics"]], "params": params, "env": ek, "episode_seeds": episode_seeds,
+                  "engine": e} for e in engines for p in policies]
+    eval_jobs += [{"controller": c, "label": lab, "params": params, "env": ek, "episode_seeds": episode_seeds,
+                   "engine": e}
+                  for e in engines for c, lab in (("hand_written", "hand-written controller"),
+                                                  ("random", "random commands"))]
     print(f"Evaluating {len(eval_jobs)} controllers on {len(episode_seeds)} episodes each...", flush=True)
     rows = []
     with ProcessPoolExecutor(max_workers=min(workers, len(eval_jobs))) as ex:
         for r in ex.map(evaluate_job, eval_jobs):
             rows += r
     order = list(dict.fromkeys(j["label"] for j in eval_jobs))
-    summaries = [summarize(rows, lab) for lab in order]
-    contrast = paired_difference(rows, "calibrated", "generic") if args.compare_generic and not args.policy else None
-    per_seed = [{"physics": p["physics"], "seed": p["seed"],
-                 "success_rate": float(np.mean([x["success"] for x in rows
-                                                if x["physics"] == p["physics"] and x["seed"] == p["seed"]]))}
-                for p in policies]
+    summaries = [summarize(rows, lab, e) for e in engines for lab in order]
+    contrasts = ({e: paired_difference(rows, "calibrated", "generic", engine=e) for e in engines}
+                 if args.compare_generic and not args.policy else {})
+    per_seed = [{"physics": p["physics"], "seed": p["seed"], "engine": e,
+                 "success_rate": float(np.mean([x["success"] for x in rows if x["physics"] == p["physics"]
+                                                and x["seed"] == p["seed"] and x["engine"] == e]))}
+                for e in engines for p in policies]
 
     with open(os.path.join(args.out, "episodes.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -284,22 +323,27 @@ def run(args) -> dict:
             "params": params, "spec": os.path.abspath(args.spec), "current": current,
             "current_described": CurrentConfig.from_dict(current).describe(teammates=False) if current else None,
             "thrusters": args.thrusters, "thrusters_described": thr_desc, "seeds": args.seeds,
+            "engines": engines, "disturbance": dist_path, "disturbance_scale": args.disturbance_scale,
+            "disturbance_described": dist_desc,
             "timesteps": args.timesteps, "n_episodes": args.episodes, "max_episode_steps": args.max_episode_steps,
             "compare_generic": bool(args.compare_generic and not args.policy), "policy": args.policy,
             "command": "python " + " ".join([os.path.basename(sys.argv[0])] + sys.argv[1:]),
             "python": platform.python_version(), "elapsed_s": round(time.time() - t0, 1)}
-    results = {"meta": meta, "summary": summaries, "calibrated_vs_default": contrast, "per_seed": per_seed,
+    contrast = contrasts.get(engines[0]) if contrasts else None
+    results = {"meta": meta, "summary": summaries, "calibrated_vs_default": contrast,
+               "calibrated_vs_default_by_engine": contrasts, "per_seed": per_seed,
                "policies": policies}
     with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-    write_report(os.path.join(args.out, "report.md"), meta, summaries, contrast)
+    write_report(os.path.join(args.out, "report.md"), meta, summaries, contrasts)
     print(f"\nReport: {os.path.join(args.out, 'report.md')}")
     for s in summaries:
-        print(f"  {s['controller']:<28} success {100 * s['success_rate']:5.1f}% "
+        print(f"  {s['controller']:<28} {ENGINE_PLAIN[s['engine']]:<9} success {100 * s['success_rate']:5.1f}% "
               f"({100 * s['ci'][0]:.0f}-{100 * s['ci'][1]:.0f}%)")
-    if contrast:
-        print(f"  calibrated - default training: {100 * contrast['diff']:+.1f} points "
-              f"({100 * contrast['ci'][0]:+.1f} to {100 * contrast['ci'][1]:+.1f})")
+    for e, c in contrasts.items():
+        if c:
+            print(f"  calibrated - default training ({ENGINE_PLAIN[e]}): {100 * c['diff']:+.1f} points "
+                  f"({100 * c['ci'][0]:+.1f} to {100 * c['ci'][1]:+.1f})")
     return results
 
 
@@ -324,6 +368,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--current-time-scale", type=float, default=30.0)
     ap.add_argument("--thrusters", help="limit commands to what the thrusters can deliver: bluerov2_heavy, or a YAML "
                                         "file with a thrusters block (an ingest spec works)")
+    ap.add_argument("--backend", choices=["stand_in", "mujoco", "both"], default="stand_in",
+                    help="physics engine for the tests: the fast stand-in (default), MuJoCo, or both side by side. "
+                         "Policies always train on the stand-in")
+    ap.add_argument("--disturbance", default="none",
+                    help="random roll/pitch torques: none (default), fitted (the fit to the reference BlueROV2 logs), "
+                         "or a path to your own fit (fit_rollpitch_disturbance.py). Used in training and testing")
+    ap.add_argument("--disturbance-scale", type=float, default=1.0,
+                    help="0 = off, 1 = as fitted, 2 = twice as rough")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--name", default="")
     ap.add_argument("--out", required=True)

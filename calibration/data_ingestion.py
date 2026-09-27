@@ -116,7 +116,7 @@ class IngestError(ValueError):
 
 class SourceSpec(BaseModel):
     files: str
-    format: Literal["csv", "rosbag"] = "csv"
+    format: Literal["csv", "rosbag", "ardupilot"] = "csv"
     delimiter: str = ","
     stamp: Literal["header", "receive"] = "header"   # rosbag: message header.stamp, or bag receive time
     message_types: list[str] = Field(default_factory=list)  # rosbag: .msg files for custom types in .db3 bags
@@ -151,6 +151,9 @@ class VelocitySpec(BaseModel):
     columns: dict[Literal["u", "v", "w", "p", "q", "r"], str]
     linear_unit: Literal["m/s", "cm/s", "mm/s", "knots"] = "m/s"
     angular_unit: Literal["rad/s", "deg/s"] = "rad/s"
+    # "world": u, v, w are world-frame (NED, or ENU with frame: flu) velocities, as ArduPilot's EKF and
+    # most odometry-in-map-frame logs give; they are rotated into the body frame with the orientation
+    linear_frame: Literal["body", "world"] = "body"
 
     @model_validator(mode="after")
     def _all(self):
@@ -227,13 +230,14 @@ class IngestSpec(BaseModel):
     def _time_source(self):
         if self.source.format == "csv" and self.time is None:
             raise ValueError("a CSV source needs time: {column: ..., unit: ...} or time: {sampling_rate_hz: ...}")
-        if self.source.format == "rosbag":
+        if self.source.format in ("rosbag", "ardupilot"):
+            what = "bag" if self.source.format == "rosbag" else "log"
             if self.time is not None:
-                raise ValueError("a rosbag source takes its time from the bag; remove the time: block")
+                raise ValueError(f"a {self.source.format} source takes its time from the {what}; remove the time: block")
             if self.resample_hz is None:
-                raise ValueError("a rosbag source needs resample_hz: topics arrive at different rates and are "
-                                 "put on one grid")
-        if self.source.format == "csv" and self.source.message_types:
+                raise ValueError(f"a {self.source.format} source needs resample_hz: its messages arrive at different "
+                                 f"rates and are put on one grid")
+        if self.source.format != "rosbag" and self.source.message_types:
             raise ValueError("message_types only applies to rosbag sources")
         return self
 
@@ -291,7 +295,8 @@ def _session_date(spec: IngestSpec, path: str, start_unix_s: Optional[float] = N
     ds = spec.session_date
     if ds.source == "recording":
         if start_unix_s is None or start_unix_s < 1e8:
-            raise IngestError(f"{path}: session_date from: recording needs real clock timestamps (a ROS bag, or a "
+            raise IngestError(f"{path}: session_date from: recording needs real clock timestamps (a ROS bag, a "
+                              f"MAVLink .tlog, an ArduPilot .bin with GPS time, or a "
                               f"time column in Unix seconds); use from: filename or from: constant instead")
         return dt.datetime.fromtimestamp(start_unix_s, dt.timezone.utc).strftime("%d-%m-%Y")
     if ds.source == "constant":
@@ -309,20 +314,31 @@ def _session_date(spec: IngestSpec, path: str, start_unix_s: Optional[float] = N
 
 
 def _read_source(spec: IngestSpec, path: str) -> tuple:
-    """(DataFrame, report, time column or None, time unit factor, already on a uniform grid)."""
+    """(DataFrame, per-file report). Bags and ArduPilot logs come back already on a uniform grid."""
     if spec.source.format == "csv":
         df = pd.read_csv(path, sep=spec.source.delimiter)
         return df, {"file": path, "rows_in": int(len(df)), "warnings": []}
-    import rosbag_reader as rb
     o = spec.orientation
     quat = [[getattr(o.quaternion, k) for k in "xyzw"]] if o.quaternion is not None else []
+    angles = ({getattr(o.euler, k): (360.0 if o.euler.unit == "deg" else 2 * np.pi) for k in ("roll", "pitch", "yaw")}
+              if o.euler is not None else {})
     hold = spec.wrench.thrusters.pwm_columns if spec.wrench.thrusters is not None else []
-    try:
-        df, bag_rep = rb.read_bag(path, spec.columns(), spec.resample_hz, spec.source.stamp, hold, quat,
-                                  spec.source.message_types)
-    except rb.BagError as e:
-        raise IngestError(str(e)) from e
-    report = {"file": path, "rows_in": int(len(df)), "warnings": bag_rep.pop("warnings"), "bag": bag_rep}
+    if spec.source.format == "rosbag":
+        import rosbag_reader as rb
+        try:
+            df, src_rep = rb.read_bag(path, spec.columns(), spec.resample_hz, spec.source.stamp, hold, quat,
+                                      spec.source.message_types, angle_columns=angles)
+        except rb.BagError as e:
+            raise IngestError(str(e)) from e
+        key = "bag"
+    else:
+        import ardupilot_reader as ar
+        try:
+            df, src_rep = ar.read_log(path, spec.columns(), spec.resample_hz, hold, quat, angle_columns=angles)
+        except ar.ArduPilotLogError as e:
+            raise IngestError(str(e)) from e
+        key = "log"
+    report = {"file": path, "rows_in": int(len(df)), "warnings": src_rep.pop("warnings"), key: src_rep}
     return df, report
 
 
@@ -335,11 +351,11 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     start_unix_s = None
 
     # time base
-    if spec.source.format == "rosbag":
+    if spec.source.format in ("rosbag", "ardupilot"):
         import rosbag_reader as rb
         t = df[rb.TIME_COLUMN].to_numpy(dtype=float)
         rate = spec.resample_hz
-        start_unix_s = report["bag"]["recording_start_unix_s"]
+        start_unix_s = (report.get("bag") or report.get("log"))["recording_start_unix_s"]
         report["resampled_to_hz"] = rate
     elif spec.time.column is not None:
         t = _col(df, spec.time.column, path) * TIME_UNITS[spec.time.unit]
@@ -375,8 +391,8 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         q = np.stack([_col(df, getattr(o.quaternion, k), path) for k in "xyzw"], 1)
         norms = np.linalg.norm(q, axis=1)
         # bags: checked on the raw messages (the grid values were slerped, so are unit length by construction)
-        checked = np.array(report["bag"]["quaternion_norm_range"]) if "quaternion_norm_range" in report.get("bag", {}) \
-            else norms
+        src = report.get("bag") or report.get("log") or {}
+        checked = np.array(src["quaternion_norm_range"]) if "quaternion_norm_range" in src else norms
         if np.any(np.abs(checked - 1) > 0.05):
             raise IngestError(f"{path}: quaternion norms range {checked.min():.3f}-{checked.max():.3f}; expected 1 "
                               f"(wrong columns, or a w-first/w-last mix-up?)")
@@ -384,6 +400,9 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     else:
         eu = np.stack([_col(df, getattr(o.euler, k), path) for k in ("roll", "pitch", "yaw")], 1)
         R = Rotation.from_euler("xyz", eu * ANGLE_UNITS[o.euler.unit]).as_matrix()
+    if spec.body_velocity.linear_frame == "world":
+        lin = np.einsum("nji,nj->ni", R, lin)  # R maps body to world, so R^T takes world velocity to body
+        report["velocity_rotated_from_world_frame"] = True
     if spec.wrench.columns is not None:
         wc = spec.wrench.columns
         wrench = np.stack([_col(df, wc[k], path) for k in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")], 1)
@@ -461,6 +480,9 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
     if spec.source.format == "rosbag":
         import rosbag_reader as rb
         files = rb.bag_paths(spec.source.files)
+    elif spec.source.format == "ardupilot":
+        import ardupilot_reader as ar
+        files = ar.log_paths(spec.source.files)
     else:
         files = sorted(glob.glob(spec.source.files))
     if not files:

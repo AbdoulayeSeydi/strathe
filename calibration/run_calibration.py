@@ -51,6 +51,7 @@ import yaml
 from data_split import split_by_date, discover_csv_files, DEFAULT_HELDOUT_FRACTION
 from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
+from objective import read_currents_file
 from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, load_run, mean_run_rmse,
                        rmse_by_dof, skill_vs_zero, zero_baseline_rmse)
 from optimizer import (
@@ -89,6 +90,7 @@ class PipelineConfig:
     max_workers: Optional[int] = None  # None = os.cpu_count() default
     axis_scaling: str = "none"  # "none" = raw units (original objective); "zero_rms" = each
         # axis divided by its "predict zero" error on the training runs (PROJECT_STATUS.md #50)
+    current_by_file: Optional[tuple] = None    # a current per recording (objective.read_currents_file)
     current_world_mps: Optional[tuple] = None  # known current during the logs (log world frame);
         # None = vehicle_spec.yaml's environment block (still water for the tank dataset)
     torque_reference_offset_m: Optional[tuple] = None  # None = vehicle_spec.yaml's
@@ -237,6 +239,7 @@ class CalibrationReport:
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
     objective_sampling_rate_hz: float = 10.0
+    objective_current_by_file: Optional[tuple] = None
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +366,9 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                       "current_world_mps": (None if report.objective_current_world_mps is None
                                             else list(report.objective_current_world_mps)),
                       "held_parameters": report.objective_held_parameters,
-                      "sampling_rate_hz": report.objective_sampling_rate_hz},
+                      "sampling_rate_hz": report.objective_sampling_rate_hz,
+                      "current_by_file": (None if not report.objective_current_by_file else
+                                          [[f, list(c)] for f, c in report.objective_current_by_file])},
         "parameter_deltas": [
             {"name": d.name, "default": d.default, "calibrated": d.calibrated,
              "magnitude_ratio": d.magnitude_ratio, "crossed_zero": d.crossed_zero}
@@ -415,7 +420,11 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                                    torque_reference_offset_m=tuple(config.torque_reference_offset_m),
                                    current_world_mps=(None if config.current_world_mps is None
                                                       or not any(config.current_world_mps)
-                                                      else tuple(config.current_world_mps)))
+                                                      else tuple(config.current_world_mps)),
+                                   current_by_file=config.current_by_file)
+    if config.current_by_file:
+        logger.info("Each recording's own water current, for %d recording(s) (from a currents file)",
+                    len(config.current_by_file))
     if dataset_config.current_world_mps is not None:
         logger.info("Logs recorded in a known water current of %s m/s (log world frame)",
                     list(dataset_config.current_world_mps))
@@ -567,6 +576,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
         objective_sampling_rate_hz=config.sampling_rate_hz,
+        objective_current_by_file=config.current_by_file,
     )
 
     _save_artifacts(report, config.output_dir)
@@ -680,6 +690,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="known water current during the recordings, in the logs' world frame (m/s). "
                              "Default: vehicle_spec.yaml's environment block (still water for the tank "
                              "dataset); 0 0 0 = still water (PROJECT_STATUS.md #55)")
+    parser.add_argument("--currents-file", default=None,
+                        help="currents.csv: a water current for each recording (file, vx_mps, vy_mps, vz_mps), as "
+                             "estimate_current.py writes. Recordings it lists use their own current")
     parser.add_argument("--axis-scaling", choices=["none", "zero_rms"], default="none",
                         help="'zero_rms' scores each axis relative to its 'predict zero' error on the "
                              "training runs, instead of raw m/s and rad/s (PROJECT_STATUS.md #50)")
@@ -867,6 +880,7 @@ def main() -> None:
         torque_reference_offset_m=(None if args.torque_reference_offset_m is None
                                    else tuple(args.torque_reference_offset_m)),
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
+        current_by_file=None if not args.currents_file else read_currents_file(args.currents_file),
     )
 
     try:

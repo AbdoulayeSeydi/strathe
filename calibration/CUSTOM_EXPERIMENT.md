@@ -8,6 +8,34 @@ cp default_experiment.yaml my_experiment.yaml
 python run_fleet_experiment.py --config my_experiment.yaml
 ```
 
+**Or don't edit YAML at all.** Every common setting is a `strathe fleet` flag, and a field on the web page's
+fleet form. Flags override the chosen YAML (`--config`, default `default_experiment.yaml`). A copy with your
+settings is written to `strathe_jobs/` and run; the shipped files are never changed:
+
+| Setting | Flag | YAML field |
+|---|---|---|
+| Packet-loss levels | `--comm L0 L2 L3a` | `communication.severities` |
+| Seconds between beacons | `--beacon-interval 1 3` | `communication.beacon_interval_s` |
+| Teammate models | `--beliefs calibrated generic last_beacon oracle` | `beliefs` |
+| Headline pair | `--compare calibrated generic` | `compare` |
+| Target separation / tolerance | `--target-separation 3 --tolerance 0.2` | `task.*` |
+| Hold time / episode length (0.1 s ticks) | `--hold-steps 20 --episode-steps 200` | `task.*` |
+| Collision radius | `--collision-radius 0.5` | `task.collision_radius_m` |
+| Starting separations / closing speeds | `--separations 2.5 3.5 --closing-speeds -0.35 0 0.35` | `initial_conditions.*` |
+| Sample size | `--seeds 5` | `evaluation.comm_seeds` |
+| Physics engine | `--backend stand_in \| mujoco \| both` | `dynamics_backend` |
+| Roll/pitch disturbance | `--disturbance fitted --disturbance-scale 1.5` | `disturbance` |
+| Water current | `--current-speed 0 0.3 --current-direction 0 360 ...` | `current` |
+| Your vehicle | `--params ... --vehicle-spec ... --thrusters ...` | `truth_params`, `vehicle_spec`, `thrusters` |
+| Policies | `--policies my_policy.zip` | `policies` |
+| Name | `--name my_study` | `name` |
+
+`--save-config my_experiment.yaml` writes the resulting file instead of running it. Settings that can't
+make a valid experiment are refused before anything runs: a hold time longer than the episode, a starting
+separation inside the collision radius, or a headline pair that isn't among the teammate models. Only
+custom loss probabilities, speed of sound, `physics_params`/`physics_alpha` teammate models and reward
+weights need YAML editing (LIMITS.md).
+
 Every field reaches the simulation. The v1 runner validated task settings and
 comm overrides and then ignored them; both are now covered by regression tests
 in `tests/test_fleet_experiment.py`.

@@ -1,0 +1,38 @@
+# Ingest spec: MAVLink telemetry logs (.tlog) a ground station records
+# (QGroundControl saves them under Telemetry/), read directly.
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+#
+# Telemetry is streamed at a few Hz by default. Raise the stream rates before
+# recording (QGroundControl: Application Settings > MAVLink; or the SRx_*
+# parameters) to at least 10 Hz for ATTITUDE, SERVO_OUTPUT_RAW and
+# LOCAL_POSITION_NED, and set resample_hz no higher than that.
+# VELOCITY: LOCAL_POSITION_NED is world-frame (NED) and only as good as the
+# vehicle's position source (DVL / positioning system); see the .bin template.
+
+vehicle: my_bluerov2
+source:
+  files: "telemetry/*.tlog"
+  format: ardupilot
+resample_hz: 10
+session_date: {from: recording}   # .tlog files carry the ground station's clock
+frame: frd
+body_velocity:
+  columns:
+    u: LOCAL_POSITION_NED.vx
+    v: LOCAL_POSITION_NED.vy
+    w: LOCAL_POSITION_NED.vz
+    p: ATTITUDE.rollspeed      # body rates, rad/s
+    q: ATTITUDE.pitchspeed
+    r: ATTITUDE.yawspeed
+  linear_frame: world
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: ATTITUDE.roll, pitch: ATTITUDE.pitch, yaw: ATTITUDE.yaw, unit: rad}
+wrench:
+  thrusters:
+    pwm_columns: [SERVO_OUTPUT_RAW.servo1_raw, SERVO_OUTPUT_RAW.servo2_raw, SERVO_OUTPUT_RAW.servo3_raw,
+                  SERVO_OUTPUT_RAW.servo4_raw, SERVO_OUTPUT_RAW.servo5_raw, SERVO_OUTPUT_RAW.servo6_raw,
+                  SERVO_OUTPUT_RAW.servo7_raw, SERVO_OUTPUT_RAW.servo8_raw]
+    preset: bluerov2_heavy
+    voltage: 15.0

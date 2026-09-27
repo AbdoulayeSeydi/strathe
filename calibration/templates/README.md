@@ -17,11 +17,16 @@ can pin down, and writes a plain-language report. To only convert:
 | CSV with thruster PWM, BlueROV2 Heavy | `ingest_csv_pwm_bluerov2_heavy.yaml` |
 | CSV with thruster PWM, any other vehicle | `ingest_csv_pwm_custom_thrusters.yaml` |
 | ROS 1 `.bag` or ROS 2 bag folders (`.mcap`, `.db3`), e.g. ArduSub + MAVROS | `ingest_rosbag_mavros.yaml` |
+| ArduSub / ArduPilot DataFlash logs from the SD card (`.bin`, `.log`) | `ingest_ardupilot_bin.yaml` |
+| MAVLink telemetry logs from a ground station (`.tlog`, e.g. QGroundControl) | `ingest_mavlink_tlog.yaml` |
+
+Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
 
 ## What every spec needs
 
-- **Body-frame velocity** (surge, sway, heave, roll/pitch/yaw rates): from a DVL
-  or odometry, in the vehicle's frame, not the world frame.
+- **Velocity** (surge, sway, heave, roll/pitch/yaw rates): from a DVL or
+  odometry. Body frame by default; `linear_frame: world` takes world-frame
+  (NED/ENU) velocity, as ArduPilot logs it, and rotates it into the body frame.
 - **Orientation**: a quaternion or roll/pitch/yaw.
 - **What pushed the vehicle**: logged forces and torques, or the PWM sent to each
   thruster's ESC plus a description of the thrusters.
@@ -68,6 +73,17 @@ It refuses data that would silently corrupt a calibration:
 
 It warns about gaps in time and orientation jumps over 45° between samples
 (sensor glitches). Everything is recorded in `ingest_report.json`.
+
+## ArduPilot / MAVLink notes
+
+- Columns are `<MESSAGE>.<field>`, e.g. `RCOU.C1`, `ATT.Roll`, `SERVO_OUTPUT_RAW.servo1_raw`.
+- `[i]` picks one instance of a message logged for several sensors: `IMU[0].GyrX`, `XKF1[0].VN`.
+  If you leave it out when there are several instances, ingestion says which ones exist.
+- List a log's messages with `mavlogdump.py --types my.bin` (installed with pymavlink), or in Mission Planner.
+- **Velocity needs a DVL or positioning system.** The EKF's velocity without one is dead reckoning.
+- **Dates:** `.bin` logs have a real date only with GPS; underwater they usually have time since boot, so date recordings from the filename or a constant. `.tlog` files carry the ground station's clock.
+- **Telemetry rates:** raise them to at least 10 Hz before recording `.tlog` files.
+- **Damage:** corrupt or cut-off bytes (a log cut at power-down) are skipped and counted. The rest of the log is used.
 
 ## ROS bag notes
 

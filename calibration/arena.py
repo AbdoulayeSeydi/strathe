@@ -346,6 +346,8 @@ class Arena(gym.Env):
         obstacle_avoidance_config: Optional[ObstacleAvoidanceConfig] = None,
         current: Optional["CurrentConfig"] = None,
         thrusters=None,
+        backend: str = "stand_in",
+        disturbance=None,
     ):
         """
         task: "waypoint" (default, ORIGINAL behavior, unchanged) - touch
@@ -371,10 +373,29 @@ class Arena(gym.Env):
             original behaviour). When set, commands are limited to what the
             thrusters can deliver (thruster_model.achievable_wrench), and
             info["tau_applied"] reports the wrench actually applied.
+        backend: the physics engine, "stand_in" (fast, the training default)
+            or "mujoco" (the same calibrated equations integrated by MuJoCo,
+            the independent check the fleet studies use).
+        disturbance: optional disturbance.DisturbanceConfig: random roll/pitch
+            torques fitted to real logs (PROJECT_STATUS.md #51). None = clean
+            simulation. A new disturbance is drawn each reset() after the
+            waypoint, so the same seed gives the same targets with it on or
+            off; info["disturbance"] reports the torque added each step.
         """
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
-        self._core = ArenaCore(params, vehicle, sim_config)
+        if backend == "stand_in":
+            self._core = ArenaCore(params, vehicle, sim_config)
+        elif backend == "mujoco":
+            from mujoco_backend import MuJoCoArenaCore
+            self._core = MuJoCoArenaCore(params, vehicle, sim_config)
+        else:
+            raise ValueError(f"backend must be 'stand_in' or 'mujoco', got {backend!r}")
+        self.backend = backend
+        if disturbance is not None:
+            disturbance.validate()
+        self._disturbance_cfg = disturbance if disturbance is not None and disturbance.active else None
+        self._disturbance = None
         if current is not None:
             current.validate()
         self._current_cfg = current if current is not None and current.active else None
@@ -422,6 +443,10 @@ class Arena(gym.Env):
             self._waypoint = self._fixed_waypoint.copy()
         else:
             self._waypoint = self.np_random.uniform(-self.waypoint_range, self.waypoint_range, size=3)
+        if self._disturbance_cfg is not None:  # drawn after the waypoint: targets don't depend on it
+            from disturbance import RollPitchDisturbance
+            self._disturbance = RollPitchDisturbance(self._disturbance_cfg, self._core.sim_config.dt,
+                                                     int(self.np_random.integers(2**63 - 1)))
         return self._get_obs(), {}
 
     def step(self, action):
@@ -432,13 +457,15 @@ class Arena(gym.Env):
         if self._thrusters is not None:
             tau = self._thrusters.achievable_wrench(tau)
         self._core.current_world = None if self._current is None else self._current.next()
-        self._core.step(tau)
+        push = None if self._disturbance is None else self._disturbance.next()
+        self._core.step(tau if push is None else tau + push)
         self._step_count += 1
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
         info = {"distance": distance, "position": self._core.state.position.copy(),
                 "current_world": None if self._current is None else self._core.current_world.copy(),
-                "tau_applied": np.asarray(tau, dtype=float)}
+                "tau_applied": np.asarray(tau, dtype=float),
+                "disturbance": None if push is None else push}
         truncated = self._step_count >= self.max_episode_steps
 
         reward, terminated, task_info = self._task_obj.step(self, distance, truncated)

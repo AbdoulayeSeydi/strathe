@@ -63,7 +63,8 @@ per-vehicle contract before any compute is spent, and names the common
 mismatches: a v1 centralized policy, or a single-vehicle Arena policy.
 
 **Q5. Can I change starting conditions, task, seeds and episode length without editing code?** PASS.
-All are in the YAML, and all reach the simulation. The two v1 regressions
+All are in the YAML, and all reach the simulation. They are also `strathe fleet` flags and web fields,
+so editing YAML is optional (CUSTOM_EXPERIMENT.md). The two v1 regressions
 (ignored task settings, crashing comm overrides) are covered by tests.
 
 **Q6. How do I know whether the belief model affected coordination?** PASS.
@@ -112,7 +113,9 @@ cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a 
 python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 ```
 
-**C1. My logs are ROS bags / CSVs with my own column names, units and frame.** PASS.
+**C1. My logs are ROS bags, ArduPilot logs, or CSVs with my own column names, units and frame.** PASS.
+- ArduSub DataFlash `.bin` and MAVLink `.tlog` are read directly too (templates included). World-frame
+  velocity, as ArduPilot logs it, is rotated into the body frame.
 - One ingestion spec maps them (`calibration/templates/`, with a README).
 - ROS 1 `.bag` and ROS 2 `.mcap`/`.db3` are read directly.
 - Units and ROS FLU/ENU frames are converted.
@@ -145,9 +148,11 @@ assumed 10 Hz (PROJECT_STATUS.md #56).
 - values the data can't separate, in plain words
 - next steps
 
-**C6. My logs were recorded in open water.** PASS, for a known, roughly constant
-current (`--current-world-mps`, or the web form). Estimating an unknown
-current isn't built.
+**C6. My logs were recorded in open water.** PASS.
+- A known current: `--current-world-mps`, or the web form.
+- An unknown one: `--estimate-current` (a web checkbox too) estimates each recording's constant current and
+  calibrates with it. It flags recordings where the current changed or the vehicle didn't turn.
+- Limit: one constant current per recording (LIMITS.md).
 
 ## The single-vehicle journey
 
@@ -172,10 +177,16 @@ also trains on default physics. The report gives the paired difference with a
 **S3. Open water and real thruster limits?** PASS: the same current and
 `thrusters` options as the fleet.
 
+**S5. MuJoCo, and rough water?** PASS. `--backend mujoco` or `both`, and
+`--disturbance fitted [--disturbance-scale 2]`, on the command line and the web form. Policies train on the
+stand-in; with `both`, the report shows each engine and how closely they agree.
+
 **S4. My own single-vehicle policy?** PASS. `--policy my_policy.zip` evaluates it
 against the same references.
 
 ## Scope limits a lab should know before starting
+
+The full list, with what to do about each, is in [`LIMITS.md`](../LIMITS.md). The short version:
 
 | Limit | Status |
 |---|---|

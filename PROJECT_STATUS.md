@@ -789,12 +789,49 @@ Test suite: 363 + 142 fleet tests at the time of writing, including:
 - the single-vehicle experiment end to end
 - identifiability with the fit's objective
 
+### 57. Every known limit in one place; MuJoCo and rough water for one vehicle; ArduPilot logs; unknown currents; fleet experiments from flags (2026-09-26)
+
+**`LIMITS.md`** lists every known limit, from a sweep of the code (docstrings, `NotImplementedError`s, assumptions, TODOs), the docs and this log. Each entry says what it means for a lab and what to do. The README, the lab journey and the templates link to it. Lifted limits move to its "Lifted" list.
+
+**Single-vehicle arena: MuJoCo and roll/pitch disturbance.**
+- `Arena(..., backend="mujoco", disturbance=...)`, and `strathe arena --backend stand_in|mujoco|both --disturbance fitted|<file> --disturbance-scale S`, also on the web form.
+- The disturbance is drawn after the target, so targets are identical with it on or off. It's seeded, so every controller sees the same torques.
+- Policies train on the stand-in (with the chosen disturbance, current and thrusters). With `both`, the report tests on each engine and states how closely they agree.
+- `MuJoCoArenaCore` now finds its model file from any working directory.
+
+**ArduPilot logs read directly** (`ardupilot_reader.py`, using `pymavlink`):
+- DataFlash `.bin`/`.log` and MAVLink `.tlog`, with columns `MESSAGE.field` and `[i]` for multi-instance messages.
+- It uses the log's own clock: GPS time, boot time, or the ground station's clock.
+- It shares the time-grid code with the bag reader (`series_to_grid`), which now also unwraps angles, so yaw crossing 0/360 isn't interpolated the long way round.
+- Corrupt and cut-off records are skipped and counted.
+- It says what to fix for a missing message, field or instance, and for a multi-instance message given without an index.
+- `body_velocity.linear_frame: world` rotates world-frame velocity into the body frame, for any source.
+- Two new templates.
+
+**Unknown water currents.**
+- `estimate_current.py` (`strathe estimate-current`) estimates each recording's constant current: the one that makes the vehicle model's 3 s predictions best match the logs.
+- It checks each estimate by estimating the recording's two halves separately, and reports how much the vehicle turned. Estimates made with uncalibrated defaults are flagged as rough.
+- `currents.csv` (per-recording currents) is used by calibration, the check of what the data can pin down, the report and `finalize_checkpoint.py`. It's picked up automatically from the logs folder.
+- `strathe calibrate --estimate-current` alternates: calibrate in still water, estimate, recalibrate with the currents (two rounds by default). There's a web checkbox for it.
+
+**Fleet experiments from flags.** `strathe fleet` flags (and web fields) cover:
+- comm levels and beacon interval
+- teammate models and the headline pair
+- target separation, tolerance, hold time, episode length and collision radius
+- starting separations and closing speeds, and sample size
+- engine and disturbance, policies and name
+
+They merge into a copy of the chosen YAML, which is validated before anything runs; impossible experiments are refused with the schema's message. `--save-config` writes the file instead of running it.
+
+<<S57_RESULTS>>
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
-- **Currents: unknown or changing currents** can't yet be estimated from logs, and currents don't vary across space (#55). A fleet that works in currents should estimate the ambient current and give it to its teammate model.
-- **Lab data, not built yet (#56):**
-  - reading ArduPilot `.bin` / MAVLink `.tlog` logs directly (export to CSV, or record a ROS bag)
+- **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
+- **All limits, with what to do about each, are in `LIMITS.md` (#57).**
+- **Lab data, not built yet (#56, #57):**
+  - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
   - thruster response lag and battery sag within a run
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
