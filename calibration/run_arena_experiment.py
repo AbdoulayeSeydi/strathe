@@ -4,7 +4,8 @@ run_arena_experiment.py -- the single-vehicle experiment for a lab's own vehicle
 
     python run_arena_experiment.py --params ../calibration_output_my_rov/calibrated_parameters.yaml \
         --spec vehicle_spec.yaml --task station_keeping --seeds 2 --timesteps 150000 \
-        [--current-speed 0 0.3] [--thrusters bluerov2_heavy] [--compare-generic] --out ../arena_my_rov
+        [--current-speed 0 0.3] [--thrusters bluerov2_heavy] [--compare-generic] \
+        [--algorithm sac] [--mode noisy [--compare-clean-training]] [--buoyancy -3] --out ../arena_my_rov
     (or: python strathe.py arena ...)
 
 The question it answers: how well does a controller trained in the simulator
@@ -13,9 +14,11 @@ calibration matter for that?
 
 - "Your vehicle" is the calibrated physics (--params, --spec), plus the water
   current and thruster limits you choose. Every policy is evaluated on it.
-- Policies are trained with PPO in the same simulator: on the calibrated
-  physics, and with --compare-generic also on the default, uncalibrated
-  physics from the vehicle description (the "no calibration" alternative).
+- Policies are trained in the same simulator (--algorithm: PPO by default,
+  or SAC or TD3 with the settings validated in PROJECT_STATUS.md #37): on the
+  calibrated physics, and with --compare-generic also on the default,
+  uncalibrated physics from the vehicle description (the "no calibration"
+  alternative).
 - Every policy sees the same evaluation episodes (same targets, same
   currents), so the calibrated-vs-default difference is paired.
 - Two references that need no training: random commands, and a simple
@@ -25,6 +28,11 @@ calibration matter for that?
   [--disturbance-scale 2]), and the physics engine for the tests (--backend
   mujoco, or both). Policies train on the fast stand-in with the same current,
   thrusters and disturbance; the test engine is your choice.
+- Clean or noisy (--mode noisy = realistic sensor noise + the fitted roll/pitch
+  disturbance; --noise and --disturbance set each part), and a buoyancy change
+  from the calibration (--buoyancy N, e.g. -3 for an added payload). With
+  --compare-clean-training, policies are also trained on a clean simulation
+  and compared on your noisy test: does training with the noise pay off?
 
 Writes report.md (plain language), results.json, episodes.csv and the
 trained policies to --out. This is simulation only: the "vehicle" is your
@@ -75,11 +83,25 @@ def make_env(params, ek: dict, backend: str = "stand_in"):
     if ek.get("disturbance"):
         from disturbance import load_disturbance
         disturbance = load_disturbance(ek["disturbance"], ek.get("disturbance_scale", 1.0))
+    noise = None
+    if ek.get("noise"):
+        from sensor_noise import resolve_sensor_noise
+        noise = resolve_sensor_noise(ek["noise"], ek.get("noise_scale", 1.0))
+    buoyancy = None
+    if ek.get("buoyancy"):
+        from buoyancy import BuoyancyConfig
+        buoyancy = BuoyancyConfig.from_dict(ek["buoyancy"])
     return Arena(params, vehicle, task=ek["task"], max_episode_steps=ek["max_episode_steps"], current=current,
-                 thrusters=thrusters, backend=backend, disturbance=disturbance)
+                 thrusters=thrusters, backend=backend, disturbance=disturbance, sensor_noise=noise, buoyancy=buoyancy)
+
+
+def clean_env_kwargs(ek: dict) -> dict:
+    """The same environment without sensor noise or disturbance (current, thrusters and buoyancy kept)."""
+    return dict(ek, noise=None, disturbance=None)
 
 
 def physics_for(label: str, params_path: str, spec: str, quiet: bool = True):
+    """label: a training condition; every one but 'generic' trains on (and every test runs on) the calibration."""
     from build_two_agent_cores import load_calibrated_parameters
     from optimizer import initial_parameters, load_vehicle_spec
     if label == "generic":
@@ -89,18 +111,29 @@ def physics_for(label: str, params_path: str, spec: str, quiet: bool = True):
 
 # ----------------------------------------------------------------- training / evaluation (worker processes)
 
+ALGORITHMS = ("ppo", "sac", "td3")
+
+
 def train_job(job: dict) -> dict:
+    """PPO: 4 environments, n_steps 512 (the single-vehicle default since #56). SAC/TD3: one environment and
+    stable-baselines3's own settings, exactly as validated on this vehicle in PROJECT_STATUS.md #37."""
     import torch
-    from stable_baselines3 import PPO
+    from stable_baselines3 import PPO, SAC, TD3
     from stable_baselines3.common.vec_env import DummyVecEnv
     torch.set_num_threads(1)
     params = physics_for(job["physics"], job["params"], job["env"]["spec"])
-    env = DummyVecEnv([lambda: make_env(params, job["env"]) for _ in range(4)])
-    model = PPO("MlpPolicy", env, seed=job["seed"], verbose=0, device="cpu", n_steps=512)
+    env_kwargs = clean_env_kwargs(job["env"]) if job.get("train_clean") else job["env"]
+    alg = job.get("algorithm", "ppo")
+    if alg == "ppo":
+        env = DummyVecEnv([lambda: make_env(params, env_kwargs) for _ in range(4)])
+        model = PPO("MlpPolicy", env, seed=job["seed"], verbose=0, device="cpu", n_steps=512)
+    else:
+        env = DummyVecEnv([lambda: make_env(params, env_kwargs)])
+        model = {"sac": SAC, "td3": TD3}[alg]("MlpPolicy", env, seed=job["seed"], verbose=0, device="cpu")
     t0 = time.time()
     model.learn(total_timesteps=job["timesteps"])
     model.save(job["out"])
-    return {"policy": job["out"] + ".zip", "physics": job["physics"], "seed": job["seed"],
+    return {"policy": job["out"] + ".zip", "physics": job["physics"], "seed": job["seed"], "algorithm": alg,
             "train_s": round(time.time() - t0, 1)}
 
 
@@ -112,8 +145,8 @@ def evaluate_job(job: dict) -> list:
     env = make_env(truth, job["env"], job.get("engine", "stand_in"))
     kind = job["controller"]
     if kind == "policy":
-        from stable_baselines3 import PPO
-        model = PPO.load(job["policy"], device="cpu")
+        from policy_io import load_policy
+        model, _alg = load_policy(job["policy"], job.get("algorithm"))
         act = lambda obs, rng: model.predict(obs, deterministic=True)[0]
     elif kind == "hand_written":
         from evaluate_policy_arena import proportional_controller
@@ -126,11 +159,12 @@ def evaluate_job(job: dict) -> list:
         rng = np.random.default_rng(ep_seed + 7)
         obs, info = env.reset(seed=int(ep_seed))
         done = False
-        steps, effort, info = 0, 0.0, {}
+        steps, effort, info, nav = 0, 0.0, {}, []
         while not done:
             obs, _, term, trunc, info = env.step(act(obs, rng))
             steps += 1
             effort += float(np.sum(np.abs(info["tau_applied"]))) * 0.1
+            nav.append(info.get("nav_error_m", 0.0))
             done = term or trunc
         reason = info.get("terminal_reason")
         cur = info.get("current_world")
@@ -139,7 +173,9 @@ def evaluate_job(job: dict) -> list:
                      "episode_seed": int(ep_seed), "success": int(reason == TERMINAL_REASON_GOAL),
                      "collision": int(reason == TERMINAL_REASON_COLLISION), "steps": steps,
                      "final_distance_m": round(float(info["distance"]), 4), "effort_Ns": round(effort, 2),
-                     "current_speed_mps": 0.0 if cur is None else round(float(np.linalg.norm(cur)), 4)})
+                     "current_speed_mps": 0.0 if cur is None else round(float(np.linalg.norm(cur)), 4),
+                     "mean_nav_error_m": round(float(np.mean(nav)), 4) if nav else 0.0,
+                     "buoyancy_offset_n": round(float(info.get("buoyancy_offset_n", 0.0)), 4)})
     return rows
 
 
@@ -155,7 +191,9 @@ def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
             "collision_rate": sum(x["collision"] for x in r) / n if n else float("nan"),
             "mean_time_to_success_s": round(0.1 * float(np.mean(ok)), 2) if ok else None,
             "mean_final_distance_m": round(float(np.mean([x["final_distance_m"] for x in r])), 3) if r else None,
-            "mean_effort_Ns": round(float(np.mean([x["effort_Ns"] for x in r])), 1) if r else None}
+            "mean_effort_Ns": round(float(np.mean([x["effort_Ns"] for x in r])), 1) if r else None,
+            "mean_nav_error_m": (round(float(np.mean([x.get("mean_nav_error_m", 0.0) for x in r])), 3)
+                                 if r else None)}
 
 
 def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int = 0,
@@ -186,27 +224,38 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
          + (f", with thruster limits: {meta['thrusters_described']}" if meta.get("thrusters_described")
             else ", with no thruster limits (any command up to ±30 N / N·m per axis)")
          + (f", pushed by random roll/pitch torques ({meta['disturbance_described']})"
-            if meta.get("disturbance_described") else ", with no roll/pitch disturbance (clean simulation)")
+            if meta.get("disturbance_described") else ", with no roll/pitch disturbance")
+         + (f", with sensor noise ({meta['noise_described']}): the controllers see what the vehicle's own sensors "
+            "report and where it believes it is, and success is judged on the true position"
+            if meta.get("noise_described") else ", with exact sensor readings")
+         + (f", with a {meta['buoyancy_described']}" if meta.get("buoyancy_described") else "")
          + f". Physics engine for the tests: {' and '.join(ENGINE_PLAIN[e] for e in meta['engines'])}"
          + (" (policies are trained on the stand-in, then tested on each)" if meta["engines"] != ["stand_in"] else "")
          + ". Every controller below drives that same vehicle through the same episodes (same targets"
          + (", same currents" if meta.get("current_described") else "")
-         + (", same disturbances" if meta.get("disturbance_described") else "") + ").\n",
+         + (", same disturbances" if meta.get("disturbance_described") else "")
+         + (", same sensor noise" if meta.get("noise_described") else "") + ").\n",
          "Controllers:\n",
-         f"- **trained on your calibration**: PPO trained in the simulator on your calibrated physics "
+         f"- **trained on your calibration**: {meta.get('algorithm', 'ppo').upper()} trained in the simulator on your "
+         f"calibrated physics, with the same conditions as the test "
          f"({meta['seeds']} training seed(s), {meta['timesteps']:,} steps each)"]
     if meta["compare_generic"]:
         L.append("- **trained on default physics**: the same training, but on the uncalibrated default values from the "
                  "vehicle description, i.e. what you would have without calibrating")
+    if meta.get("compare_clean_training"):
+        L.append("- **trained clean**: the same training on your calibration, but with exact sensors and no roll/pitch "
+                 "disturbance, then tested on the same noisy vehicle")
     L += ["- **hand-written controller**: pushes toward the target in proportion to the distance; no training",
           "- **random commands**: a floor every controller should beat\n", "## Results\n",
-          "| Controller | Engine | Success (95% CI) | Mean time to succeed | Mean final distance | Mean effort* |",
-          "|---|---|---|---|---|---|"]
+          "| Controller | Engine | Success (95% CI) | Mean time to succeed | Mean final distance | Mean effort* |"
+          + (" Mean navigation error† |" if meta.get("noise_described") else ""),
+          "|---|---|---|---|---|---|" + ("---|" if meta.get("noise_described") else "")]
     for s in summaries:
         t = "n/a" if s["mean_time_to_success_s"] is None else f"{s['mean_time_to_success_s']:.1f} s"
         L.append(f"| {s['controller']} | {ENGINE_PLAIN[s['engine']]} | {pct(s['success_rate'])} "
                  f"({pct(s['ci'][0])}–{pct(s['ci'][1])}) | {t} | "
-                 f"{s['mean_final_distance_m']:.2f} m | {s['mean_effort_Ns']:.0f} |")
+                 f"{s['mean_final_distance_m']:.2f} m | {s['mean_effort_Ns']:.0f} |"
+                 + (f" {100 * (s['mean_nav_error_m'] or 0):.0f} cm |" if meta.get("noise_described") else ""))
     if len(meta["engines"]) == 2:
         by = {(s["controller"], s["engine"]): s["success_rate"] for s in summaries}
         gaps = [abs(by[(c, "stand_in")] - by[(c, "mujoco")]) for c in {s["controller"] for s in summaries}
@@ -215,7 +264,21 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
                  if gaps else "")
     L.append("\n*Effort: the delivered forces (N) and torques (N·m), in absolute value, summed over the episode and "
              "multiplied by the 0.1 s step. It's a relative measure of how hard the thrusters work (lower = gentler), "
-             "not a physical energy.\n")
+             "not a physical energy.\n"
+             + ("\n†Navigation error: how far the vehicle's believed position was from its true position, averaged "
+                "over the episode. Final distance and success use the true position.\n"
+                if meta.get("noise_described") else ""))
+    for engine, nc in (meta.get("noise_training_contrasts") or {}).items():
+        if nc is None:
+            continue
+        sig = nc["ci"][0] > 0 or nc["ci"][1] < 0
+        L.append("## Does training with the noise pay off?"
+                 + (f" ({ENGINE_PLAIN[engine]})" if len(meta["engines"]) > 1 else "") + "\n")
+        L.append(f"On your noisy test, policies trained with the noise succeed {100 * nc['diff']:+.0f} points "
+                 f"({100 * nc['ci'][0]:+.0f} to {100 * nc['ci'][1]:+.0f}, 95% CI; {nc['n_pairs']} paired episodes) "
+                 "compared with the same training on a clean simulation. "
+                 + ("That difference is clear of zero." if sig else
+                    "That interval includes zero: here, training clean did about as well.") + "\n")
     for engine, contrast in (contrasts or {}).items():
         if contrast is None:
             continue
@@ -249,6 +312,9 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
 
 def run(args) -> dict:
     t0 = time.time()
+    import sim_mode
+    args.noise, args.disturbance = sim_mode.resolve(getattr(args, "mode", "clean"), getattr(args, "noise", None),
+                                                    args.disturbance)
     from current import CurrentConfig
     from optimizer import load_vehicle_spec
     load_vehicle_spec(args.spec)  # fail early on a bad description
@@ -270,9 +336,23 @@ def run(args) -> dict:
         dist_desc = (f"`{os.path.basename(dist_path)}` x{args.disturbance_scale:g}: roll {d.roll.sigma_nm * d.scale:.2f} "
                      f"N·m, pitch {d.pitch.sigma_nm * d.scale:.2f} N·m typical size")
     engines = ["stand_in", "mujoco"] if args.backend == "both" else [args.backend]
+    noise_desc = None
+    if args.noise not in (None, "none") and args.noise_scale > 0:
+        from sensor_noise import resolve_sensor_noise
+        nc = resolve_sensor_noise(args.noise if args.noise in ("tank", "typical") else os.path.abspath(args.noise),
+                                  args.noise_scale)
+        noise_desc = nc.describe() if nc is not None else None
+    noise_ref = (None if noise_desc is None else
+                 (args.noise if args.noise in ("tank", "typical") else os.path.abspath(args.noise)))
+    from sim_mode import buoyancy_from_flags
+    buoy = buoyancy_from_flags(args.buoyancy)
+    if args.compare_clean_training and noise_ref is None and dist_path is None:
+        raise ValueError("--compare-clean-training compares training with and without sensor noise and roll/pitch "
+                         "disturbance, but both are off; add --mode noisy (or --noise / --disturbance)")
     ek = {"spec": os.path.abspath(args.spec), "task": args.task, "max_episode_steps": args.max_episode_steps,
           "current": current, "thrusters": args.thrusters, "disturbance": dist_path,
-          "disturbance_scale": args.disturbance_scale}
+          "disturbance_scale": args.disturbance_scale, "noise": noise_ref, "noise_scale": args.noise_scale,
+          "buoyancy": None if buoy is None else buoy.to_dict()}
     thr_desc = None
     if args.thrusters:
         import thruster_model as tm
@@ -284,11 +364,28 @@ def run(args) -> dict:
 
     policies = []
     if args.policy:
-        policies = [{"policy": os.path.abspath(args.policy), "physics": "your policy", "seed": 0, "train_s": 0}]
+        from policy_io import PolicyLoadError, load_policy
+        from build_two_agent_cores import load_calibrated_parameters
+        try:
+            model, alg = load_policy(os.path.abspath(args.policy))
+        except PolicyLoadError as e:
+            raise ValueError(str(e)) from e
+        want = make_env(load_calibrated_parameters(args.params, quiet=True), ek).observation_space.shape
+        have = getattr(model.observation_space, "shape", None)
+        if have != want or getattr(model.action_space, "shape", None) != (6,):
+            hint = (" It looks like a two-vehicle (fleet) policy; use it with `strathe fleet --policies`."
+                    if have == (13,) else "")
+            raise ValueError(f"{args.policy} expects observations of shape {have}, but the {args.task} task gives "
+                             f"{want} (one vehicle: velocity, target in body axes, roll, pitch"
+                             + (", obstacle" if args.task == "obstacle_avoidance" else "") + f").{hint}")
+        policies = [{"policy": os.path.abspath(args.policy), "physics": "your policy", "seed": 0, "train_s": 0,
+                     "algorithm": alg}]
     else:
-        conditions = ["calibrated"] + (["generic"] if args.compare_generic else [])
+        conditions = (["calibrated"] + (["generic"] if args.compare_generic else [])
+                      + (["calibrated_clean"] if args.compare_clean_training else []))
         jobs = [{"physics": c, "params": params, "env": ek, "seed": s, "timesteps": args.timesteps,
-                 "out": os.path.join(os.path.abspath(args.out), "policies", f"{c}_seed{s}")}
+                 "algorithm": args.algorithm, "train_clean": c == "calibrated_clean",
+                 "out": os.path.join(os.path.abspath(args.out), "policies", f"{args.algorithm}_{c}_seed{s}")}
                 for c in conditions for s in range(1, args.seeds + 1)]
         print(f"Training {len(jobs)} policies ({args.timesteps:,} steps each, {min(workers, len(jobs))} at a time)...",
               flush=True)
@@ -299,8 +396,9 @@ def run(args) -> dict:
 
     episode_seeds = list(range(1000, 1000 + args.episodes))
     label = {"calibrated": "trained on your calibration", "generic": "trained on default physics",
-             "your policy": "your policy"}
+             "calibrated_clean": "trained clean", "your policy": "your policy"}
     eval_jobs = [{"controller": "policy", "policy": p["policy"], "physics": p["physics"], "seed": p["seed"],
+                  "algorithm": p.get("algorithm"),
                   "label": label[p["physics"]], "params": params, "env": ek, "episode_seeds": episode_seeds,
                   "engine": e} for e in engines for p in policies]
     eval_jobs += [{"controller": c, "label": lab, "params": params, "env": ek, "episode_seeds": episode_seeds,
@@ -316,6 +414,8 @@ def run(args) -> dict:
     summaries = [summarize(rows, lab, e) for e in engines for lab in order]
     contrasts = ({e: paired_difference(rows, "calibrated", "generic", engine=e) for e in engines}
                  if args.compare_generic and not args.policy else {})
+    noise_contrasts = ({e: paired_difference(rows, "calibrated", "calibrated_clean", engine=e) for e in engines}
+                       if args.compare_clean_training and not args.policy else {})
     per_seed = [{"physics": p["physics"], "seed": p["seed"], "engine": e,
                  "success_rate": float(np.mean([x["success"] for x in rows if x["physics"] == p["physics"]
                                                 and x["seed"] == p["seed"] and x["engine"] == e]))}
@@ -330,13 +430,19 @@ def run(args) -> dict:
             "current_described": CurrentConfig.from_dict(current).describe(teammates=False) if current else None,
             "thrusters": args.thrusters, "thrusters_described": thr_desc, "seeds": args.seeds,
             "engines": engines, "disturbance": dist_path, "disturbance_scale": args.disturbance_scale,
-            "disturbance_described": dist_desc,
+            "disturbance_described": dist_desc, "algorithm": args.algorithm,
+            "mode": args.mode, "noise": noise_ref, "noise_scale": args.noise_scale, "noise_described": noise_desc,
+            "buoyancy": None if buoy is None else buoy.to_dict(),
+            "buoyancy_described": None if buoy is None else buoy.describe(teammates=False),
+            "compare_clean_training": bool(args.compare_clean_training and not args.policy),
+            "noise_training_contrasts": noise_contrasts,
             "timesteps": args.timesteps, "n_episodes": args.episodes, "max_episode_steps": args.max_episode_steps,
             "compare_generic": bool(args.compare_generic and not args.policy), "policy": args.policy,
             "command": "python " + " ".join([os.path.basename(sys.argv[0])] + sys.argv[1:]),
             "python": platform.python_version(), "elapsed_s": round(time.time() - t0, 1)}
     contrast = contrasts.get(engines[0]) if contrasts else None
     results = {"meta": meta, "summary": summaries, "calibrated_vs_default": contrast,
+               "noise_trained_vs_clean_trained_by_engine": noise_contrasts,
                "calibrated_vs_default_by_engine": contrasts, "per_seed": per_seed,
                "policies": policies}
     with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as f:
@@ -349,6 +455,10 @@ def run(args) -> dict:
     for e, c in contrasts.items():
         if c:
             print(f"  calibrated - default training ({ENGINE_PLAIN[e]}): {100 * c['diff']:+.1f} points "
+                  f"({100 * c['ci'][0]:+.1f} to {100 * c['ci'][1]:+.1f})")
+    for e, c in noise_contrasts.items():
+        if c:
+            print(f"  noise-trained - clean-trained ({ENGINE_PLAIN[e]}): {100 * c['diff']:+.1f} points "
                   f"({100 * c['ci'][0]:+.1f} to {100 * c['ci'][1]:+.1f})")
     return results
 
@@ -365,7 +475,21 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-episode-steps", type=int, default=200)
     ap.add_argument("--compare-generic", action="store_true",
                     help="also train on the default (uncalibrated) physics and compare")
-    ap.add_argument("--policy", help="evaluate this trained PPO policy (.zip) instead of training new ones")
+    ap.add_argument("--policy", help="evaluate this trained policy (.zip; PPO, SAC or TD3, read from the file) "
+                                     "instead of training new ones")
+    ap.add_argument("--algorithm", choices=ALGORITHMS, default="ppo",
+                    help="training algorithm: ppo (default), sac or td3 (as validated in PROJECT_STATUS.md #37)")
+    ap.add_argument("--mode", choices=["clean", "noisy"], default="clean",
+                    help="clean (exact sensors, no disturbance; default) or noisy (sensor noise 'typical' + roll/pitch "
+                         "disturbance 'fitted'); --noise and --disturbance override either part")
+    ap.add_argument("--noise", default=None,
+                    help="sensor noise: none, tank, typical, or a file from fit_sensor_noise.py (default: from --mode)")
+    ap.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    ap.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
+                    help="net buoyancy change from the calibration in N (- = heavier, e.g. a payload), or MIN MAX "
+                         "drawn per episode")
+    ap.add_argument("--compare-clean-training", action="store_true",
+                    help="also train on a clean simulation and compare on your noisy test")
     ap.add_argument("--current-speed", type=float, nargs="+", metavar="MPS",
                     help="water current speed in m/s, or MIN MAX drawn per episode")
     ap.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG")
@@ -377,9 +501,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--backend", choices=["stand_in", "mujoco", "both"], default="stand_in",
                     help="physics engine for the tests: the fast stand-in (default), MuJoCo, or both side by side. "
                          "Policies always train on the stand-in")
-    ap.add_argument("--disturbance", default="none",
-                    help="random roll/pitch torques: none (default), fitted (the fit to the reference BlueROV2 logs), "
-                         "or a path to your own fit (fit_rollpitch_disturbance.py). Used in training and testing")
+    ap.add_argument("--disturbance", default=None,
+                    help="random roll/pitch torques: none, fitted (the fit to the reference BlueROV2 logs), "
+                         "or a path to your own fit (fit_rollpitch_disturbance.py); default: from --mode. Used in "
+                         "training and testing")
     ap.add_argument("--disturbance-scale", type=float, default=1.0,
                     help="0 = off, 1 = as fitted, 2 = twice as rough")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))

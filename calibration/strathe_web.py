@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 import secrets
@@ -254,15 +255,82 @@ full path{hint}</label><input type=text id={prefix}-params name=params value=""{
 </fieldset>"""
 
 
+def disturbance_select(prefix: str) -> str:
+    return f"""<label for={prefix}-dist>Random roll/pitch torques (like the tether and waves in the real logs)</label>
+<select id={prefix}-dist name=disturbance><option value="">From the mode above (clean: none; noisy: fitted)</option>
+<option value=none>None</option>
+<option value=fitted>Fitted to the reference BlueROV2 logs</option><option value=file>From my own fit file (below)</option></select>"""
+
+
+def noise_fields(prefix: str, both: bool = False, teammates: bool = False) -> str:
+    """Clean vs noisy, sensor noise and buoyancy (same field names in every form)."""
+    both_opt = ("<option value=both>Both: every condition clean and noisy, compared episode by episode</option>"
+                if both else "")
+    known = (f"<label class=inline><input type=checkbox id={prefix}-bknown name=buoyancy_known value=1 "
+             f"aria-label=\"Teammate models know the buoyancy change\"> Teammate models know the buoyancy change</label>"
+             if teammates else "")
+    return f"""<fieldset class=current><legend>Clean or noisy simulation</legend>
+<label for={prefix}-mode>Mode</label><select id={prefix}-mode name=mode>
+<option value="">Clean (exact sensors, no disturbance; the default)</option>
+<option value=noisy>Noisy: realistic sensor noise + the fitted roll/pitch disturbance</option>{both_opt}</select>
+<label for={prefix}-noise>Sensor noise (DVL, gyro, attitude, compass, depth, and a position that drifts)</label>
+<select id={prefix}-noise name=noise><option value="">From the mode (clean: none; noisy: typical)</option>
+<option value=none>None (exact readings)</option>
+<option value=tank>Tank: fitted to the reference tank logs (small)</option>
+<option value=typical>Typical DVL + AHRS vehicle, dead reckoning</option>
+<option value=file>From my own file (below; made with <code>strathe fit-noise</code>)</option></select>
+<label for={prefix}-nscale>Sensor noise size: 1 = as described, 2 = twice as noisy</label>
+<input type=text id={prefix}-nscale name=noise_scale value="1">
+<label for={prefix}-nfile>Sensor-noise file, full path (only if “From my own file”)</label>
+<input type=text id={prefix}-nfile name=noise_file value="">
+<label for={prefix}-buoy>Buoyancy change from the calibration, N (optional: <code>-3</code> for a heavier vehicle,
+e.g. an added payload; a range like <code>-5 to 5</code> is drawn per episode)</label>
+<input type=text id={prefix}-buoy name=buoyancy value="">
+{known}
+</fieldset>"""
+
+
+def noise_cli_args(form: dict, allow_both: bool = False, teammates: bool = False) -> list:
+    """--mode / --noise / --noise-scale / --buoyancy from the form, validated; blanks add nothing."""
+    args = []
+    mode = form.get("mode", "")
+    if mode not in ("", "clean", "noisy") + (("both",) if allow_both else ()):
+        raise ValueError("Pick clean or noisy.")
+    if mode:
+        args += ["--mode", mode]
+    choice = form.get("noise", "")
+    if choice:
+        scale = _number(form.get("noise_scale", "1") or "1", "Sensor noise size", 0, 10)
+        if choice == "file":
+            path = _existing_file(form.get("noise_file", ""), "Sensor-noise file", (".yaml", ".yml"))
+            from sensor_noise import load_sensor_noise
+            load_sensor_noise(path)  # raises ValueError naming what's wrong
+            args += ["--noise", path, "--noise-scale", repr(scale)]
+        elif choice in ("none", "tank", "typical"):
+            args += ["--noise", choice, "--noise-scale", repr(scale)]
+        else:
+            raise ValueError("Pick a sensor-noise option.")
+    if form.get("buoyancy", "").strip():
+        vals = _signed_number_or_range(form["buoyancy"], "Buoyancy change")
+        cli.buoyancy_block([float(v) for v in vals])  # raises ValueError with a specific message
+        args += ["--buoyancy", *vals]
+        if teammates and form.get("buoyancy_known"):
+            args.append("--buoyancy-known-to-beliefs")
+    return args
+
+
+def algorithm_select(prefix: str) -> str:
+    return f"""<label for={prefix}-alg>Training algorithm</label><select id={prefix}-alg name=algorithm>
+<option value=ppo>PPO (the default)</option><option value=sac>SAC</option><option value=td3>TD3</option></select>"""
+
+
 def engine_disturbance_fields(prefix: str) -> str:
     """Physics engine and roll/pitch disturbance choices (same field names in every form)."""
     return f"""<fieldset class=current><legend>Physics engine and roll/pitch disturbance</legend>
 <label for={prefix}-engine>Physics engine for the tests</label><select id={prefix}-engine name=backend>
 <option value=stand_in>Stand-in (fast; the default)</option><option value=mujoco>MuJoCo</option>
 <option value=both>Both, side by side</option></select>
-<label for={prefix}-dist>Random roll/pitch torques (like the tether and waves in the real logs)</label>
-<select id={prefix}-dist name=disturbance><option value=none>None (clean simulation)</option>
-<option value=fitted>Fitted to the reference BlueROV2 logs</option><option value=file>From my own fit file (below)</option></select>
+{disturbance_select(prefix)}
 <label for={prefix}-dscale>Disturbance size: 1 = as fitted, 2 = twice as rough</label>
 <input type=text id={prefix}-dscale name=disturbance_scale value="1">
 <label for={prefix}-dfile>Disturbance fit file, full path (only if “From my own fit file”)</label>
@@ -337,8 +405,12 @@ whether the calibration matters. Roughly 5 minutes per policy at the default bud
 <label for=ar-seeds>Training seeds per condition</label><input type=text id=ar-seeds name=seeds value="2">
 <label for=ar-steps>Training steps per policy</label><input type=text id=ar-steps name=timesteps value="150000">
 <label for=ar-eps>Evaluation episodes</label><input type=text id=ar-eps name=episodes value="100">
+{algorithm_select("ar")}
 <label class=inline><input type=checkbox id=ar-cmp name=compare_generic value=1 checked aria-label="Compare with training on default physics"> Compare with training on
 default (uncalibrated) physics</label>
+{noise_fields("ar")}
+<label class=inline><input type=checkbox id=ar-cmpclean name=compare_clean_training value=1 aria-label="Compare with training on a clean simulation"> With noise on: also
+train on a clean simulation and compare on the noisy test</label>
 {engine_disturbance_fields("ar")}
 {current_fieldset("acur", teammates=False)}
 <button>Start single-vehicle experiment</button></form></div>
@@ -351,6 +423,7 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <input type=text id=fleet-config name=config value="">
 {vehicle_fields("fl")}
 {fleet_settings_fields()}
+{noise_fields("fl", both=True, teammates=True)}
 {engine_disturbance_fields("fl")}
 {current_fieldset("cur", teammates=True)}
 <button>Start experiment</button></form></div>
@@ -360,7 +433,15 @@ on your calibration (about 40 minutes at the default budget), then list it under
 experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
 <form method=post action=/jobs/train_fleet>{tok}
 {vehicle_fields("tf", params_required=True)}
-<label for=tf-steps>Training steps</label><input type=text id=tf-steps name=timesteps value="3000000">
+{algorithm_select("tf")}
+<label for=tf-steps>Training steps (optional; default 3,000,000 for PPO, 1,000,000 for SAC and TD3)</label>
+<input type=text id=tf-steps name=timesteps value="">
+{noise_fields("tf", teammates=True)}
+{disturbance_select("tf")}
+<label for=tf-dscale>Disturbance size: 1 = as fitted, 2 = twice as rough</label>
+<input type=text id=tf-dscale name=disturbance_scale value="1">
+<label for=tf-dfile>Disturbance fit file, full path (only if “From my own fit file”)</label>
+<input type=text id=tf-dfile name=disturbance_file value="">
 <label for=tf-seed>Seed</label><input type=text id=tf-seed name=seed value="1">
 <label for=tf-cur>Water current to train in, m/s (optional; one value or a range like <code>0-0.3</code>, any
 direction)</label><input type=text id=tf-cur name=current_speed value="">
@@ -529,6 +610,10 @@ class StratheHandler(BaseHTTPRequestHandler):
                     "--out", out]
             if form.get("compare_generic"):
                 args.append("--compare-generic")
+            args += algorithm_cli_args(form)
+            args += noise_cli_args(form)
+            if form.get("compare_clean_training"):
+                args.append("--compare-clean-training")
             args += engine_disturbance_cli_args(form, default_engine="stand_in")
             title = f"One vehicle: {task.replace('_', ' ')}"
             if form.get("current_on"):
@@ -541,9 +626,12 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))
             if not form.get("out", "").strip() or not os.path.isdir(os.path.dirname(out)):
                 raise ValueError(f"The folder to save the policy in doesn't exist: {os.path.dirname(out)}")
-            args = ["train-fleet", *vehicle_cli_args(form),
-                    "--timesteps", str(int(_number(form.get("timesteps", "3000000"), "Training steps", 1000, 1e9))),
+            args = ["train-fleet", *vehicle_cli_args(form), *algorithm_cli_args(form),
                     "--seed", str(int(_number(form.get("seed", "1"), "Seed", 0, 1e9))), "--out", out]
+            if form.get("timesteps", "").strip():
+                args += ["--timesteps", str(int(_number(form["timesteps"], "Training steps", 1000, 1e9)))]
+            args += noise_cli_args(form, teammates=True)
+            args += disturbance_cli_args(form)
             if form.get("current_speed", "").strip():
                 speed = _number_or_range(form["current_speed"], "Current speed")
                 cli.current_block(float(speed[0]) if len(speed) == 1 else [float(x) for x in speed], [0.0, 360.0])
@@ -562,7 +650,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                     raise ValueError("Pick one of the shipped experiments.")
                 config = os.path.join(cli.CAL_DIR, shipped)
             args = ["fleet", "--config", config, *vehicle_cli_args(form, "--vehicle-spec"),
-                    *fleet_settings_cli_args(form), *engine_disturbance_cli_args(form)]
+                    *fleet_settings_cli_args(form), *noise_cli_args(form, allow_both=True, teammates=True),
+                    *engine_disturbance_cli_args(form)]
             title = f"Fleet experiment: {os.path.basename(config)}"
             if form.get("current_on"):
                 args += current_cli_args(form)
@@ -606,9 +695,24 @@ def engine_disturbance_cli_args(form: dict, default_engine: Optional[str] = None
         raise ValueError("Pick a physics engine.")
     if default_engine is not None or engine != "stand_in":
         args += ["--backend", engine]
-    choice = form.get("disturbance", "none")
-    if choice == "none":
+    return args + disturbance_cli_args(form)
+
+
+def algorithm_cli_args(form: dict) -> list:
+    alg = form.get("algorithm", "ppo") or "ppo"
+    if alg not in ("ppo", "sac", "td3"):
+        raise ValueError("Pick a training algorithm.")
+    return ["--algorithm", alg]
+
+
+def disturbance_cli_args(form: dict) -> list:
+    """--disturbance / --disturbance-scale: blank = from the mode (or the YAML); 'none' turns it off explicitly."""
+    args = []
+    choice = form.get("disturbance", "")
+    if choice == "":
         return args
+    if choice == "none":
+        return ["--disturbance", "none"]
     scale = _number(form.get("disturbance_scale", "1") or "1", "Disturbance size", 0, 10)
     if choice == "fitted":
         return args + ["--disturbance", "fitted", "--disturbance-scale", repr(scale)]
@@ -687,6 +791,18 @@ def _number_or_range(text: str, name: str, allow_any: bool = False) -> list:
         raise ValueError(f"{name}: expected a number or a range like 0.1-0.3, got {text!r}")
     if len(vals) not in (1, 2):
         raise ValueError(f"{name}: expected one number or two (a range), got {text!r}")
+    return [repr(v) for v in vals]
+
+
+def _signed_number_or_range(text: str, name: str) -> list:
+    """'-3' -> ['-3.0']; '-5 to 5', '-5 5' or '-5, 5' -> ['-5.0', '5.0'] (signed, so no '-' as a separator)."""
+    parts = [p for p in re.split(r"\s+to\s+|\s*,\s*|\s+", (text or "").strip().lower()) if p]
+    try:
+        vals = [float(p) for p in parts]
+    except ValueError:
+        raise ValueError(f"{name}: expected a number or a range like -5 to 5, got {text!r}")
+    if len(vals) not in (1, 2) or not all(math.isfinite(v) for v in vals):
+        raise ValueError(f"{name}: expected one number or two (a range like -5 to 5), got {text!r}")
     return [repr(v) for v in vals]
 
 

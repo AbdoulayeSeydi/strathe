@@ -1,0 +1,116 @@
+{
+  "meta": {
+    "name": "one vehicle, clean: ppo",
+    "task": "waypoint",
+    "params": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/calibrated_parameters_fleet_truth.yaml",
+    "spec": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/vehicle_spec.yaml",
+    "current": null,
+    "current_described": null,
+    "thrusters": null,
+    "thrusters_described": null,
+    "seeds": 2,
+    "engines": [
+      "stand_in"
+    ],
+    "disturbance": null,
+    "disturbance_scale": 1.0,
+    "disturbance_described": null,
+    "algorithm": "ppo",
+    "mode": "clean",
+    "noise": null,
+    "noise_scale": 1.0,
+    "noise_described": null,
+    "buoyancy": null,
+    "buoyancy_described": null,
+    "compare_clean_training": false,
+    "noise_training_contrasts": {},
+    "timesteps": 150000,
+    "n_episodes": 100,
+    "max_episode_steps": 200,
+    "compare_generic": false,
+    "policy": null,
+    "command": "python run_arena_experiment.py --task waypoint --algorithm ppo --seeds 2 --timesteps 150000 --episodes 100 --workers 2 --name one vehicle, clean: ppo --out results/arena_noise_algorithms/clean_waypoint_ppo",
+    "python": "3.13.5",
+    "elapsed_s": 665.8
+  },
+  "summary": [
+    {
+      "controller": "trained on your calibration",
+      "engine": "stand_in",
+      "episodes": 200,
+      "success_rate": 1.0,
+      "ci": [
+        0.9811539940816791,
+        1.0
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 5.94,
+      "mean_final_distance_m": 0.48,
+      "mean_effort_Ns": 583.4,
+      "mean_nav_error_m": 0.0
+    },
+    {
+      "controller": "hand-written controller",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.65,
+      "ci": [
+        0.5525426042919797,
+        0.7363589534652197
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 14.99,
+      "mean_final_distance_m": 0.555,
+      "mean_effort_Ns": 355.0,
+      "mean_nav_error_m": 0.0
+    },
+    {
+      "controller": "random commands",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.0,
+      "ci": [
+        0.0,
+        0.03699480747600191
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": null,
+      "mean_final_distance_m": 2.953,
+      "mean_effort_Ns": 1797.3,
+      "mean_nav_error_m": 0.0
+    }
+  ],
+  "calibrated_vs_default": null,
+  "noise_trained_vs_clean_trained_by_engine": {},
+  "calibrated_vs_default_by_engine": {},
+  "per_seed": [
+    {
+      "physics": "calibrated",
+      "seed": 1,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    },
+    {
+      "physics": "calibrated",
+      "seed": 2,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    }
+  ],
+  "policies": [
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/clean_waypoint_ppo/policies/ppo_calibrated_seed1.zip",
+      "physics": "calibrated",
+      "seed": 1,
+      "algorithm": "ppo",
+      "train_s": 566.8
+    },
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/clean_waypoint_ppo/policies/ppo_calibrated_seed2.zip",
+      "physics": "calibrated",
+      "seed": 2,
+      "algorithm": "ppo",
+      "train_s": 565.1
+    }
+  ]
+}

@@ -52,3 +52,8 @@ jobs:
         env:
           MLFLOW_DISABLE_AGENT_HINT: "1"
         run: python run_fleet_experiment.py --config ci_smoke_experiment.yaml
+      - name: Fleet smoke run, clean and noisy side by side, with a buoyancy change
+        working-directory: calibration
+        env:
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python ../strathe.py fleet --config ci_smoke_experiment.yaml --mode both --buoyancy -2 2 --name ci_noisy_smoke

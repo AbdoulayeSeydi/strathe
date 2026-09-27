@@ -1,0 +1,276 @@
+{
+  "meta": {
+    "name": "one vehicle, noisy: trained with vs without the noise",
+    "task": "waypoint",
+    "params": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/calibrated_parameters_fleet_truth.yaml",
+    "spec": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/vehicle_spec.yaml",
+    "current": null,
+    "current_described": null,
+    "thrusters": null,
+    "thrusters_described": null,
+    "seeds": 2,
+    "engines": [
+      "stand_in",
+      "mujoco"
+    ],
+    "disturbance": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/disturbances/bluerov2_rollpitch.yaml",
+    "disturbance_scale": 1.0,
+    "disturbance_described": "`bluerov2_rollpitch.yaml` x1: roll 0.92 N\u00b7m, pitch 1.08 N\u00b7m typical size",
+    "algorithm": "ppo",
+    "mode": "noisy",
+    "noise": "typical",
+    "noise_scale": 1.0,
+    "noise_described": "`typical_dvl_ahrs.yaml` x1: DVL \u00b11 cm/s (bias \u00b10.5, dropouts 2%), gyro \u00b10.57 deg/s (bias \u00b10.17), roll/pitch \u00b10.5 deg (bias \u00b10.5), heading \u00b12 deg (bias \u00b12), depth \u00b11 cm, position dead-reckoned from the DVL and compass (start fix \u00b10.2 m)",
+    "buoyancy": null,
+    "buoyancy_described": null,
+    "compare_clean_training": true,
+    "noise_training_contrasts": {
+      "stand_in": {
+        "diff": -0.02,
+        "ci": [
+          -0.04,
+          -0.005
+        ],
+        "n_pairs": 200
+      },
+      "mujoco": {
+        "diff": -0.01,
+        "ci": [
+          -0.025,
+          0.0
+        ],
+        "n_pairs": 200
+      }
+    },
+    "timesteps": 300000,
+    "n_episodes": 100,
+    "max_episode_steps": 200,
+    "compare_generic": false,
+    "policy": null,
+    "command": "python run_arena_experiment.py --task waypoint --mode noisy --compare-clean-training --seeds 2 --timesteps 300000 --episodes 100 --backend both --workers 3 --name one vehicle, noisy: trained with vs without the noise --out results/arena_noise_algorithms/noisy_waypoint",
+    "python": "3.13.5",
+    "elapsed_s": 3008.5
+  },
+  "summary": [
+    {
+      "controller": "trained on your calibration",
+      "engine": "stand_in",
+      "episodes": 200,
+      "success_rate": 0.97,
+      "ci": [
+        0.9361048802675267,
+        0.9861798741692518
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 5.76,
+      "mean_final_distance_m": 0.491,
+      "mean_effort_Ns": 649.9,
+      "mean_nav_error_m": 0.259
+    },
+    {
+      "controller": "trained clean",
+      "engine": "stand_in",
+      "episodes": 200,
+      "success_rate": 0.99,
+      "ci": [
+        0.9642775148038205,
+        0.9972533993962251
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 5.6,
+      "mean_final_distance_m": 0.485,
+      "mean_effort_Ns": 848.5,
+      "mean_nav_error_m": 0.259
+    },
+    {
+      "controller": "hand-written controller",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.54,
+      "ci": [
+        0.44264685393523856,
+        0.6343935614666815
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 14.4,
+      "mean_final_distance_m": 0.587,
+      "mean_effort_Ns": 354.3,
+      "mean_nav_error_m": 0.264
+    },
+    {
+      "controller": "random commands",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.0,
+      "ci": [
+        0.0,
+        0.03699480747600191
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": null,
+      "mean_final_distance_m": 2.953,
+      "mean_effort_Ns": 1797.3,
+      "mean_nav_error_m": 0.256
+    },
+    {
+      "controller": "trained on your calibration",
+      "engine": "mujoco",
+      "episodes": 200,
+      "success_rate": 0.975,
+      "ci": [
+        0.9428208558483829,
+        0.9892754385292123
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 5.78,
+      "mean_final_distance_m": 0.489,
+      "mean_effort_Ns": 646.0,
+      "mean_nav_error_m": 0.259
+    },
+    {
+      "controller": "trained clean",
+      "engine": "mujoco",
+      "episodes": 200,
+      "success_rate": 0.985,
+      "ci": [
+        0.9568335194437211,
+        0.9948858548155076
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 5.5,
+      "mean_final_distance_m": 0.484,
+      "mean_effort_Ns": 850.4,
+      "mean_nav_error_m": 0.259
+    },
+    {
+      "controller": "hand-written controller",
+      "engine": "mujoco",
+      "episodes": 100,
+      "success_rate": 0.54,
+      "ci": [
+        0.44264685393523856,
+        0.6343935614666815
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 14.4,
+      "mean_final_distance_m": 0.587,
+      "mean_effort_Ns": 354.2,
+      "mean_nav_error_m": 0.264
+    },
+    {
+      "controller": "random commands",
+      "engine": "mujoco",
+      "episodes": 100,
+      "success_rate": 0.0,
+      "ci": [
+        0.0,
+        0.03699480747600191
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": null,
+      "mean_final_distance_m": 2.953,
+      "mean_effort_Ns": 1797.3,
+      "mean_nav_error_m": 0.256
+    }
+  ],
+  "calibrated_vs_default": null,
+  "noise_trained_vs_clean_trained_by_engine": {
+    "stand_in": {
+      "diff": -0.02,
+      "ci": [
+        -0.04,
+        -0.005
+      ],
+      "n_pairs": 200
+    },
+    "mujoco": {
+      "diff": -0.01,
+      "ci": [
+        -0.025,
+        0.0
+      ],
+      "n_pairs": 200
+    }
+  },
+  "calibrated_vs_default_by_engine": {},
+  "per_seed": [
+    {
+      "physics": "calibrated",
+      "seed": 1,
+      "engine": "stand_in",
+      "success_rate": 0.97
+    },
+    {
+      "physics": "calibrated",
+      "seed": 2,
+      "engine": "stand_in",
+      "success_rate": 0.97
+    },
+    {
+      "physics": "calibrated_clean",
+      "seed": 1,
+      "engine": "stand_in",
+      "success_rate": 0.99
+    },
+    {
+      "physics": "calibrated_clean",
+      "seed": 2,
+      "engine": "stand_in",
+      "success_rate": 0.99
+    },
+    {
+      "physics": "calibrated",
+      "seed": 1,
+      "engine": "mujoco",
+      "success_rate": 0.97
+    },
+    {
+      "physics": "calibrated",
+      "seed": 2,
+      "engine": "mujoco",
+      "success_rate": 0.98
+    },
+    {
+      "physics": "calibrated_clean",
+      "seed": 1,
+      "engine": "mujoco",
+      "success_rate": 0.98
+    },
+    {
+      "physics": "calibrated_clean",
+      "seed": 2,
+      "engine": "mujoco",
+      "success_rate": 0.99
+    }
+  ],
+  "policies": [
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/noisy_waypoint/policies/ppo_calibrated_seed1.zip",
+      "physics": "calibrated",
+      "seed": 1,
+      "algorithm": "ppo",
+      "train_s": 1578.2
+    },
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/noisy_waypoint/policies/ppo_calibrated_seed2.zip",
+      "physics": "calibrated",
+      "seed": 2,
+      "algorithm": "ppo",
+      "train_s": 1586.4
+    },
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/noisy_waypoint/policies/ppo_calibrated_clean_seed1.zip",
+      "physics": "calibrated_clean",
+      "seed": 1,
+      "algorithm": "ppo",
+      "train_s": 1561.2
+    },
+    {
+      "policy": "/Users/abdoulayeseydi/marine_sim_mvp/calibration/results/arena_noise_algorithms/noisy_waypoint/policies/ppo_calibrated_clean_seed2.zip",
+      "physics": "calibrated_clean",
+      "seed": 2,
+      "algorithm": "ppo",
+      "train_s": 1225.1
+    }
+  ]
+}

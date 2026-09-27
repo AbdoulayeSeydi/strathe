@@ -15,6 +15,11 @@ comparisons between conditions are PAIRED:
                       bootstrap CI (episodes resampled as whole matched sets).
   belief_success_link()  across conditions, does lower belief error go with
                       higher success? Spearman rank correlation.
+  paired_by()         the same paired difference between any two values of
+                      another field: clean vs noisy simulation (field
+                      "mode"), or one group of policies vs another (field
+                      "policy_group", e.g. SAC vs PPO; several training seeds
+                      in a group are averaged per episode first).
 
 Pure numpy/scipy; no pandas dependency so the report runs anywhere the
 simulator does.
@@ -182,4 +187,43 @@ def belief_success_link(summary_rows: Sequence[dict], group_by: Sequence[str] = 
         rho, p = _spearman([s["mean_belief_error_m"] for s in ss], [s["success_rate"] for s in ss])
         out.append({**dict(zip(group_by, g)), "n_conditions": len(ss),
                     "spearman_rho": float(rho), "spearman_p": float(p)})
+    return out
+
+
+def paired_by(rows, field: str, a, b, match: Sequence[str], group_by: Sequence[str] = ("comm",),
+              n_boot: int = 2000, seed: int = 0) -> list:
+    """Success (and collisions) with rows[field] == a minus with rows[field] == b, over episodes matched on
+    `match` (plus episode_key). Several rows on one side of a matched episode (e.g. several training seeds of a
+    policy group) are averaged first, so each matched episode counts once. Bootstrap 95% CI over matched
+    episodes; McNemar's test when both sides are single episodes (0/1)."""
+    rng = np.random.default_rng(seed)
+    cells = defaultdict(lambda: defaultdict(lambda: {a: [], b: []}))
+    for r in rows:
+        v = r.get(field)
+        if v != a and v != b:
+            continue
+        g = tuple(r[k] for k in group_by)
+        key = tuple(r[k] for k in match) + (r["episode_key"],)
+        cells[g][key][v].append(r)
+    out = []
+    for g, eps in sorted(cells.items(), key=lambda kv: [str(x) for x in kv[0]]):
+        both = [(sides[a], sides[b]) for sides in eps.values() if sides[a] and sides[b]]
+        if not both:
+            continue
+        sa = np.array([np.mean([r["success"] for r in ra]) for ra, _ in both], dtype=float)
+        sb = np.array([np.mean([r["success"] for r in rb]) for _, rb in both], dtype=float)
+        ca = np.array([np.mean([r["collision"] for r in ra]) for ra, _ in both], dtype=float)
+        cb = np.array([np.mean([r["collision"] for r in rb]) for _, rb in both], dtype=float)
+        n = len(both)
+        idx = rng.integers(0, n, size=(n_boot, n))
+        d_s = (sa - sb)[idx].mean(axis=1)
+        binary = all(len(ra) == 1 and len(rb) == 1 for ra, rb in both)
+        b_count = int(np.sum((sa == 1) & (sb == 0))) if binary else None
+        c_count = int(np.sum((sa == 0) & (sb == 1))) if binary else None
+        out.append({**dict(zip(group_by, g)), "field": field, "a": a, "b": b, "n_pairs": n,
+                    "success_a": float(sa.mean()), "success_b": float(sb.mean()),
+                    "success_diff": float((sa - sb).mean()),
+                    "success_diff_ci95": tuple(np.percentile(d_s, [2.5, 97.5]).tolist()),
+                    "mcnemar_p": mcnemar_exact_p(b_count, c_count) if binary else None,
+                    "collision_a": float(ca.mean()), "collision_b": float(cb.mean())})
     return out

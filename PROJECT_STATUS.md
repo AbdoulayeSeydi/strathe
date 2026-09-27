@@ -845,11 +845,144 @@ They merge into a copy of the chosen YAML, which is validated before anything ru
 
 Tests: 396 + 142 fleet, all passing.
 
+### 58. Clean vs noisy simulation, buoyancy changes, and SAC/TD3 for the fleet (2026-09-27)
+
+**Clean vs noisy as one switch.** `--mode clean|noisy` (and `both` for the fleet) in `strathe arena`, `strathe fleet`, `strathe train-fleet`, the web forms, `train_fleet_policy.py`, `run_arena_experiment.py`, `train_multiseed.py`, and `mode:` in the fleet YAML (`sim_mode.py`).
+- `noisy` = sensor noise `typical` + the fitted roll/pitch disturbance (#51), each at scale 1. Explicit `--noise` / `--disturbance` override either part.
+- Current, thruster limits and buoyancy belong to the site and the vehicle, so they're set separately in either mode.
+- `mode: both` runs every fleet condition clean and noisy on the same episodes. The report adds a paired "Does noise matter?" table.
+- In a saved `experiment.yaml`, noisy's defaults are written out, so a rerun is exact.
+
+**Sensor noise** (`sensor_noise.py`), per vehicle and per 0.1 s tick:
+- DVL velocity: bias per dive, white noise and dropouts (last reading held).
+- Gyro rates, roll/pitch and compass heading: each with a bias and white noise.
+- Depth: white noise.
+- Position: dead-reckoned from the measured velocity and heading, starting from a fix with error, so it drifts. Or `position: external` (tank motion capture, USBL): white noise, no drift.
+
+What changes and what doesn't:
+- The **policy** sees measured values, and targets or teammates relative to where it *believes* it is.
+- **Beacons** carry what the sender believes, so a teammate's prediction starts from that.
+- **Success, collisions and belief errors** stay judged on the truth. `nav_error_m` reports the drift.
+- **Pairing is kept.** The noise depends only on the episode's identity, and every tick draws the same count of random numbers. Clean and noisy runs therefore share start states, targets, packet losses and disturbances; the stress test checks this.
+
+Presets:
+- **`tank`** is *measured* from the 39 reference recordings by `fit_sensor_noise.py` (robust second difference): 1.7 mm/s velocity, 0.39°/s gyro, 0.09° roll/pitch, 0.19° heading, 0.8 mm depth, 3 mm external positioning.
+- **`typical`** (DVL + AHRS + depth, dead reckoning) uses *stated assumptions*, fixed before any result: 1 cm/s velocity (0.5 cm/s bias, 2% dropouts), 0.57°/s gyro, 0.5° attitude, 2° heading (2° bias), 1 cm depth, 20 cm starting fix.
+- **`strathe fit-noise --data <logs>`** writes a lab's own file: white noise, dropouts and positioning. Biases can't be seen in logs, so it writes them as 0 and says so.
+
+**Buoyancy** (`buoyancy.py`):
+- `--buoyancy N`, a range drawn per episode, or `buoyancy:` in the YAML. It is added to the calibration's net buoyancy on the true vehicles, in every engine (each physics core gained `set_params`).
+- The teammate models learn of it only with `known_to_beliefs`.
+- Values beyond ±50 N are refused as a probable units mistake.
+
+**SAC and TD3.**
+- `train_fleet_policy.py --algorithm sac|td3` (and `strathe train-fleet`) has SB3-standard settings:
+  - 1M steps by default
+  - four gradient steps per 16 transitions
+  - [256, 256] networks
+- `run_arena_experiment.py --algorithm` uses the single-vehicle setup validated in #37.
+- Policy files are recognised by their contents (`policy_io.py`): the fleet YAML's `algorithm:` is optional, and a wrong one is refused with the right name.
+- Fleet policies can carry a `label`. With several labels (or algorithms), the fleet report adds "Policy groups compared": the same episodes, seeds averaged per episode, a 95% CI per condition. `strathe fleet --policies ppo=... sac=...` does this from the command line.
+
+**Clean simulation is unchanged, bit for bit.** `clean_regression_check.py` reruns clean episodes and compares every field against the same episodes on the code before this change (6c8a2ef; reference in `results/stress_noise_algorithms/`):
+- 6,616 fleet episodes: two policy seeds × every comm and belief condition, 216 of them with disturbance, a fluctuating current and thruster limits, some on MuJoCo.
+- 16 single-vehicle runs: every task, both engines, with and without those options, with every observation and reward hashed.
+- Zero differences.
+
+**SAC and TD3 for the fleet: validated** (`run_algorithm_study.py`, `results/fleet_v2_algorithms/`).
+- **Setup:** three seeds each at 1M steps, the same training mix as the shipped PPO policies (3M steps). Judged against criteria written while they were still training (`criteria.md`).
+- **Grid:** 17,600 paired episodes; L2 and L3a, 1 s and 3 s beacons, `calibrated` and `last_beacon`.
+
+| | Success (95% CI) | Per seed | vs PPO, paired (95% CI) |
+|---|---|---|---|
+| PPO | 87% (86–88) | 83, 88, 90% | — |
+| SAC | 87% (86–88) | 90, 90, 81% | −0 (−1 to +1) |
+| TD3 | 91% (91–92) | 89, 93, 93% | **+4 (+3 to +6)**; +10 at L2 @ 3 s |
+| random commands (floor) | 12% | | |
+| no commands (reference) | 8% | | |
+
+- **Gate 1 passed for all six policies:** contract, identical actions after save/reload on 1,000 recorded observations, no non-finite action.
+- **"Learned":** both clear the floor + ½ gap threshold (50%) by far, and no seed failed.
+- **Parity:** both reach it.
+- **Cost:** alone on one M1 core, SAC/TD3 run at ~500–650 steps/s vs PPO's ~770, so a 1M-step run is shorter than PPO's 3M. The recorded 2–2.5 h came from 9 trainings sharing 8 cores.
+
+**Clean vs noisy for the fleet** (`run_noise_study.py`, `results/fleet_v2_noise/`).
+- **Scale:** 57,120 paired episodes, L2 @ 1 s and L3a @ 3 s, `calibrated` and `last_beacon`.
+- **Policies:** the shipped clean-trained PPO, three new PPO seeds trained with `--mode noisy` (`noisy_policies/`), SAC and TD3.
+
+| Level | Trained clean | vs clean level (95% CI) | Trained noisy | Nav error | Belief error |
+|---|---|---|---|---|---|
+| clean | 83% | — | 84% | 0 | 42 cm |
+| tank | 83% | −0 (−1, +0) | 84% | 0.3 cm | 42 cm |
+| typical ×0.5 | 80% | −3 (−4, −2) | 81% | 13 cm | 47 cm |
+| typical ×1 | 73% | **−10 (−12, −8)** | 74% | 26 cm | 56 cm |
+| typical ×2 | 50% | **−34 (−36, −31)** | 58% | 52 cm | 78 cm |
+| noisy mode | 73% | −10 (−12, −9) | 74% | 26 cm | 56 cm |
+
+1. **Realistic sensors cost formation-holding 10 points; twice as noisy, 34.** The tank's own sensor noise costs nothing. The cost comes through navigation drift: the believed separation is off by the two vehicles' combined drift, against a ±0.2 m tolerance.
+2. **The roll/pitch disturbance adds nothing on top** (noisy mode = typical ×1), consistent with #52.
+3. **Training with the noise helps only when it's severe:**
+   - ×1: +1 point (−1 to +3)
+   - ×2: +8 points (+6 to +11)
+   - The policy can't see its own drift, so there's little to learn.
+4. **Algorithms under noise (all trained clean):**
+   - PPO −10, SAC −13, TD3 **−22** (−24 to −20).
+   - TD3 is best clean (86%) and worst noisy (64%). Its clean-simulation advantage doesn't survive realistic sensors.
+   - That makes `--mode both` the right way to compare algorithms.
+5. **Buoyancy from −10 to +10 N barely moves formation success:**
+   - Changes of −1 to +1 points, whether or not the teammate model knows.
+   - The one exception, +4 (+2 to +7), was at +10 N with the model unaware.
+   - Both vehicles get the same offset, and the task depends on relative position.
+
+**One vehicle** (`strathe arena`, waypoint, 2 seeds per condition, 100 test episodes each, `results/arena_noise_algorithms/`):
+- **Algorithms, clean:**
+  - PPO, SAC and TD3 all reach 100%.
+  - SAC and TD3 arrive faster: 5.4 s vs 5.9 s.
+  - Training took 9.5, 33 and 21 minutes per policy, respectively, under load.
+- **Under noise:** clean-trained PPO/SAC/TD3 stay at 97–99%.
+- **Training with the noise doesn't help here either:**
+  - 97% vs 99% for clean-trained (−2, CI −4 to −0.5, on the stand-in; −1, −2.5 to 0, on MuJoCo).
+  - Noise-trained policies used 23% less thruster effort.
+- **Buoyancy:**
+  - Policies trained at 0 N stay at 100% from −10 to +10 N, 0.1–0.5 s slower.
+  - The hand-written controller falls from 65% to 25–32% at ±10 N.
+
+**Stress test** (`stress_test_noise_algorithms.py`, `results/stress_noise_algorithms/`). Every check passed.
+- **Two vehicles: 410/410 random combinations ran cleanly.** They varied:
+  - comm level L0–L3b and beacons of 0.5–3 s
+  - buoyancy of −25 to +25 N, fixed or a range, known or not
+  - sensor noise: off, tank, or typical ×1, ×3 or ×10
+  - disturbance ×0, ×1 or ×3, and currents to 0.5 m/s, fluctuating
+  - thruster limits, and both engines
+  - policies: PPO, noise-trained PPO, SAC, TD3, random
+  - every belief model, and starts 0.6–8 m apart at ±1 m/s
+  - plus the worst corner of all of these on every policy and engine
+
+  Outcomes: 193 formations held, 205 timeouts, 12 collisions. Every observation and error stayed finite, and the largest navigation drift was 10.3 m (typical ×10).
+- **One vehicle: 400/400.**
+  - Covered all four tasks; PPO, SAC and TD3 policies, hand-written and random controllers; and the same settings.
+  - Every step checked that the reported distance is the true one, and that success is never declared from the believed position.
+- **Measured against what was configured: 23/23.**
+  - The sensor model reproduces its configured sizes: DVL noise 1.00 cm/s, gyro 0.010 rad/s, heading 0.0349 rad, bias spread 0.51 cm/s, dropouts 2.04%.
+  - Buoyancy terminal speeds match the calibrated damping balance to 4 digits, from −20 to +20 N, on both engines.
+  - Packet losses and true motion are identical with the noise on or off.
+  - Noisy rollouts are deterministic on both engines.
+  - Clean simulation is bit-identical (above).
+
+**Bugs found and fixed:**
+- An unknown `--algorithm` reached a bare `KeyError`; it now gets a plain message.
+- A two-vehicle policy given to `strathe arena --policy` crashed inside a worker with an SB3 shape error. It's now refused up front, with what the policy is and where it belongs.
+- The web page's range parser couldn't read negative numbers (`-3 to 3` for buoyancy). There's now a signed parser.
+
+Tests: 52 new (`tests/test_noise_buoyancy_algorithms.py`) + 1 web; 449 + 142 fleet, all passing. CI also runs a fleet smoke run with `--mode both --buoyancy -2 2`.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
 - **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
 - **All limits, with what to do about each, are in `LIMITS.md` (#57).**
+- **Realistic sensors cost formation-holding 10 points (#58)**, through dead-reckoning drift against a ±0.2 m tolerance. Training with the noise doesn't recover it. The levers are relative acoustic ranging between the vehicles, and a navigation filter in the teammate model. TD3, the best algorithm in clean simulation, loses the most under noise (−22 points): compare algorithms with `--mode both`.
+- **The `typical` sensor preset is an assumption (#58).** `tank` is measured, but no open-water dataset has been fitted yet; a lab's DVL/AHRS logs would replace the assumption.
 - **Lab data, not built yet (#56, #57):**
   - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
   - thruster response lag and battery sag within a run

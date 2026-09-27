@@ -56,7 +56,7 @@ def episode_comm_seed(comm_seed: int, i_sep: int, i_speed: int) -> int:
 
 def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> dict:
     obs = sim.reset(comm_seed=comm_seed, initial_separation=d0, closing_speed=v0)
-    belief_errs, delivered, sep_err = [], [], []
+    belief_errs, delivered, sep_err, nav_err = [], [], [], []
     target = sim.cfg.task.target_separation
     info = {"terminal_reason": None}
     steps = 0
@@ -67,6 +67,7 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
         belief_errs += [e for e in info["belief_errors"] if e is not None]
         delivered += info["delivered"]
         sep_err.append(abs(info["true_separation"] - target))
+        nav_err += info.get("nav_errors") or []
         if term or trunc:
             break
     reason = info["terminal_reason"]
@@ -79,10 +80,40 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
         "p90_belief_error_m": float(np.percentile(belief_errs, 90)) if belief_errs else float("nan"),
         "delivery_rate": float(np.mean(delivered)),
         "mean_abs_separation_error_m": float(np.mean(sep_err)),
+        "mean_nav_error_m": float(np.mean(nav_err)) if nav_err else 0.0,
+        "buoyancy_offset_n": float(info.get("buoyancy_offset_n", 0.0)),
     }
 
 
+RANDOM_POLICY = "random"
+
+
+class RandomPolicy:
+    """Uniformly random commands in [-1, 1]: the floor any trained fleet policy should beat. Seeded, so a run
+    is reproducible; use policy_path RANDOM_POLICY in a CellSpec."""
+
+    def __init__(self, seed: int = 0):
+        self._rng = np.random.default_rng(seed)
+
+    def predict(self, obs, deterministic: bool = True):
+        return self._rng.uniform(-1.0, 1.0, (len(obs), 6)).astype(np.float32), None
+
+
+ZERO_POLICY = "zero"
+
+
+class ZeroPolicy:
+    """No commands at all: the vehicles only drift. A second reference for how hard a grid is."""
+
+    def predict(self, obs, deterministic: bool = True):
+        return np.zeros((len(obs), 6), dtype=np.float32), None
+
+
 def _load_policy(path: str, algorithm: str):
+    if path == RANDOM_POLICY:
+        return RandomPolicy(0)
+    if path == ZERO_POLICY:
+        return ZeroPolicy()
     from validate_fleet_policy import load_fleet_policy
     return load_fleet_policy(path, algorithm)
 

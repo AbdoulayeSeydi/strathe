@@ -42,7 +42,7 @@ from fleet_env import FleetConfig
 from fleet_eval import CellSpec, CommSpec, run_cells
 from fleet_experiment_schema import (ConfigError, PhysicsAlphaBelief, PhysicsParamsBelief,
                                      belief_label, load_fleet_experiment)
-from fleet_stats import belief_success_link, dose_response, paired_contrast, summarize
+from fleet_stats import belief_success_link, dose_response, paired_by, paired_contrast, summarize
 from formation_hold_task import FormationHoldConfig
 from mlflow_run_utils import get_git_commit, get_git_dirty
 from optimizer import initial_parameters, load_vehicle_spec
@@ -76,21 +76,22 @@ def resolve_beliefs(cfg, truth, generic) -> list:
     return out
 
 
-def fleet_config_for(cfg, backend: str) -> FleetConfig:
+def fleet_config_for(cfg, backend: str, mode: str = None) -> FleetConfig:
+    """mode: 'clean' or 'noisy' (one half of mode: both); default = the experiment's own mode."""
     t = cfg.task
     task = FormationHoldConfig(target_separation=t.target_separation_m, tolerance=t.tolerance_m,
                                hold_steps=t.hold_steps, safety_radius=t.collision_radius_m,
                                influence_radius=max(1.5, t.collision_radius_m + 1.0))
     seps = cfg.initial_conditions.separations_m
     speeds = cfg.initial_conditions.closing_speeds_mps
-    dist_path = cfg.disturbance.path()
-    disturbance = (load_disturbance(dist_path, cfg.disturbance.scale, truth_params_path=cfg.truth_params)
+    noise, dist_path, dist_scale = cfg.variant(mode or cfg.modes()[-1])
+    disturbance = (load_disturbance(dist_path, dist_scale, truth_params_path=cfg.truth_params)
                    if dist_path else None)
     return FleetConfig(max_episode_steps=t.max_episode_steps, task=task, dynamics_backend=backend,
                        initial_separation_range=(min(seps), max(seps)),
                        initial_closing_speed_range=(min(speeds), max(speeds)), disturbance=disturbance,
                        current=cfg.current.to_config() if cfg.current is not None else None,
-                       thrusters=cfg.thruster_config())
+                       thrusters=cfg.thruster_config(), sensor_noise=noise, buoyancy=cfg.buoyancy_config())
 
 
 def build_cells(cfg, truth, generic, vehicle) -> tuple:
@@ -98,17 +99,24 @@ def build_cells(cfg, truth, generic, vehicle) -> tuple:
     backends = ["stand_in", "mujoco"] if cfg.dynamics_backend == "both" else [cfg.dynamics_backend]
     comm = cfg.communication
     cells = []
+    modes = cfg.modes()
     for backend in backends:
-        fc = fleet_config_for(cfg, backend)
-        for pol in cfg.policies:
-            for level, plc, bwc in comm.levels():
-                for interval in comm.beacon_interval_s:
-                    cs = CommSpec(f"{level}@{interval:g}s", plc, bwc, comm.speed_of_sound_mps, interval)
-                    for spec, _alpha in beliefs:
-                        cells.append(CellSpec(pol.model_path, pol.algorithm, cs, spec, truth, vehicle, fc,
-                                              cfg.initial_conditions.separations_m,
-                                              cfg.initial_conditions.closing_speeds_mps,
-                                              cfg.evaluation.comm_seeds))
+        for mode in modes:
+            fc = fleet_config_for(cfg, backend, mode)
+            for pol in cfg.policies:
+                for level, plc, bwc in comm.levels():
+                    for interval in comm.beacon_interval_s:
+                        base = f"{level}@{interval:g}s"
+                        # with mode: both, clean and noisy are separate conditions in every table
+                        cs = CommSpec(base + (f" {mode}" if len(modes) > 1 else ""), plc, bwc,
+                                      comm.speed_of_sound_mps, interval)
+                        for spec, _alpha in beliefs:
+                            cells.append(CellSpec(pol.model_path, pol.algorithm, cs, spec, truth, vehicle, fc,
+                                                  cfg.initial_conditions.separations_m,
+                                                  cfg.initial_conditions.closing_speeds_mps,
+                                                  cfg.evaluation.comm_seeds,
+                                                  tags={"mode": mode, "comm_base": base,
+                                                        "policy_group": pol.group}))
     alphas = {spec.label: a for spec, a in beliefs if a is not None}
     return cells, alphas
 
@@ -142,7 +150,35 @@ def headline_sentences(contrasts, a, b) -> list:
     return out
 
 
-def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, dirty):
+def simulation_lines(cfg) -> list:
+    """How clean or noisy the simulation was, in plain words."""
+    L = []
+    modes = cfg.modes()
+    if len(modes) > 1:
+        L.append("**Clean and noisy, side by side (`mode: both`).** Every condition was run twice on the same "
+                 "episodes: *clean* (exact sensor readings, no roll/pitch disturbance) and *noisy* (below); the two "
+                 "are labelled in every table and compared episode by episode further down.\n")
+    noise, dist_path, dist_scale = cfg.variant(modes[-1])
+    lead = "In the noisy runs: " if len(modes) > 1 else ""
+    if noise is not None:
+        L.append(f"{lead}**Sensor noise on** ({noise.describe()}). Each vehicle's policy sees what its own sensors "
+                 "report, and its teammate relative to where it believes it is; beacons carry what the sender "
+                 "measured. Success, collisions and belief errors are still judged on the true positions.\n")
+    else:
+        L.append("Exact sensor readings: no sensor noise (`mode: noisy`, or a `sensor_noise:` block, adds "
+                 "realistic DVL, gyro, attitude, compass and depth noise).\n")
+    if dist_path:
+        L.append(f"{lead}**Roll/pitch disturbance on** (`{os.path.basename(dist_path)}`, scale "
+                 f"{dist_scale:g}): each vehicle is pushed by random roll and pitch torques fitted to the "
+                 "motion real BlueROV2 logs show but the thrusters don't explain. Every condition sees the same "
+                 "disturbances.\n")
+    else:
+        L.append("No roll/pitch disturbance (set `mode: noisy` or `disturbance:` in the YAML to add one).\n")
+    return L
+
+
+def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, dirty, mode_contrasts=None,
+                 group_contrasts=None, group_summary=None):
     a, b = (cfg.compare.a, cfg.compare.b) if cfg.compare else (None, None)
     L = []
     L.append(f"# Fleet experiment: {cfg.name or 'unnamed'}\n")
@@ -157,13 +193,7 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
              "only thing that changes between the conditions below. Both vehicles' true physics is "
              f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "
              "positions and the same lost packets.\n")
-    if cfg.disturbance.path():
-        L.append(f"**Roll/pitch disturbance on** (`{os.path.basename(cfg.disturbance.path())}`, scale "
-                 f"{cfg.disturbance.scale:g}): each vehicle is pushed by random roll and pitch torques fitted to the "
-                 "motion real BlueROV2 logs show but the thrusters don't explain. Every condition sees the same "
-                 "disturbances.\n")
-    else:
-        L.append("Clean simulation: no roll/pitch disturbance (set `disturbance:` in the YAML to add one).\n")
+    L += simulation_lines(cfg)
     cur = cfg.current.to_config() if cfg.current is not None else None
     if cur is not None and cur.active:
         L.append(f"**Water current on:** {cur.describe()}. Both vehicles feel the same current; the policy sees only "
@@ -178,12 +208,47 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
     else:
         L.append(f"No thruster limits: any command up to ±{FleetConfig().action_bound:g} N / N·m per axis is "
                  "delivered (set `thrusters:` in the YAML to use your vehicle's real thrusters).\n")
+    buoy = cfg.buoyancy_config()
+    if buoy is not None and buoy.active:
+        L.append(f"**Buoyancy changed:** {buoy.describe()}. Every condition sees the same buoyancy.\n")
     if os.path.basename(cfg.vehicle_spec) != "vehicle_spec.yaml" or os.path.dirname(os.path.abspath(cfg.vehicle_spec)) != HERE:
         L.append(f"Vehicle description: `{cfg.vehicle_spec}`.\n")
     if contrasts:
         L.append(f"## Headline: `{a}` vs `{b}`\n")
         L += headline_sentences(contrasts, a, b)
         L.append("")
+    if mode_contrasts:
+        L.append("## Does noise matter? Clean vs noisy\n")
+        L.append("The same episodes (start state, packet losses) run clean and noisy. A negative difference means the "
+                 "noise costs success.\n")
+        L.append("| Comm | Belief | Clean | Noisy | Noisy − clean (95% CI) | Episodes |")
+        L.append("|---|---|---|---|---|---|")
+        for c in mode_contrasts:
+            lo, hi = c["success_diff_ci95"]
+            L.append(f"| {c['comm_base']} | `{c['belief']}` | {_pct(c['success_b'])} | {_pct(c['success_a'])} | "
+                     f"{_pp(c['success_diff'])} ({_pp(lo)} to {_pp(hi)}) | {c['n_pairs']} |")
+        L.append("")
+    if group_summary:
+        groups = list(dict.fromkeys(p.group for p in cfg.policies))
+        L.append("## Policy groups compared\n")
+        L.append(f"Policies grouped by their label (or training algorithm): {', '.join(f'`{g}`' for g in groups)}. "
+                 "Every group runs the same episodes; a group's training seeds are averaged per episode before "
+                 f"groups are compared. Differences are against `{groups[0]}`.\n")
+        by = {(g["policy_group"], g["comm"]): g for g in group_summary}
+        comms = list(dict.fromkeys(g["comm"] for g in group_summary))
+        L.append("| Comm | " + " | ".join(f"`{g}`" for g in groups) + " | "
+                 + " | ".join(f"`{g}` − `{groups[0]}` (95% CI)" for g in groups[1:]) + " |")
+        L.append("|---|" + "---|" * (2 * len(groups) - 1))
+        gc = {(c["comm"], c["a"]): c for c in (group_contrasts or [])}
+        for cm in comms:
+            cells = [(f"{_pct(by[(g, cm)]['success_rate'])}" if (g, cm) in by else "n/a") for g in groups]
+            diffs = []
+            for g in groups[1:]:
+                c = gc.get((cm, g))
+                diffs.append("n/a" if c is None else f"{_pp(c['success_diff'])} ({_pp(c['success_diff_ci95'][0])} "
+                                                     f"to {_pp(c['success_diff_ci95'][1])})")
+            L.append(f"| {cm} | " + " | ".join(cells) + " | " + " | ".join(diffs) + " |")
+        L.append("\nPooled over every belief model in the run.\n")
     L.append("## All conditions\n")
     L.append("| Comm | Belief | Success (95% CI) | Collision | Mean belief error | Episodes |")
     L.append("|---|---|---|---|---|---|")
@@ -301,7 +366,12 @@ def _log_mlflow(cfg, out_dir, summary, contrasts):
                              "current": (cfg.current.to_config().describe() if cfg.current is not None
                                          and cfg.current.to_config().active else "none"),
                              "thrusters": str(cfg.thrusters) if cfg.thrusters is not None else "none",
-                             "vehicle_spec": cfg.vehicle_spec})
+                             "vehicle_spec": cfg.vehicle_spec, "mode": cfg.mode,
+                             "sensor_noise": (f"{cfg.sensor_noise.preset}x{cfg.sensor_noise.scale:g}"
+                                              if cfg.sensor_noise is not None else "none"),
+                             "buoyancy": (cfg.buoyancy_config().describe() if cfg.buoyancy is not None
+                                          and cfg.buoyancy_config().active else "none"),
+                             "algorithms": ",".join(sorted({p.algorithm for p in cfg.policies}))})
             for s in summary:
                 key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
                 mlflow.log_metric(f"success.{key}", s["success_rate"])
@@ -330,12 +400,17 @@ def run_experiment(config_path: str) -> dict:
              else "off")
           + ", current " + (cfg.current.to_config().describe() if cfg.current is not None
                             and cfg.current.to_config().active else "none")
-          + ", thrusters " + ("limited" if cfg.thrusters is not None else "unlimited"))
+          + ", thrusters " + ("limited" if cfg.thrusters is not None else "unlimited")
+          + f", mode {cfg.mode}"
+          + (f" (sensor noise {cfg.sensor_noise.preset} x{cfg.sensor_noise.scale:g})"
+             if cfg.sensor_noise is not None and cfg.sensor_noise.config() is not None else "")
+          + (", buoyancy " + cfg.buoyancy_config().describe()
+             if cfg.buoyancy is not None and cfg.buoyancy_config().active else ""))
 
     print("\n[2/4] Checking policies against the per-vehicle contract...")
     for p in cfg.policies:
         load_fleet_policy(p.model_path, p.algorithm)
-        print(f"  PASS {p.model_path}")
+        print(f"  PASS {p.model_path} ({p.algorithm.upper()}" + (f", group {p.label}" if p.label else "") + ")")
 
     cells, alphas = build_cells(cfg, truth, generic, spec.vehicle)
     n_per_cell = (len(cfg.initial_conditions.separations_m) * len(cfg.initial_conditions.closing_speeds_mps)
@@ -357,6 +432,13 @@ def run_experiment(config_path: str) -> dict:
     doses = dose_response(rows, alphas) if len(alphas) >= 3 else []
     links = belief_success_link(summary, exclude_beliefs=[l for l in {r["belief"] for r in rows}
                                                           if l == "oracle"])
+    mode_contrasts = (paired_by(rows, "mode", "noisy", "clean", match=("policy", "belief", "comm_base", "backend"),
+                                group_by=("comm_base", "belief")) if len(cfg.modes()) > 1 else [])
+    groups = list(dict.fromkeys(p.group for p in cfg.policies))
+    group_summary = summarize(rows, by=("policy_group", "comm")) if len(groups) > 1 else []
+    group_contrasts = [c for g in groups[1:] for c in
+                       paired_by(rows, "policy_group", g, groups[0], match=("belief", "comm", "backend"),
+                                 group_by=("comm",))] if len(groups) > 1 else []
     elapsed = time.monotonic() - t0
     dirty = get_git_dirty()
 
@@ -368,7 +450,9 @@ def run_experiment(config_path: str) -> dict:
         w = csv.DictWriter(f, fieldnames=list(summary[0]))
         w.writeheader()
         w.writerows(summary)
-    metrics = {"summary": summary, "paired_contrast": contrasts, "dose_response": doses, "belief_success_link": links}
+    metrics = {"summary": summary, "paired_contrast": contrasts, "dose_response": doses, "belief_success_link": links,
+               "clean_vs_noisy": mode_contrasts, "policy_groups": group_summary,
+               "policy_group_contrasts": group_contrasts}
     with open(os.path.join(out, "metrics.json"), "w") as f:
         json.dump(_jsonable(metrics), f, indent=2)
     from importlib.metadata import version
@@ -387,7 +471,8 @@ def run_experiment(config_path: str) -> dict:
         json.dump(meta, f, indent=2)
     with open(os.path.join(out, "experiment.yaml"), "w") as f:
         yaml.safe_dump(cfg.model_dump(mode="json", exclude_none=True), f, sort_keys=False)
-    write_report(os.path.join(out, "summary_report.md"), cfg, summary, contrasts, doses, links, elapsed, len(rows), dirty)
+    write_report(os.path.join(out, "summary_report.md"), cfg, summary, contrasts, doses, links, elapsed, len(rows), dirty,
+                 mode_contrasts=mode_contrasts, group_contrasts=group_contrasts, group_summary=group_summary)
     try:
         write_plots(os.path.join(out, "plots"), summary, doses)
     except Exception as e:  # plots are a convenience; the numbers are already written
@@ -398,6 +483,12 @@ def run_experiment(config_path: str) -> dict:
     if contrasts:
         for line in headline_sentences(contrasts, cfg.compare.a, cfg.compare.b):
             print(line.replace("**", "").replace("`", ""))
+    for c in mode_contrasts:
+        print(f"- noisy - clean, {c['comm_base']}, {c['belief']}: {100 * c['success_diff']:+.0f} pts "
+              f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
+    for c in group_contrasts:
+        print(f"- {c['a']} - {c['b']}, {c['comm']}: {100 * c['success_diff']:+.0f} pts "
+              f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
     print(f"\nDone in {elapsed / 60:.1f} min. Report: {os.path.join(out, 'summary_report.md')}")
     return metrics
 

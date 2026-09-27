@@ -24,10 +24,13 @@ settings is written to `strathe_jobs/` and run; the shipped files are never chan
 | Starting separations / closing speeds | `--separations 2.5 3.5 --closing-speeds -0.35 0 0.35` | `initial_conditions.*` |
 | Sample size | `--seeds 5` | `evaluation.comm_seeds` |
 | Physics engine | `--backend stand_in \| mujoco \| both` | `dynamics_backend` |
+| Clean or noisy simulation | `--mode clean \| noisy \| both` | `mode` |
+| Sensor noise | `--noise tank \| typical \| my_noise.yaml --noise-scale 2` | `sensor_noise` |
+| Buoyancy change | `--buoyancy -3` or `--buoyancy -5 5` (+ `--buoyancy-known-to-beliefs`) | `buoyancy` |
 | Roll/pitch disturbance | `--disturbance fitted --disturbance-scale 1.5` | `disturbance` |
 | Water current | `--current-speed 0 0.3 --current-direction 0 360 ...` | `current` |
 | Your vehicle | `--params ... --vehicle-spec ... --thrusters ...` | `truth_params`, `vehicle_spec`, `thrusters` |
-| Policies | `--policies my_policy.zip` | `policies` |
+| Policies (PPO, SAC or TD3; compared by label) | `--policies my_policy.zip` or `--policies ppo=fleet_policy_seed1 sac=my_sac` | `policies` |
 | Name | `--name my_study` | `name` |
 
 `--save-config my_experiment.yaml` writes the resulting file instead of running it. Settings that can't
@@ -44,7 +47,7 @@ Results go to `output_dir`:
 
 | File | What it is |
 |---|---|
-| `summary_report.md` | Plain-language results: headline comparison with 95% CIs, every condition, caveats |
+| `summary_report.md` | Plain-language results: headline comparison with 95% CIs, clean vs noisy (with `mode: both`), policy groups compared (with several labels or algorithms), every condition, caveats |
 | `summary.csv` | One row per (comm condition, belief model), pooled over policies |
 | `episodes.csv` | Every episode, with its policy, start state and comm seed |
 | `metrics.json` | All of the above plus the statistics, machine-readable |
@@ -147,7 +150,7 @@ or use the web page's "Train a fleet policy for your vehicle" form.
 
 ```yaml
 policies:
-  - {model_path: my_policy, algorithm: ppo}
+  - {model_path: my_policy}                 # PPO, SAC or TD3: read from the file
   - {model_path: fleet_policy_seed1}        # list several to pool over training seeds
 ```
 
@@ -155,8 +158,9 @@ The per-vehicle contract: observation `Box(13,)` and action `Box(6,)` in
 [−1, 1], one network applied to each vehicle separately. The observation
 layout is in `fleet_env.py`. The validator explains the common mismatches,
 for example a v1 centralized `Box(24,)` policy or a single-vehicle Arena
-policy. PPO is validated by this project's training; SAC and TD3 load but
-haven't been trained for fleet v2.
+policy. PPO, SAC and TD3 policies are all accepted, and which one a file holds
+is read from the file (`algorithm:` is optional; a wrong one is refused with the
+right name). To train SAC or TD3, and to compare algorithms, see section 14.
 
 ## 6. Sample size
 
@@ -180,7 +184,7 @@ dynamics_backend: stand_in   # or mujoco, or both
 `mujoco` simulates the vehicles' true motion with MuJoCo's integrator. The
 belief models always use the stand-in equations, as an onboard model would.
 
-## 8. Roll/pitch disturbance (clean vs noisy simulation)
+## 8. Roll/pitch disturbance (part of the noisy mode, section 12)
 
 ```yaml
 disturbance:
@@ -299,6 +303,80 @@ it. The web page's fleet form does the same. For one vehicle instead of two, see
 
 ---
 
+## 12. Clean vs noisy simulation (sensor noise)
+
+```yaml
+mode: noisy              # clean (default) | noisy | both
+sensor_noise:            # optional; with mode noisy it defaults to typical
+  preset: typical        # none | tank | typical | path/to/my_noise.yaml
+  scale: 1.0             # 0 = off, 2 = twice as noisy
+```
+
+- **clean**: each vehicle knows its own velocity, attitude and position exactly,
+  and nothing pushes it but its thrusters (the original simulation).
+- **noisy**: realistic sensors plus the fitted roll/pitch disturbance
+  (section 8). Unless you say otherwise, `sensor_noise: typical` and
+  `disturbance: fitted`, both at scale 1; the saved `experiment.yaml` spells
+  them out.
+- **both**: every condition runs clean and noisy on the same episodes, and the
+  report adds a "Does noise matter? Clean vs noisy" table, episode by episode.
+
+What sensor noise means (`sensor_noise.py`): the policy sees what the vehicle's
+own DVL (velocity), gyro (rates), attitude sensor (roll, pitch) and compass
+(heading) report, and its teammate relative to where it *believes* it is. That
+believed position is dead-reckoned from the DVL and compass, so it drifts.
+Beacons carry what the sender believes, so the teammate's prediction starts
+from that. Success, collisions and belief errors are still judged on the true
+positions, and the report shows how far the navigation drifted
+(`mean_nav_error_m` in `episodes.csv`).
+
+| Preset | What it is |
+|---|---|
+| `tank` | The noise actually in the reference BlueROV2 tank logs, measured with `fit_sensor_noise.py`: about 2 mm/s velocity, 0.4°/s gyro, 0.1° attitude, 0.2° heading, 1 mm depth, and external positioning (3 mm, no drift). Small. |
+| `typical` | A DVL + AHRS + depth-sensor vehicle navigating by dead reckoning: 1 cm/s velocity (0.5 cm/s bias, 2% dropouts), 0.6°/s gyro, 0.5° attitude, 2° heading (2° bias), 1 cm depth, 20 cm starting fix. These are stated assumptions of a common size, not a fit (`sensor_noise/typical_dvl_ahrs.yaml` gives each one). |
+| your file | `python strathe.py fit-noise --data <your logs> --out my_noise.yaml` measures the white noise, dropouts and positioning from your own logs. Add your sensors' biases from their datasheets: logs can't show a constant offset. |
+
+Every condition sees the same sensor errors, so comparisons stay paired.
+To train a policy that has experienced the noise:
+`python strathe.py train-fleet --params ... --mode noisy --out my_noisy_policy`.
+
+## 13. Buoyancy change (payload, trim)
+
+```yaml
+buoyancy:
+  offset_n: -3.0           # N added to the calibration's net buoyancy; - = heavier (payload), + = floats up
+                           # or [-5, 5]: a value drawn per episode (training across trims)
+  known_to_beliefs: false  # do the physics teammate models know about the change?
+```
+
+The true vehicles' net buoyancy differs from what they were calibrated with,
+as after adding a sensor or retrimming. A payload that weighs 1 kg more than
+the water it displaces is about −9.8 N. The vertical restoring force changes in every
+engine; the righting moment doesn't. By default the teammate models keep the
+calibrated value, since a calibration made before the change can't know it.
+`known_to_beliefs: true` gives them the new value. Both vehicles get the same
+change. Values beyond ±50 N are refused as a probable units mistake. The
+default action bound (30 N) caps how much a policy can push back.
+
+## 14. Training algorithms: PPO, SAC, TD3
+
+```bash
+python strathe.py train-fleet --params <calibration> --algorithm sac --seed 1 --out my_sac_seed1   # 1M steps by default
+python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=my_sac_seed1 --mode both
+```
+
+- `--algorithm ppo` (default, 3M steps), `sac` or `td3` (off-policy; 1M steps
+  by default). The settings are in `train_fleet_policy.py` and each policy's
+  `.json` records them.
+- Policies with different labels (or, without labels, different algorithms)
+  are compared in the report's "Policy groups compared" table: the same
+  episodes, training seeds averaged per episode, a 95% CI per condition.
+- How they compare on this task, judged against criteria written before any
+  result (`results/fleet_v2_algorithms/`): over 17,600 paired episodes, SAC
+  ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6),
+  each with a third of PPO's training steps. Trained SAC and TD3 policies ship
+  in `algorithm_policies/` (PROJECT_STATUS.md #58).
+
 ## Still not configurable
 
 | What | Why / where |
@@ -306,7 +384,8 @@ it. The web page's fleet form does the same. For one vehicle instead of two, see
 | More than 2 vehicles | `fleet_env.py` is built for 2; the per-vehicle observation and shared policy are the groundwork for N |
 | Tasks other than formation hold | `formation_hold_task.py` |
 | Start orientation (always level, facing +x) | `FleetSim.reset` |
-| Sensor noise on the vehicle's own state | not modelled yet (roll/pitch *disturbance* is, see section 8) |
+| Correlated sensor errors (e.g. a compass error that depends on heading), DVL altitude limits | the sensor model is white noise + a constant bias per episode + dropouts (section 12) |
+| A buoyancy change that moves the centre of gravity | the offset changes the net buoyancy only (section 13) |
 | A current that varies across space (shear, eddies) | the current is uniform over the fleet; it can vary in time (section 9) |
 | Thruster response lag, battery sag within a run | `thruster_model.py` maps PWM to thrust instantly at one voltage (section 10) |
 | Two different vehicles in one fleet | both vehicles share `truth_params`, `vehicle_spec` and `thrusters` |

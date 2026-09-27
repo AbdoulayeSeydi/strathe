@@ -46,18 +46,36 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Use your calibration and vehicle description | `--params`, `--spec` | `--params`, `--vehicle-spec` |
 | Limit commands to your real thrusters | `--thrusters my_rov.yaml` | `--thrusters my_rov.yaml` |
 | Add a water current | `--current-speed 0 0.3` | `--current-speed 0 0.3` |
+| Simulate realistic sensors, not perfect ones | `--mode noisy` | `--mode noisy`, or `--mode both` to compare clean and noisy episode by episode |
+| Measure your own sensors' noise | `fit-noise --data <logs>`, then `--noise my_noise.yaml` | the same |
+| Change the trim or payload (buoyancy) | `--buoyancy -3` (N; − = heavier) | `--buoyancy -3` |
 | Add roll/pitch disturbance (tether, waves) | `--disturbance fitted --disturbance-scale 2` | `--disturbance fitted --disturbance-scale 2` |
 | Test on MuJoCo, or both engines side by side | `--backend mujoco` / `both` | `--backend mujoco` / `both` |
 | See whether calibration matters | `--compare-generic` | the default `calibrated` vs `generic` headline |
 | Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`) | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` |
 | Set comm and sample size | none (a single vehicle has no link) | `--comm L2 L3a --beacon-interval 1 3 --seeds 5` |
-| Train policies for your vehicle | built in | `train-fleet --params ...` |
+| Train policies for your vehicle | built in; `--algorithm ppo \| sac \| td3` | `train-fleet --params ... --algorithm ppo \| sac \| td3` |
+| Does training with the noise help? | `--mode noisy --compare-clean-training` | list clean- and noise-trained policies with labels |
+| Compare algorithms or policies | one run per algorithm, same test episodes | `--policies ppo=... sac=...`: compared episode by episode |
 
 **3. Know what the limits are:** [LIMITS.md](LIMITS.md) lists every known one, what it means for you, and what to do.
 
 ## Recent fixes (September 2026)
 
-What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–55.
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–58.
+
+**Clean vs noisy simulation, buoyancy, and SAC/TD3 for the fleet (#58)**
+- **One switch: `--mode clean | noisy`**, plus `both` for the fleet. `noisy` adds realistic sensor noise and the fitted roll/pitch disturbance. It works in both simulators, training, the CLI and the web page.
+- **What the noise is:** each vehicle's policy sees what its own DVL, gyro, attitude sensor, compass and depth sensor report. Its position is dead-reckoned from them, so it drifts. Beacons carry what the sender believes. Success is still judged on the truth.
+- **Presets:** `tank` is measured from the reference logs. `typical` (DVL + AHRS) uses stated assumptions. For your own vehicle, `strathe fit-noise` measures it from your logs.
+- **Clean results are unchanged, bit for bit.** 6,616 fleet episodes and 16 single-vehicle runs match the previous code exactly.
+- **What noise does to the fleet** (57,120 paired episodes):
+  - Typical sensors cost formation-holding 10 points; twice as noisy, 34. The tank's own noise costs nothing.
+  - Training with the noise only helps at the harsh level (+8).
+  - TD3, the best algorithm in clean simulation, loses the most under noise (−22).
+- **Buoyancy:** `--buoyancy -3` makes the vehicles 3 N heavier than calibrated; a range trains across trims. Trained policies stay at 100% from −10 to +10 N on one vehicle, and fleet success barely moves. A hand-written controller falls from 65% to about 30%.
+- **SAC and TD3 train fleet policies (`--algorithm sac|td3`), validated against criteria written before any result.** Over 17,600 paired episodes, SAC ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6), each with a third of PPO's training steps. Policy files are recognised as PPO, SAC or TD3 by their contents, and the fleet report compares labelled groups of policies episode by episode.
+- **Stress test:** 410 two-vehicle and 400 one-vehicle random combinations of every setting, plus 23 checks against what was configured. All passed.
 
 **Fleet coordination: rebuilt (fleet v2)**
 - **Claim C withdrawn (#46).** The v1 metric measured how far the *teammate* had moved since its last message, not anything about calibration. The same "calibrated advantage" appeared with both vehicles running identical physics.
@@ -126,7 +144,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 396 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 449 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -143,10 +161,11 @@ python strathe.py check
 | `python strathe.py web` | Opens a local web page in your browser. From it you can calibrate, run single-vehicle and fleet experiments, train fleet policies, watch jobs run, and read the reports. |
 | `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Add `--estimate-current` for open-water logs in an unknown current. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
-| `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
-| `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance` (and more; `--help`) change the experiment without editing YAML. |
+| `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--algorithm sac` (or `td3`), `--mode noisy` (with `--compare-clean-training`), `--buoyancy -3`, `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
+| `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance`, `--mode clean\|noisy\|both`, `--noise`, `--buoyancy` and `--policies ppo=... sac=...` (and more; `--help`) change the experiment without editing YAML. |
 | `python strathe.py estimate-current --data <logs>` | Open water: estimates the current in each recording. Calibration then uses each recording's own current. |
-| `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). |
+| `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). `--algorithm sac\|td3`, `--mode noisy` and `--buoyancy MIN MAX` train with other algorithms or conditions. |
+| `python strathe.py fit-noise --data <logs> --out my_noise.yaml` | Measures how noisy your vehicle's sensors are from its logs, for `--noise my_noise.yaml`. |
 | `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Only converts your own logs into Strathe's layout. |
 | `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
 
@@ -473,7 +492,7 @@ python strathe.py arena --params calibration_output_my_rov/calibrated_parameters
 ```
 
 **What it does:**
-- Trains PPO controllers on your calibrated vehicle for one of four tasks:
+- Trains controllers (PPO by default; `--algorithm sac` or `td3`) on your calibrated vehicle for one of four tasks:
   - reach a point
   - reach a point and hold station
   - dock slowly and level
@@ -488,8 +507,10 @@ python strathe.py arena --params calibration_output_my_rov/calibrated_parameters
 - Every controller sees the same episodes (same targets, currents and disturbances).
 - **Physics engine** for the tests: `--backend stand_in` (fast, default), `mujoco`, or `both`. With `both`, the report shows each engine and how closely they agree. Policies always train on the stand-in.
 - **Roll/pitch disturbance:** `--disturbance fitted` adds the random roll/pitch torques fitted to the real BlueROV2 logs (tether and waves). `--disturbance-scale 2` makes them twice as rough. Your own fit file also works.
+- **Clean or noisy:** `--mode noisy` adds realistic sensor noise (the controller sees what the vehicle's sensors report, and where it believes it is) and the fitted roll/pitch disturbance. `--compare-clean-training` also trains on a clean simulation and reports, paired, whether training with the noise paid off. `--noise tank|typical|my_noise.yaml` sets the sensors on their own.
+- **Buoyancy:** `--buoyancy -3` makes the vehicle 3 N heavier than calibrated (a payload); `--buoyancy -5 5` draws a value per episode.
 - A water current and thruster limits are optional, as in the fleet.
-- `--policy my_policy.zip` evaluates your own policy instead of training.
+- `--policy my_policy.zip` evaluates your own policy (PPO, SAC or TD3, read from the file) instead of training. A two-vehicle policy is refused with an explanation.
 - `report.md` is plain language. `results.json` and `episodes.csv` hold the
   numbers, and the trained policies are saved.
 - There's a form for it on the web page.
@@ -499,6 +520,11 @@ python strathe.py arena --params calibration_output_my_rov/calibrated_parameters
 - **Reaching a point:** after 300k training steps, policies trained on its calibration succeeded 96% of the time, and policies trained on default physics 100%.
 - **After 100k steps:** 10% vs 75%. A heavily damped vehicle is slow to learn on, and more training (`--timesteps`) closes most of the gap.
 - **So calibration doesn't always matter.** For a forgiving single-vehicle task it may not, which is what `--compare-generic` is for. The fleet task, where each vehicle predicts its teammate, is where it did matter for the same vehicle (below).
+
+**What it found on the reference BlueROV2** (PROJECT_STATUS.md #58; reach a point; 2 seeds; the same 100 test episodes for every row):
+- **Algorithms:** PPO, SAC and TD3 all reach 100%. SAC and TD3 arrive a little sooner (5.4 s vs 5.9 s).
+- **Realistic sensors** (`--mode noisy`): clean-trained PPO, SAC and TD3 stay at 97–99%. Training with the noise didn't help (97% vs 99%), though it used 23% less thruster effort.
+- **Buoyancy −10 to +10 N:** policies trained at 0 N stay at 100%. The hand-written controller drops from 65% to 25–32%.
 
 ## The fleet coordination workflow (fleet v2)
 
@@ -548,12 +574,25 @@ Every setting is documented in [`calibration/CUSTOM_EXPERIMENT.md`](calibration/
 Training your own per-vehicle policy (~40 min on an M1 for 3M steps):
 ```bash
 python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # --belief <model> to specialize
-python validate_fleet_policy.py my_policy.zip
+python train_fleet_policy.py --algorithm sac --seed 4 --out my_sac           # or td3; 1M steps by default
+python train_fleet_policy.py --mode noisy --seed 4 --out my_noisy_policy     # with realistic sensors
+python validate_fleet_policy.py my_policy.zip                               # PPO, SAC or TD3: read from the file
 ```
+
+**Clean vs noisy, buoyancy, and comparing policies** (CUSTOM_EXPERIMENT.md sections 12–14):
+```bash
+python strathe.py fleet --mode both                         # every condition clean and noisy, compared episode by episode
+python strathe.py fleet --mode noisy --noise my_noise.yaml  # your own sensors (strathe fit-noise)
+python strathe.py fleet --buoyancy -3                       # vehicles 3 N heavier than calibrated
+python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=algorithm_policies/fleet_sac_seed1 td3=algorithm_policies/fleet_td3_seed1
+```
+With realistic (`typical`) sensors, formation-holding success falls by 10 points; the tank's own sensor noise costs nothing (#58).
 Shipped policies:
 - `fleet_policy_seed1-3.zip`: trained on a mixture of belief models.
 - `specialized_policies/fleet_policy_<belief>_seed1-2.zip`: each trained for one belief model (see results).
 - `disturbance_policies/fleet_policy_dist_seed1-2.zip`: trained with the fitted roll/pitch disturbance on.
+- `noisy_policies/fleet_policy_noisy_seed1-3.zip`: trained with `--mode noisy` (realistic sensors + disturbance).
+- `algorithm_policies/fleet_sac_seed1-3.zip`, `fleet_td3_seed1-3.zip`: SAC and TD3, trained on the same mixture as the PPO policies (#58).
 
 Add realistic roll/pitch wobble to any experiment with `disturbance: {roll_pitch: fitted}` in its YAML (CUSTOM_EXPERIMENT.md section 8).
 
@@ -627,6 +666,10 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle, on the stand-in or MuJoCo, with optional disturbance, current and thruster limits (`strathe arena`).
 - **`calibration/ardupilot_reader.py`** — reads ArduPilot DataFlash `.bin` and MAVLink `.tlog` logs for ingestion.
 - **`calibration/estimate_current.py`** — estimates each open-water recording's water current from the logs (`strathe estimate-current`, `calibrate --estimate-current`).
+- **`calibration/sensor_noise.py`, `fit_sensor_noise.py`, `sensor_noise/`, `sim_mode.py`** — sensor noise (DVL, gyro, attitude, compass, depth, dead-reckoned position), measuring it from logs (`strathe fit-noise`), the `tank` and `typical` presets, and the clean/noisy switch.
+- **`calibration/buoyancy.py`** — a net-buoyancy change from the calibration, in every engine.
+- **`calibration/policy_io.py`** — loads PPO, SAC and TD3 policies and tells them apart from the file.
+- **`calibration/run_algorithm_study.py`, `run_noise_study.py`, `stress_test_noise_algorithms.py`, `clean_regression_check.py`** — the SAC/TD3 fleet validation (criteria fixed in advance), the clean-vs-noisy and buoyancy study, the stress test, and the proof that clean simulation is unchanged (#58).
 - **[`LIMITS.md`](LIMITS.md)** — every known limit, what it means, and what to do about it.
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
@@ -743,7 +786,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (396 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (449 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -760,6 +803,10 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ ArduPilot `.bin` / MAVLink `.tlog` logs read directly (#57)
 - ✅ Fleet experiments from flags and web fields, no YAML editing (#57)
 - ✅ Every known limit listed in [LIMITS.md](LIMITS.md)
+- ✅ Clean vs noisy simulation as one switch (`--mode`), with sensor noise measured from logs or preset, in both simulators, training, the CLI and the web page; clean results bit-identical (#58)
+- ✅ Buoyancy changes (`--buoyancy`) in every engine (#58)
+- ✅ SAC and TD3 fleet policies, validated against criteria fixed in advance: SAC ties PPO, TD3 +4 points (#58)
+- 🔄 Realistic sensors cost formation-holding 10 points through navigation drift; relative ranging or a navigation filter is the next lever (#58)
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent

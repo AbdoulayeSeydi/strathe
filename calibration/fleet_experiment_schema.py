@@ -9,7 +9,9 @@ and any comm override crashed with a KeyError.)
     schema_version: 2
     name: my_experiment
     policies:                        # one or more per-vehicle policies (seeds)
-      - {model_path: fleet_policy_seed1, algorithm: ppo}
+      - {model_path: fleet_policy_seed1}             # PPO, SAC or TD3: read from the file
+      - {model_path: my_sac_seed1, label: sac}       # optional label: policies with different labels
+                                                     # are compared with each other in the report
     truth_params: calibrated_parameters_fleet_truth.yaml   # the "real" vehicle
     beliefs: [calibrated, generic, last_beacon, oracle]    # see BELIEF PRESETS
     compare: {a: calibrated, b: generic}                   # headline paired contrast
@@ -25,6 +27,15 @@ and any comm override crashed with a KeyError.)
       closing_speeds_mps: [-0.7, -0.35, 0.0, 0.35, 0.7]   # + = starting to separate
     evaluation: {comm_seeds: [1, 2, 3, 4, 5], workers: null}
     dynamics_backend: stand_in       # stand_in | mujoco | both
+    mode: clean                      # clean | noisy | both. noisy = sensor noise (typical) + roll/pitch
+                                     # disturbance (fitted) unless the blocks below say otherwise;
+                                     # both = every condition run clean AND noisy, compared episode by episode
+    sensor_noise:                    # optional; what each vehicle's own sensors report (sensor_noise.py)
+      preset: typical                # none | tank | typical | path/to/fit_sensor_noise_output.yaml
+      scale: 1.0                     # 0 = off, 2 = twice as noisy
+    buoyancy:                        # optional; the true vehicles' net buoyancy vs the calibration (buoyancy.py)
+      offset_n: -3.0                 # N; - = heavier (payload), + = floats up; or [-5, 5] drawn per episode
+      known_to_beliefs: false        # physics teammate models know the change
     disturbance:                     # optional; default = clean simulation
       roll_pitch: fitted             # none | fitted | path/to/your_fit.yaml
       scale: 1.0                     # 0 = off, 1 = as fitted to real logs, 2 = twice as rough
@@ -72,13 +83,25 @@ def _zip_path(p: str) -> str:
 
 class PolicyEntry(BaseModel):
     model_path: str
-    algorithm: Literal["ppo", "sac", "td3"] = "ppo"
+    algorithm: Optional[Literal["ppo", "sac", "td3"]] = None   # None = read from the file
+    label: Optional[str] = None     # report group; policies with different labels are compared
 
     @model_validator(mode="after")
     def _exists(self):
         if not os.path.exists(_zip_path(self.model_path)):
             raise ValueError(f"policy file not found: {_zip_path(self.model_path)!r}")
+        from policy_io import PolicyLoadError, resolve_algorithm
+        try:
+            self.algorithm = resolve_algorithm(_zip_path(self.model_path), self.algorithm)
+        except PolicyLoadError as e:
+            raise ValueError(str(e)) from e
+        if self.label is not None and not self.label.strip():
+            raise ValueError("a policy label must not be empty")
         return self
+
+    @property
+    def group(self) -> str:
+        return self.label or self.algorithm
 
 
 class PhysicsAlphaBelief(BaseModel):
@@ -228,6 +251,38 @@ class DisturbanceBlock(BaseModel):
         return DEFAULT_FIT_PATH if self.roll_pitch == "fitted" else self.roll_pitch
 
 
+class SensorNoiseBlock(BaseModel):
+    """What each vehicle's own sensors report (sensor_noise.py). preset: none, tank (fitted to the reference
+    tank logs), typical (a DVL + AHRS dead-reckoning vehicle; stated assumptions) or a file from
+    fit_sensor_noise.py."""
+    preset: str = "none"
+    scale: float = Field(default=1.0, ge=0.0, le=10.0)
+
+    @model_validator(mode="after")
+    def _valid(self):
+        self.config()
+        return self
+
+    def config(self):
+        from sensor_noise import resolve_sensor_noise
+        return resolve_sensor_noise(self.preset, self.scale)
+
+
+class BuoyancyBlock(BaseModel):
+    """Net-buoyancy change of the true vehicles from the calibration (buoyancy.py), N."""
+    offset_n: Union[float, list[float]] = 0.0
+    known_to_beliefs: bool = False
+
+    @model_validator(mode="after")
+    def _valid(self):
+        self.config()
+        return self
+
+    def config(self):
+        from buoyancy import BuoyancyConfig
+        return BuoyancyConfig.from_dict(self.model_dump())
+
+
 class CurrentVariability(BaseModel):
     speed_std_mps: float = Field(default=0.0, ge=0.0)
     direction_std_deg: float = Field(default=0.0, ge=0.0)
@@ -277,6 +332,9 @@ class FleetExperimentConfig(BaseModel):
     initial_conditions: InitialConditions = Field(default_factory=InitialConditions)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     dynamics_backend: Literal["stand_in", "mujoco", "both"] = "stand_in"
+    mode: Literal["clean", "noisy", "both"] = "clean"
+    sensor_noise: Optional[SensorNoiseBlock] = None
+    buoyancy: Optional[BuoyancyBlock] = None
     disturbance: DisturbanceBlock = Field(default_factory=DisturbanceBlock)
     current: Optional[CurrentBlock] = None
     vehicle_spec: str = "vehicle_spec.yaml"
@@ -287,8 +345,28 @@ class FleetExperimentConfig(BaseModel):
         """The thrusters in simulation form (torques about the model's origin), or None."""
         return resolve_thrusters(self.thrusters)
 
+    def modes(self) -> list:
+        return ["clean", "noisy"] if self.mode == "both" else [self.mode]
+
+    def variant(self, mode: str) -> tuple:
+        """(SensorNoiseConfig or None, disturbance file or None, disturbance scale) for one mode of this run.
+        With mode: both, the clean half has neither; everything else (current, thrusters, buoyancy) is shared."""
+        if self.mode == "both" and mode == "clean":
+            return None, None, 0.0
+        noise = self.sensor_noise.config() if self.sensor_noise is not None else None
+        return noise, self.disturbance.path(), self.disturbance.scale
+
+    def buoyancy_config(self):
+        return self.buoyancy.config() if self.buoyancy is not None else None
+
     @model_validator(mode="after")
     def _cross_checks(self):
+        if self.mode in ("noisy", "both"):
+            # noisy's defaults, written into the config itself so the saved experiment.yaml reruns the same thing
+            if self.sensor_noise is None:
+                self.sensor_noise = SensorNoiseBlock(preset="typical")
+            if "disturbance" not in self.model_fields_set:
+                self.disturbance = DisturbanceBlock(roll_pitch="fitted")
         if not os.path.exists(self.truth_params):
             raise ValueError(f"truth_params file not found: {self.truth_params!r}")
         if not os.path.exists(self.vehicle_spec):

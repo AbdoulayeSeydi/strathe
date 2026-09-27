@@ -39,8 +39,15 @@ python run_fleet_experiment.py                               # Level 1: ~5 min o
 cp default_experiment.yaml my_experiment.yaml                # Level 2: edit, then
 python run_fleet_experiment.py --config my_experiment.yaml
 python train_fleet_policy.py --timesteps 3000000 --out my_policy   # Level 3 (~40 min)
+python train_fleet_policy.py --algorithm sac --out my_sac            # or SAC / TD3 (1M steps)
 python validate_fleet_policy.py my_policy.zip
 ```
+
+Clean or noisy: `python strathe.py fleet --mode both` runs every condition with
+exact sensors and with realistic ones (plus the fitted roll/pitch disturbance)
+on the same episodes, and reports the difference. `--buoyancy -3` makes the
+vehicles 3 N heavier than they were calibrated (CUSTOM_EXPERIMENT.md sections
+12-14).
 
 ## Acceptance criteria
 
@@ -56,11 +63,13 @@ README and in CUSTOM_EXPERIMENT.md, and the resolved values of any run are in
 
 **Q3. What can I configure, and what's hardcoded?** PASS. CUSTOM_EXPERIMENT.md
 covers every field, and its closing table lists what still needs source edits:
-N > 2 vehicles, other tasks, start orientation, sensor noise.
+N > 2 vehicles, other tasks, start orientation, correlated sensor errors.
 
 **Q4. Is my policy compatible?** PASS. `validate_fleet_policy.py` checks the
 per-vehicle contract before any compute is spent, and names the common
-mismatches: a v1 centralized policy, or a single-vehicle Arena policy.
+mismatches: a v1 centralized policy, or a single-vehicle Arena policy. PPO,
+SAC and TD3 policies all work, and which one a file holds is read from the
+file.
 
 **Q5. Can I change starting conditions, task, seeds and episode length without editing code?** PASS.
 All are in the YAML, and all reach the simulation. They are also `strathe fleet` flags and web fields,
@@ -95,6 +104,22 @@ task (formation hold). It's simulation only. The "true vehicle" is a calibrated
 model, so `calibrated` means "a model that matches the simulated vehicle". How
 close a real calibration gets to a real vehicle is measured separately, on
 held-out logs.
+
+**Q13. Clean vs noisy: does my result survive realistic sensors?** PASS.
+`mode: both` (`--mode both`, or the web form) runs every condition clean and
+noisy on the same episodes and adds a paired "Does noise matter?" table. The
+noise can be the shipped `typical` or `tank` preset or your own, measured from
+your logs with `strathe fit-noise` (CUSTOM_EXPERIMENT.md section 12).
+Success is always judged on the true positions.
+
+**Q14. What if the vehicle is heavier or lighter than when it was calibrated?**
+PASS. `buoyancy: {offset_n: -3}` (`--buoyancy -3`), or a range to train across
+trims; the teammate models know about it only if you say so (section 13).
+
+**Q15. Can I train with something other than PPO, and compare?** PASS.
+`strathe train-fleet --algorithm sac|td3`; list the policies with labels
+(`--policies ppo=... sac=...`) and the report compares them episode by episode
+(section 14). How SAC and TD3 compare with PPO here: PROJECT_STATUS.md #58.
 
 **Q12. Can I use my own vehicle, not the reference BlueROV2?** PASS. Calibrate
 it from its logs (below), then set `truth_params`, `vehicle_spec` and
@@ -182,7 +207,14 @@ also trains on default physics. The report gives the paired difference with a
 stand-in; with `both`, the report shows each engine and how closely they agree.
 
 **S4. My own single-vehicle policy?** PASS. `--policy my_policy.zip` evaluates it
-against the same references.
+against the same references, whether it is PPO, SAC or TD3. A two-vehicle policy
+given here is refused with an explanation.
+
+**S6. Clean vs noisy, buoyancy, and other algorithms?** PASS. `--mode noisy`
+(realistic sensors + roll/pitch disturbance, or `--noise` on its own),
+`--compare-clean-training` (does training with the noise pay off? paired, with a
+95% CI), `--buoyancy -3`, and `--algorithm sac|td3` (the settings validated for
+one vehicle in PROJECT_STATUS.md #37). All are on the web form.
 
 ## Scope limits a lab should know before starting
 
@@ -192,6 +224,6 @@ The full list, with what to do about each, is in [`LIMITS.md`](../LIMITS.md). Th
 |---|---|
 | 2 vehicles only (or 1 with `strathe arena`) | per-vehicle observations and a shared policy are the groundwork for N |
 | Formation hold only | new tasks need a reward, a config and training |
-| No sensor noise on a vehicle's own state | not modelled |
+| Sensor noise is white noise + a per-dive bias + DVL dropouts | no heading-dependent compass error or other correlated errors (LIMITS.md) |
 | No hardware in the loop | the reason to partner with a lab |
 | Policies trained on the stand-in engine only | MuJoCo truth is available for evaluation |

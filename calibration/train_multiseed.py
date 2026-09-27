@@ -67,9 +67,11 @@ ALGORITHMS = {"ppo": PPO, "sac": SAC, "td3": TD3}
 def train_one_seed(params: CalibrationParameters, vehicle: VehicleConstants,
                     waypoint: np.ndarray, seed: int, timesteps: int,
                     n_eval_episodes: int, task: str = "waypoint",
-                    algorithm: str = "ppo") -> dict:
+                    algorithm: str = "ppo", env_kwargs: dict = None) -> dict:
+    """env_kwargs: extra Arena settings (sensor_noise, disturbance, buoyancy), for training and evaluation."""
     def make_env():
-        return Arena(params, vehicle, fixed_waypoint=waypoint, max_episode_steps=100, task=task)
+        return Arena(params, vehicle, fixed_waypoint=waypoint, max_episode_steps=100, task=task,
+                     **(env_kwargs or {}))
 
     train_env = Monitor(make_env())
     algo_cls = ALGORITHMS[algorithm]
@@ -121,7 +123,32 @@ def main():
                               "replay buffer - see PROJECT_STATUS.md for their real, "
                               "confirmed learning_starts/buffer_size defaults and the "
                               "validation gates run before trusting them.")
+    parser.add_argument("--mode", choices=["clean", "noisy"], default="clean",
+                         help="clean (default; all existing results) or noisy: sensor noise 'typical' + the fitted "
+                              "roll/pitch disturbance (sim_mode.py). --noise / --disturbance override either part")
+    parser.add_argument("--noise", default=None, help="sensor noise: none, tank, typical or a sensor-noise YAML")
+    parser.add_argument("--noise-scale", type=float, default=1.0)
+    parser.add_argument("--disturbance", default=None, help="roll/pitch disturbance: none, fitted or a fit file")
+    parser.add_argument("--disturbance-scale", type=float, default=1.0)
+    parser.add_argument("--buoyancy", type=float, nargs="+", default=None,
+                         help="net buoyancy change from the calibration in N, or MIN MAX drawn per episode")
     args = parser.parse_args()
+    import sim_mode
+    from sensor_noise import resolve_sensor_noise
+    noise_name, dist_name = sim_mode.resolve(args.mode, args.noise, args.disturbance)
+    env_kwargs = {}
+    noise_cfg = resolve_sensor_noise(noise_name, args.noise_scale)
+    if noise_cfg is not None:
+        env_kwargs["sensor_noise"] = noise_cfg
+    if dist_name != "none" and args.disturbance_scale > 0:
+        from disturbance import DEFAULT_FIT_PATH, load_disturbance
+        env_kwargs["disturbance"] = load_disturbance(DEFAULT_FIT_PATH if dist_name == "fitted" else dist_name,
+                                                     args.disturbance_scale)
+    buoy = sim_mode.buoyancy_from_flags(args.buoyancy)
+    if buoy is not None:
+        env_kwargs["buoyancy"] = buoy
+    if env_kwargs:
+        print(f"Simulation: {', '.join(sorted(env_kwargs))} on (mode {args.mode})")
 
     check_result_type(args.result_type, metrics_path=args.metrics_path)
     output_dir = output_dir_for(args.output_dir, args.result_type)
@@ -147,7 +174,8 @@ def main():
         for seed in range(args.n_seeds):
             print(f"  Seed {seed}...")
             r = train_one_seed(params, vehicle, waypoint, seed, args.timesteps,
-                               args.n_eval_episodes, task=args.task, algorithm=args.algorithm)
+                               args.n_eval_episodes, task=args.task, algorithm=args.algorithm,
+                               env_kwargs=env_kwargs)
             clearance_str = (f", clearance={r['mean_min_obstacle_clearance']:.2f}"
                               if r['mean_min_obstacle_clearance'] is not None else "")
             print(f"    reward={r['mean_reward']:.2f}, "
@@ -212,6 +240,9 @@ def main():
         "n_seeds": args.n_seeds,
         "timesteps_per_seed": args.timesteps,
         "waypoint": waypoint.tolist(),
+        "simulation": {"mode": args.mode, "noise": noise_name, "noise_scale": args.noise_scale,
+                       "disturbance": dist_name, "disturbance_scale": args.disturbance_scale,
+                       "buoyancy_n": args.buoyancy},
         "summary": summary,
     }
     with open(out / "claim_b_report.json", "w", encoding="utf-8") as f:

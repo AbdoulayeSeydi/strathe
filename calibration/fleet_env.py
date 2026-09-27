@@ -25,6 +25,10 @@ observations, a physical teammate-belief model.
     [8:11]  believed teammate position relative to self, in OWN body frame (m)
     [11]    belief age: min(age_s, age_cap_s) / age_cap_s (1.0 when no beacon yet)
     [12]    1.0 if any beacon has ever arrived, else 0.0 (then [8:11] are zero)
+With sensor noise on (FleetConfig.sensor_noise, sensor_noise.py), [0:11] are
+what the vehicle's own sensors report, and [8:11] is relative to where it
+believes it is; beacons carry what the sender measured. Rewards, success and
+belief errors are always judged on the truth.
 ## Action (per vehicle, 6 floats in [-1, 1])
     body-frame [Fx, Fy, Fz, Tx, Ty, Tz], scaled by action_bound (30 N / N*m)
 
@@ -44,12 +48,14 @@ from typing import Optional
 import numpy as np
 
 from comm_channel import BandwidthConfig, CommChannel, PacketLossConfig, MESSAGE_TYPE_POSITION_BEACON
+from buoyancy import BuoyancyConfig, with_buoyancy_offset
 from current import CurrentConfig, WaterCurrent
 from disturbance import DisturbanceConfig, RollPitchDisturbance, episode_seed
 from dynamics_model import CalibrationParameters, SimulationConfig, VehicleConstants
 from fast_dynamics import FastCore
 from fleet_belief import Beacon, BeliefSpec
 from formation_hold_task import FormationHoldConfig, FormationHoldTask
+from sensor_noise import SensorNoiseConfig, SensorSuite, exact
 
 OBS_DIM = 13
 ACT_DIM = 6
@@ -99,6 +105,13 @@ class FleetConfig:
     # thrusters, scaled down if any would exceed its curve, and axes the
     # thrusters can't push get nothing. Beacons carry the delivered wrench.
     thrusters: Optional[object] = None
+    # Sensor noise (sensor_noise.py): what each vehicle's own DVL, gyro,
+    # attitude, compass and depth sensor report, and a position dead-reckoned
+    # from them. None = exact readings (the original behaviour).
+    sensor_noise: Optional[SensorNoiseConfig] = None
+    # Net-buoyancy change from the calibration (buoyancy.py): payload, trim.
+    # None = as calibrated (the original behaviour).
+    buoyancy: Optional[BuoyancyConfig] = None
 
     @property
     def beacon_every_ticks(self) -> int:
@@ -129,6 +142,10 @@ class FleetConfig:
             self.disturbance.validate()
         if self.current is not None:
             self.current.validate()
+        if self.sensor_noise is not None:
+            self.sensor_noise.validate()
+        if self.buoyancy is not None:
+            self.buoyancy.validate()
         self.task.validate()
 
 
@@ -141,6 +158,9 @@ class _MuJoCoTruth:
 
     def reset(self, position=None, nu=None):
         self._core.reset(position=position, nu=nu)
+
+    def set_params(self, params):
+        self._core.set_params(params)
 
     def step(self, tau):
         self._core.step(tau)
@@ -187,6 +207,7 @@ class FleetSim:
         self.cfg = copy.deepcopy(config) if config is not None else FleetConfig()
         self.cfg.validate()
         self.vehicle = vehicle
+        self.truth_params = truth_params
         sim_config = SimulationConfig(dt=self.cfg.dt, physics_dt=self.cfg.physics_dt)
         truth_cls = _FastTruth if self.cfg.dynamics_backend == "stand_in" else _MuJoCoTruth
         self.cores = [truth_cls(truth_params, vehicle, sim_config) for _ in range(N_AGENTS)]
@@ -197,6 +218,8 @@ class FleetSim:
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
         self._disturbances = None
         self._current = None
+        self._sensors = None
+        self.buoyancy_offset_n = 0.0
 
     # --- configuration that may change between episodes -------------------
     def set_comm(self, packet_loss_config=None, bandwidth_config=None, speed_of_sound_mps=1500.0,
@@ -244,9 +267,31 @@ class FleetSim:
             b.set_water_current(known)
         for core in self.cores:
             core.current_world = None
+        buoy = self.cfg.buoyancy
+        # one offset for both vehicles (same vehicles, same payload), seeded like the disturbances
+        offset = (buoy.draw(np.random.default_rng(episode_seed(comm_seed, N_AGENTS, d0, v0, salt=(0xB0,))))
+                  if buoy is not None and buoy.active else 0.0)
+        self.buoyancy_offset_n = offset
+        params = with_buoyancy_offset(self.truth_params, offset)
+        for core in self.cores:
+            core.set_params(params)
+        for b in self.beliefs:
+            b.set_buoyancy_offset(offset if buoy is not None and buoy.known_to_beliefs else 0.0)
+        noise = self.cfg.sensor_noise
+        self._sensors = ([SensorSuite(noise, self.cfg.dt, episode_seed(comm_seed, i, d0, v0, salt=(0x5E, 0x75)))
+                          for i in range(N_AGENTS)] if noise is not None and noise.active else None)
+        if self._sensors is not None:
+            for s, core in zip(self._sensors, self.cores):
+                s.start(core.position_array(), core.rotation_matrix(), core.nu_array())
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
         return self._observations()
+
+    def measurements(self) -> list:
+        """What each vehicle believes about itself right now (exact without sensor noise)."""
+        if self._sensors is not None:
+            return [s.last for s in self._sensors]
+        return [exact(c.position_array(), c.rotation_matrix(), c.nu_array()) for c in self.cores]
 
     def step(self, actions: list):
         """actions: one (6,) array in [-1, 1] per vehicle.
@@ -268,16 +313,21 @@ class FleetSim:
 
         pos = [c.position_array() for c in self.cores]
         true_sep = float(np.linalg.norm(pos[0] - pos[1]))
+        if self._sensors is not None:
+            for s, core, p in zip(self._sensors, self.cores, pos):
+                s.update(p, core.rotation_matrix(), core.nu_array())
+        meas = self.measurements()
 
         # Each vehicle beacons its end-of-tick state every beacon_every_ticks
         # ticks; delivery happens on a later tick (latency > 0). The comm RNG
         # is drawn once per send, and send ticks don't depend on actions, so
-        # the drop pattern is the same whatever the vehicles do.
+        # the drop pattern is the same whatever the vehicles do. A beacon carries
+        # what the sender measured and believes (the truth without sensor noise).
         sends = [] if self._tick % self.cfg.beacon_every_ticks else range(N_AGENTS)
         for i in sends:
             j = 1 - i
-            beacon = Beacon(send_tick=self._tick, position=pos[i], orientation=self.cores[i].rotation_matrix(),
-                            nu=self.cores[i].nu_array(), tau=taus[i].copy())
+            beacon = Beacon(send_tick=self._tick, position=meas[i].position.copy(), orientation=meas[i].R.copy(),
+                            nu=meas[i].nu.copy(), tau=taus[i].copy())
             self.channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
                               sender_pos=pos[i], receiver_pos=pos[j],
                               message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacon,
@@ -306,24 +356,38 @@ class FleetSim:
             "delivered": [bool(d) for d in delivered],
             "terminal_reason": task_info.get("terminal_reason"),
             "current_world": current_now,
+            "nav_errors": [float(np.linalg.norm(m.position - p)) for m, p in zip(meas, pos)],
+            "buoyancy_offset_n": self.buoyancy_offset_n,
             "reward_components": dict(task_info["reward_components"], collision_tail=-collision_tail_penalty),
         }
-        return self._observations(estimates), float(reward), bool(terminated), bool(truncated and not terminated), info
+        return self._observations(estimates, meas), float(reward), bool(terminated), bool(truncated and not terminated), info
 
     # --- observations --------------------------------------------------------
-    def _observations(self, estimates: Optional[list] = None) -> list:
+    def _observations(self, estimates: Optional[list] = None, meas: Optional[list] = None) -> list:
         if estimates is None:
             pos = [c.position_array() for c in self.cores]
             estimates = [self.beliefs[i].estimate(true_teammate_position=pos[1 - i]) for i in range(N_AGENTS)]
+        if self._sensors is None:
+            obs = []
+            for i, core in enumerate(self.cores):
+                roll, pitch = core.roll_pitch()
+                belief = self.beliefs[i]
+                if estimates[i] is None:
+                    rel_body, age, valid = np.zeros(3), 1.0, 0.0
+                else:
+                    rel_world = estimates[i] - core.position_array()
+                    rel_body = core.rotation_matrix().T @ rel_world
+                    age, valid = min(belief.age_s, self.cfg.age_cap_s) / self.cfg.age_cap_s, 1.0
+                obs.append(np.concatenate([core.nu_array(), [roll, pitch], rel_body, [age, valid]]).astype(np.float32))
+            return obs
+        meas = meas or self.measurements()
         obs = []
-        for i, core in enumerate(self.cores):
-            roll, pitch = core.roll_pitch()
+        for i, m in enumerate(meas):
             belief = self.beliefs[i]
             if estimates[i] is None:
                 rel_body, age, valid = np.zeros(3), 1.0, 0.0
             else:
-                rel_world = estimates[i] - core.position_array()
-                rel_body = core.rotation_matrix().T @ rel_world
+                rel_body = m.R.T @ (estimates[i] - m.position)
                 age, valid = min(belief.age_s, self.cfg.age_cap_s) / self.cfg.age_cap_s, 1.0
-            obs.append(np.concatenate([core.nu_array(), [roll, pitch], rel_body, [age, valid]]).astype(np.float32))
+            obs.append(np.concatenate([m.nu, [m.roll, m.pitch], rel_body, [age, valid]]).astype(np.float32))
         return obs
