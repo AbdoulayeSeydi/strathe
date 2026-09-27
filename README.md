@@ -94,7 +94,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 363 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 396 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -698,7 +698,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (363 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (396 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -709,7 +709,12 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Roll/pitch disturbance fitted to real logs (noisy-simulation mode), MuJoCo and stand-in
 - ✅ One-command onboarding (`python strathe.py`) and a local web page (`python strathe.py web`)
 - ✅ Water current (open water): configurable and off by default, in both engines, the fleet, the single-vehicle environment, the CLI, the web page and calibration from logs in a known current
-- ⏳ Estimating an unknown or changing current from logs; currents that vary across space
+- ✅ Unknown water currents estimated per recording (`--estimate-current`), with checks (#57)
+- ⏳ A current that changes within a recording, or varies across space
+- ✅ Single-vehicle arena on MuJoCo too, with the fitted roll/pitch disturbance (#57)
+- ✅ ArduPilot `.bin` / MAVLink `.tlog` logs read directly (#57)
+- ✅ Fleet experiments from flags and web fields, no YAML editing (#57)
+- ✅ Every known limit listed in [LIMITS.md](LIMITS.md)
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent

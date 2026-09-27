@@ -229,6 +229,12 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
                     "That interval includes zero: on this task, this experiment can't tell the two apart.")
                  + " Training-seed variation is real in reinforcement learning; per-seed numbers are in "
                    "`results.json`, and more seeds (`--seeds`) narrow the interval.\n")
+        if contrast["ci"][1] < 0:
+            L.append("Training on your calibration did *worse* here. That usually means the training budget was too "
+                     "short for your vehicle, not that the calibration is wrong. Every policy is tested on your "
+                     "calibrated vehicle, and a heavily damped vehicle is slower to learn on than the lighter default "
+                     "physics. In our tests, tripling `--timesteps` took calibration-trained policies from 10% to 96% "
+                     "(PROJECT_STATUS.md #56). Re-run with a larger `--timesteps` before drawing conclusions.\n")
     L += ["## What this does and doesn't show\n",
           "- It is simulation only: the \"vehicle\" is your calibrated model. How well that model matches the real "
           "vehicle is what your calibration report measures; a hardware trial is the final test.",

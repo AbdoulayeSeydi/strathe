@@ -250,7 +250,9 @@ def write_plots(plots_dir, summary, doses):
             if metric == "success_rate":
                 err = np.array([[ys[i] - by[(c, bel)]["success_ci95"][0], by[(c, bel)]["success_ci95"][1] - ys[i]]
                                 if (c, bel) in by else [0, 0] for i, c in enumerate(comms)]).T
-                ax.bar(xs, ys, w, yerr=err, capsize=2, label=bel)
+                # a 100% (or 0%) cell's Wilson bound sits a rounding error past the value; matplotlib refuses
+                # negative error bars and the plots were skipped
+                ax.bar(xs, ys, w, yerr=np.clip(err, 0.0, None), capsize=2, label=bel)
             else:
                 ax.bar(xs, ys, w, label=bel)
         ax.set_xticks(range(len(comms)), comms)

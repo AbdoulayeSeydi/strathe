@@ -247,3 +247,13 @@ def test_estimate_current_rounds_in_calibrate(tmp_path):
     assert final[final.index("--output-dir") + 1] == str(tmp_path / "r")
     assert cli.main(["calibrate", "--data", str(tmp_path), "--estimate-current", "--current-world-mps", "0.1", "0",
                      "0"], runner=lambda c: 0) == 2
+
+
+def test_plots_draw_when_a_condition_succeeds_every_time(tmp_path):
+    """A 100% cell's Wilson upper bound is 1 - 2e-16, which made the error bar negative and skipped all plots."""
+    from fleet_stats import wilson_ci
+    from run_fleet_experiment import write_plots
+    summary = [{"comm": "L2@1s", "belief": b, "success_rate": p, "success_ci95": list(wilson_ci(int(p * 108), 108)),
+                "mean_belief_error_m": 0.1} for b, p in (("calibrated", 1.0), ("generic", 0.0))]
+    write_plots(str(tmp_path), summary, [])
+    assert (tmp_path / "success_by_belief.png").exists()
