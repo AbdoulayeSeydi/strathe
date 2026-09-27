@@ -333,8 +333,13 @@ positions, and the report shows how far the navigation drifted
 | Preset | What it is |
 |---|---|
 | `tank` | The noise actually in the reference BlueROV2 tank logs, measured with `fit_sensor_noise.py`: about 2 mm/s velocity, 0.4°/s gyro, 0.1° attitude, 0.2° heading, 1 mm depth, and external positioning (3 mm, no drift). Small. |
-| `typical` | A DVL + AHRS + depth-sensor vehicle navigating by dead reckoning: 1 cm/s velocity (0.5 cm/s bias, 2% dropouts), 0.6°/s gyro, 0.5° attitude, 2° heading (2° bias), 1 cm depth, 20 cm starting fix. These are stated assumptions of a common size, not a fit (`sensor_noise/typical_dvl_ahrs.yaml` gives each one). |
-| your file | `python strathe.py fit-noise --data <your logs> --out my_noise.yaml` measures the white noise, dropouts and positioning from your own logs. Add your sensors' biases from their datasheets: logs can't show a constant offset. |
+| `typical` | A DVL + AHRS + depth-sensor vehicle navigating by dead reckoning: 1 cm/s velocity (0.5 cm/s bias, 2% dropouts), 0.6°/s gyro, 0.5° attitude, 2° heading (2° bias), 1 cm depth, 20 cm starting fix. **Assumed, not measured:** sizes of a common magnitude, fixed before any result, not taken from any open-water vehicle (`sensor_noise/typical_dvl_ahrs.yaml` gives each one). It's the default for `mode: noisy`, and reports that use it say the sizes are assumed. |
+| your file | `python strathe.py fit-noise --data <your logs> --out my_noise.yaml` measures the white noise, dropouts and positioning from your own logs. Add your sensors' biases from their datasheets: logs can't show a constant offset. `fit-noise` is command line only (no web form yet); the web forms can use the file it writes ("From my own file"). |
+
+**Which preset to use.** `tank` for a vehicle in a tank with external positioning. For open water, your own
+fitted file; `typical` is a placeholder until you have one, and `--noise-scale 0.5` / `2` show how sensitive
+your result is to it. Results quoted with `typical` (e.g. the 10-point cost in PROJECT_STATUS.md #58) are about
+the assumed sizes, not a measured vehicle.
 
 Every condition sees the same sensor errors, so comparisons stay paired.
 To train a policy that has experienced the noise:
@@ -376,6 +381,21 @@ python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=my_sac_seed1 --mod
   ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6),
   each with a third of PPO's training steps. Trained SAC and TD3 policies ship
   in `algorithm_policies/` (PROJECT_STATUS.md #58).
+- **That validation covers the reference BlueROV2 and this formation task only**,
+  in clean simulation, with SB3-standard settings not tuned for any other vehicle.
+  The ranking doesn't necessarily carry over: TD3 was best clean and worst under
+  noise. For your own vehicle, train two or three seeds of each and compare them
+  in one run:
+
+  ```bash
+  python strathe.py train-fleet --params <yours> --algorithm ppo --seed 1 --out my_ppo_1   # and seed 2
+  python strathe.py train-fleet --params <yours> --algorithm sac --seed 1 --out my_sac_1   # and seed 2
+  python strathe.py fleet --params <yours> --mode both \
+      --policies ppo=my_ppo_1 ppo=my_ppo_2 sac=my_sac_1 sac=my_sac_2
+  ```
+  Policies sharing a label are pooled as seeds of one group; the "Policy groups
+  compared" table gives each group's success and the paired difference with a
+  95% CI.
 
 ## Still not configurable
 

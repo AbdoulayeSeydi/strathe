@@ -203,6 +203,7 @@ def main(argv=None) -> int:
     L = ["# Clean vs noisy fleet simulation, and buoyancy (PROJECT_STATUS.md #58)\n",
          f"{len(rows):,} paired episodes, stand-in physics. Comm L2 @ 1 s and L3a @ 3 s, beliefs calibrated and "
          "last_beacon, pooled unless stated.\n",
+         "**Read this first:** `tank` is measured from the reference tank logs; `typical` uses assumed sizes for a DVL + AHRS vehicle, not measured on any open-water vehicle. The costs below are for those assumed sizes (x0.5 and x2 bracket them); for your own fleet, fit your sensors with `strathe fit-noise` and rerun.\n",
          "## 1. How much does sensor noise cost?\n",
          "Success for policies trained clean and policies trained with `--mode noisy`, at each noise level. "
          "`noisy mode` = typical sensors + the fitted roll/pitch disturbance.\n",

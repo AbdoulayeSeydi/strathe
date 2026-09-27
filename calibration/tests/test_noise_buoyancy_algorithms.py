@@ -575,3 +575,45 @@ def test_train_multiseed_takes_noise_and_buoyancy(alg):
     r = tm.train_one_seed(TRUTH, VEHICLE, np.array([1.0, 1.0, 0.5]), 0, 300 if alg != "ppo" else 256, 2,
                           algorithm=alg, env_kwargs={"sensor_noise": TYPICAL, "buoyancy": BuoyancyConfig(-2.0)})
     assert np.isfinite(r["mean_reward"]) and 0 <= r["success_rate"] <= 1
+
+
+# ----------------------------------------------------------------- the caveats labs must see
+
+def test_every_description_says_whether_noise_sizes_are_assumed_or_measured(tmp_path):
+    assert load_sensor_noise("typical").provenance == "assumed"
+    assert "ASSUMED" in load_sensor_noise("typical").describe() and "fit-noise" in load_sensor_noise("typical").describe()
+    assert load_sensor_noise("tank").provenance == "measured"
+    assert "measured from logs" in load_sensor_noise("tank").describe()
+    # a lab's own fit is labelled measured
+    import fit_sensor_noise as fsn
+    d = tmp_path / "logs"
+    d.mkdir()
+    rng = np.random.default_rng(1)
+    pd.DataFrame({"Bu": rng.normal(0, 0.01, 200), "Bv": rng.normal(0, 0.01, 200), "Bw": rng.normal(0, 0.01, 200),
+                  "z": rng.normal(0, 0.01, 200)}).to_csv(d / "r.csv", index=False)
+    assert fsn.main(["--data-dir", str(d), "--out", str(tmp_path / "n.yaml")]) == 0
+    assert load_sensor_noise(str(tmp_path / "n.yaml")).provenance == "measured"
+
+
+def test_reports_carry_the_caveats(tmp_path, tiny_policies):
+    import run_fleet_experiment as rfe
+    os.chdir(CAL)
+    cfg = _exp(tmp_path, mode="noisy", policies=[{"model_path": os.path.join(CAL, "fleet_policy_seed1")},
+                                                 {"model_path": tiny_policies["sac"]}])
+    p = tmp_path / "e.yaml"
+    p.write_text(yaml.safe_dump(cfg))
+    rfe.run_experiment(str(p))
+    rep = (tmp_path / "out" / "summary_report.md").read_text(encoding="utf-8")
+    assert "ASSUMED" in rep                                   # typical noise is labelled in the report
+    assert "reference BlueROV2 only" in rep and "single policy" in rep   # algorithm comparison scope
+
+
+def test_help_and_web_labels_carry_the_caveats():
+    import strathe_web as w
+    html = w.noise_fields("x") + w.algorithm_select("x")
+    assert "assumed sizes, not measured" in html and "strathe.py fit-noise" in html and "no form for it yet" in html
+    assert "validated on the reference BlueROV2" in html
+    helptext = cli.build_parser()._subparsers._group_actions[0].choices["fleet"].format_help()
+    assert "ASSUMED" in helptext
+    tf = cli.build_parser()._subparsers._group_actions[0].choices["train-fleet"].format_help()
+    assert "reference" in tf and "BlueROV2" in tf

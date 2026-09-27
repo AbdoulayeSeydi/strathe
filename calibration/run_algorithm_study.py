@@ -192,7 +192,7 @@ def main(argv=None) -> int:
     pp = lambda x: f"{100 * x:+.0f}"
     L = ["# SAC and TD3 for the fleet, against PPO (PROJECT_STATUS.md #58)\n",
          f"{len(rows):,} episodes, clean simulation, stand-in physics. Criteria fixed before any result: "
-         "[criteria.md](criteria.md).\n", "## Verdict\n",
+         "[criteria.md](criteria.md).\n", "**Scope:** the reference BlueROV2, the formation-hold task, clean simulation, SB3-standard settings. The ranking may not carry over to another vehicle or task (under noise, TD3 falls from best to worst: results/fleet_v2_noise). For your vehicle, train two or three seeds of each and compare them in one experiment (`strathe fleet --policies ppo=... sac=...`).\n", "## Verdict\n",
          "| Algorithm | Gate 1 (integration) | Learned (≥ floor + half the gap to PPO) | Parity with PPO | Failed seeds | Validated for the fleet |",
          "|---|---|---|---|---|---|"]
     for g in ("sac", "td3"):

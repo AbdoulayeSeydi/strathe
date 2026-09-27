@@ -41,8 +41,10 @@ Presets (sensor_noise/*.yaml):
              positioning is external, so there is no drift. Small.
     typical  a DVL + AHRS + depth sensor vehicle navigating by dead
              reckoning. These sizes are stated ASSUMPTIONS of common
-             magnitude, not a fit; fit your own vehicle's logs with
-             fit_sensor_noise.py and pass that file instead.
+             magnitude, not measured on any open-water vehicle; every
+             description of it (reports, logs) says so. Fit your own
+             vehicle's logs with fit_sensor_noise.py (`strathe fit-noise`,
+             command line) and pass that file instead.
 
 Seeding: the noise depends only on the episode's identity, never on the
 policy's actions or the belief model, and every tick draws the same number
@@ -132,7 +134,24 @@ class SensorNoiseConfig:
                 f"(bias ±{math.degrees(self.scaled('attitude_bias_rad')):.2g}), "
                 f"heading ±{math.degrees(self.scaled('heading_std_rad')):.2g} deg "
                 f"(bias ±{math.degrees(self.scaled('heading_bias_rad')):.2g}), "
-                f"depth ±{100 * self.scaled('depth_std_m'):.2g} cm, {nav}")
+                f"depth ±{100 * self.scaled('depth_std_m'):.2g} cm, {nav}{self.provenance_note()}")
+
+    @property
+    def provenance(self) -> str:
+        """'assumed' (e.g. the typical preset), 'measured' (fitted from logs by fit_sensor_noise.py) or 'unknown'."""
+        p = str(self.extra.get("provenance", "")).lower()
+        if p in ("assumed", "measured"):
+            return p
+        return "measured" if "fit" in self.extra else "unknown"
+
+    def provenance_note(self) -> str:
+        if self.provenance == "assumed":
+            return ("; these sizes are ASSUMED (a common magnitude for such sensors), not measured on a real "
+                    "vehicle: fit your own with `strathe fit-noise`")
+        if self.provenance == "measured":
+            logs = (self.extra.get("fit") or {}).get("logs")
+            return f"; measured from logs{f' ({logs})' if logs else ''}"
+        return ""
 
     def to_dict(self) -> dict:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ("extra",)}
