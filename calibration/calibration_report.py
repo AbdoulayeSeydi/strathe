@@ -67,6 +67,8 @@ MAX_PLAUSIBLE_RATIO = 5.0
 GOOD_SKILL = 0.3   # explains at least ~half the motion's variance: 1 - (1 - 0.3)^2 = 0.51
 
 GOOD, CAUTION, BAD = "Trust it", "Use with care", "Don't rely on it"
+IDENT_FILENAME = "identifiability_report.json"
+DEFAULT_HELDOUT_DATES = ("16-02-2024", "19-02-2024")  # the reference dataset's
 
 
 def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[str], heldout_dates) -> Optional[tuple]:
@@ -90,7 +92,8 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
             from run_calibration import spec_torque_reference_offset
             offset = spec_torque_reference_offset(spec)
         current = ((metrics or {}).get("objective") or {}).get("current_world_mps")
-        runs = [load_run(f, DatasetConfig(10.0, tuple(offset), None if current is None else tuple(current)))
+        rate = ((metrics or {}).get("objective") or {}).get("sampling_rate_hz") or 10.0
+        runs = [load_run(f, DatasetConfig(float(rate), tuple(offset), None if current is None else tuple(current)))
                 for f in split.heldout_files]
         z = zero_baseline_rmse(runs)
         if c is None:
@@ -198,9 +201,11 @@ def next_steps(verdicts, pinned, implausible, ident) -> list:
     if implausible:
         steps.append("Fix physically implausible values by holding them at independently measured values "
                      "(CAD model, pendulum test) and re-calibrating the rest.")
-    if ident and ident.get("correlated_pairs"):
+    if ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")):
         steps.append("Some parameters can trade off against each other (listed above). That's harmless for simulation, "
-                     "but don't report those individual values as vehicle properties.")
+                     "but don't report those individual values as vehicle properties. Manoeuvres that move the "
+                     "axes they belong to in different ways (different speeds, and turning while moving) are what "
+                     "separate them.")
     steps.append("Validate on hardware: run the same commands on the real vehicle and in the calibrated simulator "
                  "and compare. Held-out logs are strong evidence; a live test is the real proof.")
     return steps
@@ -239,7 +244,7 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                    f"over-fitting to those particular recordings.")
         L.append(f"{verdict} (held-out / training error ratio {gen_gap:.2f}; 1.0 is ideal.)\n")
     L.append("## Be careful with\n")
-    if not (pinned or implausible or (ident and ident.get("correlated_pairs"))):
+    if not (pinned or implausible or (ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")))):
         L.append("Nothing flagged.\n")
     if pinned:
         L.append(f"**Values stuck at a limit ({len(pinned)}).** The fit pushed these as far as allowed and stopped, "
@@ -261,6 +266,15 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
             L.append(f"- {PLAIN.get(c['param_a'], c['param_a'])} vs {PLAIN.get(c['param_b'], c['param_b'])} "
                      f"(correlation {c['correlation']:+.2f})")
         L.append("")
+    if ident and ident.get("weak_combinations"):
+        L.append("**Groups of values your data barely pins down.** Each group below can shift together with almost "
+                 "no change in the predicted motion, so treat the individual values as uncertain even where they "
+                 "look precise:\n")
+        for w in ident["weak_combinations"]:
+            L.append("- " + ", ".join(PLAIN.get(p, p) for p in w["parameters"])
+                     + f" (constrained about {1 / max(w['relative_strength'], 1e-12):,.0f}x less than the "
+                       f"best-constrained combination)")
+        L.append("")
     L.append("## What to do next\n")
     for i, s in enumerate(steps, 1):
         L.append(f"{i}. {s}")
@@ -278,19 +292,25 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                      f"{v['improvement_pct']:+.1f}% | {sk} |")
         if ident:
             L.append(f"\nIdentifiability: Jacobian condition number {ident.get('condition_number', float('nan')):.3g} "
-                     f"from {ident.get('n_train_runs_used', '?')} training runs.")
+                     f"from {ident.get('n_train_runs_used', '?')} training runs"
+                     + (f", {len(ident['free_parameters'])} free parameters, same objective as the fit"
+                        if ident.get("free_parameters") else "") + ".")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
 
 
 def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifiability: Optional[str] = None,
-                 data_dir: Optional[str] = None, heldout_dates=("16-02-2024", "19-02-2024")) -> dict:
+                 data_dir: Optional[str] = None, heldout_dates=None) -> dict:
     spec = load_vehicle_spec(spec_path)
     with open(os.path.join(result_dir, "calibrated_parameters.yaml"), encoding="utf-8") as f:
         params = CalibrationParameters(**yaml.safe_load(f)["parameters"])
     mpath = os.path.join(result_dir, "metrics.json")
     metrics = json.load(open(mpath, encoding="utf-8")) if os.path.exists(mpath) else None
+    if identifiability is None and os.path.exists(os.path.join(result_dir, IDENT_FILENAME)):
+        identifiability = os.path.join(result_dir, IDENT_FILENAME)  # written by `strathe calibrate`
     ident = json.load(open(identifiability, encoding="utf-8")) if identifiability else None
+    if heldout_dates is None:  # the dates the calibration itself held out
+        heldout_dates = ((metrics or {}).get("dataset") or {}).get("heldout_dates") or DEFAULT_HELDOUT_DATES
     axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates))
     pinned = pinned_parameters(params, spec)
     implausible = implausible_parameters(params)
@@ -319,7 +339,8 @@ def main(argv=None) -> int:
     ap.add_argument("--identifiability", help="JSON from automated_identifiability_report.py")
     ap.add_argument("--data-dir", help="logs, to compute held-out per-axis accuracy (and the no-motion baseline) "
                                        "if metrics.json lacks them")
-    ap.add_argument("--heldout-dates", nargs="+", default=["16-02-2024", "19-02-2024"])
+    ap.add_argument("--heldout-dates", nargs="+", default=None,
+                    help="default: the dates the calibration held out (metrics.json)")
     args = ap.parse_args(argv)
     r = build_report(args.result, args.spec, args.identifiability, args.data_dir, args.heldout_dates)
     print(f"Wrote {r['report']}")

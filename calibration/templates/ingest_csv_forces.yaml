@@ -1,0 +1,27 @@
+# Ingest spec: CSV logs that already contain body-frame forces and torques.
+# Copy this file next to your logs, change the column names on the right-hand
+# side to yours, then:
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+# (or python strathe.py ingest --spec this_file.yaml --out <folder> to only convert).
+# Every key is explained in calibration/data_ingestion.py and templates/README.md.
+
+vehicle: my_rov                         # letters, digits, underscores; names the output files
+source:
+  files: "raw_logs/*.csv"               # relative to this file
+  delimiter: ","
+time: {column: timestamp, unit: s}      # s | ms | us | ns; or: {sampling_rate_hz: 10}
+resample_hz: 10                         # optional: put every file on one uniform grid (needed if timing jitters)
+session_date:                           # recordings are split into training/validation by DATE
+  from: filename                        # filename | constant | recording (Unix-time timestamps)
+  pattern: "(\\d{4}-\\d{2}-\\d{2})"
+  format: "%Y-%m-%d"
+frame: frd                              # frd (Fossen: forward-right-down, NED world) | flu (ROS: FLU body, ENU world)
+body_velocity:                          # velocity in the BODY frame (DVL / odometry), not world frame
+  columns: {u: vel_x, v: vel_y, w: vel_z, p: rate_x, q: rate_y, r: rate_z}
+  linear_unit: m/s                      # m/s | cm/s | mm/s | knots
+  angular_unit: rad/s                   # rad/s | deg/s
+orientation:
+  quaternion: {x: qx, y: qy, z: qz, w: qw}
+  # or: euler: {roll: roll, pitch: pitch, yaw: yaw, unit: deg}
+wrench:
+  columns: {Fx: force_x, Fy: force_y, Fz: force_z, Tx: torque_x, Ty: torque_y, Tz: torque_z}

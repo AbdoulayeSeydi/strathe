@@ -47,12 +47,15 @@ except ImportError:  # Windows
     resource = None
 
 
-def classify(wall_s: float, monotonic_s: float, cpu_s: float) -> str:
-    """Name the most likely kind of slowness from the three clocks."""
+def classify(wall_s: float, monotonic_s: float, cpu_s: float, delegated: bool = False) -> str:
+    """Name the most likely kind of slowness from the three clocks. delegated: the work runs in
+    worker processes (--eval-workers), so this process's own CPU time says nothing about it."""
     if wall_s <= 0:
         return "instant"
     if monotonic_s < 0.5 * wall_s:
         return "machine_asleep_or_suspended"
+    if delegated:
+        return "computing (in worker processes)"
     if cpu_s < 0.5 * monotonic_s:
         return "process_waiting (swap / I/O / CPU starved)"
     return "computing"
@@ -60,8 +63,9 @@ def classify(wall_s: float, monotonic_s: float, cpu_s: float) -> str:
 
 class StallWatchdog:
     def __init__(self, output_dir: str, min_threshold_s: float = 120.0, factor: float = 10.0,
-                 dump_every_s: float = 600.0, poll_s: float = 1.0):
+                 dump_every_s: float = 600.0, poll_s: float = 1.0, delegated: bool = False):
         os.makedirs(output_dir, exist_ok=True)
+        self.delegated = delegated
         self.timing_path = os.path.join(output_dir, "eval_timing.csv")
         self.stall_path = os.path.join(output_dir, "stall_log.txt")
         self.min_threshold_s = min_threshold_s
@@ -114,11 +118,11 @@ class StallWatchdog:
     def _append_timing(self, n, label, start, wall, mono, cpu, stalled):
         with open(self.timing_path, "a", newline="") as f:
             csv.writer(f).writerow([n, label, f"{start:.3f}", f"{wall:.3f}", f"{mono:.3f}", f"{cpu:.3f}",
-                                    classify(wall, mono, cpu), int(stalled)])
+                                    classify(wall, mono, cpu, self.delegated), int(stalled)])
         if stalled:
             with open(self.stall_path, "a") as f:
                 f.write(f"\n=== stall ended: eval {n} took wall {wall:.1f}s, monotonic {mono:.1f}s, cpu {cpu:.1f}s "
-                        f"-> {classify(wall, mono, cpu)} ===\n")
+                        f"-> {classify(wall, mono, cpu, self.delegated)} ===\n")
 
     def _watch(self):
         while not self._stop.wait(self.poll_s):
@@ -151,7 +155,7 @@ class StallWatchdog:
             head = "STALL DETECTED" if first else "still stalled"
             f.write(f"\n=== {head}: {label} running {wall:.1f}s wall / {mono:.1f}s monotonic / {cpu:.1f}s cpu "
                     f"(threshold {limit:.1f}s) at {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
-            f.write(f"likely: {classify(wall, mono, cpu)}\n")
+            f.write(f"likely: {classify(wall, mono, cpu, self.delegated)}\n")
             if hasattr(os, "getloadavg"):
                 f.write(f"load average: {os.getloadavg()}\n")
             if resource is not None:

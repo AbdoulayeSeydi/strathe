@@ -113,6 +113,9 @@ Every combination is run once per comm seed. The vehicles start level, facing
 python train_fleet_policy.py --timesteps 3000000 --seed 4 --out my_policy   # ~40 min on an M1
 python validate_fleet_policy.py my_policy.zip
 ```
+For your own vehicle, train on its calibration (section 11):
+`python strathe.py train-fleet --params <your calibration> --spec <your vehicle description> [--thrusters ...] --out my_policy`,
+or use the web page's "Train a fleet policy for your vehicle" form.
 
 ```yaml
 policies:
@@ -211,6 +214,61 @@ Add `--current-speed-std`, `--current-direction-std` and `--current-time-scale` 
 
 To calibrate from logs recorded in a known current, see the README ("Bring your own vehicle's logs").
 
+## 10. Thruster limits (your vehicle's real thrusters)
+
+```yaml
+thrusters: bluerov2_heavy                 # the validated BlueROV2 Heavy (8 x T200)
+# or a file with a thrusters: block -- your ingestion spec works as is:
+thrusters: ../my_logs/my_vehicle_ingest.yaml
+# or inline, for any vehicle (templates/ingest_csv_pwm_custom_thrusters.yaml explains each field):
+thrusters:
+  layout:
+    - {position_m: [0.13, -0.13, 0.0], direction: [-1, -1, 0], reversed: true}
+    - ...
+  curve: t200
+  voltage: 16
+```
+
+Without it (the default, and every shipped result), a policy's command of up to
+±30 N / N·m on each axis is delivered as is. With it, every command goes through
+the vehicle's thrusters:
+- It is split over the thrusters.
+- If any thruster would exceed its thrust curve, the whole command is scaled down
+  so none does. The direction of the command is kept, as ArduSub's mixer does.
+- Axes the thrusters can't push get nothing.
+
+Examples: a BlueROV2 Heavy can make about 18 N·m of pitch torque, not 30. A
+6-thruster BlueROV2 can't pitch on command at all.
+
+Beacons carry the delivered force, so the teammate models predict with what the
+vehicle actually did. The report states the limits. The same option exists for:
+- training: `train_fleet_policy.py --thrusters`, `strathe train-fleet --thrusters`
+- the single-vehicle arena: `strathe arena --thrusters`
+- the command line: `strathe fleet --thrusters`
+- the web page's "Your vehicle" fields
+
+## 11. Your own vehicle
+
+```yaml
+truth_params: ../calibration_output_my_rov/calibrated_parameters.yaml   # the vehicles' true physics
+vehicle_spec: ../my_vehicle_spec.yaml    # mass, parameter bounds and defaults ("generic" uses these)
+thrusters: ../my_logs/my_vehicle_ingest.yaml
+policies:
+  - {model_path: ../my_policies/my_rov_seed1}   # trained for this vehicle (section 5)
+```
+
+- `truth_params` is what both simulated vehicles really are.
+- `vehicle_spec` gives the mass and the default ("generic") parameters. The
+  `generic` teammate model is still "what you'd have without calibrating".
+- The shipped policies were trained on the reference BlueROV2. They run on
+  another vehicle, but for results you can report, train policies on your own
+  calibration (section 5).
+
+From the command line, `strathe fleet --params ... --vehicle-spec ... --thrusters ...`
+writes a copy of your experiment with those fields set into `strathe_jobs/` and runs
+it. The web page's fleet form does the same. For one vehicle instead of two, see
+`strathe arena` in the README.
+
 ---
 
 ## Still not configurable
@@ -222,6 +280,8 @@ To calibrate from logs recorded in a known current, see the README ("Bring your 
 | Start orientation (always level, facing +x) | `FleetSim.reset` |
 | Sensor noise on the vehicle's own state | not modelled yet (roll/pitch *disturbance* is, see section 8) |
 | A current that varies across space (shear, eddies) | the current is uniform over the fleet; it can vary in time (section 9) |
+| Thruster response lag, battery sag within a run | `thruster_model.py` maps PWM to thrust instantly at one voltage (section 10) |
+| Two different vehicles in one fleet | both vehicles share `truth_params`, `vehicle_spec` and `thrusters` |
 
 The retired fleet v1 setup (`run_fleet_experiment_v1.py`, `default_experiment_v1.yaml`)
 still runs, for reproducing old results only. PROJECT_STATUS.md finding #46

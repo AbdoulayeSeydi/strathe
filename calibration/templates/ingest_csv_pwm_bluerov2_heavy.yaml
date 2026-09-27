@@ -1,0 +1,24 @@
+# Ingest spec: CSV logs from a BlueROV2 Heavy (8 x T200) that record the PWM
+# sent to each ESC but no forces. Forces are computed with the validated
+# BlueROV2 Heavy preset (it reproduces the reference dataset's forces from PWM
+# on every row). Change the column names to yours, then:
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+
+vehicle: my_bluerov2
+source: {files: "raw_logs/*.csv"}
+time: {column: timestamp, unit: s}
+resample_hz: 10
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+frame: frd
+body_velocity:
+  columns: {u: vel_x, v: vel_y, w: vel_z, p: rate_x, q: rate_y, r: rate_z}
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion: {x: qx, y: qy, z: qz, w: qw}
+wrench:
+  thrusters:
+    pwm_columns: [pwm1, pwm2, pwm3, pwm4, pwm5, pwm6, pwm7, pwm8]   # motor 1..8, ArduSub numbering
+    preset: bluerov2_heavy
+    voltage: 15.0        # battery voltage (12-20 V): the T200's thrust grows with it. Omit for the
+                         # reference dataset's own curve (~15 V, a 4S battery)

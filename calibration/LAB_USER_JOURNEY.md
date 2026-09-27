@@ -89,17 +89,97 @@ and one policy trained across all conditions is used for all of them. Neither
 vehicle can observe its teammate except through the channel
 (`test_observation_is_decentralized`).
 
-**Q11. What can't it do?** PASS. N ≠ 2 vehicles is rejected. It's simulation
-only, with one vehicle type (BlueROV2) and one task (formation hold). The
-"true vehicle" is a calibrated model, so `calibrated` means "a model that
-matches the simulated vehicle". How close a real calibration gets to a real
-vehicle is measured separately, on held-out logs.
+**Q11. What can't it do?** PASS. N ≠ 2 vehicles is rejected, and there is one
+task (formation hold). It's simulation only. The "true vehicle" is a calibrated
+model, so `calibrated` means "a model that matches the simulated vehicle". How
+close a real calibration gets to a real vehicle is measured separately, on
+held-out logs.
+
+**Q12. Can I use my own vehicle, not the reference BlueROV2?** PASS. Calibrate
+it from its logs (below), then set `truth_params`, `vehicle_spec` and
+`thrusters` in the experiment YAML (CUSTOM_EXPERIMENT.md sections 10-11). Train
+a policy for it with `strathe train-fleet`. Each is also a flag on
+`strathe fleet` and a field on the web page. Tested end to end with a
+simulated 6-thruster vehicle (PROJECT_STATUS.md #56).
+
+## The calibration journey: from a lab's raw logs to a report
+
+The goal: a lab with its own vehicle's logs gets a calibrated simulator and an
+honest plain-language report, without asking us.
+
+```bash
+cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a CSV template; edit names
+python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
+```
+
+**C1. My logs are ROS bags / CSVs with my own column names, units and frame.** PASS.
+- One ingestion spec maps them (`calibration/templates/`, with a README).
+- ROS 1 `.bag` and ROS 2 `.mcap`/`.db3` are read directly.
+- Units and ROS FLU/ENU frames are converted.
+- It refuses the classic silent errors.
+
+**C2. My logs have thruster PWM, not forces.** PASS. Choose one:
+- the BlueROV2 Heavy preset
+- a per-thruster `layout` for any vehicle, including ones that can't push every axis
+- your own allocation matrix and thrust curve
+
+**C3. One command, not six.** PASS. `strathe calibrate --ingest-spec` runs, in order:
+1. conversion
+2. data checks
+3. the fit
+4. which values the data can pin down
+5. the report
+
+It stops with a plain message at the first failing step. If the fit runs out of its evaluation budget,
+the best result so far is kept, marked not converged, and the report is still written.
+The web page has the same form.
+
+**C4. My logs aren't at 10 Hz.** PASS. The rate measured from the timestamps is
+recorded and used by every step. Before this, `strathe calibrate` silently
+assumed 10 Hz (PROJECT_STATUS.md #56).
+
+**C5. Can a non-specialist read the result?** PASS. `calibration_report.md` has:
+- a bottom line
+- a verdict per motion axis, judged against "predict no motion"
+- values stuck at limits
+- values the data can't separate, in plain words
+- next steps
+
+**C6. My logs were recorded in open water.** PASS, for a known, roughly constant
+current (`--current-world-mps`, or the web form). Estimating an unknown
+current isn't built.
+
+## The single-vehicle journey
+
+```bash
+python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml \
+    --task station_keeping --compare-generic [--current-speed 0 0.3] [--thrusters my_logs/my_rov.yaml]
+```
+
+**S1. Does a controller trained in my calibrated simulator do my task?** PASS.
+`report.md` gives success rates with 95% CIs, time to succeed, final distance
+and effort, for:
+- policies trained on your calibration
+- a hand-written controller
+- random commands
+
+Every controller sees the same episodes.
+
+**S2. Does the calibration matter for this task?** PASS. `--compare-generic`
+also trains on default physics. The report gives the paired difference with a
+95% CI and says in words whether it is clear of zero.
+
+**S3. Open water and real thruster limits?** PASS: the same current and
+`thrusters` options as the fleet.
+
+**S4. My own single-vehicle policy?** PASS. `--policy my_policy.zip` evaluates it
+against the same references.
 
 ## Scope limits a lab should know before starting
 
 | Limit | Status |
 |---|---|
-| 2 vehicles only | per-vehicle observations and a shared policy are the groundwork for N |
+| 2 vehicles only (or 1 with `strathe arena`) | per-vehicle observations and a shared policy are the groundwork for N |
 | Formation hold only | new tasks need a reward, a config and training |
 | No sensor noise on a vehicle's own state | not modelled |
 | No hardware in the loop | the reason to partner with a lab |

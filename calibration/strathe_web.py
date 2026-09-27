@@ -1,7 +1,9 @@
 """
-strathe_web.py -- a local web page for Strathe: start a calibration or a fleet
-experiment, watch it run, read the report. No terminal knowledge needed
-after `python strathe.py web`.
+strathe_web.py -- a local web page for Strathe: calibrate a vehicle (from
+converted logs or straight from raw CSV/ROS-bag logs), run a single-vehicle
+or a fleet experiment, train a fleet policy for your vehicle, watch each job
+run and read its report. No terminal knowledge needed after
+`python strathe.py web`.
 
 Local-only by design:
   - listens on 127.0.0.1 only, and rejects requests whose Host header isn't
@@ -214,6 +216,44 @@ def _status_html(job: Job) -> str:
     return f"<span class={cls}>{html.escape(s)}</span>"
 
 
+def current_fieldset(prefix: str, teammates: bool) -> str:
+    """The water-current inputs (same field names in every form; ids unique per form)."""
+    known = (f"<label class=inline><input type=checkbox id={prefix}-known name=current_known value=1 checked "
+             f"aria-label=\"Teammate models know the average current\"> Teammate models know the\naverage current</label>"
+             if teammates else "")
+    return f"""<fieldset class=current><legend>Water current (optional; off = still water, like a tank)</legend>
+<label class=inline><input type=checkbox id={prefix}-on name=current_on value=1 aria-label="Add a water current"> Add a water current</label>
+<label for={prefix}-speed>Speed in m/s: one value, or a range drawn per episode (e.g. <code>0.2</code> or
+<code>0.1-0.3</code>)</label><input type=text id={prefix}-speed name=current_speed value="0.2">
+<label for={prefix}-dir>Direction the water flows toward, in degrees (<code>90</code>, a range like <code>0-90</code>,
+or <code>any</code>)</label><input type=text id={prefix}-dir name=current_direction value="any">
+<label for={prefix}-sstd>Slow fluctuation of speed, m/s (optional)</label>
+<input type=text id={prefix}-sstd name=current_speed_std value="0">
+<label for={prefix}-dstd>Slow fluctuation of direction, degrees (optional)</label>
+<input type=text id={prefix}-dstd name=current_direction_std value="0">
+<label for={prefix}-ts>Fluctuation time scale, seconds</label><input type=text id={prefix}-ts name=current_time_scale value="30">
+{known}
+</fieldset>"""
+
+
+def vehicle_fields(prefix: str, params_required: bool = False) -> str:
+    """Calibration file, vehicle description and thruster limits."""
+    req = " required" if params_required else ""
+    hint = "" if params_required else " (optional; default: the shipped BlueROV2 calibration)"
+    return f"""<fieldset class=current><legend>Your vehicle</legend>
+<label for={prefix}-params>Calibration file: <code>calibrated_parameters.yaml</code> from your calibration folder,
+full path{hint}</label><input type=text id={prefix}-params name=params value=""{req}>
+<label for={prefix}-spec>Vehicle description YAML, full path (optional; default: the BlueROV2 Heavy)</label>
+<input type=text id={prefix}-spec name=vehicle_spec value="">
+<label for={prefix}-thr>Thruster limits</label><select id={prefix}-thr name=thrusters>
+<option value="">None (any command up to ±30 N / N·m per axis)</option>
+<option value="bluerov2_heavy">BlueROV2 Heavy (8 × T200)</option>
+<option value="file">From a file (below)</option></select>
+<label for={prefix}-thrfile>Thrusters file: a YAML with a <code>thrusters:</code> block, e.g. your ingestion spec
+(full path; only if “From a file”)</label><input type=text id={prefix}-thrfile name=thrusters_file value="">
+</fieldset>"""
+
+
 def home_page(manager: JobManager, token: str) -> bytes:
     fleet_opts = "".join(f"<option value='{c}'>{c}</option>" for c in SHIPPED_FLEET_CONFIGS
                          if os.path.exists(os.path.join(cli.CAL_DIR, c)))
@@ -224,15 +264,45 @@ def home_page(manager: JobManager, token: str) -> bytes:
     body = f"""
 <h1>Strathe</h1><p class=muted>Runs on this computer only. Close this tab or press Ctrl+C in the terminal to stop.</p>
 <div class=card><h2>Calibrate a vehicle</h2>
-<p class=muted>Checks your logs, fits the simulator to them, and writes a plain-language report. About an hour on the
-reference dataset; the computer is kept awake while it runs.</p>
+<p class=muted>Checks your logs, fits the simulator to them, checks which values the data can pin down, and writes a
+plain-language report. About an hour on the reference dataset; the computer is kept awake while it runs.</p>
 <form method=post action=/jobs/calibrate>{tok}
-<label for=cal-data>Folder with your logs (Strathe CSV layout; use “Convert logs” first if needed)</label>
-<input type=text id=cal-data name=data value="{html.escape(default_data)}" required>
+<label for=cal-ingest>Your raw logs: the ingestion spec YAML that describes them, full path (CSV or ROS bags, forces or
+thruster PWM; templates in <code>calibration/templates/</code>)</label>
+<input type=text id=cal-ingest name=ingest_spec value="">
+<label for=cal-data>…or a folder of logs already in Strathe's CSV layout (ignored when an ingestion spec is given)</label>
+<input type=text id=cal-data name=data value="{html.escape(default_data)}">
 <label for=cal-name>Name for this calibration</label><input type=text id=cal-name name=name value="my_vehicle" required>
-<label for=cal-heldout>Recording dates to hold out for validation (optional, e.g. <code>16-02-2024 19-02-2024</code>)</label>
+<label for=cal-heldout>Recording dates to hold out for validation (optional, e.g. <code>16-02-2024 19-02-2024</code>;
+default: the latest 20%)</label>
 <input type=text id=cal-heldout name=heldout value="">
+<label for=cal-spec>Vehicle description YAML, full path (optional; default: the BlueROV2 Heavy)</label>
+<input type=text id=cal-spec name=vehicle_spec value="">
+<label for=cal-rate>Sampling rate of the logs in Hz (optional; read from the conversion when there is one, else 10)</label>
+<input type=text id=cal-rate name=rate value="">
+<label for=cal-cur>Open water: the water current during the recordings, <code>vx vy vz</code> in m/s in the logs'
+world frame (optional; empty = still water)</label><input type=text id=cal-cur name=current_world value="">
+<label for=cal-nfev>Optimizer budget, evaluations (default 100; more = slower but may fit better)</label>
+<input type=text id=cal-nfev name=max_nfev value="100">
+<label class=inline><input type=checkbox id=cal-excl name=exclude_rp value=1 aria-label="Leave roll and pitch out of the fit"> Leave roll and pitch out of the fit
+(advanced: when your logs' roll/pitch motion isn't caused by the thrusters)</label>
 <button>Start calibration</button></form></div>
+<div class=card><h2>One vehicle: train and test a controller</h2>
+<p class=muted>Trains controllers in the simulator on your calibrated vehicle and tests them on a task, with a
+hand-written controller and random commands as references. Tick “compare” to also train on default physics and see
+whether the calibration matters. Roughly 5 minutes per policy at the default budget.</p>
+<form method=post action=/jobs/arena>{tok}
+{vehicle_fields("ar")}
+<label for=ar-task>Task</label><select id=ar-task name=task><option value=waypoint>Reach a point</option>
+<option value=station_keeping>Reach a point and hold station</option><option value=docking>Dock (slow and level)</option>
+<option value=obstacle_avoidance>Reach a point around an obstacle</option></select>
+<label for=ar-seeds>Training seeds per condition</label><input type=text id=ar-seeds name=seeds value="2">
+<label for=ar-steps>Training steps per policy</label><input type=text id=ar-steps name=timesteps value="150000">
+<label for=ar-eps>Evaluation episodes</label><input type=text id=ar-eps name=episodes value="100">
+<label class=inline><input type=checkbox id=ar-cmp name=compare_generic value=1 checked aria-label="Compare with training on default physics"> Compare with training on
+default (uncalibrated) physics</label>
+{current_fieldset("acur", teammates=False)}
+<button>Start single-vehicle experiment</button></form></div>
 <div class=card><h2>Run a fleet experiment</h2>
 <p class=muted>Two vehicles holding formation over a lossy acoustic link. Edit a copy of an experiment YAML to change
 anything (see CUSTOM_EXPERIMENT.md).</p>
@@ -240,24 +310,24 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <label for=fleet-shipped>Shipped experiment</label><select id=fleet-shipped name=shipped>{fleet_opts}</select>
 <label for=fleet-config>…or your own experiment YAML (full path; leave empty to use the one above)</label>
 <input type=text id=fleet-config name=config value="">
-<fieldset class=current><legend>Water current (optional; off = still water, like a tank)</legend>
-<label class=inline><input type=checkbox id=cur-on name=current_on value=1 aria-label="Add a water current"> Add a water current</label>
-<label for=cur-speed>Speed in m/s: one value, or a range drawn per episode (e.g. <code>0.2</code> or
-<code>0.1-0.3</code>)</label><input type=text id=cur-speed name=current_speed value="0.2">
-<label for=cur-dir>Direction the water flows toward, in degrees (<code>90</code>, a range like <code>0-90</code>,
-or <code>any</code>)</label><input type=text id=cur-dir name=current_direction value="any">
-<label for=cur-sstd>Slow fluctuation of speed, m/s (optional)</label>
-<input type=text id=cur-sstd name=current_speed_std value="0">
-<label for=cur-dstd>Slow fluctuation of direction, degrees (optional)</label>
-<input type=text id=cur-dstd name=current_direction_std value="0">
-<label for=cur-ts>Fluctuation time scale, seconds</label><input type=text id=cur-ts name=current_time_scale value="30">
-<label class=inline><input type=checkbox id=cur-known name=current_known value=1 checked aria-label="Teammate models know the average current"> Teammate models know the
-average current</label>
-</fieldset>
+{vehicle_fields("fl")}
+{current_fieldset("cur", teammates=True)}
 <button>Start experiment</button></form></div>
+<div class=card><h2>Train a fleet policy for your vehicle</h2>
+<p class=muted>The shipped fleet policies were trained on the reference BlueROV2. For a different vehicle, train one
+on your calibration (about 40 minutes at the default budget), then list it under <code>policies:</code> in your
+experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
+<form method=post action=/jobs/train_fleet>{tok}
+{vehicle_fields("tf", params_required=True)}
+<label for=tf-steps>Training steps</label><input type=text id=tf-steps name=timesteps value="3000000">
+<label for=tf-seed>Seed</label><input type=text id=tf-seed name=seed value="1">
+<label for=tf-cur>Water current to train in, m/s (optional; one value or a range like <code>0-0.3</code>, any
+direction)</label><input type=text id=tf-cur name=current_speed value="">
+<label for=tf-out>Save the policy as (full path, without .zip)</label><input type=text id=tf-out name=out required>
+<button>Start training</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
-<label for=ing-spec>Ingestion spec YAML (full path; see data_ingestion.py)</label><input type=text id=ing-spec name=spec required>
+<label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
 <label for=ing-out>Output folder</label><input type=text id=ing-out name=out required>
 <button>Convert</button></form></div>
 <div class=card><h2>Jobs</h2>{'<table><tr><th>Job</th><th>Status</th><th>Started</th></tr>' + jobs + '</table>'
@@ -365,19 +435,73 @@ class StratheHandler(BaseHTTPRequestHandler):
 
     def _start(self, path, form) -> Optional[Job]:
         if path == "/jobs/calibrate":
-            data = os.path.abspath(os.path.expanduser(form.get("data", "").strip()))
-            if not os.path.isdir(data):
-                raise ValueError(f"Folder not found: {data}")
+            ingest_spec = form.get("ingest_spec", "").strip()
+            data = form.get("data", "").strip()
             name = cli.safe_name(form.get("name", "my_vehicle"))
+            if ingest_spec:
+                src = ["--ingest-spec", _existing_file(ingest_spec, "Ingestion spec", (".yaml", ".yml"))]
+            elif data:
+                data = os.path.abspath(os.path.expanduser(data))
+                if not os.path.isdir(data):
+                    raise ValueError(f"Folder not found: {data}")
+                src = ["--data", data]
+            else:
+                raise ValueError("Give your logs: an ingestion spec, or a folder of Strathe CSVs.")
             heldout = form.get("heldout", "").split()
             for d in heldout:
                 if not re.fullmatch(r"\d{2}-\d{2}-\d{4}", d):
                     raise ValueError(f"Held-out dates must look like 16-02-2024, got {d!r}")
             out = os.path.join(cli.REPO_DIR, f"calibration_output_{name}")
-            args = ["calibrate", "--data", data, "--name", name, "--out", out]
+            args = ["calibrate", *src, "--name", name, "--out", out]
+            if form.get("vehicle_spec", "").strip():
+                args += ["--spec", _existing_file(form["vehicle_spec"], "Vehicle description", (".yaml", ".yml"))]
+            if form.get("rate", "").strip():
+                args += ["--sampling-rate-hz", repr(_number(form["rate"], "Sampling rate", 0.1, 1000))]
+            if form.get("current_world", "").strip():
+                parts = form["current_world"].replace(",", " ").split()
+                if len(parts) != 3:
+                    raise ValueError("Water current during the recordings: give three numbers, vx vy vz (m/s).")
+                args += ["--current-world-mps", *[repr(_number(p, "Water current", -3, 3)) for p in parts]]
+            nfev = form.get("max_nfev", "").strip()
+            if nfev:
+                args += ["--max-nfev", str(int(_number(nfev, "Optimizer budget", 1, 100000)))]
+            if form.get("exclude_rp"):
+                args += ["--exclude-axes", "p", "q"]
             if heldout:
                 args += ["--heldout-dates", *heldout]
             return self.manager.start("calibrate", f"Calibration: {name}", args, [out])
+        if path == "/jobs/arena":
+            task = form.get("task", "waypoint")
+            if task not in ("waypoint", "station_keeping", "docking", "obstacle_avoidance"):
+                raise ValueError("Pick one of the tasks.")
+            out = os.path.join(JOBS_DIR, f"arena_{task}_{time.strftime('%Y%m%d-%H%M%S')}")
+            args = ["arena", "--task", task, *vehicle_cli_args(form),
+                    "--seeds", str(int(_number(form.get("seeds", "2"), "Training seeds", 1, 20))),
+                    "--timesteps", str(int(_number(form.get("timesteps", "150000"), "Training steps", 1000, 1e8))),
+                    "--episodes", str(int(_number(form.get("episodes", "100"), "Evaluation episodes", 1, 10000))),
+                    "--out", out]
+            if form.get("compare_generic"):
+                args.append("--compare-generic")
+            title = f"One vehicle: {task.replace('_', ' ')}"
+            if form.get("current_on"):
+                args += [a for a in current_cli_args({**form, "current_known": "1"})]
+                title += " + water current"
+            return self.manager.start("arena", title, args, [out])
+        if path == "/jobs/train_fleet":
+            if not form.get("params", "").strip():
+                raise ValueError("Give your calibration file (calibrated_parameters.yaml).")
+            out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))
+            if not form.get("out", "").strip() or not os.path.isdir(os.path.dirname(out)):
+                raise ValueError(f"The folder to save the policy in doesn't exist: {os.path.dirname(out)}")
+            args = ["train-fleet", *vehicle_cli_args(form),
+                    "--timesteps", str(int(_number(form.get("timesteps", "3000000"), "Training steps", 1000, 1e9))),
+                    "--seed", str(int(_number(form.get("seed", "1"), "Seed", 0, 1e9))), "--out", out]
+            if form.get("current_speed", "").strip():
+                speed = _number_or_range(form["current_speed"], "Current speed")
+                cli.current_block(float(speed[0]) if len(speed) == 1 else [float(x) for x in speed], [0.0, 360.0])
+                args += ["--current-speed", *speed]
+            return self.manager.start("train_fleet", f"Train fleet policy: {os.path.basename(out)}", args,
+                                      [os.path.dirname(out)])
         if path == "/jobs/fleet":
             config = form.get("config", "").strip()
             if config:
@@ -389,7 +513,7 @@ class StratheHandler(BaseHTTPRequestHandler):
                 if shipped not in SHIPPED_FLEET_CONFIGS:
                     raise ValueError("Pick one of the shipped experiments.")
                 config = os.path.join(cli.CAL_DIR, shipped)
-            args = ["fleet", "--config", config]
+            args = ["fleet", "--config", config, *vehicle_cli_args(form, "--vehicle-spec")]
             title = f"Fleet experiment: {os.path.basename(config)}"
             if form.get("current_on"):
                 args += current_cli_args(form)
@@ -405,6 +529,43 @@ class StratheHandler(BaseHTTPRequestHandler):
             return self.manager.start("ingest", f"Convert logs: {os.path.basename(spec)}",
                                       ["ingest", "--spec", spec, "--out", out], [out])
         return None
+
+
+def _existing_file(text: str, what: str, suffixes: tuple) -> str:
+    p = os.path.abspath(os.path.expanduser(text.strip()))
+    if not (os.path.isfile(p) and p.endswith(suffixes)):
+        raise ValueError(f"{what} not found (need an existing {'/'.join(suffixes)} file): {p}")
+    return p
+
+
+def _number(text: str, name: str, lo: float, hi: float) -> float:
+    try:
+        v = float(str(text).strip())
+    except ValueError:
+        raise ValueError(f"{name}: expected a number, got {text!r}")
+    if not lo <= v <= hi:
+        raise ValueError(f"{name}: must be between {lo:g} and {hi:g}, got {v:g}")
+    return v
+
+
+def vehicle_cli_args(form: dict, spec_flag: str = "--spec") -> list:
+    """--params / --spec (fleet: --vehicle-spec) / --thrusters from the 'Your vehicle' fields, validated."""
+    args = []
+    if form.get("params", "").strip():
+        args += ["--params", _existing_file(form["params"], "Calibration file", (".yaml", ".yml"))]
+    if form.get("vehicle_spec", "").strip():
+        args += [spec_flag, _existing_file(form["vehicle_spec"], "Vehicle description", (".yaml", ".yml"))]
+    choice = form.get("thrusters", "")
+    if choice == "bluerov2_heavy":
+        args += ["--thrusters", "bluerov2_heavy"]
+    elif choice == "file":
+        path = _existing_file(form.get("thrusters_file", ""), "Thrusters file", (".yaml", ".yml"))
+        from fleet_experiment_schema import resolve_thrusters
+        resolve_thrusters(path)  # raises ValueError naming what's wrong with the block
+        args += ["--thrusters", path]
+    elif choice:
+        raise ValueError("Pick a thruster option.")
+    return args
 
 
 def _number_or_range(text: str, name: str, allow_any: bool = False) -> list:

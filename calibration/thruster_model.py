@@ -32,6 +32,24 @@ reference curve so its forward and reverse maxima match Blue Robotics'
 published maxima (12/16/20 V, linearly interpolated). Assumption: the
 curve's SHAPE doesn't change with voltage, only its amplitude.
 
+## Your own vehicle
+thruster_block() reads a `thrusters:` YAML block (the same one in an ingest
+spec, a fleet experiment YAML or `strathe arena`): the BlueROV2 Heavy
+preset, a per-thruster `layout` (mounting position + thrust direction +
+reversed flag, turned into the allocation matrix here), or a 6 x n
+allocation CSV. The curve is the built-in T200 one (optionally rescaled to a
+voltage) or your own CSV. Vehicles whose thrusters can't push every axis
+(e.g. a 6-thruster BlueROV2 has no pitch authority) are accepted;
+unreachable_axes() names what they can't push.
+
+## In the simulators
+achievable_wrench() limits a commanded body force/torque to what the
+thrusters can actually deliver: it distributes the command over the
+thrusters (least squares), and if any thruster would exceed its curve's
+maximum, scales the whole command down until none does (the direction of
+the command is kept, as ArduSub's own mixer does). Axes the thrusters can't
+push get nothing.
+
 ## Not modelled
 ESC/motor response lag (the dataset's thrust is an instantaneous function
 of PWM, so this model is too), battery sag within a run, thruster-thruster
@@ -64,6 +82,9 @@ BLUEROV2_HEAVY_ALLOCATION = np.array([
     [-0.1888, 0.1888, 0.1888, -0.1888, 0.0, 0.0, 0.0, 0.0],
 ])
 BLUEROV2_HEAVY_DIRECTIONS = np.array([-1, -1, 1, 1, -1, 1, 1, -1])
+# the dataset's torques are about a point 8.5 cm below the horizontal thrusters; this moves them to
+# the thruster plane (same value as vehicle_spec.yaml data_conventions, PROJECT_STATUS.md #50)
+BLUEROV2_DATASET_TORQUE_OFFSET_M = (0.0, 0.0, -0.085)
 
 
 def _published_max_n(voltage: float) -> tuple:
@@ -130,6 +151,10 @@ class ThrusterConfig:
     directions: np.ndarray            # (n,) +1 normal, -1 reversed (PWM mirrored about 1500)
     curve: ThrustCurve
     label: str = "custom"
+    # the offset calibration should re-express this config's torques by (vehicle_spec.yaml
+    # data_conventions.torque_reference_offset_m); nonzero only for the BlueROV2 preset, which
+    # reproduces the dataset's own torque reference point (PROJECT_STATUS.md #50)
+    torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
 
     def __post_init__(self):
         B = np.asarray(self.allocation, dtype=float)
@@ -139,8 +164,8 @@ class ThrusterConfig:
             raise ValueError(f"{B.shape[1]} thrusters in allocation but {len(self.directions)} directions")
         if not set(np.unique(self.directions)) <= {-1, 1}:
             raise ValueError("directions must be +1 or -1")
-        if np.linalg.matrix_rank(B) < 6:
-            raise ValueError("allocation matrix can't produce all 6 force/torque axes (rank < 6)")
+        if np.linalg.matrix_rank(B) == 0:
+            raise ValueError("allocation matrix is all zeros (rank 0): the thrusters can't push the vehicle at all")
 
     @property
     def n_thrusters(self) -> int:
@@ -161,6 +186,41 @@ class ThrusterConfig:
         """(..., n) PWM -> (..., 6) body-frame [Fx, Fy, Fz, Tx, Ty, Tz]."""
         return self.thrusts(pwm) @ np.asarray(self.allocation).T
 
+    def for_simulation(self) -> "ThrusterConfig":
+        """The same thrusters with torques taken about the physics model's reference point
+        (applies torque_reference_offset_m to the allocation), as the simulators need."""
+        r = np.asarray(self.torque_reference_offset_m, dtype=float)
+        if not np.any(r):
+            return self
+        B = np.array(self.allocation, dtype=float, copy=True)
+        B[3:6] = B[3:6] - np.cross(r, B[0:3].T).T
+        return ThrusterConfig(B, self.directions, self.curve, self.label, (0.0, 0.0, 0.0))
+
+    def unreachable_axes(self, tol: float = 1e-6) -> list:
+        """Names of the body axes no combination of thrusts can push on its own."""
+        B = np.asarray(self.allocation, dtype=float)
+        P = B @ np.linalg.pinv(B)  # projector onto what the thrusters can produce
+        return [AXIS_NAMES[j] for j in range(6) if np.linalg.norm(P[:, j] - np.eye(6)[:, j]) > tol]
+
+    def achievable_wrench(self, tau) -> np.ndarray:
+        """(..., 6) commanded wrench -> (..., 6) the part the thrusters can deliver.
+
+        Least-squares thrust split, then one common scale factor so no thruster
+        exceeds its curve's forward/reverse maximum (direction preserved)."""
+        tau = np.asarray(tau, dtype=float)
+        B = np.asarray(self.allocation, dtype=float)
+        t = tau @ np.linalg.pinv(B).T
+        fwd, rev = self.curve.max_forward_n, self.curve.max_reverse_n
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(t > 0, t / fwd, np.where(t < 0, -t / rev, 0.0))
+        worst = np.max(ratio, axis=-1, keepdims=True)
+        scale = np.where(worst > 1.0, 1.0 / np.where(worst > 1.0, worst, 1.0), 1.0)
+        return (t * scale) @ B.T
+
+    def max_wrench(self) -> np.ndarray:
+        """(6,) the largest force/torque the thrusters can produce on each axis alone."""
+        return np.array([self.achievable_wrench(1e6 * np.eye(6)[j])[j] for j in range(6)])
+
 
 def bluerov2_heavy(voltage: Optional[float] = None) -> ThrusterConfig:
     """BlueROV2 Heavy (8 x T200), validated against the oceansystemslab dataset.
@@ -168,7 +228,11 @@ def bluerov2_heavy(voltage: Optional[float] = None) -> ThrusterConfig:
     curve = ThrustCurve.t200_bluerov2_dataset()
     if voltage is not None:
         curve = curve.at_voltage(voltage)
-    return ThrusterConfig(BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_DIRECTIONS, curve, "BlueROV2 Heavy")
+    return ThrusterConfig(BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_DIRECTIONS, curve, "BlueROV2 Heavy",
+                          BLUEROV2_DATASET_TORQUE_OFFSET_M)
+
+
+AXIS_NAMES = ("surge force", "sway force", "heave force", "roll torque", "pitch torque", "yaw torque")
 
 
 def allocation_from_geometry(positions_m: Sequence, directions_unit: Sequence) -> np.ndarray:
@@ -178,3 +242,111 @@ def allocation_from_geometry(positions_m: Sequence, directions_unit: Sequence) -
     d = np.asarray(directions_unit, dtype=float)
     d = d / np.linalg.norm(d, axis=1, keepdims=True)
     return np.vstack([d.T, np.cross(r, d).T])
+
+
+def thruster_config_from_layout(layout: Sequence[dict], curve: ThrustCurve, label: str = "custom layout") -> ThrusterConfig:
+    """layout: one dict per thruster (in PWM-column order) with position_m [x, y, z] (body FRD, m,
+    relative to the point torques are taken about), direction [dx, dy, dz] (the way it pushes the
+    vehicle for thrust above zero) and optional reversed (ArduSub MOT_n_DIRECTION = -1)."""
+    B = allocation_from_geometry([th["position_m"] for th in layout], [th["direction"] for th in layout])
+    directions = np.array([-1 if th.get("reversed", False) else 1 for th in layout])
+    return ThrusterConfig(B, directions, curve, label)
+
+
+# ----------------------------------------------------------------- YAML block
+
+THRUSTER_BLOCK_KEYS = {"preset", "layout", "allocation_csv", "directions", "curve", "curve_csv", "voltage"}
+
+
+def thruster_block(block, base_dir: str = ".") -> ThrusterConfig:
+    """Build a ThrusterConfig from a `thrusters:` YAML block, or from a path to a YAML file that
+    contains one (at the top level, or under wrench: as in an ingest spec).
+
+        {preset: bluerov2_heavy, voltage: 15}
+        {layout: [{position_m: [...], direction: [...], reversed: false}, ...], curve: t200, voltage: 16}
+        {allocation_csv: B.csv, directions: [1, -1, ...], curve_csv: my_curve.csv}
+
+    Relative file paths resolve against base_dir (the YAML's own folder)."""
+    import yaml
+    if isinstance(block, str):
+        path = block if os.path.isabs(block) else os.path.join(base_dir, block)
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        inner = (raw.get("wrench") or {}).get("thrusters") or raw.get("thrusters")
+        if inner is None:
+            if not isinstance(raw, dict) or not set(raw) <= THRUSTER_BLOCK_KEYS | {"pwm_columns"}:
+                raise ValueError(f"{path} has no thrusters: block (top level, or under wrench: as in an ingest "
+                                 f"spec)")
+            inner = raw
+        return thruster_block(inner, os.path.dirname(os.path.abspath(path)))
+    if not isinstance(block, dict):
+        raise ValueError(f"thrusters must be a mapping or a path to a YAML file, got {type(block).__name__}")
+    block = {k: v for k, v in block.items() if k != "pwm_columns"}
+    unknown = set(block) - THRUSTER_BLOCK_KEYS
+    if unknown:
+        raise ValueError(f"unknown thrusters key(s) {sorted(unknown)}; allowed: {sorted(THRUSTER_BLOCK_KEYS)}")
+
+    def _path(p):
+        return p if os.path.isabs(p) else os.path.join(base_dir, p)
+
+    sources = [k for k in ("preset", "layout", "allocation_csv") if block.get(k) is not None]
+    if len(sources) != 1:
+        raise ValueError("thrusters needs exactly one of: preset, layout, allocation_csv "
+                         f"(got {sources or 'none'})")
+    voltage = block.get("voltage")
+    if sources[0] == "preset":
+        if block["preset"] != "bluerov2_heavy":
+            raise ValueError(f"unknown thrusters preset {block['preset']!r}; the only preset is bluerov2_heavy "
+                             "(use layout: for any other vehicle)")
+        extra = {"layout", "allocation_csv", "directions", "curve", "curve_csv"} & {k for k, v in block.items()
+                                                                                    if v is not None}
+        if extra:
+            raise ValueError(f"a thrusters preset fixes the layout and curve; remove {sorted(extra)}")
+        return bluerov2_heavy(voltage)
+
+    if block.get("curve_csv") is not None and block.get("curve") not in (None, "custom"):
+        raise ValueError("give curve: t200 or curve_csv, not both")
+    if block.get("curve_csv") is not None:
+        if voltage is not None:
+            raise ValueError("voltage rescaling uses Blue Robotics' published T200 data, so it only applies to "
+                             "curve: t200; put your own curve at the right voltage in curve_csv instead")
+        curve = ThrustCurve.from_csv(_path(block["curve_csv"]))
+    else:
+        if block.get("curve", "t200") != "t200":
+            raise ValueError(f"unknown curve {block.get('curve')!r}: use t200 or curve_csv")
+        curve = ThrustCurve.t200_bluerov2_dataset()
+        if voltage is not None:
+            curve = curve.at_voltage(voltage)
+
+    if sources[0] == "layout":
+        layout = block["layout"]
+        if not isinstance(layout, list) or not layout:
+            raise ValueError("thrusters layout must be a non-empty list, one entry per thruster")
+        for i, th in enumerate(layout, 1):
+            if not isinstance(th, dict) or {"position_m", "direction"} - set(th):
+                raise ValueError(f"layout thruster {i} needs position_m and direction")
+            if set(th) - {"position_m", "direction", "reversed"}:
+                raise ValueError(f"layout thruster {i}: unknown key(s) "
+                                 f"{sorted(set(th) - {'position_m', 'direction', 'reversed'})}")
+            if len(th["position_m"]) != 3 or len(th["direction"]) != 3:
+                raise ValueError(f"layout thruster {i}: position_m and direction need 3 numbers each")
+            if np.linalg.norm(np.asarray(th["direction"], dtype=float)) < 1e-9:
+                raise ValueError(f"layout thruster {i}: direction is all zeros")
+        if block.get("directions") is not None:
+            raise ValueError("with layout, mark reversed thrusters with reversed: true (directions is for "
+                             "allocation_csv)")
+        return thruster_config_from_layout(layout, curve)
+
+    if block.get("directions") is None:
+        raise ValueError("allocation_csv needs directions: [1 or -1 per thruster]")
+    B = np.loadtxt(_path(block["allocation_csv"]), delimiter=",", comments="#", ndmin=2)
+    return ThrusterConfig(B, np.array(block["directions"]), curve, os.path.basename(block["allocation_csv"]))
+
+
+def describe(cfg: ThrusterConfig) -> str:
+    unreach = cfg.unreachable_axes()
+    mw = cfg.max_wrench()
+    return (f"{cfg.label}: {cfg.n_thrusters} thrusters, curve {cfg.curve.label} (+{cfg.curve.max_forward_n:.1f} N / "
+            f"-{cfg.curve.max_reverse_n:.1f} N); max force {mw[0]:.0f}/{mw[1]:.0f}/{mw[2]:.0f} N, max torque "
+            f"{mw[3]:.1f}/{mw[4]:.1f}/{mw[5]:.1f} N*m (surge/sway/heave, roll/pitch/yaw)"
+            + (f"; can't push: {', '.join(unreach)}" if unreach else ""))

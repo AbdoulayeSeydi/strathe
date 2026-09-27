@@ -17,6 +17,9 @@
 # 'automatically logs' claim). Versions are the real, confirmed ones on
 # this machine (2026-09-17), not guessed from a code comment.
 
+# rosbags (and its dependencies apsw, lz4, ruamel.yaml, zstandard): reads ROS 1
+# and ROS 2 bags directly for log ingestion, without a ROS install.
+apsw==3.53.4.0
 certifi==2026.7.22
 cloudpickle==3.1.2
 contourpy==1.3.3
@@ -28,6 +31,7 @@ fsspec==2026.6.0
 gymnasium==1.3.0
 Jinja2==3.1.6
 kiwisolver==1.5.0
+lz4==4.4.5
 MarkupSafe==3.0.3
 matplotlib==3.11.1
 mlflow==3.16.1
@@ -42,6 +46,8 @@ pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 pywin32==312; sys_platform == "win32"
 PyYAML==6.0.3
+rosbags==0.11.5
+ruamel.yaml==0.19.1
 scipy==1.18.0
 setuptools==83.0.0
 six==1.17.0
@@ -50,3 +56,4 @@ sympy==1.14.0
 torch==2.13.0
 typing_extensions==4.16.0
 tzdata==2026.3
+zstandard==0.25.0

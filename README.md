@@ -51,6 +51,20 @@ What changed, and why the numbers in this README differ from earlier versions. D
 
 **Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
 
+**A lab's own vehicle, end to end (#56).** A lab can now go from its raw logs to a calibrated simulator, a report, and single-vehicle and fleet experiments with its own vehicle:
+- **Raw logs, one command:** `python strathe.py calibrate --ingest-spec my_rov.yaml` converts the logs, checks them, fits, checks which values the data can pin down, and writes the report. There are ready-to-edit templates in `calibration/templates/`.
+- **ROS bags read directly:** ROS 1 `.bag`, and ROS 2 `.mcap` or `.db3`, with no ROS install.
+- **Any thruster layout:** give each thruster's position, direction and whether it's reversed. Vehicles that can't push every axis work too (a 6-thruster BlueROV2 has no pitch control).
+- **Thruster limits in the simulators:** `thrusters:` limits every command to what the vehicle's real thrusters can deliver, in the single-vehicle arena, the fleet (both engines) and training. A BlueROV2 Heavy makes about 18 N·m of pitch torque, not the 30 N·m any policy could command before.
+- **One vehicle:** `python strathe.py arena` trains and tests controllers on a task with your calibration, and can compare training on calibrated vs default physics.
+- **Two vehicles:** fleet experiments take your calibration and vehicle description, and `python strathe.py train-fleet` trains fleet policies for your vehicle.
+- **The report now says which values your data can't pin down, in plain words.** The check uses the same objective the fit used.
+- **Bugs the end-to-end stress test found and fixed:**
+  - The data check crashed on every converted log, because it needed position columns the conversion doesn't produce.
+  - `strathe calibrate` always assumed 10 Hz. On 20 Hz logs that made held-out error 5–11% worse on four axes.
+  - Resampling interpolated orientation linearly. The reference data has 239 orientation jumps over 20° within 0.1 s, and linear interpolation produced invalid rotations across them. It now uses spherical interpolation.
+  - Resampling time grids built from Unix timestamps drifted by microseconds per sample.
+
 **Water current (#55)**: open-water labs can now add a current, off by default and configurable. You set speed and direction (fixed or drawn per episode), vertical flow, slow fluctuation, and whether teammate models know it. It's available in the fleet YAML, `strathe fleet` flags, the web page, the single-vehicle environment, and calibration from logs recorded in a known current. See [the fleet workflow](#the-fleet-coordination-workflow-fleet-v2) and [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
 
 **Onboarding (#53)**: one command, `python strathe.py`, replaces the separate terminal steps, and `python strathe.py web` opens a local web page to run and read everything. See [Quick start](#quick-start).
@@ -60,7 +74,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 257 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 363 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -75,12 +89,15 @@ python strathe.py check
 | Command | What it does |
 |---|---|
 | `python strathe.py web` | Opens a local web page in your browser. From it you can start a calibration or a fleet experiment, watch it run, and read the report. |
-| `python strathe.py calibrate --data <logs folder> --name my_rov` | Checks the logs, calibrates with the recommended settings, and writes the plain-language report. |
-| `python strathe.py fleet` | Runs the shipped fleet experiment. Add `--config my_experiment.yaml` to run your own. |
-| `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Converts your own logs into Strathe's layout. |
+| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV or ROS bags, forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Templates: `calibration/templates/`. |
+| `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
+| `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). |
+| `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own, and `--params`, `--vehicle-spec`, `--thrusters`, `--current-speed` to use your vehicle, its thrusters and a current. |
+| `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). |
+| `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Only converts your own logs into Strathe's layout. |
 | `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
 
-The web page runs on this computer only. It can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
+The web page has a form for each of these. It runs on this computer only: it can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
 
 ## Setup
 
@@ -259,47 +276,102 @@ and fixed along the way, and the honest per-DOF results.
 
 ## Bring your own vehicle's logs
 
-The calibration pipeline reads one canonical CSV layout. Three tools get a
-lab's own data into it and explain the result.
+The calibration pipeline reads one canonical CSV layout. The shortest route
+from a lab's own logs is one command:
+```bash
+cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a CSV template; edit the names
+python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
+```
+It runs five steps and stops at the first that fails, saying what to fix:
+1. converts the logs
+2. checks them
+3. calibrates
+4. checks which values the data can pin down
+5. writes the report
+
+If the fit runs out of its evaluation budget (`--max-nfev`) before converging, the best result so far is kept, marked "not converged", and the remaining steps still run. The report says so.
+
+The web page's calibration form does the same. Each piece is below.
 
 **1. Thruster PWM → force** (`calibration/thruster_model.py`). Most logs record
 the PWM each ESC was sent, not force. `ThrusterConfig.wrench(pwm)` applies
-motor directions, a thrust curve and the thruster allocation matrix. The
-BlueROV2 Heavy preset (8 × T200) was extracted from the public dataset, which
-logs all three stages. It reproduces the dataset's own forces from raw PWM
-on all 183,555 rows. Its thrust curve (+47.9 N / −37.2 N) matches Blue
-Robotics' published T200 figures at ~15 V (a 4S battery), and
-`at_voltage(V)` rescales it to 12–20 V. Other vehicles use
-`allocation_from_geometry()` plus their own curve file.
+motor directions, a thrust curve and the thruster allocation matrix.
+- **BlueROV2 Heavy preset** (8 × T200): extracted from the public dataset, which
+  logs all three stages. It reproduces the dataset's own forces from raw PWM on
+  all 183,555 rows. Its thrust curve (+47.9 N / −37.2 N) matches Blue Robotics'
+  published T200 figures at ~15 V (a 4S battery), and `voltage:` rescales it to
+  12–20 V.
+- **Any other vehicle:** give a `layout:`, one entry per thruster with:
+  - its position
+  - the way it pushes
+  - whether it's reversed (ArduSub `MOT_n_DIRECTION`)
+
+  Alternatively, give an allocation-matrix file. Use the T200 curve or your own
+  curve file. `templates/ingest_csv_pwm_custom_thrusters.yaml` writes the Heavy
+  this way, and a test checks it matches the preset exactly.
+- **Vehicles that can't push every axis** work too: ingestion names the axes
+  (a 6-thruster BlueROV2 can't pitch on command).
 
 **2. Log ingestion** (`calibration/data_ingestion.py`). A short YAML spec says
-which of your columns hold velocity, orientation and force (or PWM), in what
-units and frame. ROS FLU/ENU frames are converted to Fossen FRD/NED.
-```bash
-cd calibration
-python data_ingestion.py --spec my_vehicle_ingest.yaml --out ../my_vehicle_logs
-python preflight_check.py --data-dir ../my_vehicle_logs --spec vehicle_spec.yaml
-```
+where each quantity lives in your logs, in what units and frame:
+- velocity, orientation, and force or PWM
+- ROS FLU/ENU frames are converted to Fossen FRD/NED
+
+Start from a template in [`calibration/templates/`](calibration/templates/README.md):
+
+| Your logs | Template |
+|---|---|
+| CSV with forces | `ingest_csv_forces.yaml` |
+| CSV with BlueROV2 Heavy PWM | `ingest_csv_pwm_bluerov2_heavy.yaml` |
+| CSV with any vehicle's PWM | `ingest_csv_pwm_custom_thrusters.yaml` |
+| ROS bags | `ingest_rosbag_mavros.yaml` |
+
+**ROS bags are read directly** (`rosbag_reader.py`, no ROS install needed):
+- ROS 1 `.bag`, and ROS 2 bag folders with `.mcap` or `.db3`.
+- Columns are `<topic>.<field>`, e.g. `/mavros/rc/out.channels[0]`.
+- Topics at different rates are put on one time grid:
+  - velocities are interpolated
+  - orientation uses spherical interpolation
+  - PWM holds the last command
+- Timestamps come from message headers.
+
+Tested by writing all 39 reference runs as MAVROS-style ROS 1 bags. Converting
+them with the shipped template recovers:
+- velocities exactly
+- forces to 0.001 N
+- orientation to 1e-13°
+- the calibration's held-out error, unchanged
+
 It refuses data that would silently corrupt a calibration:
 - deg/s declared as rad/s
 - non-unit quaternions
 - non-monotonic or irregular timestamps (unless you ask it to resample)
 - files at different rates
 - PWM values that aren't ESC microseconds
+- missing topics or fields
 
-`ingest_report.json` records the detected rate, time gaps and anything dropped. The
-full example spec is in the module docstring. ROS bags: export the topics to
-CSV first (for example with `rosbags-convert` or `ros2 bag` plus a small
-script); direct bag reading isn't built yet.
+It warns about time gaps and orientation jumps over 45° between samples. `ingest_report.json` records:
+- the measured sampling rate
+- how torques should be referenced
+- time gaps
+- anything dropped
 
-**3. A report written for non-specialists** (`calibration/calibration_report.py`).
+`strathe calibrate` uses the rate and torque convention automatically. Before
+#56 it assumed 10 Hz whatever the logs were.
+To only convert: `python strathe.py ingest --spec my_rov.yaml --out <folder>`.
+
+**3. A report written for non-specialists** (`calibration/calibration_report.py`). `strathe calibrate` writes it automatically, including the check of which values the data can pin down (`automated_identifiability_report.py --result`, run with the same objective settings as the fit). To write it for an existing result:
 ```bash
-python calibration_report.py --result ../calibration_output_x --identifiability identifiability_report.json
+python strathe.py report --result calibration_output_x --data <logs>
+# the check of what the data can pin down, for a result made before it was automatic:
+cd calibration && python automated_identifiability_report.py --result ../calibration_output_x --data-dir <logs> --spec vehicle_spec.yaml --workers 8
 ```
 It writes `calibration_report.md`, with:
 - a bottom line
 - a verdict for each motion axis (trust it / use with care / don't rely on it), with the reason
-- parameters stuck at their limits, physically implausible values, and parameter pairs your data can't tell apart
+- parameters stuck at their limits
+- physically implausible values
+- values your data can't tell apart: pairs that trade off, and groups that shift together
 - concrete next steps
 
 Example: `calibration_output_10hz_coriolis/calibration_report.md`.
@@ -311,6 +383,39 @@ python strathe.py calibrate --data <logs> --current-world-mps 0.15 -0.05 0   # v
 Or set `environment.current_*` in your `vehicle_spec.yaml`.
 
 **Limit:** this handles a current that is **known and roughly constant during each recording** (measured with an ADCP, or DVL water-track vs bottom-track). Estimating an unknown current, or one that changes within a recording, from the logs themselves isn't built yet.
+
+## One vehicle: the single-vehicle arena
+
+```bash
+python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml \
+    --task station_keeping --compare-generic --current-speed 0 0.3 --thrusters my_logs/my_rov.yaml
+```
+
+**What it does:**
+- Trains PPO controllers on your calibrated vehicle for one of four tasks:
+  - reach a point
+  - reach a point and hold station
+  - dock slowly and level
+  - reach a point around an obstacle
+- Tests them on that vehicle, with two references that need no training: a
+  simple hand-written controller and random commands.
+- With `--compare-generic`, also trains on the default, uncalibrated physics.
+  The report then says whether the calibration mattered for this task, as a
+  paired difference with a 95% CI.
+
+**Options and outputs:**
+- Every controller sees the same episodes (same targets, same currents).
+- A water current and thruster limits are optional, as in the fleet.
+- `--policy my_policy.zip` evaluates your own policy instead of training.
+- `report.md` is plain language. `results.json` and `episodes.csv` hold the
+  numbers, and the trained policies are saved.
+- There's a form for it on the web page.
+- The underlying script is `calibration/run_arena_experiment.py`.
+
+**What it found on a test vehicle** (PROJECT_STATUS.md #56): a simulated 6-thruster vehicle with no pitch authority, heavily damped, in currents up to 0.3 m/s.
+- **Reaching a point:** after 300k training steps, policies trained on its calibration succeeded 96% of the time, and policies trained on default physics 100%.
+- **After 100k steps:** 10% vs 75%. A heavily damped vehicle is slow to learn on, and more training (`--timesteps`) closes most of the gap.
+- **So calibration doesn't always matter.** For a forgiving single-vehicle task it may not, which is what `--compare-generic` is for. The fleet task, where each vehicle predicts its teammate, is where it did matter for the same vehicle (below).
 
 ## The fleet coordination workflow (fleet v2)
 
@@ -362,6 +467,28 @@ Shipped policies:
 
 Add realistic roll/pitch wobble to any experiment with `disturbance: {roll_pitch: fitted}` in its YAML (CUSTOM_EXPERIMENT.md section 8).
 
+**Your own vehicle and its thrusters.** The experiment YAML can set:
+- `truth_params:` your calibration
+- `vehicle_spec:` your vehicle description
+- `thrusters:` its real thrusters (`bluerov2_heavy`, or your ingestion spec file)
+
+The same settings are flags on `strathe fleet` (`--params`, `--vehicle-spec`,
+`--thrusters`) and fields on the web page. Train policies for your vehicle with:
+```bash
+python strathe.py train-fleet --params <your calibration> --thrusters my_rov.yaml --out my_policy
+```
+Thruster limits change what a command delivers: a command is scaled down until
+no thruster exceeds its curve, and axes the thrusters can't push get nothing.
+The beacons carry the delivered force. See CUSTOM_EXPERIMENT.md sections 10–11.
+
+Tested on a vehicle the pipeline had never seen (PROJECT_STATUS.md #56):
+- The vehicle: a simulated 6-thruster layout with no pitch authority, logged as PWM only.
+- Calibration: one `strathe calibrate` command recovered all 22 parameters within 4%.
+- A fleet policy trained for it with `strathe train-fleet`.
+- A fleet experiment with its thrusters and a current, on both engines:
+  - The calibrated teammate model beat the generic one by +1 to +10 points, +10 (+3, +17) at L3a with 1 s beacons.
+  - The ordering matches the reference study: oracle > calibrated ≥ last beacon ≥ generic.
+
 **Open water: add a water current** (off by default). In the experiment YAML:
 ```yaml
 current: {speed_mps: [0.0, 0.3], direction_deg: [0, 360]}   # a speed and heading drawn per episode
@@ -406,7 +533,8 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/stall_watchdog.py`** — times every calibration evaluation on three clocks and dumps stack traces for a stalled one (`eval_timing.csv`, `stall_log.txt`).
 - **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
 - **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
-- **`calibration/thruster_model.py`, `data_ingestion.py`, `calibration_report.py`** — PWM → force, lab log ingestion, plain-language calibration reports (see "Bring your own vehicle's logs").
+- **`calibration/thruster_model.py`, `data_ingestion.py`, `rosbag_reader.py`, `calibration_report.py`, `templates/`** — PWM → force for any thruster layout (and thruster limits for the simulators), lab log ingestion from CSV or ROS bags, plain-language calibration reports, and ready-to-edit ingestion specs (see "Bring your own vehicle's logs").
+- **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle (`strathe arena`).
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
 sets (`calibrated_parameters.yaml` + `metrics.json` in each).
@@ -519,9 +647,10 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - 🔄 HoloOcean integration: runs, but the rotating-frame fix and tick-rate check are unconfirmed in HoloOcean (see below)
 - ✅ Gym-compatible RL environment (`Arena`), four tasks, PPO/SAC/TD3 training confirmed working
 - ✅ Automated pre-flight data-quality checks, automated identifiability reporting
-- ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows), log ingestion with silent-error guards, plain-language calibration reports
+- ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
+- ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (257 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (363 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
