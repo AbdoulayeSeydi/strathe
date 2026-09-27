@@ -23,6 +23,38 @@ See [Fleet coordination results](#fleet-coordination-results). An earlier headli
 
 This rests on a system-identification pipeline that fits physics to real BlueROV2 logs, validated on held-out recording sessions (see [Single-Vehicle Calibration Results](#single-vehicle-calibration-results)).
 
+## What a lab can do with it
+
+Every row works from one command (`python strathe.py ...`) and from the local web page (`python strathe.py web`).
+
+**1. Calibrate your own vehicle from its logs**
+
+| You want to... | How |
+|---|---|
+| Calibrate from raw logs in one step | `calibrate --ingest-spec my_rov.yaml`: converts, checks, fits, finds what the data can't pin down, and writes a plain-language report |
+| Use CSV logs with your own column names and units | a CSV template in `calibration/templates/` |
+| Use ROS 1 / ROS 2 bags | read directly: `templates/ingest_rosbag_mavros.yaml` |
+| Use ArduSub / ArduPilot logs | read directly: `.bin` from the SD card (`templates/ingest_ardupilot_bin.yaml`), `.tlog` from the ground station (`templates/ingest_mavlink_tlog.yaml`) |
+| Use logs with only thruster PWM, no forces | BlueROV2 Heavy preset, or any vehicle's thruster `layout:` |
+| Calibrate logs recorded in a known current | `calibrate --current-world-mps VX VY VZ` |
+| Calibrate logs recorded in an unknown current | `calibrate --estimate-current`: each recording's current is estimated from the logs |
+
+**2. Run experiments with your vehicle**
+
+| You want to... | One vehicle (`arena`) | Two vehicles (`fleet`) |
+|---|---|---|
+| Use your calibration and vehicle description | `--params`, `--spec` | `--params`, `--vehicle-spec` |
+| Limit commands to your real thrusters | `--thrusters my_rov.yaml` | `--thrusters my_rov.yaml` |
+| Add a water current | `--current-speed 0 0.3` | `--current-speed 0 0.3` |
+| Add roll/pitch disturbance (tether, waves) | `--disturbance fitted --disturbance-scale 2` | `--disturbance fitted --disturbance-scale 2` |
+| Test on MuJoCo, or both engines side by side | `--backend mujoco` / `both` | `--backend mujoco` / `both` |
+| See whether calibration matters | `--compare-generic` | the default `calibrated` vs `generic` headline |
+| Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`) | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` |
+| Set comm and sample size | none (a single vehicle has no link) | `--comm L2 L3a --beacon-interval 1 3 --seeds 5` |
+| Train policies for your vehicle | built in | `train-fleet --params ...` |
+
+**3. Know what the limits are:** [LIMITS.md](LIMITS.md) lists every known one, what it means for you, and what to do.
+
 ## Recent fixes (September 2026)
 
 What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–55.
@@ -108,10 +140,10 @@ python strathe.py check
 
 | Command | What it does |
 |---|---|
-| `python strathe.py web` | Opens a local web page in your browser. From it you can start a calibration or a fleet experiment, watch it run, and read the report. |
-| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV or ROS bags, forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Templates: `calibration/templates/`. |
+| `python strathe.py web` | Opens a local web page in your browser. From it you can calibrate, run single-vehicle and fleet experiments, train fleet policies, watch jobs run, and read the reports. |
+| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Add `--estimate-current` for open-water logs in an unknown current. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
-| `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). |
+| `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
 | `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance` (and more; `--help`) change the experiment without editing YAML. |
 | `python strathe.py estimate-current --data <logs>` | Open water: estimates the current in each recording. Calibration then uses each recording's own current. |
 | `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). |
@@ -346,6 +378,16 @@ Start from a template in [`calibration/templates/`](calibration/templates/README
 | CSV with BlueROV2 Heavy PWM | `ingest_csv_pwm_bluerov2_heavy.yaml` |
 | CSV with any vehicle's PWM | `ingest_csv_pwm_custom_thrusters.yaml` |
 | ROS bags | `ingest_rosbag_mavros.yaml` |
+| ArduSub / ArduPilot DataFlash logs (`.bin`) | `ingest_ardupilot_bin.yaml` |
+| MAVLink telemetry logs (`.tlog`) | `ingest_mavlink_tlog.yaml` |
+
+**ArduPilot logs are read directly** (`ardupilot_reader.py`, using pymavlink):
+- DataFlash `.bin`/`.log` from the autopilot's SD card, and MAVLink `.tlog` from a ground station such as QGroundControl.
+- Columns are `<MESSAGE>.<field>`, e.g. `RCOU.C1` or `ATT.Roll`. Add `[i]` for one of several sensors, e.g. `IMU[0].GyrX`.
+- ArduPilot logs velocity in the world frame; `linear_frame: world` rotates it into the body frame with the logged attitude.
+- Corrupt or cut-off records (common when power is cut) are skipped and counted.
+- Tested on all 39 reference runs written as damaged `.bin` and `.tlog` logs: every sample recovered (#57).
+- The velocity is only as good as the vehicle's DVL or positioning system. Without one, ArduSub's velocity is dead reckoning. `.bin` logs without GPS have no calendar date, so date them from the filename (templates, LIMITS.md).
 
 **ROS bags are read directly** (`rosbag_reader.py`, no ROS install needed):
 - ROS 1 `.bag`, and ROS 2 bag folders with `.mcap` or `.db3`.
@@ -582,7 +624,10 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
 - **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
 - **`calibration/thruster_model.py`, `data_ingestion.py`, `rosbag_reader.py`, `calibration_report.py`, `templates/`** — PWM → force for any thruster layout (and thruster limits for the simulators), lab log ingestion from CSV or ROS bags, plain-language calibration reports, and ready-to-edit ingestion specs (see "Bring your own vehicle's logs").
-- **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle (`strathe arena`).
+- **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle, on the stand-in or MuJoCo, with optional disturbance, current and thruster limits (`strathe arena`).
+- **`calibration/ardupilot_reader.py`** — reads ArduPilot DataFlash `.bin` and MAVLink `.tlog` logs for ingestion.
+- **`calibration/estimate_current.py`** — estimates each open-water recording's water current from the logs (`strathe estimate-current`, `calibrate --estimate-current`).
+- **[`LIMITS.md`](LIMITS.md)** — every known limit, what it means, and what to do about it.
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
 sets (`calibrated_parameters.yaml` + `metrics.json` in each).
