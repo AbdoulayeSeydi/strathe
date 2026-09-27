@@ -111,6 +111,8 @@ exactly the kind of indexing bug this task exists to catch.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 from scipy.spatial.transform import Rotation
 
@@ -666,6 +668,8 @@ class MuJoCoArenaCore:
         self.params = params
         self.vehicle = vehicle
         self.sim_config = sim_config
+        if not os.path.isabs(mjcf_path) and not os.path.exists(mjcf_path):
+            mjcf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), mjcf_path)  # any working dir
         self._model = mujoco.MjModel.from_xml_path(mjcf_path)
         self._data = mujoco.MjData(self._model)
         self._qpos_adr, self._dof_adr = _body_qpos_dof_addr(self._model, _BODY_ID)

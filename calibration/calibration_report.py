@@ -93,8 +93,10 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
             offset = spec_torque_reference_offset(spec)
         current = ((metrics or {}).get("objective") or {}).get("current_world_mps")
         rate = ((metrics or {}).get("objective") or {}).get("sampling_rate_hz") or 10.0
-        runs = [load_run(f, DatasetConfig(float(rate), tuple(offset), None if current is None else tuple(current)))
-                for f in split.heldout_files]
+        by_file = ((metrics or {}).get("objective") or {}).get("current_by_file")
+        by_file = None if not by_file else tuple((f, tuple(c)) for f, c in by_file)
+        runs = [load_run(f, DatasetConfig(float(rate), tuple(offset), None if current is None else tuple(current),
+                                          by_file)) for f in split.heldout_files]
         z = zero_baseline_rmse(runs)
         if c is None:
             d = np.mean([rmse_by_dof(initial_parameters(spec), r, spec.vehicle) for r in runs], axis=0)
@@ -211,7 +213,27 @@ def next_steps(verdicts, pinned, implausible, ident) -> list:
     return steps
 
 
-def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged):
+def water_note(metrics: Optional[dict], result_dir: str) -> Optional[str]:
+    """One plain paragraph on the water current the calibration assumed, or None for still water."""
+    obj = (metrics or {}).get("objective") or {}
+    by_file, cur = obj.get("current_by_file"), obj.get("current_world_mps")
+    if by_file:
+        import glob
+        speeds = [float(np.hypot(c[0], c[1])) for _, c in by_file]
+        data_dir = ((metrics or {}).get("reproducibility") or {}).get("data_dir") or ""
+        est = sorted(glob.glob(os.path.join(result_dir, "current_round*", "current_estimates.md")))
+        est = est or [p for p in (os.path.join(data_dir, "current_estimates.md"),) if data_dir and os.path.exists(p)]
+        return (f"Each of {len(by_file)} recordings was calibrated with its own water current "
+                f"({100 * min(speeds):.0f}-{100 * max(speeds):.0f} cm/s)"
+                + (f"; how each was estimated and how reliable it is: `{est[-1]}`" if est else "")
+                + ". A current that changed during a recording isn't modelled.")
+    if cur and any(cur):
+        return (f"The recordings were calibrated in one known water current of "
+                f"{100 * float(np.hypot(cur[0], cur[1])):.0f} cm/s (vertical {100 * float(cur[2]):+.0f} cm/s).")
+    return None
+
+
+def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if verdicts:
         good = [v for v in verdicts if v["verdict"] == GOOD]
@@ -243,6 +265,9 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                    f"Accuracy on unseen sessions is {100 * (gen_gap - 1):.0f}% worse than on training runs, a sign of "
                    f"over-fitting to those particular recordings.")
         L.append(f"{verdict} (held-out / training error ratio {gen_gap:.2f}; 1.0 is ideal.)\n")
+    if water:
+        L.append("## Water current\n")
+        L.append(water + "\n")
     L.append("## Be careful with\n")
     if not (pinned or implausible or (ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")))):
         L.append("Nothing flagged.\n")
@@ -327,7 +352,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     steps = next_steps(verdicts, pinned, implausible, ident)
     out = os.path.join(result_dir, "calibration_report.md")
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
-                 ident, steps, converged)
+                 ident, steps, converged, water_note(metrics, result_dir))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps}
 

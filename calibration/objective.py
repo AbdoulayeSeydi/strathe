@@ -96,6 +96,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Sequence, Union
 
+import os
+
 import numpy as np
 import pandas as pd
 
@@ -146,6 +148,18 @@ class DatasetConfig:
     # still water (a tank). Open-water logs taken in a current the model
     # doesn't know about bias every drag estimate (PROJECT_STATUS.md #55).
     current_world_mps: Optional[tuple] = None
+    # A different current for each recording: ((file basename, (vx, vy, vz)), ...), e.g. from
+    # currents.csv written by estimate_current.py. A recording listed here uses its own current
+    # instead of current_world_mps.
+    current_by_file: Optional[tuple] = None
+
+    def current_for(self, filepath: str) -> Optional[tuple]:
+        if self.current_by_file:
+            name = os.path.basename(filepath)
+            for f, c in self.current_by_file:
+                if f == name:
+                    return tuple(c)
+        return self.current_world_mps
 
     def validate(self) -> None:
         if self.sampling_rate_hz <= 0:
@@ -175,6 +189,7 @@ class RunData:
     sample_rate_hz: float
     date: Optional[str] = None      # best-effort from filename; None if unparseable
     current_body: Optional[np.ndarray] = None  # (N,3) known water current in body axes per sample
+    orientation_quat: Optional[np.ndarray] = None  # (N,4) logged body->world quaternions (x, y, z, w)
     n_samples: int = field(init=False)
 
     def __post_init__(self):
@@ -237,11 +252,12 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         df["qz"].to_numpy(), df["qw"].to_numpy(),
     )
     roll_pitch = np.stack([roll, pitch], axis=1)
+    quats = df[["qx", "qy", "qz", "qw"]].to_numpy(dtype=float)
+    current = dataset_config.current_for(filepath)
     current_body = None
-    if dataset_config.current_world_mps is not None and np.any(dataset_config.current_world_mps):
+    if current is not None and np.any(current):
         from scipy.spatial.transform import Rotation
-        rot = Rotation.from_quat(df[["qx", "qy", "qz", "qw"]].to_numpy())
-        current_body = rot.inv().apply(np.asarray(dataset_config.current_world_mps, dtype=float))
+        current_body = Rotation.from_quat(quats).inv().apply(np.asarray(current, dtype=float))
 
     try:
         date = extract_date(filepath)
@@ -258,7 +274,33 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         sample_rate_hz=dataset_config.sampling_rate_hz,
         date=date,
         current_body=current_body,
+        orientation_quat=quats,
     )
+
+
+def run_with_current(run: RunData, current_world) -> RunData:
+    """The same run, assumed recorded in a constant world-frame current (m/s); None or zero = still water."""
+    from dataclasses import replace
+    from scipy.spatial.transform import Rotation
+    c = None if current_world is None else np.asarray(current_world, dtype=float)
+    if c is None or not np.any(c):
+        return replace(run, current_body=None)
+    return replace(run, current_body=Rotation.from_quat(run.orientation_quat).inv().apply(c))
+
+
+def read_currents_file(path: str) -> tuple:
+    """currents.csv (file, vx_mps, vy_mps, vz_mps; one row per recording) -> DatasetConfig.current_by_file."""
+    df = pd.read_csv(path)
+    need = {"file", "vx_mps", "vy_mps", "vz_mps"}
+    if not need <= set(df.columns):
+        raise ValueError(f"{path} needs columns {sorted(need)} (one row per recording), has {list(df.columns)}")
+    out = []
+    for _, r in df.iterrows():
+        c = (float(r["vx_mps"]), float(r["vy_mps"]), float(r["vz_mps"]))
+        if not np.all(np.isfinite(c)):
+            raise ValueError(f"{path}: non-numeric current for {r['file']}")
+        out.append((os.path.basename(str(r["file"])), c))
+    return tuple(out)
 
 
 def load_run(filepath: str, dataset_config: DatasetConfig) -> RunData:
@@ -317,7 +359,8 @@ def _raw_residuals(
         for a, b in horizon_windows(run.n_samples, horizon_samples):
             sub = replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
                           real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(),
-                          current_body=None if run.current_body is None else run.current_body[a:b])
+                          current_body=None if run.current_body is None else run.current_body[a:b],
+                          orientation_quat=None if run.orientation_quat is None else run.orientation_quat[a:b])
             parts.append(_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
         return np.concatenate(parts, axis=0)
 

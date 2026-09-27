@@ -62,8 +62,10 @@ def identifiability_for_result(result_dir: str, data_dir: str, spec_path: str, w
     rate = float(obj.get("sampling_rate_hz") or 10.0)
     offset = tuple(obj.get("torque_reference_offset_m") or (0.0, 0.0, 0.0))
     current = obj.get("current_world_mps")
+    by_file = obj.get("current_by_file")
     dc = DatasetConfig(sampling_rate_hz=rate, torque_reference_offset_m=offset,
-                       current_world_mps=None if not current or not any(current) else tuple(current))
+                       current_world_mps=None if not current or not any(current) else tuple(current),
+                       current_by_file=None if not by_file else tuple((f, tuple(c)) for f, c in by_file))
     csv_paths, _ = discover_csv_files(data_dir)
     split = split_by_date(csv_paths, heldout_dates=metrics["dataset"]["heldout_dates"])
     train_runs = [load_run(fp, dc) for fp in split.train_files]

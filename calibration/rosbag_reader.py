@@ -117,7 +117,7 @@ def _open(path: str, message_types: Sequence[str]):
 
 def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str = "header",
              hold_columns: Sequence[str] = (), quaternion_groups: Sequence[Sequence[str]] = (),
-             message_types: Sequence[str] = ()) -> tuple:
+             message_types: Sequence[str] = (), angle_columns: Optional[dict] = None) -> tuple:
     """Returns (DataFrame with TIME_COLUMN + one column per reference on a uniform grid, report)."""
     wanted: dict = {}
     for ref in dict.fromkeys(columns):
@@ -157,11 +157,26 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
     finally:
         reader.close()
 
+    timestamps = {t: ("header.stamp" if stamp == "header" and header_used[t] else "bag receive time") for t in series}
+    return series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report, timestamps, BagError,
+                          angle_columns=angle_columns)
+
+
+def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, quaternion_groups, report: dict,
+                   timestamps: dict, error_cls=BagError, angle_columns: Optional[dict] = None,
+                   source_word: str = "topic") -> tuple:
+    """Per-source time series -> one uniform grid (shared by the ROS bag and ArduPilot readers).
+
+    series: {source: (times, {column: values})}; the grid spans only the time every source covers.
+    Continuous columns are linearly interpolated, hold_columns (commands) keep their last value,
+    quaternion groups are slerped, and angle_columns ({column: period}) are unwrapped first so an
+    angle crossing +-180 deg isn't interpolated the long way round."""
+    angle_columns = angle_columns or {}
     frames = {}
     for topic, (times, vals) in series.items():
         t = np.asarray(times, dtype=float)
         if len(t) < 2:
-            raise BagError(f"{path}: topic {topic} has {len(t)} message(s); need at least 2")
+            raise error_cls(f"{path}: {source_word} {topic} has {len(t)} message(s); need at least 2")
         order = np.argsort(t, kind="stable")
         t = t[order]
         keep = np.r_[True, np.diff(t) > 0]
@@ -169,12 +184,18 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
             report["warnings"].append(f"{topic}: dropped {int((~keep).sum())} message(s) with a repeated timestamp")
         t = t[keep]
         cols = {ref: np.asarray(v, dtype=float)[order][keep] for ref, v in vals.items()}
+        bad = {ref: int(np.sum(~np.isfinite(v))) for ref, v in cols.items() if not np.all(np.isfinite(v))}
+        if bad:
+            ok = np.all([np.isfinite(v) for v in cols.values()], axis=0)
+            report["warnings"].append(f"{topic}: dropped {int((~ok).sum())} message(s) with NaN/inf values")
+            t, cols = t[ok], {ref: v[ok] for ref, v in cols.items()}
+            if len(t) < 2:
+                raise error_cls(f"{path}: {source_word} {topic} has fewer than 2 usable messages")
         dts = np.diff(t)
         med = float(np.median(dts))
         gaps = int(np.sum(dts > 2.5 * med))
         report["topics"][topic] = {"messages": int(len(t)), "rate_hz": round(1.0 / med, 3),
-                                   "timestamps": "header.stamp" if stamp == "header" and header_used[topic]
-                                   else "bag receive time", "gaps": gaps}
+                                   "timestamps": timestamps.get(topic, ""), "gaps": gaps}
         if gaps:
             report["warnings"].append(f"{topic}: {gaps} gap(s) longer than 2.5 messages; values are interpolated "
                                       f"across them")
@@ -183,7 +204,8 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
     start = max(t[0] for t, _ in frames.values())
     end = min(t[-1] for t, _ in frames.values())
     if end - start < 10.0 / resample_hz:
-        raise BagError(f"{path}: the topics overlap for only {max(end - start, 0):.2f} s; they need a common span")
+        raise error_cls(f"{path}: the {source_word}s overlap for only {max(end - start, 0):.2f} s; they need a "
+                        f"common span")
     # start + k / rate, not np.arange(start, ...): arange steps by (start + step) - start, which at
     # Unix-epoch magnitudes is rounded (~2e-8 s) and drifts ~1e-5 s over a few minutes
     # (+1e-3: Unix-epoch stamps carry ~2e-7 s rounding, which must not drop the final sample)
@@ -197,14 +219,14 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
             if not present:
                 continue
             if len(present) != len(g):
-                raise BagError(f"{path}: the quaternion's x, y, z, w must come from one topic; {topic} has only "
-                               f"{present}")
+                raise error_cls(f"{path}: the quaternion's x, y, z, w must come from one {source_word}; {topic} "
+                                f"has only {present}")
             q = np.stack([cols[r] for r in g], 1)
             norms = np.linalg.norm(q, axis=1)
             report["quaternion_norm_range"] = [float(norms.min()), float(norms.max())]
             if np.any(norms < 1e-6):
-                raise BagError(f"{path}: {topic} has all-zero quaternions (an IMU with no orientation estimate "
-                               f"publishes zeros); use a topic that carries orientation")
+                raise error_cls(f"{path}: {topic} has all-zero quaternions (an IMU with no orientation estimate "
+                                f"publishes zeros); use a {source_word} that carries orientation")
             qi = slerp(t, q / norms[:, None], grid)
             # keep the raw norm range visible to the unit-quaternion check downstream
             for j, r in enumerate(g):
@@ -217,6 +239,8 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
                 idx = np.clip(np.searchsorted(t, grid + 1e-6, side="right") - 1, 0, len(t) - 1)
                 out[ref] = v[idx]
             else:
+                if ref in angle_columns:
+                    v = np.unwrap(v, period=angle_columns[ref])
                 out[ref] = np.interp(grid, t, v)
     report["span_s"] = round(float(grid[-1] - grid[0]), 3)
     report["recording_start_unix_s"] = float(start)

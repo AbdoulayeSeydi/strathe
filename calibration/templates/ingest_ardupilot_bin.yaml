@@ -1,0 +1,41 @@
+# Ingest spec: ArduSub DataFlash logs (.bin from the autopilot's SD card, or
+# downloaded with QGroundControl / Mission Planner), read directly.
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+#
+# Columns are <MESSAGE>.<field>; [i] picks one instance of a message logged
+# for several sensors (IMU[0], XKF1[0]). List what your log has with
+# `mavlogdump.py --types my.bin` (comes with pymavlink) or Mission Planner.
+#
+# VELOCITY: ArduPilot logs velocity in the world (NED) frame, so linear_frame:
+# world below; it is rotated into the body frame with the logged attitude.
+# That velocity is only as good as the EKF's position source: with a DVL or an
+# underwater positioning system it's usable; with none, ArduSub's velocity
+# is dead reckoning and will not calibrate anything useful.
+
+vehicle: my_bluerov2
+source:
+  files: "logs/*.bin"          # .bin or .log
+  format: ardupilot
+resample_hz: 10                # every message type is put on this one time grid
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+                               # or {from: recording} if the log has GPS time (rare underwater),
+                               # or {from: constant, value: "2025-06-01"}
+frame: frd                     # ArduPilot is already FRD body / NED world
+body_velocity:
+  columns:
+    u: XKF1[0].VN              # EKF3 core 0 velocity, north/east/down (m/s)
+    v: XKF1[0].VE
+    w: XKF1[0].VD
+    p: IMU[0].GyrX             # body rates, rad/s
+    q: IMU[0].GyrY
+    r: IMU[0].GyrZ
+  linear_frame: world
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: ATT.Roll, pitch: ATT.Pitch, yaw: ATT.Yaw, unit: deg}
+wrench:
+  thrusters:
+    pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]   # servo outputs 1-8
+    preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
+    voltage: 15.0

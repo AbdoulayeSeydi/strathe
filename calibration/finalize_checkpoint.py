@@ -27,6 +27,7 @@ import yaml
 
 from data_split import discover_csv_files, split_by_date
 from dynamics_model import CalibrationParameters
+from objective import read_currents_file
 from objective import DatasetConfig, load_run, mean_run_rmse, rmse_by_dof, skill_vs_zero, zero_baseline_rmse
 from optimizer import initial_parameters, load_vehicle_spec
 from run_calibration import SKILL_EVAL_HORIZON_S, _get_git_commit, excluded_axis_setup, spec_torque_reference_offset
@@ -38,7 +39,7 @@ def _per_dof(params, runs, vehicle, horizon=None):
 
 def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_dir: str, sampling_rate_hz: float,
              torque_offset=None, axis_scaling: str = "none", exclude_axes=(), horizon_samples=None,
-             reason: str = "", current_world=None) -> dict:
+             reason: str = "", current_world=None, current_by_file=None) -> dict:
     with open(checkpoint, encoding="utf-8") as f:
         ck = yaml.safe_load(f)
     params = CalibrationParameters(**ck["best_parameters_so_far"])
@@ -48,7 +49,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         from current import current_from_spec
         current_world = current_from_spec(spec)
     current_world = None if current_world is None or not np.any(current_world) else tuple(map(float, current_world))
-    dc = DatasetConfig(sampling_rate_hz, offset, current_world)
+    dc = DatasetConfig(sampling_rate_hz, offset, current_world, current_by_file)
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=heldout_dates)
     train = [load_run(f, dc) for f in split.train_files]
     held = [load_run(f, dc) for f in split.heldout_files]
@@ -85,7 +86,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         "objective": {"axis_scaling": axis_scaling, "prediction_horizon_samples": horizon_samples,
                       "excluded_axes": list(exclude_axes), "torque_reference_offset_m": list(offset),
                       "current_world_mps": None if current_world is None else list(current_world),
-                      "held_parameters": held_params, "sampling_rate_hz": sampling_rate_hz},
+                      "held_parameters": held_params, "sampling_rate_hz": sampling_rate_hz,
+                      "current_by_file": None if not current_by_file else [[f, list(c)] for f, c in current_by_file]},
         "reproducibility": {"git_commit": _get_git_commit(), "spec_path": spec_path, "data_dir": data_dir,
                             "checkpoint": os.path.abspath(checkpoint),
                             "timestamp_utc": datetime.now(timezone.utc).isoformat()},
@@ -117,6 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--exclude-axes", nargs="+", choices=["p", "q"], default=[])
     ap.add_argument("--prediction-horizon-samples", type=int, default=None)
     ap.add_argument("--current-world-mps", type=float, nargs=3, default=None)
+    ap.add_argument("--currents-file", default=None, help="currents.csv: a current per recording")
     ap.add_argument("--reason", default="")
     return ap
 
@@ -126,7 +129,8 @@ def main(argv=None) -> int:
     out = args.output_dir or os.path.dirname(os.path.abspath(args.checkpoint))
     m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
                  args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
-                 args.prediction_horizon_samples, args.reason, args.current_world_mps)
+                 args.prediction_horizon_samples, args.reason, args.current_world_mps,
+                 None if not args.currents_file else read_currents_file(args.currents_file))
     sk = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
     print(f"Wrote {out}/calibrated_parameters.yaml and metrics.json (NOT converged: {m['optimizer']['message']})")
     print("Held-out skill vs predicting no motion [u v w p q r]: " + " ".join(f"{x:+.2f}" for x in sk))

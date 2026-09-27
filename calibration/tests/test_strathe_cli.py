@@ -512,3 +512,60 @@ def test_calibrate_without_a_checkpoint_still_fails_clearly(tmp_path, capsys):
     rc = cli.main(["calibrate", "--data", str(tmp_path), "--out", str(tmp_path / "r")],
                   runner=lambda c: 1 if c[1] == "run_calibration.py" else 0)
     assert rc == 1 and "Calibration didn't finish" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------- web: engines, disturbance, fleet settings, currents
+
+def test_web_arena_engine_and_disturbance(server):
+    request, token, started, *_ = server
+    status, _, _ = request("POST", "/jobs/arena", {"token": token, "task": "docking", "backend": "both",
+                                                   "disturbance": "fitted", "disturbance_scale": "2"})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--backend") + 1] == "both" and cmd[cmd.index("--disturbance") + 1] == "fitted"
+    assert cmd[cmd.index("--disturbance-scale") + 1] == "2.0"
+    cli.build_parser().parse_args(cmd)
+    for bad, msg in (({"backend": "bullet"}, "Pick a physics engine"), ({"disturbance": "fitted", "disturbance_scale": "50"},
+                     "between"), ({"disturbance": "file", "disturbance_file": "/nope.yaml"}, "fit file not found")):
+        n = len(started)
+        status, body, _ = request("POST", "/jobs/arena", {"token": token, "task": "waypoint", **bad})
+        assert status == 400 and msg in body and len(started) == n
+
+
+def test_web_fleet_settings_become_flags(server):
+    """Checkboxes sharing a name (comm levels, teammate models) must all arrive, not just the first."""
+    request, token, started, *_ = server
+    body = [("token", token), ("shipped", "ci_smoke_experiment.yaml"), ("comm", "L0"), ("comm", "L3a"),
+            ("beliefs", "calibrated"), ("beliefs", "oracle"), ("beacon_interval", "1 3"), ("seeds", "2"),
+            ("target_separation", "3"), ("hold_steps", "25"), ("episode_steps", "250"), ("separations", "3.5, 5"),
+            ("backend", "mujoco"), ("disturbance", "fitted"), ("disturbance_scale", "1")]
+    import http.client
+    from urllib.parse import urlencode
+    port = [c.cell_contents for c in request.__closure__ if isinstance(c.cell_contents, int)][0]
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    conn.request("POST", "/jobs/fleet", body=urlencode(body), headers={"Host": f"127.0.0.1:{port}",
+                 "Content-Type": "application/x-www-form-urlencoded"})
+    assert conn.getresponse().status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--comm") + 1:cmd.index("--comm") + 3] == ["L0", "L3a"]
+    assert cmd[cmd.index("--beliefs") + 1:cmd.index("--beliefs") + 3] == ["calibrated", "oracle"]
+    assert cmd[cmd.index("--beacon-interval") + 1:cmd.index("--beacon-interval") + 3] == ["1.0", "3.0"]
+    assert cmd[cmd.index("--seeds") + 1] == "2" and cmd[cmd.index("--backend") + 1] == "mujoco"
+    assert cmd[cmd.index("--separations") + 1:cmd.index("--separations") + 3] == ["3.5", "5.0"]
+    cli.build_parser().parse_args(cmd)
+    status, body, _ = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
+                                                      "beliefs": "oracle"})
+    assert status == 400 and "at least two teammate models" in body
+    # blank settings, default engine, no disturbance: the YAML's own values are kept (no flags added)
+    request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml"})
+    assert started[-1][3:] == ["fleet", "--config", os.path.join(cli.CAL_DIR, "ci_smoke_experiment.yaml")]
+
+
+def test_web_calibration_can_estimate_the_current(server):
+    request, token, started, *_ = server
+    status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": ".", "name": "sea",
+                                                       "estimate_current": "1"})
+    assert status == 303 and "--estimate-current" in started[-1]
+    status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": ".", "name": "sea",
+                                                          "estimate_current": "1", "current_world": "0.1 0 0"})
+    assert status == 400 and "not both" in body

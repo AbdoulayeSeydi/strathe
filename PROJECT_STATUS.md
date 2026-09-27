@@ -789,12 +789,69 @@ Test suite: 363 + 142 fleet tests at the time of writing, including:
 - the single-vehicle experiment end to end
 - identifiability with the fit's objective
 
+### 57. Every known limit in one place; MuJoCo and rough water for one vehicle; ArduPilot logs; unknown currents; fleet experiments from flags (2026-09-26)
+
+**`LIMITS.md`** lists every known limit, from a sweep of the code (docstrings, `NotImplementedError`s, assumptions, TODOs), the docs and this log. Each entry says what it means for a lab and what to do. The README, the lab journey and the templates link to it. Lifted limits move to its "Lifted" list.
+
+**Single-vehicle arena: MuJoCo and roll/pitch disturbance.**
+- `Arena(..., backend="mujoco", disturbance=...)`, and `strathe arena --backend stand_in|mujoco|both --disturbance fitted|<file> --disturbance-scale S`, also on the web form.
+- The disturbance is drawn after the target, so targets are identical with it on or off. It's seeded, so every controller sees the same torques.
+- Policies train on the stand-in (with the chosen disturbance, current and thrusters). With `both`, the report tests on each engine and states how closely they agree.
+- `MuJoCoArenaCore` now finds its model file from any working directory.
+
+**ArduPilot logs read directly** (`ardupilot_reader.py`, using `pymavlink`):
+- DataFlash `.bin`/`.log` and MAVLink `.tlog`, with columns `MESSAGE.field` and `[i]` for multi-instance messages.
+- It uses the log's own clock: GPS time, boot time, or the ground station's clock.
+- It shares the time-grid code with the bag reader (`series_to_grid`), which now also unwraps angles, so yaw crossing 0/360 isn't interpolated the long way round.
+- Corrupt and cut-off records are skipped and counted.
+- It says what to fix for a missing message, field or instance, and for a multi-instance message given without an index.
+- `body_velocity.linear_frame: world` rotates world-frame velocity into the body frame, for any source.
+- Two new templates.
+
+**Unknown water currents.**
+- `estimate_current.py` (`strathe estimate-current`) estimates each recording's constant current: the one that makes the vehicle model's 3 s predictions best match the logs.
+- It checks each estimate by estimating the recording's two halves separately, and reports how much the vehicle turned. Estimates made with uncalibrated defaults are flagged as rough.
+- `currents.csv` (per-recording currents) is used by calibration, the check of what the data can pin down, the report and `finalize_checkpoint.py`. It's picked up automatically from the logs folder.
+- `strathe calibrate --estimate-current` alternates: calibrate in still water, estimate, recalibrate with the currents (two rounds by default). There's a web checkbox for it.
+
+**Fleet experiments from flags.** `strathe fleet` flags (and web fields) cover:
+- comm levels and beacon interval
+- teammate models and the headline pair
+- target separation, tolerance, hold time, episode length and collision radius
+- starting separations and closing speeds, and sample size
+- engine and disturbance, policies and name
+
+They merge into a copy of the chosen YAML, which is validated before anything runs; impossible experiments are refused with the schema's message. `--save-config` writes the file instead of running it.
+
+**Stress test, under deliberately hard conditions** (all passed):
+- **Extreme arena conditions, both engines:** 71,625 steps with 5× disturbance, currents to 1.5 m/s (fluctuating, vertical flow), a 6-thruster vehicle with no pitch authority, bang-bang full-scale commands, all four tasks. No NaN or divergence, and pitch torque was never delivered.
+- **Engine agreement:** stand-in vs MuJoCo with 2× disturbance and 0.3 m/s current, same seeds and commands. Positions agree within 0.11 cm after 10 s (worst of 30).
+- **Gym checks:** Gymnasium's `check_env` passes for all 16 engine × task × disturbance combinations, with thrusters and current.
+- **Arena experiment end to end:** both engines, 2× disturbance, current, Heavy thruster limits, station keeping, calibrated vs default training (2 seeds × 150k). The engines agree to within 0.5 points on every controller.
+  - Calibration-trained policies scored 11% against 93% for default-physics ones: the slow-learning effect of #56. The report now says so, and tells the lab to raise `--timesteps`.
+- **ArduPilot logs, all 39 real runs:**
+  - `.bin` with no GPS, junk bytes every 97 records, a cut-off final record and two IMUs: all 183,555 samples recovered; worst per-file median errors 1.5e-5 m/s, 2e-5 N and 0.005° (centidegree attitude).
+  - `.tlog` with a corrupt packet every 53: recovered to 1e-8 once aligned. Five files start one sample late because their first message was the corrupt one.
+  - `strathe calibrate --ingest-spec` on the `.bin` logs ran all steps, keeping an early-stopped fit.
+- **Unknown currents:**
+  - **Synthetic:** six dives in currents of 7–30 cm/s. `--estimate-current` recovered every current within ~1 cm/s and 2°. Held-out error was 14× lower than ignoring the currents (0.007 vs 0.097), and the median parameter error was 0.1% (vs 0.6%).
+  - **Hard cases:** noisy DVL (2 cm/s noise): 0.2 cm/s error. A current reversing mid-dive: flagged (halves 25 cm/s apart). A vehicle that never turns (5°): flagged. Still water: 0.01 cm/s.
+  - **Real tank data** (the true current is zero), with the armfix calibration: the 39 estimates range 0.1–3.8 cm/s (median ~1). A current explains ~0% of the model's error, and one recording is flagged.
+- **Fleet flags:** 300 random flag combinations gave 193 valid experiments written and 107 impossible ones refused with the schema's message; none ran. A fleet run built only from flags (both engines, disturbance, current, thrusters; 1,728 episodes) found calibrated vs generic +14 to +25 points where the task isn't nearly solved.
+- **Bugs found and fixed:**
+  - Fleet plots were silently skipped whenever a condition succeeded every time. The Wilson bound sits 2e-16 below 100%, which made a negative error bar.
+  - pymavlink printed a line per damaged spot; those are now counted in the ingestion warnings.
+  - The current-reliability rule first judged by "share of error explained". That wrongly rejected good estimates from a calibrated model, whose remaining error is dominated by other things. The rule now flags estimates made with default physics, and currents whose halves disagree.
+
+Tests: 396 + 142 fleet, all passing.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
-- **Currents: unknown or changing currents** can't yet be estimated from logs, and currents don't vary across space (#55). A fleet that works in currents should estimate the ambient current and give it to its teammate model.
-- **Lab data, not built yet (#56):**
-  - reading ArduPilot `.bin` / MAVLink `.tlog` logs directly (export to CSV, or record a ROS bag)
+- **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
+- **All limits, with what to do about each, are in `LIMITS.md` (#57).**
+- **Lab data, not built yet (#56, #57):**
+  - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
   - thruster response lag and battery sag within a run
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given

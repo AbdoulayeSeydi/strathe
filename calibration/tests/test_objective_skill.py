@@ -166,7 +166,7 @@ def test_pipeline_records_skill_and_objective_settings(tmp_path):
                               "excluded_axes": ["p", "q"], "torque_reference_offset_m": [0.0, 0.0, -0.085],
                               "current_world_mps": None,        # still water: vehicle_spec.yaml's tank default
                               "held_parameters": m["objective"]["held_parameters"],
-                              "sampling_rate_hz": 10.0}
+                              "sampling_rate_hz": 10.0, "current_by_file": None}
     assert {"Kp", "Kpp", "Mq", "Mqq", "cg_cb_offset_z"} <= set(m["objective"]["held_parameters"])
     sk = m["skill_vs_zero"]
     assert len(sk["zero_heldout"]) == 6 and sk["short_window_s"] == 3.0

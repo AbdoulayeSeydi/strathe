@@ -2,7 +2,13 @@
 
 A simulation and RL-training platform for studying how real-world communication constraints — latency, packet loss, limited bandwidth — affect coordination between multiple underwater vehicles, grounded in physics calibrated against real vehicle mission logs, not an idealized model.
 
-**Current real scope: two-agent formation-hold, BlueROV2 physics only.** Every real result in this repo has been built and validated against a two-vehicle fleet and one vehicle class. Scaling to larger fleets and additional vehicle types is a real, planned next step — see PRODUCT_VISION.md for the honest scope of that gap.
+**Current real scope:**
+- one-vehicle tasks and two-vehicle formation-hold
+- the reference BlueROV2, or a lab's own vehicle calibrated from its logs
+
+The published results are for the reference BlueROV2. Larger fleets are a planned next step.
+
+**Every known limit is listed in one place: [LIMITS.md](LIMITS.md).**
 
 **What this answers:** when two underwater vehicles coordinate over a sparse, lossy acoustic link, each has to predict where its teammate is between messages. Does it matter whether that prediction uses a physics model calibrated against real vehicle logs, or generic textbook physics?
 
@@ -51,6 +57,20 @@ What changed, and why the numbers in this README differ from earlier versions. D
 
 **Using a lab's own data**: new PWM → thrust model, log ingestion and plain-language reports. See [Bring your own vehicle's logs](#bring-your-own-vehicles-logs).
 
+**Easier open water, more log formats, fewer YAML edits (#57):**
+- **The single-vehicle arena can run on MuJoCo too** (`strathe arena --backend mujoco`, or `both` side by side). It can add the roll/pitch disturbance fitted to real logs (`--disturbance fitted [--disturbance-scale 2]`). The same choices are on the web form.
+- **ArduPilot logs are read directly:** DataFlash `.bin` from the SD card, and MAVLink `.tlog` from a ground station. There are templates, and world-frame velocity is rotated into the body frame for you.
+- **Unknown water currents are estimated from the logs.** `strathe estimate-current` estimates each recording's current. `strathe calibrate --estimate-current` alternates fitting and estimating, and each recording gets its own current.
+- **Fleet experiments without editing YAML.** `strathe fleet` flags and web fields cover:
+  - comm levels and beacon interval
+  - teammate models
+  - the task
+  - starting conditions and sample size
+  - the physics engine and disturbance
+
+  `--save-config` writes the resulting experiment file.
+- **[LIMITS.md](LIMITS.md) lists every known limit and what to do about it.**
+
 **A lab's own vehicle, end to end (#56).** A lab can now go from its raw logs to a calibrated simulator, a report, and single-vehicle and fleet experiments with its own vehicle:
 - **Raw logs, one command:** `python strathe.py calibrate --ingest-spec my_rov.yaml` converts the logs, checks them, fits, checks which values the data can pin down, and writes the report. There are ready-to-edit templates in `calibration/templates/`.
 - **ROS bags read directly:** ROS 1 `.bag`, and ROS 2 `.mcap` or `.db3`, with no ROS install.
@@ -74,7 +94,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 363 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 396 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -92,7 +112,8 @@ python strathe.py check
 | `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV or ROS bags, forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
 | `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). |
-| `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own, and `--params`, `--vehicle-spec`, `--thrusters`, `--current-speed` to use your vehicle, its thrusters and a current. |
+| `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance` (and more; `--help`) change the experiment without editing YAML. |
+| `python strathe.py estimate-current --data <logs>` | Open water: estimates the current in each recording. Calibration then uses each recording's own current. |
 | `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). |
 | `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Only converts your own logs into Strathe's layout. |
 | `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
@@ -382,7 +403,25 @@ python strathe.py calibrate --data <logs> --current-world-mps 0.15 -0.05 0   # v
 ```
 Or set `environment.current_*` in your `vehicle_spec.yaml`.
 
-**Limit:** this handles a current that is **known and roughly constant during each recording** (measured with an ADCP, or DVL water-track vs bottom-track). Estimating an unknown current, or one that changes within a recording, from the logs themselves isn't built yet.
+**Current unknown? Estimate it** (#57):
+```bash
+python strathe.py calibrate --data <logs> --estimate-current     # or --ingest-spec ...; also a web checkbox
+python strathe.py estimate-current --data <logs> --params <a calibration>   # only the estimate
+```
+How `--estimate-current` works:
+- It calibrates in still water, estimates each recording's constant current with that calibration, then calibrates again with the currents (two rounds by default).
+- Each recording gets its own current, written to `currents.csv`.
+- A `currents.csv` in the logs folder is used automatically, so you can also fill one in from ADCP readings.
+- Each estimate is checked by estimating it separately on the first and second half of the recording. If the halves disagree, the current changed during the recording, and `current_estimates.md` says so in plain words.
+
+Tested on six simulated open-water dives, each in a different current from 7 to 30 cm/s:
+- It recovered every current to within about 1 cm/s and 2°.
+- Held-out error was 14× lower than a calibration that ignores the currents (0.007 vs 0.097).
+- Parameters came within 0.1% of the truth (median).
+
+Estimates made with the uncalibrated defaults are flagged as rough, because a drag error along the vehicle's path looks like a current. That's why `--estimate-current` calibrates first.
+
+**Limit:** one constant current per recording. A current that changes within a recording, or varies from place to place, isn't modelled. Keep open-water recordings to a few minutes, and include turns: a vehicle that holds one heading can't tell a current from a drag error along it. See [LIMITS.md](LIMITS.md).
 
 ## One vehicle: the single-vehicle arena
 
@@ -404,7 +443,9 @@ python strathe.py arena --params calibration_output_my_rov/calibrated_parameters
   paired difference with a 95% CI.
 
 **Options and outputs:**
-- Every controller sees the same episodes (same targets, same currents).
+- Every controller sees the same episodes (same targets, currents and disturbances).
+- **Physics engine** for the tests: `--backend stand_in` (fast, default), `mujoco`, or `both`. With `both`, the report shows each engine and how closely they agree. Policies always train on the stand-in.
+- **Roll/pitch disturbance:** `--disturbance fitted` adds the random roll/pitch torques fitted to the real BlueROV2 logs (tether and waves). `--disturbance-scale 2` makes them twice as rough. Your own fit file also works.
 - A water current and thruster limits are optional, as in the fleet.
 - `--policy my_policy.zip` evaluates your own policy instead of training.
 - `report.md` is plain language. `results.json` and `episodes.csv` hold the
@@ -437,6 +478,13 @@ python run_fleet_experiment.py                       # shipped experiment (defau
 cp default_experiment.yaml my_experiment.yaml        # then edit: comm, beacon interval, beliefs, task, start states
 python run_fleet_experiment.py --config my_experiment.yaml
 ```
+Or change the experiment with flags, no editing. For example:
+```bash
+python strathe.py fleet --comm L2 L3a --beacon-interval 1 3 --beliefs calibrated generic last_beacon \
+    --target-separation 3 --hold-steps 30 --seeds 3 --backend both --disturbance fitted
+python strathe.py fleet ... --save-config my_experiment.yaml     # write the file instead of running it
+```
+Settings that make an impossible experiment are refused before anything runs, e.g. a hold time longer than the episode, or a headline pair that isn't in the teammate models. The web page's fleet form has the same fields.
 
 | Level | Packet loss | Bandwidth |
 |---|---|---|
@@ -650,7 +698,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (363 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (396 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -661,7 +709,12 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Roll/pitch disturbance fitted to real logs (noisy-simulation mode), MuJoCo and stand-in
 - ✅ One-command onboarding (`python strathe.py`) and a local web page (`python strathe.py web`)
 - ✅ Water current (open water): configurable and off by default, in both engines, the fleet, the single-vehicle environment, the CLI, the web page and calibration from logs in a known current
-- ⏳ Estimating an unknown or changing current from logs; currents that vary across space
+- ✅ Unknown water currents estimated per recording (`--estimate-current`), with checks (#57)
+- ⏳ A current that changes within a recording, or varies across space
+- ✅ Single-vehicle arena on MuJoCo too, with the fitted roll/pitch disturbance (#57)
+- ✅ ArduPilot `.bin` / MAVLink `.tlog` logs read directly (#57)
+- ✅ Fleet experiments from flags and web fields, no YAML editing (#57)
+- ✅ Every known limit listed in [LIMITS.md](LIMITS.md)
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent
