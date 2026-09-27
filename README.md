@@ -74,7 +74,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 257 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 363 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -412,7 +412,10 @@ python strathe.py arena --params calibration_output_my_rov/calibrated_parameters
 - There's a form for it on the web page.
 - The underlying script is `calibration/run_arena_experiment.py`.
 
-<<ARENA_RESULTS>>
+**What it found on a test vehicle** (PROJECT_STATUS.md #56): a simulated 6-thruster vehicle with no pitch authority, heavily damped, in currents up to 0.3 m/s.
+- **Reaching a point:** after 300k training steps, policies trained on its calibration succeeded 96% of the time, and policies trained on default physics 100%.
+- **After 100k steps:** 10% vs 75%. A heavily damped vehicle is slow to learn on, and more training (`--timesteps`) closes most of the gap.
+- **So calibration doesn't always matter.** For a forgiving single-vehicle task it may not, which is what `--compare-generic` is for. The fleet task, where each vehicle predicts its teammate, is where it did matter for the same vehicle (below).
 
 ## The fleet coordination workflow (fleet v2)
 
@@ -478,7 +481,13 @@ Thruster limits change what a command delivers: a command is scaled down until
 no thruster exceeds its curve, and axes the thrusters can't push get nothing.
 The beacons carry the delivered force. See CUSTOM_EXPERIMENT.md sections 10–11.
 
-<<FLEET_OWN_VEHICLE_RESULTS>>
+Tested on a vehicle the pipeline had never seen (PROJECT_STATUS.md #56):
+- The vehicle: a simulated 6-thruster layout with no pitch authority, logged as PWM only.
+- Calibration: one `strathe calibrate` command recovered all 22 parameters within 4%.
+- A fleet policy trained for it with `strathe train-fleet`.
+- A fleet experiment with its thrusters and a current, on both engines:
+  - The calibrated teammate model beat the generic one by +1 to +10 points, +10 (+3, +17) at L3a with 1 s beacons.
+  - The ordering matches the reference study: oracle > calibrated ≥ last beacon ≥ generic.
 
 **Open water: add a water current** (off by default). In the experiment YAML:
 ```yaml
@@ -641,7 +650,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (257 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (363 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)

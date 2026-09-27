@@ -744,7 +744,50 @@ Also: when the fit ran out of its evaluation budget, `strathe calibrate` stopped
 
 Also: with `--eval-workers`, the stall watchdog labelled every normal evaluation "process_waiting (CPU starved)", because the parent only waits on its workers. It didn't flag stalls, but the label was misleading. Parallel evaluations are now labelled "computing (in worker processes)"; sleep is still detected.
 
-<<STRESS_RESULTS>>
+**Stress test: a lab's whole journey, twice.** Scripts are in the session scratchpad; the checks they exercise are in the test suite.
+
+*A. The real dataset as a lab would record it.* All 39 reference runs were written as ROS 1 bags the way ArduSub + MAVROS logs them: body velocity, IMU and RC-out topics; ROS frames; PWM only, no forces; header stamps; some quaternions sign-flipped as an IMU sends them; an unrelated topic mixed in.
+- `strathe ingest` with the shipped template, unchanged except for the file pattern, recovered:
+  - velocities exactly
+  - forces to 0.001 N
+  - orientation to 5e-14°
+- The held-out error of the fleet-truth calibration is the same on the converted files as on the originals, to 1e-4.
+- At 20 Hz, the same held-out error with the correct rate. Held-out error was 5–11% worse at the old assumed 10 Hz: that is bug 2.
+- `strathe calibrate --ingest-spec` ran all five steps on the bags. The budget was deliberately set too small, so it also exercised keeping an early-stopped result. Identifiability over 22 free parameters took 3 min on 7 workers.
+
+*B. A different vehicle the pipeline has never seen.*
+- The vehicle: a simulated 6-thruster BlueROV2-like layout with no pitch authority, the fleet-truth physics, and a T200 curve at 14.8 V. It flew 12 dives of 90 s on 3 days, with random piecewise-constant PWM, logged as PWM-only CSVs.
+- The pipeline: a custom-layout ingest spec and one `strathe calibrate` command (budget 60), which converged.
+- Fit quality: held-out RMSE 0.0007 against 0.48 for the default model.
+- Parameters: all 22 recovered within 4% of the truth; 17 within 1%. The pitch terms are the least certain, as expected with no pitch authority.
+- The report flags the values sitting at their limits (the truth itself is at them). The identifiability check found the linear/quadratic drag pairs that trade off (correlation −0.91 to −0.93).
+- The calibration then ran:
+  - in `strathe arena` with the vehicle's own thrusters and currents up to 0.3 m/s (below)
+  - in `strathe train-fleet` (600k steps with the same thrusters and currents)
+  - in a fleet experiment on both engines with a current (2,304 paired episodes)
+- Fleet results: the calibrated teammate model beats the generic one by +1 to +10 points, significant at L3a@1s: +10 (+3, +17). The ordering oracle > calibrated ≥ last beacon ≥ generic matches the reference study.
+- `strathe fleet --params --thrusters --current-speed` also ran the shipped smoke experiment on the bag-calibrated vehicle.
+
+*Single-vehicle arena on vehicle B* (reach a point within 0.5 m; its own thruster limits; currents 0–0.3 m/s; 3 seeds per condition; 100 paired episodes):
+- **At 100k training steps,** policies trained on its calibration succeeded only 10% of the time. Default-physics policies succeeded 75%, consistently across seeds.
+- **Checked, not a bug.** It is a training-budget effect. The calibrated vehicle is heavily damped (several drag terms at their limits), so PPO learns slowly on it. The lighter default physics teaches an aggressive policy that transfers.
+- **At 300k steps:** 96% (seeds 99/91/99%) vs 100%. The remaining −3.7 points (−6.0, −1.7) is real.
+- **So on this task, training on the calibration didn't help.** Aiming at a point is forgiving of model error, and it's the comparison `--compare-generic` exists to make. The fleet task, where predicting a teammate is the point, is where calibration pays off, as in B above.
+- The hand-written controller reached 16% (weak on a heavily damped vehicle with limited thrust); random commands 0%.
+
+On the bag-calibrated BlueROV2 with the Heavy's thruster limits, station-keeping policies succeeded 100% (98–100%), as did the hand-written controller.
+
+*C. The web page, in a real browser.* A single-vehicle job (thruster-limited BlueROV2 in a current) was submitted from the form, ran, listed its outputs and rendered its report. That found two fixes: the "not converged" note printed once per worker process, and an effort column mislabelled N·s.
+
+Test suite: 363 + 142 fleet tests at the time of writing, including:
+- bags written in all three formats from real runs
+- messy bag timing
+- 300 random thruster layouts
+- pre-flight on converted logs
+- thruster limits in both simulators and both engines
+- a lab vehicle description in a fleet experiment
+- the single-vehicle experiment end to end
+- identifiability with the fit's objective
 
 ## Honest open items
 
