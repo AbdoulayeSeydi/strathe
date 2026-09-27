@@ -569,3 +569,58 @@ def test_web_calibration_can_estimate_the_current(server):
     status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": ".", "name": "sea",
                                                           "estimate_current": "1", "current_world": "0.1 0 0"})
     assert status == 400 and "not both" in body
+
+
+# ----------------------------------------------------------------- web: clean vs noisy, buoyancy, algorithms
+
+def test_web_noise_buoyancy_and_algorithms_reach_every_command(server):
+    request, token, started, manager, tmp_path = server
+    params = os.path.join(cli.CAL_DIR, "calibrated_parameters_fleet_truth.yaml")
+    noise_file = os.path.join(cli.CAL_DIR, "sensor_noise", "bluerov2_tank.yaml")
+    # one vehicle: SAC, noisy, own noise file, buoyancy range, clean-training comparison, explicit no disturbance
+    status, _, _ = request("POST", "/jobs/arena", {
+        "token": token, "task": "waypoint", "algorithm": "sac", "mode": "noisy", "noise": "file",
+        "noise_file": noise_file, "noise_scale": "2", "buoyancy": "-3 to 3", "compare_clean_training": "1",
+        "disturbance": "none"})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--algorithm") + 1] == "sac" and cmd[cmd.index("--mode") + 1] == "noisy"
+    assert cmd[cmd.index("--noise") + 1] == noise_file and cmd[cmd.index("--noise-scale") + 1] == "2.0"
+    assert cmd[cmd.index("--buoyancy") + 1:cmd.index("--buoyancy") + 3] == ["-3.0", "3.0"]
+    assert "--compare-clean-training" in cmd and cmd[cmd.index("--disturbance") + 1] == "none"
+    cli.build_parser().parse_args(cmd)
+    # two vehicles: both modes, typical noise, buoyancy known to beliefs
+    status, _, _ = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
+                                                   "mode": "both", "noise": "typical", "buoyancy": "-2",
+                                                   "buoyancy_known": "1"})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--mode") + 1] == "both" and cmd[cmd.index("--noise") + 1] == "typical"
+    assert cmd[cmd.index("--buoyancy") + 1] == "-2.0" and "--buoyancy-known-to-beliefs" in cmd
+    cli.build_parser().parse_args(cmd)
+    # fleet training: TD3, default steps for the algorithm, noisy, disturbance twice as rough
+    status, _, _ = request("POST", "/jobs/train_fleet", {"token": token, "params": params, "algorithm": "td3",
+                                                         "mode": "noisy", "disturbance": "fitted",
+                                                         "disturbance_scale": "2", "seed": "1",
+                                                         "out": str(tmp_path / "td3_pol")})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--algorithm") + 1] == "td3" and "--timesteps" not in cmd
+    assert cmd[cmd.index("--disturbance-scale") + 1] == "2.0" and cmd[cmd.index("--mode") + 1] == "noisy"
+    cli.build_parser().parse_args(cmd)
+    # nothing chosen: nothing added (the YAML's or the script's own defaults apply)
+    request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml", "mode": "", "noise": "",
+                                    "buoyancy": "", "disturbance": ""})
+    assert started[-1][3:] == ["fleet", "--config", os.path.join(cli.CAL_DIR, "ci_smoke_experiment.yaml")]
+    for path, bad, msg in (("/jobs/arena", {"mode": "loud"}, "Pick clean or noisy"),
+                           ("/jobs/arena", {"mode": "both"}, "Pick clean or noisy"),   # one vehicle: no 'both'
+                           ("/jobs/arena", {"noise": "file", "noise_file": "/nope.yaml"}, "Sensor-noise file not found"),
+                           ("/jobs/arena", {"noise": "typical", "noise_scale": "40"}, "between"),
+                           ("/jobs/arena", {"buoyancy": "200"}, "units"),
+                           ("/jobs/arena", {"buoyancy": "heavy"}, "Buoyancy change"),
+                           ("/jobs/arena", {"algorithm": "dqn"}, "Pick a training algorithm"),
+                           ("/jobs/fleet", {"shipped": "ci_smoke_experiment.yaml", "noise": "loud"},
+                            "Pick a sensor-noise option")):
+        n = len(started)
+        status, body, _ = request("POST", path, {"token": token, "task": "waypoint", **bad})
+        assert status == 400 and msg in body and len(started) == n, (bad, body[:300])

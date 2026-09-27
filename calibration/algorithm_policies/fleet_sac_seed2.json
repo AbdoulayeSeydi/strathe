@@ -1,0 +1,68 @@
+{
+  "policy": "algorithm_policies/fleet_sac_seed2.zip",
+  "contract": {
+    "observation": "Box(13,) float32",
+    "action": "Box(6,) float32 in [-1, 1]",
+    "per_vehicle": true
+  },
+  "algorithm": "sac",
+  "seed": 2,
+  "timesteps": 1000000,
+  "n_sims": 8,
+  "hyperparameters": {
+    "learning_rate": 0.0003,
+    "buffer_size": 1000000,
+    "batch_size": 256,
+    "learning_starts": 10000,
+    "train_freq": 1,
+    "gradient_steps": 4,
+    "gamma": 0.99,
+    "tau": 0.005,
+    "net_arch": [
+      256,
+      256
+    ]
+  },
+  "truth_params": "calibrated_parameters_fleet_truth.yaml",
+  "vehicle_spec": "vehicle_spec.yaml",
+  "thrusters": null,
+  "training_distribution": {
+    "belief": "mix",
+    "severities": [
+      "L0",
+      "L1",
+      "L2",
+      "L3a"
+    ],
+    "beacon_intervals_s": [
+      0.5,
+      1.0,
+      2.0,
+      3.0
+    ],
+    "belief_mix": {
+      "physics_interpolated": 0.6,
+      "last_beacon": 0.15,
+      "constant_velocity": 0.1,
+      "oracle": 0.15
+    },
+    "initial_separation_range_m": [
+      2.0,
+      5.5
+    ],
+    "initial_closing_speed_range_mps": [
+      -0.7,
+      0.7
+    ],
+    "disturbance": null,
+    "current": null,
+    "mode": "clean",
+    "sensor_noise": null,
+    "buoyancy": null
+  },
+  "git_commit": "6c8a2ef4c2be9c5908798e93c4ddff8aab31bc32",
+  "git_uncommitted_changes": true,
+  "python": "3.13.5",
+  "elapsed_s": 9501.7,
+  "transitions_per_s": 105.2
+}

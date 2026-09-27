@@ -8,7 +8,8 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py estimate-current --data <logs>     the water current in each open-water recording
     python strathe.py arena --params <calibration>       one vehicle: train and test a controller on a task
     python strathe.py fleet [--config my_experiment.yaml]  two vehicles: run a fleet experiment
-    python strathe.py train-fleet --params <calibration> train a fleet policy for your vehicle
+    python strathe.py train-fleet --params <calibration> train a fleet policy (PPO, SAC or TD3) for your vehicle
+    python strathe.py fit-noise --data <logs> --out n.yaml  how noisy your vehicle's sensors are, for --noise
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -453,6 +454,66 @@ def thrusters_arg(value: Optional[str]) -> Optional[str]:
     return v
 
 
+def noise_arg(value: Optional[str]) -> Optional[str]:
+    """--noise: none, tank, typical, or a sensor-noise YAML (made absolute). Validated."""
+    if value in (None, ""):
+        return None
+    v = value if value in ("none", "tank", "typical") else _file_arg(value, "sensor-noise file")
+    if v != "none":
+        from sensor_noise import load_sensor_noise
+        load_sensor_noise(v)  # raises ValueError with a specific message
+    return v
+
+
+def buoyancy_block(values, known: bool = False) -> Optional[dict]:
+    """--buoyancy N [N] -> a validated fleet-YAML `buoyancy:` block, or None."""
+    if not values:
+        return None
+    if len(values) not in (1, 2):
+        raise ValueError("--buoyancy takes one value (N) or MIN MAX")
+    from buoyancy import BuoyancyConfig
+    block = {"offset_n": float(values[0]) if len(values) == 1 else [float(values[0]), float(values[1])],
+             "known_to_beliefs": bool(known)}
+    BuoyancyConfig.from_dict(block)  # raises ValueError with a specific message
+    return block
+
+
+def simulation_argv(args, known_flag: bool = False) -> list:
+    """--mode/--noise/--noise-scale/--disturbance/--disturbance-scale/--buoyancy for the scripts, validated."""
+    argv = []
+    if getattr(args, "mode", None):
+        argv += ["--mode", args.mode]
+    if getattr(args, "noise", None) is not None:
+        if args.noise_scale < 0:
+            raise ValueError("--noise-scale must be 0 or more")
+        argv += ["--noise", noise_arg(args.noise), "--noise-scale", str(args.noise_scale)]
+    if getattr(args, "disturbance", None) is not None:
+        if args.disturbance_scale < 0:
+            raise ValueError("--disturbance-scale must be 0 or more")
+        argv += ["--disturbance", args.disturbance if args.disturbance in ("none", "fitted")
+                 else _file_arg(args.disturbance, "disturbance file"),
+                 "--disturbance-scale", str(args.disturbance_scale)]
+    if getattr(args, "buoyancy", None):
+        buoyancy_block(args.buoyancy)
+        argv += ["--buoyancy", *map(str, args.buoyancy)]
+        if known_flag and getattr(args, "buoyancy_known_to_beliefs", False):
+            argv.append("--buoyancy-known-to-beliefs")
+    return argv
+
+
+def policy_entries(values) -> list:
+    """--policies [LABEL=]PATH ... -> experiment `policies:` entries; the algorithm is read from each file."""
+    out = []
+    for v in values:
+        label, path = (v.split("=", 1) if "=" in v and not any(c in v.split("=", 1)[0] for c in "/\\")
+                       else (None, v))
+        entry = {"model_path": _file_arg(path if path.endswith(".zip") else path + ".zip", "policy")[:-4]}
+        if label:
+            entry["label"] = label
+        out.append(entry)
+    return out
+
+
 SEVERITIES = ("L0", "L1", "L2", "L3a", "L3b")
 BELIEF_NAMES = ("calibrated", "generic", "last_beacon", "constant_velocity", "oracle")
 
@@ -494,8 +555,15 @@ def fleet_setting_overrides(args) -> dict:
                             else _file_arg(args.disturbance, "disturbance file"),
                             "scale": args.disturbance_scale}
     if args.policies:
-        o["policies"] = [{"model_path": _file_arg(p if p.endswith(".zip") else p + ".zip", "policy")[:-4]}
-                         for p in args.policies]
+        o["policies"] = policy_entries(args.policies)
+    if args.mode:
+        o["mode"] = args.mode
+    if args.noise is not None:
+        if args.noise_scale < 0:
+            raise ValueError("--noise-scale must be 0 or more")
+        o["sensor_noise"] = {"preset": noise_arg(args.noise), "scale": args.noise_scale}
+    if args.buoyancy:
+        o["buoyancy"] = buoyancy_block(args.buoyancy, args.buoyancy_known_to_beliefs)
     if args.name:
         o["name"] = safe_name(args.name)
     return o
@@ -574,13 +642,10 @@ def cmd_arena(args, runner=None) -> int:
                      "--current-time-scale", str(args.current_time_scale)]
         if args.thrusters:
             argv += ["--thrusters", thrusters_arg(args.thrusters)]
-        argv += ["--backend", args.backend]
-        if args.disturbance and args.disturbance != "none":
-            if args.disturbance_scale < 0:
-                raise ValueError("--disturbance-scale must be 0 or more")
-            argv += ["--disturbance", args.disturbance if args.disturbance == "fitted"
-                     else _file_arg(args.disturbance, "disturbance file"),
-                     "--disturbance-scale", str(args.disturbance_scale)]
+        argv += ["--backend", args.backend, "--algorithm", args.algorithm]
+        argv += simulation_argv(args)
+        if args.compare_clean_training:
+            argv.append("--compare-clean-training")
     except ValueError as e:
         print(f"❌ {e}")
         return 2
@@ -595,9 +660,11 @@ def cmd_arena(args, runner=None) -> int:
 def cmd_train_fleet(args, runner=None) -> int:
     try:
         argv = ["train_fleet_policy.py", "--truth-params", _file_arg(args.params, "calibration file"),
-                "--spec", spec_file(args.spec),
-                "--timesteps", str(args.timesteps), "--seed", str(args.seed), "--belief", args.belief,
-                "--out", _abs(args.out)]
+                "--spec", spec_file(args.spec), "--algorithm", args.algorithm,
+                "--seed", str(args.seed), "--belief", args.belief, "--out", _abs(args.out)]
+        if args.timesteps is not None:
+            argv += ["--timesteps", str(args.timesteps)]
+        argv += simulation_argv(args, known_flag=True)
         if args.current_speed is not None:
             current_block(_range_arg(args.current_speed, "current-speed"),
                           _range_arg(args.current_direction, "current-direction"))
@@ -610,6 +677,15 @@ def cmd_train_fleet(args, runner=None) -> int:
         return 2
     print(f"Policy: {_abs(args.out)}.zip — use it in a fleet experiment YAML under policies: "
           f"(see CUSTOM_EXPERIMENT.md section 5)", flush=True)
+    return run_step(argv, runner)
+
+
+def cmd_fit_noise(args, runner=None) -> int:
+    argv = ["fit_sensor_noise.py", "--data-dir", _abs(args.data), "--out", _abs(args.out)]
+    if args.position:
+        argv += ["--position", args.position]
+    if args.sampling_rate_hz:
+        argv += ["--sampling-rate-hz", str(args.sampling_rate_hz)]
     return run_step(argv, runner)
 
 
@@ -705,9 +781,21 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--closing-speeds", nargs="+", type=float, metavar="MPS", help="starting closing speeds")
     g.add_argument("--seeds", type=int, help="packet-loss seeds per starting condition (sample size)")
     g.add_argument("--backend", choices=["stand_in", "mujoco", "both"], help="physics engine")
+    g.add_argument("--mode", choices=["clean", "noisy", "both"],
+                   help="clean (exact sensors, no disturbance), noisy (sensor noise + roll/pitch disturbance), or "
+                        "both: every condition run clean and noisy, compared episode by episode")
+    g.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    g.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    g.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
+                   help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
+    g.add_argument("--buoyancy-known-to-beliefs", action="store_true",
+                   help="physics teammate models know the buoyancy change (default: they don't)")
     g.add_argument("--disturbance", help="roll/pitch disturbance: none, fitted, or a fit file")
     g.add_argument("--disturbance-scale", type=float, default=1.0)
-    g.add_argument("--policies", nargs="+", metavar="ZIP", help="policy files to use")
+    g.add_argument("--policies", nargs="+", metavar="[LABEL=]ZIP",
+                   help="policy files to use (PPO, SAC or TD3; read from each file). Policies with different "
+                        "labels, or different algorithms, are compared in the report, e.g. "
+                        "ppo=fleet_policy_seed1 sac=algorithm_policies/fleet_sac_seed1")
     g.add_argument("--name", help="experiment name (names the output folder)")
     f.add_argument("--save-config", metavar="YAML",
                    help="write the resulting experiment YAML here instead of running it")
@@ -724,7 +812,17 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
     a.add_argument("--compare-generic", action="store_true",
                    help="also train on the default (uncalibrated) physics, to see whether calibration matters")
-    a.add_argument("--policy", help="evaluate your own trained PPO policy (.zip) instead of training")
+    a.add_argument("--policy", help="evaluate your own trained policy (.zip: PPO, SAC or TD3) instead of training")
+    a.add_argument("--algorithm", choices=["ppo", "sac", "td3"], default="ppo",
+                   help="training algorithm (default ppo; sac and td3 as validated in PROJECT_STATUS.md #37)")
+    a.add_argument("--mode", choices=["clean", "noisy"],
+                   help="clean (default) or noisy: realistic sensor noise + the fitted roll/pitch disturbance")
+    a.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    a.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    a.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
+                   help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
+    a.add_argument("--compare-clean-training", action="store_true",
+                   help="with noise or disturbance on: also train on a clean simulation and compare on your test")
     a.add_argument("--current-speed", type=float, nargs="+", metavar="MPS")
     a.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG")
     a.add_argument("--current-speed-std", type=float, default=0.0)
@@ -733,8 +831,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
     a.add_argument("--backend", choices=["stand_in", "mujoco", "both"], default="stand_in",
                    help="physics engine for the tests: stand_in (fast, default), mujoco, or both side by side")
-    a.add_argument("--disturbance", default="none",
-                   help="random roll/pitch torques: none (default), fitted, or your own fit file")
+    a.add_argument("--disturbance", default=None,
+                   help="random roll/pitch torques: none, fitted, or your own fit file (default: from --mode)")
     a.add_argument("--disturbance-scale", type=float, default=1.0, help="0 = off, 1 = as fitted, 2 = twice as rough")
     a.add_argument("--workers", type=int, default=default_workers())
     a.add_argument("--out", help="output folder (default: strathe_jobs/arena_<task>_<time>)")
@@ -743,7 +841,10 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("train-fleet", help="train a fleet (two-vehicle) policy for your vehicle")
     t.add_argument("--params", required=True, help="your calibrated_parameters.yaml")
     t.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description")
-    t.add_argument("--timesteps", type=int, default=3_000_000, help="(~40 min on an M1 at the default)")
+    t.add_argument("--algorithm", choices=["ppo", "sac", "td3"], default="ppo",
+                   help="ppo (default), sac or td3 (see PROJECT_STATUS.md #58)")
+    t.add_argument("--timesteps", type=int, default=None,
+                   help="default: 3M for ppo, 1M for sac/td3 (~40 min each on an M1)")
     t.add_argument("--seed", type=int, default=1)
     t.add_argument("--belief", default="mix",
                    help="teammate model(s) to train with: mix (recommended) or calibrated/generic/last_beacon/"
@@ -751,8 +852,25 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--current-speed", type=float, nargs="+", metavar="MPS")
     t.add_argument("--current-direction", type=float, nargs="+", default=[0.0, 360.0], metavar="DEG")
     t.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
+    t.add_argument("--mode", choices=["clean", "noisy"],
+                   help="train clean (default) or noisy: sensor noise + roll/pitch disturbance")
+    t.add_argument("--noise", help="sensor noise: none, tank, typical, or a file from `strathe fit-noise`")
+    t.add_argument("--noise-scale", type=float, default=1.0)
+    t.add_argument("--disturbance", help="roll/pitch disturbance: none, fitted, or a fit file (default: from --mode)")
+    t.add_argument("--disturbance-scale", type=float, default=1.0)
+    t.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
+                   help="net buoyancy change in N, or MIN MAX drawn per episode (train across trims)")
+    t.add_argument("--buoyancy-known-to-beliefs", action="store_true")
     t.add_argument("--out", required=True, help="policy path without .zip")
     t.set_defaults(fn=cmd_train_fleet)
+
+    n = sub.add_parser("fit-noise", help="measure how noisy your vehicle's sensors are, from its logs")
+    n.add_argument("--data", required=True, help="logs in Strathe's CSV layout (see `ingest`)")
+    n.add_argument("--out", required=True, help="sensor-noise YAML to write (use it with --noise)")
+    n.add_argument("--position", choices=["dead_reckoning", "external"],
+                   help="how the vehicle knows its position (default: external if the logs have x/y)")
+    n.add_argument("--sampling-rate-hz", type=float)
+    n.set_defaults(fn=cmd_fit_noise)
 
     i = sub.add_parser("ingest", help="convert your own logs into Strathe's CSV layout")
     i.add_argument("--spec", required=True, help="ingestion spec YAML (see data_ingestion.py)")

@@ -1,0 +1,75 @@
+{
+  "policy": "noisy_policies/fleet_policy_noisy_seed2.zip",
+  "contract": {
+    "observation": "Box(13,) float32",
+    "action": "Box(6,) float32 in [-1, 1]",
+    "per_vehicle": true
+  },
+  "algorithm": "ppo",
+  "seed": 2,
+  "timesteps": 3000000,
+  "n_sims": 8,
+  "hyperparameters": {
+    "n_steps": 256,
+    "batch_size": 1024,
+    "n_epochs": 10,
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.0,
+    "net_arch": [
+      128,
+      128
+    ]
+  },
+  "truth_params": "calibrated_parameters_fleet_truth.yaml",
+  "vehicle_spec": "vehicle_spec.yaml",
+  "thrusters": null,
+  "training_distribution": {
+    "belief": "mix",
+    "severities": [
+      "L0",
+      "L1",
+      "L2",
+      "L3a"
+    ],
+    "beacon_intervals_s": [
+      0.5,
+      1.0,
+      2.0,
+      3.0
+    ],
+    "belief_mix": {
+      "physics_interpolated": 0.6,
+      "last_beacon": 0.15,
+      "constant_velocity": 0.1,
+      "oracle": 0.15
+    },
+    "initial_separation_range_m": [
+      2.0,
+      5.5
+    ],
+    "initial_closing_speed_range_mps": [
+      -0.7,
+      0.7
+    ],
+    "disturbance": {
+      "file": "bluerov2_rollpitch.yaml",
+      "scale": 1.0
+    },
+    "current": null,
+    "mode": "noisy",
+    "sensor_noise": {
+      "preset": "typical",
+      "scale": 1.0,
+      "described": "`typical_dvl_ahrs.yaml` x1: DVL \u00b11 cm/s (bias \u00b10.5, dropouts 2%), gyro \u00b10.57 deg/s (bias \u00b10.17), roll/pitch \u00b10.5 deg (bias \u00b10.5), heading \u00b12 deg (bias \u00b12), depth \u00b11 cm, position dead-reckoned from the DVL and compass (start fix \u00b10.2 m)"
+    },
+    "buoyancy": null
+  },
+  "git_commit": "6c8a2ef4c2be9c5908798e93c4ddff8aab31bc32",
+  "git_uncommitted_changes": true,
+  "python": "3.13.5",
+  "elapsed_s": 9688.1,
+  "transitions_per_s": 309.7
+}

@@ -13,6 +13,10 @@ Quick answers:
   MAVLink `.tlog` are read directly ([Logs](#logs-and-data-formats)).
 - **Is it validated on hardware?** Not yet. Everything is simulation
   checked against held-out real logs ([Validation](#validation)).
+- **Can the simulation be realistic rather than perfect?** Yes: `--mode noisy`
+  adds sensor noise and roll/pitch disturbance, `--mode both` runs clean and
+  noisy side by side, and `--buoyancy` changes the trim
+  ([Clean vs noisy](#clean-vs-noisy-simulation-and-buoyancy)).
 
 ---
 
@@ -69,6 +73,18 @@ Quick answers:
 | **Simulated currents are uniform in space** | In experiments the current can vary in time (slow fluctuation), and it's the same everywhere. No shear or eddies; both fleet vehicles feel the same water. | Enough for station-keeping and formation studies over tens of metres. |
 | **Policies don't observe the current** | They see their own velocity over ground, like a DVL on bottom track. | Pass the mean current to physics teammate models with `known_to_beliefs`. |
 
+## Clean vs noisy simulation, and buoyancy
+
+| Limit | What it means | What to do |
+|---|---|---|
+| **The sensor model is simple** | White noise, a constant bias per episode, and DVL dropouts, per 0.1 s tick (`sensor_noise.py`). Not modelled: compass errors that depend on heading, gyro bias that wanders during a run, scale-factor errors, sensor latency, DVL altitude limits. | Enough to test whether a result survives realistic sensors. Measure your own sizes with `strathe fit-noise`. |
+| **`typical` is assumed; `tank` is measured** | `tank` is the noise actually in the reference tank logs (small, with external positioning). `typical` (DVL + AHRS + dead reckoning) uses stated sizes of a common magnitude, not a fit to any vehicle. | Use your own file for your vehicle. `--noise-scale` brackets it. |
+| **Biases can't be measured from logs** | A constant offset per dive is invisible without an independent reference, so `fit-noise` writes biases as 0 and says so. | Put your sensors' datasheet biases in the file. |
+| **Navigation is raw dead reckoning or external positioning** | No mid-run USBL/LBL fixes and no navigation filter: the policy sees dead-reckoned position that drifts from a starting fix. | Use `position: external` (with its accuracy) for a vehicle with continuous positioning. |
+| **Beacons carry each vehicle's believed position; no acoustic ranging** | Real modems can also measure the range between vehicles, which bounds relative drift. Here relative error grows with both vehicles' drift. | Research: ranging-aided teammate models. |
+| **A buoyancy change is a net force only** | `--buoyancy` changes the net buoyancy of both vehicles by the same amount. The centre of gravity, the righting moment and the mass don't change; nothing changes with depth. | Recalibrate after a large payload change. |
+| **Policies can push back at most 30 N vertically without thruster limits** | Beyond that a policy can't hold depth; with `--thrusters` the real limit is lower. Values beyond ±50 N are refused as a probable units mistake. | |
+
 ## Single-vehicle arena (`strathe arena`)
 
 | Limit | What it means | What to do |
@@ -77,7 +93,7 @@ Quick answers:
 | **Four tasks** | Reach a point, hold station, dock, avoid one obstacle. New tasks need a reward and a config in `arena.py`. | Ask us, or subclass `Task`. |
 | **Episodes start level, at the origin, at rest** | Targets are random within ±3 m. | |
 | **The fitted disturbance was fitted to the reference BlueROV2** | `--disturbance fitted` reproduces that vehicle's tether/wave roll/pitch wobble. On another vehicle it's a generic "rough water" setting. | Fit your own with `fit_rollpitch_disturbance.py`, then pass the file. |
-| **PPO only** | The runner trains PPO. SAC and TD3 exist in `train_multiseed.py` for specialists. | `--policy` evaluates a PPO policy you trained elsewhere. |
+| **SAC and TD3 use stable-baselines3's own settings** | `--algorithm sac\|td3` trains with one environment and SB3's defaults, the setup validated on this vehicle (#37). No hyperparameter tuning per vehicle or task. | Compare seeds; PPO remains the default. |
 | **Training-seed variance** | Reinforcement learning results vary between seeds. A heavily damped vehicle is slow to learn on (10% vs 96% success at 100k vs 300k steps, #56). | Use several seeds and a longer `--timesteps`; read the per-seed numbers. |
 
 ## Fleet (two vehicles)
@@ -91,7 +107,8 @@ Quick answers:
 | **Policies act on beacons plus a teammate model; no intent sharing** | Calibrated prediction ties "last beacon" in still water (#54). It pulls ahead in a current it knows about (#55). | Intent-sharing beacons are the next lever (research). |
 | **Policies trained for one teammate model vary across seeds** | Policies specialised to the calibrated model ranged 35–98% (#54). The mixed-trained policies are consistent. | Use `--belief mix` (the default) for policies you report. |
 | **The shipped policies were trained on the reference BlueROV2** | They run on other vehicles, but results for your vehicle should come from policies trained on it. | `strathe train-fleet --params <your calibration>` (~40 min). |
-| **No sensor noise on a vehicle's own state** | Each vehicle knows its own velocity and attitude exactly. Roll/pitch disturbance is modelled; sensor noise isn't. | |
+| **SAC and TD3 fleet policies were validated on one task and one vehicle** | Three seeds each, 1M steps, passed criteria fixed in advance: SAC ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6) over 17,600 paired episodes (#58). That's formation hold on the reference BlueROV2, with SB3-standard settings. | For your vehicle, train two or three seeds of each and compare them in one experiment (`--policies ppo=... sac=...`). |
+| **SAC and TD3 cost more per step** | Each off-policy step includes gradient updates from a replay buffer: about 500-650 steps/s on one M1 core vs about 770 for PPO. With a third of the steps, a 1M-step run takes about 30-35 min alone, against about 65 min for PPO's 3M. Several runs sharing a machine slow each other down (the study's own runs took 2-2.5 h with 9 at once). | Run fewer at a time than cores, as with PPO. |
 
 ## Communication model
 
@@ -129,6 +146,9 @@ What used to be a limit, and where it was fixed:
   - An unknown one is estimated per recording (#57).
 - **Custom fleet experiments needed YAML editing (#57):** comm levels, beacon interval, teammate models, task, starting conditions, sample size, engine and disturbance are flags and web fields now.
 - **Single-vehicle arena on the stand-in engine only, with no roll/pitch disturbance (#57):** `--backend mujoco|both` and `--disturbance fitted` now exist.
+- **No sensor noise on a vehicle's own state (#58):** `--mode noisy` / `--noise`, in both simulators, training, the CLI and the web page; `--mode both` compares clean and noisy episode by episode.
+- **Training with PPO only (#58):** `--algorithm sac|td3` for one vehicle and for the fleet; policies of any of the three are recognised from the file.
+- **A vehicle heavier or lighter than calibrated couldn't be simulated (#58):** `--buoyancy`.
 - **The one-command calibration skipped the identifiability check (#56).**
 - **It assumed 10 Hz (#56).**
 - **The data check crashed on converted logs (#56).**

@@ -163,6 +163,12 @@ class FastCore:
         self.current_world = None
         self.reset()
 
+    def set_params(self, params: CalibrationParameters) -> None:
+        """Swap the parameter set between episodes (e.g. a buoyancy change, buoyancy.py)."""
+        if params is not self.params:
+            self.dyn = FastDynamics(params, self.vehicle)
+            self.params = params
+
     def reset(self, position=None, nu=None, orientation: Optional[Rotation] = None):
         self.nu = [0.0] * 6 if nu is None else [float(x) for x in nu]
         self.pos = [0.0] * 3 if position is None else [float(x) for x in position]

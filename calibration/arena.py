@@ -297,8 +297,7 @@ class ObstacleAvoidanceTask(Task):
         return 4  # obstacle relative position (3, body frame) + obstacle distance (1)
 
     def extra_obs(self, arena) -> np.ndarray:
-        rel = arena._core.position_error_body_frame(self._obstacle_position)
-        dist = float(np.linalg.norm(arena._core.state.position - self._obstacle_position))
+        rel, dist = arena.sensed_vector_to(self._obstacle_position)
         return np.concatenate([rel, [dist]]).astype(np.float32)
 
 
@@ -348,6 +347,8 @@ class Arena(gym.Env):
         thrusters=None,
         backend: str = "stand_in",
         disturbance=None,
+        sensor_noise=None,
+        buoyancy=None,
     ):
         """
         task: "waypoint" (default, ORIGINAL behavior, unchanged) - touch
@@ -381,6 +382,17 @@ class Arena(gym.Env):
             simulation. A new disturbance is drawn each reset() after the
             waypoint, so the same seed gives the same targets with it on or
             off; info["disturbance"] reports the torque added each step.
+        sensor_noise: optional sensor_noise.SensorNoiseConfig: the policy sees
+            what the vehicle's own DVL, gyro, attitude, compass and depth sensor
+            report, and the target relative to where it believes it is
+            (dead-reckoned or externally positioned). None = exact readings.
+            Success is still judged on the true position; info["nav_error_m"]
+            reports how far the believed position is from the truth.
+        buoyancy: optional buoyancy.BuoyancyConfig: the true vehicle's net
+            buoyancy differs from the calibration by offset_n newtons (a payload
+            or trim change); a range is drawn per episode. None = as calibrated.
+            Sensor noise and buoyancy are drawn after the disturbance, so
+            turning them on or off never changes the targets or disturbances.
         """
         super().__init__()
         sim_config = SimulationConfig(dt=dt, physics_dt=physics_dt)
@@ -401,6 +413,15 @@ class Arena(gym.Env):
         self._current_cfg = current if current is not None and current.active else None
         self._thrusters = thrusters
         self._current = None
+        self._params = params
+        if sensor_noise is not None:
+            sensor_noise.validate()
+        self._noise_cfg = sensor_noise if sensor_noise is not None and sensor_noise.active else None
+        self._sensors = None
+        if buoyancy is not None:
+            buoyancy.validate()
+        self._buoyancy_cfg = buoyancy if buoyancy is not None and buoyancy.active else None
+        self.buoyancy_offset_n = 0.0
         self.max_episode_steps = max_episode_steps
         self.waypoint_radius = waypoint_radius
         self._fixed_waypoint = None if fixed_waypoint is None else np.array(fixed_waypoint, dtype=float)
@@ -447,6 +468,16 @@ class Arena(gym.Env):
             from disturbance import RollPitchDisturbance
             self._disturbance = RollPitchDisturbance(self._disturbance_cfg, self._core.sim_config.dt,
                                                      int(self.np_random.integers(2**63 - 1)))
+        if self._buoyancy_cfg is not None:
+            from buoyancy import with_buoyancy_offset
+            self.buoyancy_offset_n = self._buoyancy_cfg.draw(self.np_random)
+            self._core.set_params(with_buoyancy_offset(self._params, self.buoyancy_offset_n))
+        if self._noise_cfg is not None:
+            from sensor_noise import SensorSuite
+            self._sensors = SensorSuite(self._noise_cfg, self._core.sim_config.dt,
+                                        int(self.np_random.integers(2**63 - 1)))
+            st = self._core.state
+            self._sensors.start(st.position, st.orientation.as_matrix(), st.nu)
         return self._get_obs(), {}
 
     def step(self, action):
@@ -460,12 +491,18 @@ class Arena(gym.Env):
         push = None if self._disturbance is None else self._disturbance.next()
         self._core.step(tau if push is None else tau + push)
         self._step_count += 1
+        if self._sensors is not None:
+            st = self._core.state
+            self._sensors.update(st.position, st.orientation.as_matrix(), st.nu)
 
         distance = float(np.linalg.norm(self._waypoint - self._core.state.position))
         info = {"distance": distance, "position": self._core.state.position.copy(),
                 "current_world": None if self._current is None else self._core.current_world.copy(),
                 "tau_applied": np.asarray(tau, dtype=float),
-                "disturbance": None if push is None else push}
+                "disturbance": None if push is None else push,
+                "nav_error_m": (0.0 if self._sensors is None else
+                                float(np.linalg.norm(self._sensors.last.position - self._core.state.position))),
+                "buoyancy_offset_n": self.buoyancy_offset_n}
         truncated = self._step_count >= self.max_episode_steps
 
         reward, terminated, task_info = self._task_obj.step(self, distance, truncated)
@@ -473,7 +510,25 @@ class Arena(gym.Env):
 
         return self._get_obs(), reward, terminated, truncated, info
 
+    def sensed_vector_to(self, point) -> tuple:
+        """(point relative to the vehicle in its body axes, distance): exact without sensor noise, else as
+        the vehicle's navigation believes it."""
+        if self._sensors is None:
+            return (self._core.position_error_body_frame(point),
+                    float(np.linalg.norm(self._core.state.position - point)))
+        m = self._sensors.last
+        world = np.asarray(point, dtype=float) - m.position
+        return m.R.T @ world, float(np.linalg.norm(world))
+
     def _get_obs(self):
+        if self._sensors is not None:
+            m = self._sensors.last
+            pos_error_body, _ = self.sensed_vector_to(self._waypoint)
+            obs = np.concatenate([m.nu, pos_error_body, [m.roll, m.pitch]])
+            extra = self._task_obj.extra_obs(self)
+            if extra.size > 0:
+                obs = np.concatenate([obs, extra])
+            return obs.astype(np.float32)
         pos_error_body = self._core.position_error_body_frame(self._waypoint)
         roll, pitch, _yaw = self._core.state.orientation.as_euler("xyz")
         obs = np.concatenate([self._core.state.nu, pos_error_body, [roll, pitch]])

@@ -3,14 +3,17 @@
 validate_fleet_policy.py -- pre-flight check that a policy fits the fleet v2
 per-vehicle contract, before any compute is spent on it.
 
-    python validate_fleet_policy.py my_policy.zip [--algorithm ppo]
+    python validate_fleet_policy.py my_policy.zip [--algorithm ppo|sac|td3]
+    (the algorithm is read from the file when --algorithm is left out)
 
 ## Fleet v2 policy contract
 One policy, applied separately to each vehicle (parameter sharing):
   observation  Box(13,) float32 -- see fleet_env.py for the layout
   action       Box(6,)  float32, bounded [-1, 1] (scaled to 30 N / N*m)
-  algorithms   PPO (validated by this project's own training), SAC, TD3
-               (stable-baselines3 classes; accepted, not yet validated)
+  algorithms   PPO, SAC, TD3 (stable-baselines3 classes; which one is read from
+               the file). All three are trained by train_fleet_policy.py
+               --algorithm; see PROJECT_STATUS.md #58 for how SAC and TD3 fleet
+               policies compare with PPO.
 Not supported: recurrent policies (the fleet evaluator keeps no hidden
 state between ticks), policies from other frameworks (wrap them in an SB3
 class or ask us about an adapter).
@@ -26,11 +29,13 @@ import argparse
 import os
 import sys
 
+from typing import Optional
+
 import numpy as np
 
 from fleet_env import ACT_DIM, OBS_DIM
 
-VALIDATED_ALGORITHMS = ("ppo",)
+VALIDATED_ALGORITHMS = ("ppo", "sac", "td3")
 ACCEPTED_ALGORITHMS = ("ppo", "sac", "td3")
 
 _KNOWN_FOREIGN_SHAPES = {
@@ -51,21 +56,17 @@ def _resolve(path: str) -> str:
     return path if path.endswith(".zip") else f"{path}.zip"
 
 
-def load_fleet_policy(path: str, algorithm: str = "ppo"):
-    alg = algorithm.lower()
-    if alg not in ACCEPTED_ALGORITHMS:
-        raise FleetPolicyError(f"algorithm must be one of {ACCEPTED_ALGORITHMS}, got {algorithm!r}")
+def load_fleet_policy(path: str, algorithm: Optional[str] = None):
+    """algorithm: 'ppo', 'sac', 'td3', or None to read it from the file."""
+    from policy_io import PolicyLoadError, load_policy
     zip_path = _resolve(path)
     if not os.path.exists(zip_path):
         raise FleetPolicyError(f"policy file not found: {zip_path!r} (paths are relative to "
                                f"where you run the command; shipped policies live in calibration/)")
-    from stable_baselines3 import PPO, SAC, TD3
-    cls = {"ppo": PPO, "sac": SAC, "td3": TD3}[alg]
     try:
-        model = cls.load(zip_path, device="cpu")
-    except Exception as e:  # SB3 raises a variety of errors for wrong-class or corrupt files
-        raise FleetPolicyError(f"could not load {zip_path!r} as a {alg.upper()} policy: "
-                               f"{type(e).__name__}: {e}") from e
+        model, _alg = load_policy(zip_path, algorithm)
+    except PolicyLoadError as e:
+        raise FleetPolicyError(str(e)) from e
     check_fleet_policy(model, zip_path)
     return model
 
@@ -100,16 +101,16 @@ def check_fleet_policy(model, label: str = "<policy>") -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("policy")
-    ap.add_argument("--algorithm", default="ppo")
+    ap.add_argument("--algorithm", default=None, help="ppo, sac or td3 (default: read from the file)")
     args = ap.parse_args(argv)
     try:
         load_fleet_policy(args.policy, args.algorithm)
     except FleetPolicyError as e:
         print(f"FAIL: {e}")
         return 1
-    note = "" if args.algorithm.lower() in VALIDATED_ALGORITHMS else \
-        f" (note: {args.algorithm.upper()} is accepted but not yet validated by a fleet training run)"
-    print(f"PASS: {_resolve(args.policy)} -- observation ({OBS_DIM},), action ({ACT_DIM},) in [-1, 1]{note}")
+    from policy_io import resolve_algorithm
+    alg = resolve_algorithm(_resolve(args.policy), args.algorithm)
+    print(f"PASS: {_resolve(args.policy)} ({alg.upper()}) -- observation ({OBS_DIM},), action ({ACT_DIM},) in [-1, 1]")
     return 0
 
 

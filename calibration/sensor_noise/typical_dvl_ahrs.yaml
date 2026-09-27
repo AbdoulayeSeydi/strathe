@@ -1,0 +1,24 @@
+# Sensor noise for a small AUV/ROV that navigates by dead reckoning with a DVL,
+# an AHRS (gyro + attitude + magnetic compass) and a pressure depth sensor.
+# See sensor_noise.py for the model.
+#
+# These are STATED ASSUMPTIONS of a common order of magnitude for such a
+# vehicle, fixed before any result was seen -- not a fit to any one vehicle.
+# For your vehicle, measure the white noise from your own logs:
+#     python strathe.py fit-noise --data <your logs> --out my_rov_noise.yaml
+# and add your sensors' datasheet biases. Every size is one standard deviation
+# per 0.1 s sample.
+sensors:
+  velocity_std_mps: 0.01       # DVL velocity jitter, 1 cm/s
+  velocity_bias_mps: 0.005     # DVL offset per dive (misalignment, sound speed), 0.5 cm/s
+  velocity_dropout_prob: 0.02  # 2% of ticks without bottom lock (last reading held)
+  gyro_std_rps: 0.01           # MEMS gyro, ~0.6 deg/s per sample
+  gyro_bias_rps: 0.003         # ~0.17 deg/s offset per dive
+  attitude_std_rad: 0.0087     # roll/pitch, 0.5 deg
+  attitude_bias_rad: 0.0087    # 0.5 deg mounting/levelling offset
+  heading_std_rad: 0.035       # magnetic compass near thrusters and a tether, 2 deg
+  heading_bias_rad: 0.035      # 2 deg uncorrected offset per dive
+  depth_std_m: 0.01            # pressure sensor, 1 cm
+  position: dead_reckoning     # horizontal position integrated from DVL + compass: it drifts
+  position_std_m: 0.2          # starting position fix (surface GPS / USBL), 20 cm
+source_note: assumptions, not a fit (see the header)

@@ -90,6 +90,9 @@ class TeammateBelief:
         Only physics beliefs use it; beacon-based ones already see drift in the
         teammate's reported velocity."""
 
+    def set_buoyancy_offset(self, offset_n: float) -> None:
+        """A net-buoyancy change this belief knows about (buoyancy.py). Only physics beliefs use it."""
+
     def _on_new_beacon(self, beacon: Beacon, now_tick: int) -> None:
         pass
 
@@ -139,8 +142,13 @@ class PhysicsBelief(TeammateBelief):
 
     def __init__(self, dt: float, params: CalibrationParameters, vehicle: VehicleConstants,
                  physics_dt: float = 0.005):
+        self._params = params
         self._core = FastCore(params, vehicle, SimulationConfig(dt=dt, physics_dt=physics_dt))
         super().__init__(dt)
+
+    def set_buoyancy_offset(self, offset_n):
+        from buoyancy import with_buoyancy_offset
+        self._core.set_params(with_buoyancy_offset(self._params, offset_n))
 
     def set_water_current(self, current_world):
         self._core.current_world = None if current_world is None else [float(x) for x in current_world]

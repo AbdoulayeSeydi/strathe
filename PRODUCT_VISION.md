@@ -201,7 +201,9 @@ result than "still investigating" — see Part 3, item 29.
 > | 27, 30. Customer confidence reporting | **Done:** `calibration_report.py` writes a plain-language per-axis verdict, limits, confounded parameters and next steps. Since #56, the one-command calibration also runs the identifiability check with the fit's own objective, and the report explains, in plain words, which values the data can't pin down. |
 > | 29. Rotational weakness | **Corrected and partly fixed (#50-#52).** Yaw is predictive (skill +0.60 vs predicting no motion). Roll and pitch were *worse* than predicting no motion; the earlier "+82% vs default" hid that. The main cause was a thrust moment arm in the logged torques. Correcting it (`vehicle_spec.yaml` `data_conventions`) and refitting lifts roll/pitch to about zero skill. The rest of this dataset's roll/pitch motion isn't caused by the thrusters, so it can't be calibrated from these logs; that needs lab free-decay tests. Formation-holding is unaffected (15,200 paired episodes with realistic wobble). |
 > | Onboarding (six terminal commands) | **Done (#53, #56):** `python strathe.py calibrate --ingest-spec <spec>` goes from raw logs to a report in one command (convert, check, fit, identifiability, report). `strathe arena` runs single-vehicle experiments and `strathe train-fleet` trains fleet policies, both on a lab's own vehicle. `python strathe.py web` has a form for each. |
-> | Disturbances / clean vs noisy modes | **Started:** a roll/pitch disturbance fitted to the real logs is a YAML switch (`disturbance:`) and a training flag (#51). Sensor noise is not modelled yet. |
+> | 23. Disturbances / clean vs noisy modes | **Done (#58):** `--mode clean\|noisy` (and `both`, which runs every fleet condition both ways, paired) in both simulators, training, the CLI and the web page. `noisy` = sensor noise (DVL, gyro, attitude, compass, depth, and a dead-reckoned position that drifts) + the fitted roll/pitch disturbance (#51). Presets: `tank` (measured from the reference logs) and `typical` (stated assumptions); `strathe fit-noise` measures a lab's own. Clean results are bit-identical. Finding: typical sensors cost formation-holding 10 points. Not modelled: correlated sensor errors, a navigation filter. |
+> | 21. Training algorithms beyond PPO | **Done (#58):** PPO, SAC and TD3 for one vehicle (#37) and for the fleet, recognised from the policy file, compared in the fleet report by label. SAC ties PPO and TD3 is +4 points on the fleet task (17,600 paired episodes, criteria fixed in advance); TD3 loses the most under realistic sensors. |
+> | 8. Payload (buoyancy only) | **Started (#58):** `--buoyancy` changes the net buoyancy in every engine, fixed or drawn per episode. Mass, CG and CB changes are not propagated. |
 > | Water current (open water) | **Done, off by default (#55):** speed and direction (fixed or drawn per episode), vertical flow, slow fluctuation, and whether teammate models know it. Works in both engines, the fleet, the single-vehicle env, the CLI, the web page and training. Calibration accepts a known current, or estimates each recording's constant current from the logs (#57: `--estimate-current`, with checks for currents that changed). Not built: a current that changes within a recording, or varies across space. |
 > | Unit economics | The stand-in replay is 3x faster (`fast_dynamics.py`, measured A/B); see UNIT_ECONOMICS.md. |
 
@@ -325,7 +327,8 @@ just what's missing but why it matters.
     time estimate (2-4 weeks if caught early; longer if discovered after
     building around the wrong assumption).
 21. **Training algorithms beyond PPO** — SAC, TD3, etc.; currently
-    hardcoded to one algorithm.
+    hardcoded to one algorithm. *(Done in #58 for one vehicle and the fleet;
+    see the status table above.)*
 22. **Richer, more realistic task library.** Two new tasks were added this
     session — `station_keeping` (requires sustained presence near a
     target, not just a single touch) and `docking` (requires position,
@@ -342,7 +345,8 @@ just what's missing but why it matters.
     real sensor noise at deployment. The product needs two distinct,
     clearly-separated modes — clean/deterministic for calibration and
     validation, realistic/noisy for actually training and evaluating
-    deployable policies. Only the first has really been built.
+    deployable policies. Only the first has really been built. *(Done in
+    #58: `--mode clean|noisy|both`; see the status table above.)*
 
 ### F. Safety
 

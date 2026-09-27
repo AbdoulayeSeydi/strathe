@@ -1,0 +1,301 @@
+controller,engine,physics,seed,episode_seed,success,collision,steps,final_distance_m,effort_Ns,current_speed_mps,mean_nav_error_m,buoyancy_offset_n
+your policy,stand_in,your policy,0,1000,1,0,9,0.474,67.87,0.0,0.1224,0.0
+your policy,stand_in,your policy,0,1001,1,0,75,0.4933,775.32,0.0,0.463,0.0
+your policy,stand_in,your policy,0,1002,1,0,33,0.4751,317.82,0.0,0.1935,0.0
+your policy,stand_in,your policy,0,1003,1,0,43,0.4854,443.18,0.0,0.1443,0.0
+your policy,stand_in,your policy,0,1004,1,0,80,0.4952,936.09,0.0,0.2406,0.0
+your policy,stand_in,your policy,0,1005,1,0,70,0.4959,760.03,0.0,0.044,0.0
+your policy,stand_in,your policy,0,1006,1,0,27,0.4948,302.21,0.0,0.2221,0.0
+your policy,stand_in,your policy,0,1007,1,0,63,0.4768,631.58,0.0,0.2539,0.0
+your policy,stand_in,your policy,0,1008,1,0,68,0.4935,648.56,0.0,0.4672,0.0
+your policy,stand_in,your policy,0,1009,1,0,73,0.4995,789.62,0.0,0.22,0.0
+your policy,stand_in,your policy,0,1010,1,0,68,0.4774,705.34,0.0,0.3048,0.0
+your policy,stand_in,your policy,0,1011,1,0,38,0.4824,394.47,0.0,0.1902,0.0
+your policy,stand_in,your policy,0,1012,1,0,45,0.4912,494.37,0.0,0.2053,0.0
+your policy,stand_in,your policy,0,1013,1,0,60,0.487,665.2,0.0,0.3576,0.0
+your policy,stand_in,your policy,0,1014,1,0,48,0.4946,475.32,0.0,0.3315,0.0
+your policy,stand_in,your policy,0,1015,1,0,21,0.4705,201.92,0.0,0.1166,0.0
+your policy,stand_in,your policy,0,1016,1,0,32,0.4609,358.88,0.0,0.2295,0.0
+your policy,stand_in,your policy,0,1017,1,0,81,0.4929,830.3,0.0,0.2692,0.0
+your policy,stand_in,your policy,0,1018,1,0,61,0.4983,586.06,0.0,0.4823,0.0
+your policy,stand_in,your policy,0,1019,1,0,30,0.4951,323.77,0.0,0.2079,0.0
+your policy,stand_in,your policy,0,1020,1,0,64,0.4974,644.76,0.0,0.5219,0.0
+your policy,stand_in,your policy,0,1021,1,0,75,0.4956,778.51,0.0,0.1511,0.0
+your policy,stand_in,your policy,0,1022,1,0,73,0.4947,792.88,0.0,0.0776,0.0
+your policy,stand_in,your policy,0,1023,1,0,74,0.4854,793.42,0.0,0.4491,0.0
+your policy,stand_in,your policy,0,1024,1,0,33,0.4878,351.78,0.0,0.0752,0.0
+your policy,stand_in,your policy,0,1025,1,0,52,0.4997,546.71,0.0,0.15,0.0
+your policy,stand_in,your policy,0,1026,1,0,49,0.4891,525.85,0.0,0.1215,0.0
+your policy,stand_in,your policy,0,1027,1,0,52,0.4564,601.23,0.0,0.6346,0.0
+your policy,stand_in,your policy,0,1028,1,0,41,0.4842,416.4,0.0,0.1881,0.0
+your policy,stand_in,your policy,0,1029,1,0,72,0.4798,794.92,0.0,0.3626,0.0
+your policy,stand_in,your policy,0,1030,1,0,72,0.4987,735.16,0.0,0.3104,0.0
+your policy,stand_in,your policy,0,1031,1,0,59,0.497,603.19,0.0,0.3357,0.0
+your policy,stand_in,your policy,0,1032,1,0,76,0.4929,785.98,0.0,0.1,0.0
+your policy,stand_in,your policy,0,1033,1,0,77,0.4976,776.72,0.0,0.3789,0.0
+your policy,stand_in,your policy,0,1034,1,0,81,0.4919,916.04,0.0,0.3268,0.0
+your policy,stand_in,your policy,0,1035,1,0,38,0.4976,380.18,0.0,0.1795,0.0
+your policy,stand_in,your policy,0,1036,1,0,38,0.4609,392.33,0.0,0.1322,0.0
+your policy,stand_in,your policy,0,1037,1,0,28,0.4608,291.9,0.0,0.2029,0.0
+your policy,stand_in,your policy,0,1038,1,0,49,0.4701,552.13,0.0,0.3395,0.0
+your policy,stand_in,your policy,0,1039,1,0,39,0.4996,418.95,0.0,0.0863,0.0
+your policy,stand_in,your policy,0,1040,1,0,53,0.4962,536.74,0.0,0.1885,0.0
+your policy,stand_in,your policy,0,1041,1,0,64,0.4669,671.88,0.0,0.3243,0.0
+your policy,stand_in,your policy,0,1042,1,0,23,0.4804,177.5,0.0,0.3563,0.0
+your policy,stand_in,your policy,0,1043,1,0,58,0.4699,629.97,0.0,0.0378,0.0
+your policy,stand_in,your policy,0,1044,1,0,125,0.4982,1100.61,0.0,0.3931,0.0
+your policy,stand_in,your policy,0,1045,1,0,49,0.4869,519.05,0.0,0.0444,0.0
+your policy,stand_in,your policy,0,1046,1,0,59,0.4696,672.17,0.0,0.4371,0.0
+your policy,stand_in,your policy,0,1047,1,0,18,0.4983,185.38,0.0,0.2123,0.0
+your policy,stand_in,your policy,0,1048,1,0,71,0.4683,737.02,0.0,0.1394,0.0
+your policy,stand_in,your policy,0,1049,1,0,39,0.4732,404.34,0.0,0.1843,0.0
+your policy,stand_in,your policy,0,1050,1,0,61,0.4982,620.23,0.0,0.2525,0.0
+your policy,stand_in,your policy,0,1051,1,0,82,0.4981,714.38,0.0,0.4763,0.0
+your policy,stand_in,your policy,0,1052,1,0,22,0.4777,238.53,0.0,0.1948,0.0
+your policy,stand_in,your policy,0,1053,1,0,57,0.4696,593.29,0.0,0.2834,0.0
+your policy,stand_in,your policy,0,1054,1,0,64,0.4729,700.98,0.0,0.3378,0.0
+your policy,stand_in,your policy,0,1055,1,0,73,0.4951,692.11,0.0,0.3619,0.0
+your policy,stand_in,your policy,0,1056,1,0,63,0.4713,690.28,0.0,0.2966,0.0
+your policy,stand_in,your policy,0,1057,1,0,19,0.4916,209.55,0.0,0.4056,0.0
+your policy,stand_in,your policy,0,1058,1,0,65,0.478,691.54,0.0,0.1919,0.0
+your policy,stand_in,your policy,0,1059,1,0,28,0.4962,176.7,0.0,0.4657,0.0
+your policy,stand_in,your policy,0,1060,1,0,88,0.4726,935.72,0.0,0.2071,0.0
+your policy,stand_in,your policy,0,1061,1,0,23,0.4662,253.19,0.0,0.2656,0.0
+your policy,stand_in,your policy,0,1062,1,0,49,0.493,508.04,0.0,0.1979,0.0
+your policy,stand_in,your policy,0,1063,1,0,65,0.4786,714.43,0.0,0.0952,0.0
+your policy,stand_in,your policy,0,1064,1,0,46,0.4877,515.64,0.0,0.1703,0.0
+your policy,stand_in,your policy,0,1065,0,0,200,0.756,1463.42,0.0,0.6513,0.0
+your policy,stand_in,your policy,0,1066,1,0,56,0.473,598.58,0.0,0.2622,0.0
+your policy,stand_in,your policy,0,1067,1,0,90,0.4909,1004.16,0.0,0.301,0.0
+your policy,stand_in,your policy,0,1068,1,0,58,0.4673,621.82,0.0,0.1713,0.0
+your policy,stand_in,your policy,0,1069,1,0,82,0.4611,929.62,0.0,0.1818,0.0
+your policy,stand_in,your policy,0,1070,1,0,78,0.4809,852.87,0.0,0.3204,0.0
+your policy,stand_in,your policy,0,1071,1,0,57,0.4612,625.05,0.0,0.1726,0.0
+your policy,stand_in,your policy,0,1072,1,0,47,0.4693,488.53,0.0,0.2449,0.0
+your policy,stand_in,your policy,0,1073,1,0,51,0.4642,531.1,0.0,0.0247,0.0
+your policy,stand_in,your policy,0,1074,1,0,82,0.48,885.24,0.0,0.2865,0.0
+your policy,stand_in,your policy,0,1075,1,0,80,0.4974,829.3,0.0,0.2991,0.0
+your policy,stand_in,your policy,0,1076,1,0,50,0.498,507.72,0.0,0.203,0.0
+your policy,stand_in,your policy,0,1077,0,0,200,0.8926,1651.73,0.0,0.8214,0.0
+your policy,stand_in,your policy,0,1078,1,0,72,0.4911,808.29,0.0,0.1674,0.0
+your policy,stand_in,your policy,0,1079,1,0,89,0.4813,936.41,0.0,0.1531,0.0
+your policy,stand_in,your policy,0,1080,0,0,200,0.6826,1223.79,0.0,0.6582,0.0
+your policy,stand_in,your policy,0,1081,1,0,50,0.4653,576.81,0.0,0.369,0.0
+your policy,stand_in,your policy,0,1082,1,0,27,0.4951,302.59,0.0,0.1266,0.0
+your policy,stand_in,your policy,0,1083,1,0,60,0.4715,660.43,0.0,0.0941,0.0
+your policy,stand_in,your policy,0,1084,1,0,68,0.499,708.58,0.0,0.3138,0.0
+your policy,stand_in,your policy,0,1085,1,0,44,0.4847,455.8,0.0,0.1354,0.0
+your policy,stand_in,your policy,0,1086,1,0,63,0.4554,683.77,0.0,0.1975,0.0
+your policy,stand_in,your policy,0,1087,1,0,48,0.462,538.51,0.0,0.0478,0.0
+your policy,stand_in,your policy,0,1088,1,0,70,0.4883,694.1,0.0,0.3116,0.0
+your policy,stand_in,your policy,0,1089,1,0,59,0.4834,592.79,0.0,0.3535,0.0
+your policy,stand_in,your policy,0,1090,1,0,44,0.4954,472.51,0.0,0.1304,0.0
+your policy,stand_in,your policy,0,1091,1,0,60,0.4772,666.3,0.0,0.1067,0.0
+your policy,stand_in,your policy,0,1092,1,0,56,0.4808,624.85,0.0,0.2754,0.0
+your policy,stand_in,your policy,0,1093,1,0,39,0.467,408.41,0.0,0.3098,0.0
+your policy,stand_in,your policy,0,1094,1,0,53,0.4667,580.23,0.0,0.1142,0.0
+your policy,stand_in,your policy,0,1095,1,0,28,0.492,285.82,0.0,0.2506,0.0
+your policy,stand_in,your policy,0,1096,1,0,75,0.4966,845.1,0.0,0.3551,0.0
+your policy,stand_in,your policy,0,1097,1,0,26,0.4959,291.04,0.0,0.2242,0.0
+your policy,stand_in,your policy,0,1098,1,0,48,0.4939,491.69,0.0,0.2225,0.0
+your policy,stand_in,your policy,0,1099,1,0,55,0.4827,567.55,0.0,0.3945,0.0
+hand-written controller,stand_in,,,1000,1,0,32,0.4973,18.54,0.0,0.126,0.0
+hand-written controller,stand_in,,,1001,0,0,200,0.8073,434.16,0.0,0.4924,0.0
+hand-written controller,stand_in,,,1002,1,0,166,0.4972,223.69,0.0,0.1766,0.0
+hand-written controller,stand_in,,,1003,1,0,145,0.4975,212.47,0.0,0.1701,0.0
+hand-written controller,stand_in,,,1004,0,0,200,0.5482,597.62,0.0,0.1905,0.0
+hand-written controller,stand_in,,,1005,1,0,194,0.4974,476.96,0.0,0.077,0.0
+hand-written controller,stand_in,,,1006,1,0,104,0.4973,151.68,0.0,0.2136,0.0
+hand-written controller,stand_in,,,1007,0,0,200,0.555,377.85,0.0,0.2481,0.0
+hand-written controller,stand_in,,,1008,0,0,200,0.6358,385.48,0.0,0.4837,0.0
+hand-written controller,stand_in,,,1009,0,0,200,0.5622,485.68,0.0,0.1814,0.0
+hand-written controller,stand_in,,,1010,0,0,200,0.8497,390.26,0.0,0.3509,0.0
+hand-written controller,stand_in,,,1011,1,0,147,0.4978,221.66,0.0,0.1848,0.0
+hand-written controller,stand_in,,,1012,1,0,150,0.4981,314.88,0.0,0.2207,0.0
+hand-written controller,stand_in,,,1013,1,0,172,0.4974,401.01,0.0,0.3705,0.0
+hand-written controller,stand_in,,,1014,0,0,200,0.6964,286.15,0.0,0.3725,0.0
+hand-written controller,stand_in,,,1015,1,0,110,0.4989,134.84,0.0,0.1496,0.0
+hand-written controller,stand_in,,,1016,1,0,98,0.4971,181.07,0.0,0.2423,0.0
+hand-written controller,stand_in,,,1017,0,0,200,0.9025,546.1,0.0,0.2756,0.0
+hand-written controller,stand_in,,,1018,0,0,200,0.6966,253.79,0.0,0.5094,0.0
+hand-written controller,stand_in,,,1019,1,0,79,0.4989,136.69,0.0,0.2281,0.0
+hand-written controller,stand_in,,,1020,0,0,200,0.6332,370.98,0.0,0.4725,0.0
+hand-written controller,stand_in,,,1021,0,0,200,0.8545,517.51,0.0,0.1295,0.0
+hand-written controller,stand_in,,,1022,1,0,199,0.4995,457.87,0.0,0.1486,0.0
+hand-written controller,stand_in,,,1023,0,0,200,0.6461,505.02,0.0,0.4502,0.0
+hand-written controller,stand_in,,,1024,1,0,110,0.4941,199.14,0.0,0.1258,0.0
+hand-written controller,stand_in,,,1025,1,0,183,0.4957,351.08,0.0,0.1036,0.0
+hand-written controller,stand_in,,,1026,1,0,155,0.4951,287.73,0.0,0.1451,0.0
+hand-written controller,stand_in,,,1027,1,0,102,0.4985,245.18,0.0,0.6413,0.0
+hand-written controller,stand_in,,,1028,1,0,146,0.4966,211.73,0.0,0.1902,0.0
+hand-written controller,stand_in,,,1029,0,0,200,0.6088,547.59,0.0,0.3152,0.0
+hand-written controller,stand_in,,,1030,0,0,200,0.7348,476.73,0.0,0.2893,0.0
+hand-written controller,stand_in,,,1031,0,0,200,0.6879,378.09,0.0,0.3913,0.0
+hand-written controller,stand_in,,,1032,0,0,200,0.8682,535.53,0.0,0.128,0.0
+hand-written controller,stand_in,,,1033,0,0,200,0.8427,534.36,0.0,0.4621,0.0
+hand-written controller,stand_in,,,1034,0,0,200,0.594,613.22,0.0,0.4097,0.0
+hand-written controller,stand_in,,,1035,1,0,171,0.4984,281.45,0.0,0.1572,0.0
+hand-written controller,stand_in,,,1036,1,0,137,0.4993,212.59,0.0,0.1349,0.0
+hand-written controller,stand_in,,,1037,1,0,92,0.4943,158.99,0.0,0.1944,0.0
+hand-written controller,stand_in,,,1038,1,0,148,0.4993,287.88,0.0,0.2838,0.0
+hand-written controller,stand_in,,,1039,1,0,130,0.4964,148.45,0.0,0.1476,0.0
+hand-written controller,stand_in,,,1040,0,0,200,0.5317,367.28,0.0,0.1963,0.0
+hand-written controller,stand_in,,,1041,0,0,200,0.6847,450.9,0.0,0.3479,0.0
+hand-written controller,stand_in,,,1042,1,0,148,0.5,106.38,0.0,0.3619,0.0
+hand-written controller,stand_in,,,1043,1,0,155,0.4953,349.25,0.0,0.0715,0.0
+hand-written controller,stand_in,,,1044,0,0,200,0.9045,574.28,0.0,0.3329,0.0
+hand-written controller,stand_in,,,1045,1,0,182,0.4985,344.14,0.0,0.0881,0.0
+hand-written controller,stand_in,,,1046,1,0,136,0.4956,393.43,0.0,0.4098,0.0
+hand-written controller,stand_in,,,1047,1,0,84,0.4979,84.84,0.0,0.2223,0.0
+hand-written controller,stand_in,,,1048,0,0,200,0.7827,502.08,0.0,0.1385,0.0
+hand-written controller,stand_in,,,1049,1,0,170,0.4972,266.27,0.0,0.169,0.0
+hand-written controller,stand_in,,,1050,0,0,200,0.7309,415.34,0.0,0.2795,0.0
+hand-written controller,stand_in,,,1051,0,0,200,0.661,350.24,0.0,0.3652,0.0
+hand-written controller,stand_in,,,1052,1,0,66,0.4989,90.43,0.0,0.1692,0.0
+hand-written controller,stand_in,,,1053,0,0,200,0.5385,455.59,0.0,0.3446,0.0
+hand-written controller,stand_in,,,1054,0,0,200,0.5217,341.56,0.0,0.391,0.0
+hand-written controller,stand_in,,,1055,0,0,200,0.6331,322.13,0.0,0.3237,0.0
+hand-written controller,stand_in,,,1056,1,0,147,0.4926,378.89,0.0,0.2831,0.0
+hand-written controller,stand_in,,,1057,1,0,78,0.4985,106.78,0.0,0.4083,0.0
+hand-written controller,stand_in,,,1058,1,0,191,0.497,334.33,0.0,0.194,0.0
+hand-written controller,stand_in,,,1059,0,0,200,0.5464,80.29,0.0,0.4819,0.0
+hand-written controller,stand_in,,,1060,0,0,200,0.7052,634.02,0.0,0.1702,0.0
+hand-written controller,stand_in,,,1061,1,0,94,0.4977,135.05,0.0,0.2988,0.0
+hand-written controller,stand_in,,,1062,0,0,200,0.532,330.17,0.0,0.1424,0.0
+hand-written controller,stand_in,,,1063,1,0,187,0.4972,439.41,0.0,0.105,0.0
+hand-written controller,stand_in,,,1064,1,0,149,0.4961,281.16,0.0,0.1687,0.0
+hand-written controller,stand_in,,,1065,0,0,200,0.7539,563.56,0.0,0.5724,0.0
+hand-written controller,stand_in,,,1066,0,0,200,0.5453,371.15,0.0,0.261,0.0
+hand-written controller,stand_in,,,1067,0,0,200,0.7772,675.48,0.0,0.333,0.0
+hand-written controller,stand_in,,,1068,1,0,186,0.4968,415.91,0.0,0.1662,0.0
+hand-written controller,stand_in,,,1069,0,0,200,0.5681,623.24,0.0,0.1429,0.0
+hand-written controller,stand_in,,,1070,0,0,200,0.5971,558.94,0.0,0.2812,0.0
+hand-written controller,stand_in,,,1071,1,0,171,0.4974,415.11,0.0,0.1597,0.0
+hand-written controller,stand_in,,,1072,0,0,200,0.5525,342.79,0.0,0.2353,0.0
+hand-written controller,stand_in,,,1073,1,0,175,0.4971,299.74,0.0,0.0191,0.0
+hand-written controller,stand_in,,,1074,0,0,200,0.8782,554.91,0.0,0.2989,0.0
+hand-written controller,stand_in,,,1075,0,0,200,0.6774,519.02,0.0,0.2273,0.0
+hand-written controller,stand_in,,,1076,0,0,200,0.5875,362.61,0.0,0.2135,0.0
+hand-written controller,stand_in,,,1077,0,0,200,1.0073,553.04,0.0,0.8454,0.0
+hand-written controller,stand_in,,,1078,1,0,186,0.4979,529.31,0.0,0.1275,0.0
+hand-written controller,stand_in,,,1079,0,0,200,0.8163,640.81,0.0,0.1184,0.0
+hand-written controller,stand_in,,,1080,0,0,200,0.844,287.62,0.0,0.6418,0.0
+hand-written controller,stand_in,,,1081,1,0,136,0.4922,293.08,0.0,0.4037,0.0
+hand-written controller,stand_in,,,1082,1,0,103,0.4964,164.32,0.0,0.1362,0.0
+hand-written controller,stand_in,,,1083,0,0,200,0.5128,423.98,0.0,0.0857,0.0
+hand-written controller,stand_in,,,1084,0,0,200,0.67,417.24,0.0,0.3188,0.0
+hand-written controller,stand_in,,,1085,1,0,156,0.4984,231.86,0.0,0.1202,0.0
+hand-written controller,stand_in,,,1086,1,0,192,0.4984,481.6,0.0,0.2062,0.0
+hand-written controller,stand_in,,,1087,1,0,174,0.4997,255.34,0.0,0.1008,0.0
+hand-written controller,stand_in,,,1088,0,0,200,0.8827,435.67,0.0,0.3934,0.0
+hand-written controller,stand_in,,,1089,1,0,161,0.4969,318.59,0.0,0.3252,0.0
+hand-written controller,stand_in,,,1090,1,0,167,0.4976,269.12,0.0,0.1387,0.0
+hand-written controller,stand_in,,,1091,1,0,156,0.4955,382.73,0.0,0.1433,0.0
+hand-written controller,stand_in,,,1092,1,0,131,0.4986,276.43,0.0,0.3114,0.0
+hand-written controller,stand_in,,,1093,1,0,169,0.4995,270.93,0.0,0.3544,0.0
+hand-written controller,stand_in,,,1094,1,0,175,0.4993,376.64,0.0,0.1776,0.0
+hand-written controller,stand_in,,,1095,1,0,129,0.4953,162.83,0.0,0.2332,0.0
+hand-written controller,stand_in,,,1096,1,0,177,0.4973,532.67,0.0,0.3494,0.0
+hand-written controller,stand_in,,,1097,1,0,126,0.4978,139.55,0.0,0.1922,0.0
+hand-written controller,stand_in,,,1098,0,0,200,0.6985,314.01,0.0,0.2972,0.0
+hand-written controller,stand_in,,,1099,1,0,150,0.4992,282.04,0.0,0.421,0.0
+random commands,stand_in,,,1000,0,0,200,0.9557,1771.24,0.0,0.1815,0.0
+random commands,stand_in,,,1001,0,0,200,3.1368,1778.25,0.0,0.507,0.0
+random commands,stand_in,,,1002,0,0,200,1.9558,1804.02,0.0,0.153,0.0
+random commands,stand_in,,,1003,0,0,200,2.1577,1813.76,0.0,0.1335,0.0
+random commands,stand_in,,,1004,0,0,200,3.6848,1768.37,0.0,0.2099,0.0
+random commands,stand_in,,,1005,0,0,200,3.7874,1825.85,0.0,0.0345,0.0
+random commands,stand_in,,,1006,0,0,200,2.0776,1817.45,0.0,0.2211,0.0
+random commands,stand_in,,,1007,0,0,200,3.5645,1770.43,0.0,0.2571,0.0
+random commands,stand_in,,,1008,0,0,200,3.4856,1763.73,0.0,0.4621,0.0
+random commands,stand_in,,,1009,0,0,200,3.6762,1832.48,0.0,0.2043,0.0
+random commands,stand_in,,,1010,0,0,200,3.5609,1841.2,0.0,0.3154,0.0
+random commands,stand_in,,,1011,0,0,200,1.9732,1804.95,0.0,0.1822,0.0
+random commands,stand_in,,,1012,0,0,200,2.6286,1795.95,0.0,0.2502,0.0
+random commands,stand_in,,,1013,0,0,200,3.0715,1812.75,0.0,0.3387,0.0
+random commands,stand_in,,,1014,0,0,200,2.1957,1790.21,0.0,0.2791,0.0
+random commands,stand_in,,,1015,0,0,200,1.7158,1796.97,0.0,0.1734,0.0
+random commands,stand_in,,,1016,0,0,200,1.737,1824.13,0.0,0.2469,0.0
+random commands,stand_in,,,1017,0,0,200,4.5233,1708.49,0.0,0.3637,0.0
+random commands,stand_in,,,1018,0,0,200,2.4849,1827.56,0.0,0.4935,0.0
+random commands,stand_in,,,1019,0,0,200,1.4065,1766.68,0.0,0.1891,0.0
+random commands,stand_in,,,1020,0,0,200,2.8036,1854.19,0.0,0.5334,0.0
+random commands,stand_in,,,1021,0,0,200,4.089,1810.54,0.0,0.1335,0.0
+random commands,stand_in,,,1022,0,0,200,4.1054,1810.43,0.0,0.0472,0.0
+random commands,stand_in,,,1023,0,0,200,3.7189,1853.08,0.0,0.3851,0.0
+random commands,stand_in,,,1024,0,0,200,2.0687,1792.99,0.0,0.0967,0.0
+random commands,stand_in,,,1025,0,0,200,2.4061,1846.32,0.0,0.112,0.0
+random commands,stand_in,,,1026,0,0,200,2.2546,1764.5,0.0,0.0592,0.0
+random commands,stand_in,,,1027,0,0,200,3.3201,1779.41,0.0,0.6474,0.0
+random commands,stand_in,,,1028,0,0,200,2.6526,1818.1,0.0,0.1644,0.0
+random commands,stand_in,,,1029,0,0,200,3.8011,1839.72,0.0,0.351,0.0
+random commands,stand_in,,,1030,0,0,200,3.6304,1777.88,0.0,0.3187,0.0
+random commands,stand_in,,,1031,0,0,200,2.8884,1773.57,0.0,0.3421,0.0
+random commands,stand_in,,,1032,0,0,200,4.2269,1786.66,0.0,0.1149,0.0
+random commands,stand_in,,,1033,0,0,200,3.9514,1835.29,0.0,0.4557,0.0
+random commands,stand_in,,,1034,0,0,200,3.9399,1830.18,0.0,0.348,0.0
+random commands,stand_in,,,1035,0,0,200,1.8651,1802.79,0.0,0.203,0.0
+random commands,stand_in,,,1036,0,0,200,1.8559,1848.43,0.0,0.1348,0.0
+random commands,stand_in,,,1037,0,0,200,1.4394,1791.22,0.0,0.2301,0.0
+random commands,stand_in,,,1038,0,0,200,3.2494,1768.66,0.0,0.2955,0.0
+random commands,stand_in,,,1039,0,0,200,2.3282,1788.41,0.0,0.2073,0.0
+random commands,stand_in,,,1040,0,0,200,3.3124,1774.81,0.0,0.2302,0.0
+random commands,stand_in,,,1041,0,0,200,3.7163,1807.37,0.0,0.305,0.0
+random commands,stand_in,,,1042,0,0,200,1.4803,1752.65,0.0,0.3403,0.0
+random commands,stand_in,,,1043,0,0,200,3.4767,1758.21,0.0,0.0449,0.0
+random commands,stand_in,,,1044,0,0,200,4.1155,1848.04,0.0,0.2684,0.0
+random commands,stand_in,,,1045,0,0,200,2.9585,1768.47,0.0,0.0532,0.0
+random commands,stand_in,,,1046,0,0,200,3.3021,1760.79,0.0,0.4759,0.0
+random commands,stand_in,,,1047,0,0,200,1.272,1844.28,0.0,0.1909,0.0
+random commands,stand_in,,,1048,0,0,200,3.756,1815.21,0.0,0.1445,0.0
+random commands,stand_in,,,1049,0,0,200,2.5782,1813.71,0.0,0.1701,0.0
+random commands,stand_in,,,1050,0,0,200,3.2982,1803.09,0.0,0.2192,0.0
+random commands,stand_in,,,1051,0,0,200,3.2111,1795.2,0.0,0.4238,0.0
+random commands,stand_in,,,1052,0,0,200,1.097,1817.22,0.0,0.1933,0.0
+random commands,stand_in,,,1053,0,0,200,3.5022,1748.21,0.0,0.2659,0.0
+random commands,stand_in,,,1054,0,0,200,3.2821,1769.33,0.0,0.3353,0.0
+random commands,stand_in,,,1055,0,0,200,2.9152,1770.72,0.0,0.3383,0.0
+random commands,stand_in,,,1056,0,0,200,2.7262,1807.32,0.0,0.3328,0.0
+random commands,stand_in,,,1057,0,0,200,1.2464,1763.01,0.0,0.4069,0.0
+random commands,stand_in,,,1058,0,0,200,3.7406,1832.52,0.0,0.0799,0.0
+random commands,stand_in,,,1059,0,0,200,0.6927,1792.88,0.0,0.4704,0.0
+random commands,stand_in,,,1060,0,0,200,4.5643,1840.18,0.0,0.1929,0.0
+random commands,stand_in,,,1061,0,0,200,1.3069,1801.13,0.0,0.2522,0.0
+random commands,stand_in,,,1062,0,0,200,2.4386,1786.04,0.0,0.1528,0.0
+random commands,stand_in,,,1063,0,0,200,3.9637,1814.22,0.0,0.0884,0.0
+random commands,stand_in,,,1064,0,0,200,2.3547,1729.99,0.0,0.1804,0.0
+random commands,stand_in,,,1065,0,0,200,4.2653,1775.74,0.0,0.4687,0.0
+random commands,stand_in,,,1066,0,0,200,3.0032,1831.1,0.0,0.2801,0.0
+random commands,stand_in,,,1067,0,0,200,4.5011,1783.36,0.0,0.2845,0.0
+random commands,stand_in,,,1068,0,0,200,2.5091,1769.32,0.0,0.16,0.0
+random commands,stand_in,,,1069,0,0,200,4.1554,1785.95,0.0,0.1536,0.0
+random commands,stand_in,,,1070,0,0,200,3.4997,1751.83,0.0,0.2972,0.0
+random commands,stand_in,,,1071,0,0,200,3.2654,1848.28,0.0,0.1654,0.0
+random commands,stand_in,,,1072,0,0,200,3.1375,1801.77,0.0,0.2193,0.0
+random commands,stand_in,,,1073,0,0,200,2.74,1788.35,0.0,0.0534,0.0
+random commands,stand_in,,,1074,0,0,200,4.2474,1800.46,0.0,0.292,0.0
+random commands,stand_in,,,1075,0,0,200,4.0779,1721.04,0.0,0.2219,0.0
+random commands,stand_in,,,1076,0,0,200,3.1881,1813.85,0.0,0.2697,0.0
+random commands,stand_in,,,1077,0,0,200,3.9056,1852.18,0.0,0.7081,0.0
+random commands,stand_in,,,1078,0,0,200,3.6468,1833.01,0.0,0.2412,0.0
+random commands,stand_in,,,1079,0,0,200,4.7924,1792.07,0.0,0.2844,0.0
+random commands,stand_in,,,1080,0,0,200,3.0206,1805.94,0.0,0.6831,0.0
+random commands,stand_in,,,1081,0,0,200,2.3105,1804.52,0.0,0.3014,0.0
+random commands,stand_in,,,1082,0,0,200,1.902,1844.9,0.0,0.1418,0.0
+random commands,stand_in,,,1083,0,0,200,3.1227,1819.35,0.0,0.1517,0.0
+random commands,stand_in,,,1084,0,0,200,3.3447,1861.21,0.0,0.2924,0.0
+random commands,stand_in,,,1085,0,0,200,2.6183,1801.75,0.0,0.1228,0.0
+random commands,stand_in,,,1086,0,0,200,3.6726,1796.16,0.0,0.2104,0.0
+random commands,stand_in,,,1087,0,0,200,2.6349,1814.28,0.0,0.0832,0.0
+random commands,stand_in,,,1088,0,0,200,3.6414,1816.26,0.0,0.3528,0.0
+random commands,stand_in,,,1089,0,0,200,3.0981,1793.53,0.0,0.2878,0.0
+random commands,stand_in,,,1090,0,0,200,2.102,1771.88,0.0,0.1626,0.0
+random commands,stand_in,,,1091,0,0,200,3.7523,1760.16,0.0,0.1424,0.0
+random commands,stand_in,,,1092,0,0,200,3.1742,1765.5,0.0,0.2863,0.0
+random commands,stand_in,,,1093,0,0,200,3.0712,1793.12,0.0,0.3165,0.0
+random commands,stand_in,,,1094,0,0,200,2.6414,1762.55,0.0,0.1326,0.0
+random commands,stand_in,,,1095,0,0,200,1.0924,1818.24,0.0,0.2318,0.0
+random commands,stand_in,,,1096,0,0,200,4.0117,1792.31,0.0,0.3595,0.0
+random commands,stand_in,,,1097,0,0,200,1.1047,1760.51,0.0,0.2446,0.0
+random commands,stand_in,,,1098,0,0,200,2.4492,1732.81,0.0,0.1635,0.0
+random commands,stand_in,,,1099,0,0,200,2.8886,1761.14,0.0,0.3342,0.0

@@ -679,6 +679,11 @@ class MuJoCoArenaCore:
         # (dynamics_model._relative_to_water). Set before each step().
         self.current_world = None
 
+    def set_params(self, params: CalibrationParameters) -> None:
+        """Swap the parameter set between episodes (e.g. a buoyancy change, buoyancy.py)."""
+        params.validate()
+        self.params = params
+
     def reset(self, position: np.ndarray = None, nu: np.ndarray = None) -> ArenaState:
         """Same signature/defaults as ArenaCore.reset() exactly --
         orientation is always reset to identity here too, matching
