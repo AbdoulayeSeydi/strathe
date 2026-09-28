@@ -219,6 +219,10 @@ def link_summary(rows) -> list:
                     "collision_rate": float(np.mean([r["collision"] for r in rs])),
                     "acoustic_delivery_share": nanmean(r["acoustic_delivery_share"] for r in rs),
                     "acoustic_skipped_per_episode": float(np.mean([r["acoustic_skipped"] for r in rs])),
+                    # of the skipped acoustic beacons, the share whose optical copy was lost too
+                    "skipped_uncovered_share": (sum(r.get("acoustic_skipped_uncovered", 0) for r in rs)
+                                                / sum(r["acoustic_skipped"] for r in rs)
+                                                if sum(r["acoustic_skipped"] for r in rs) else float("nan")),
                     "optical_up_fraction": nanmean(r["optical_up_fraction"] for r in rs),
                     "belief_updates_optical_share": nanmean(r["belief_updates_optical_share"] for r in rs),
                     "median_belief_age_s": nanmedian(r["median_belief_age_s"] for r in rs)})
@@ -276,6 +280,10 @@ def link_lines(cfg, lsum, vs_acoustic, pointing) -> list:
     L.append("Optical delivery is judged on the true positions and attitudes (the light follows the real vehicle); "
              "the beacon carries what the sender measured. A belief keeps whichever beacon was sent most recently, "
              "whichever link it came on, so a late acoustic copy never rolls it back.\n")
+    L.append("**No latency advantage is modelled.** Messages are delivered on the 0.1 s tick: anything sent on one "
+             "tick with any latency above zero arrives on the next. Optical's 1 ms and acoustic's few milliseconds at "
+             "these ranges (under 150 m) are therefore identical here. Optical's advantage in this simulation is its "
+             "send rate (every tick) and its loss, not its latency.\n")
     if "hybrid" in comm.links():
         pol, why = next(lc for lc, _ in comm.link_configs() if lc.link == "hybrid").effective_hybrid_policy()
         if why:
@@ -283,17 +291,19 @@ def link_lines(cfg, lsum, vs_acoustic, pointing) -> list:
         L.append("*Why `optical_first` exists:* acoustic energy and airtime aren't modelled here, so sending every "
                  "beacon on both links (`redundant`) is never worse in this simulation. `optical_first` saves acoustic "
                  "energy and channel time, which starts to matter once three or more vehicles share one acoustic "
-                 f"channel. Here a vehicle skips its acoustic beacon while it has heard its teammate optically in the "
-                 f"last {next(lc for lc, _ in comm.link_configs() if lc.link == 'hybrid').link_up_timeout:g} s.\n")
-    L.append("| Comm | Success | Collision | Acoustic delivered | Acoustic beacons skipped / episode | Optical up | "
-             "Belief updates via optical | Median belief age |")
-    L.append("|---|---|---|---|---|---|---|---|")
+                 f"channel. Here a vehicle skips its acoustic beacon only if an optical message from its teammate "
+                 f"arrived in the last {next(lc for lc, _ in comm.link_configs() if lc.link == 'hybrid').link_up_ticks} "
+                 f"tick(s); the table counts skipped beacons whose optical copy was lost too.\n")
+    L.append("| Comm | Success | Collision | Acoustic delivered | Acoustic beacons skipped / episode | "
+             "Skipped with optical copy lost | Optical up | Belief updates via optical | Median belief age |")
+    L.append("|---|---|---|---|---|---|---|---|---|")
 
     def f(x, pct=True):
         return "n/a" if not np.isfinite(x) else (_pct(x) if pct else f"{x:.2f} s")
     for s in sorted(lsum, key=lambda s: s["comm"]):
         L.append(f"| {s['comm']} | {_pct(s['success_rate'])} | {_pct(s['collision_rate'])} | "
                  f"{f(s['acoustic_delivery_share'])} | {s['acoustic_skipped_per_episode']:.1f} | "
+                 f"{f(s['skipped_uncovered_share'])} | "
                  f"{f(s['optical_up_fraction'])} | {f(s['belief_updates_optical_share'])} | "
                  f"{f(s['median_belief_age_s'], pct=False)} |")
     L.append("\n*Optical up* = share of optical beacons that got through; *belief updates via optical* = share of "

@@ -42,7 +42,7 @@ make a valid experiment are refused before anything runs: a hold time longer tha
 separation inside the collision radius, or a headline pair that isn't among the teammate models. Only
 custom loss probabilities, speed of sound, `physics_params`/`physics_alpha` teammate models, reward
 weights and the finer optical settings (a custom terminal layout, the delivery curve's width, the modem
-latency, `link_up_timeout_s`) need YAML editing (LIMITS.md).
+latency, `link_up_ticks`) need YAML editing (LIMITS.md).
 
 Every field reaches the simulation. The v1 runner validated task settings and
 comm overrides and then ignored them; both are now covered by regression tests
@@ -429,7 +429,7 @@ python strathe.py train-fleet --params <calibration> --link hybrid --optical-wat
 
 **What the optical link is.** A second link beside the acoustic one:
 - **Range:** short, set by water clarity.
-- **Latency:** 1 ms, the modem's processing delay.
+- **Latency:** 1 ms, the modem's processing delay. Delivery is quantised to the 0.1 s tick, so optical and acoustic messages both arrive on the next tick: **no latency advantage is modelled**. Optical's edge in the simulation is its send rate and its loss.
 - **Bandwidth:** Mbps, so a beacon can go every tick.
 
 **How delivery works:**
@@ -451,7 +451,7 @@ python strathe.py train-fleet --params <calibration> --link hybrid --optical-wat
 - **`compare_omni: true`** runs every optical and hybrid condition again with omni terminals on the same episodes. The report's "What pointing costs" table is the paired difference.
 
 **Hybrid policies:**
-- **`optical_first`:** optical beacons at their own rate. A vehicle skips its acoustic beacon while the optical link is up, meaning it heard its teammate optically within `link_up_timeout_s` (default 3 optical intervals, YAML only).
+- **`optical_first`:** optical beacons at their own rate. A vehicle skips its acoustic beacon only while the optical link is up, meaning an optical message from its teammate arrived within the last `link_up_ticks` ticks (default 1, YAML only). The report counts skipped acoustic beacons whose optical copy was lost too.
 - **Asymmetric terminals** (beam ≠ receiver half-angle): hearing your teammate doesn't mean it hears you. `optical_first` then runs as `redundant`, and the report says so.
 - **`redundant`:** every beacon on both links.
 - **Why keep `optical_first`?** Acoustic energy and airtime aren't modelled, so `redundant` is never worse here. `optical_first` becomes the realistic choice once more vehicles share one acoustic channel.

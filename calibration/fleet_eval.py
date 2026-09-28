@@ -61,7 +61,7 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
     sent = {"acoustic": 0, "optical": 0}
     got = {"acoustic": 0, "optical": 0}
     updates = {"acoustic": 0, "optical": 0}
-    skipped = 0
+    skipped = uncovered = 0
     target = sim.cfg.task.target_separation
     info = {"terminal_reason": None}
     steps = 0
@@ -80,6 +80,7 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
             for k in links:
                 got[k] += 1
         skipped += info["acoustic_skipped"]
+        uncovered += info["acoustic_skipped_uncovered"]
         ages += [a for a in info["belief_ages"] if np.isfinite(a)]
         if term or trunc:
             break
@@ -97,6 +98,7 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
         "buoyancy_offset_n": float(info.get("buoyancy_offset_n", 0.0)),
         # per link: beacons sent / delivered (a delivered copy may still be older than what the belief holds)
         "acoustic_sent": sent["acoustic"], "acoustic_delivered": got["acoustic"], "acoustic_skipped": skipped,
+        "acoustic_skipped_uncovered": uncovered,
         "optical_sent": sent["optical"], "optical_delivered": got["optical"],
         "acoustic_delivery_share": got["acoustic"] / sent["acoustic"] if sent["acoustic"] else float("nan"),
         # share of optical sends that got through: the fraction of time the optical link was up

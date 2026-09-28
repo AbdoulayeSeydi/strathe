@@ -1,6 +1,6 @@
 # Stress test: optical and hybrid links (PROJECT_STATUS.md #59)
 
-2026-09-27 · 5125 episodes · 4.5 min · `python stress_test_optical.py`
+2026-09-27 · 5125 episodes · 6.2 min · `python stress_test_optical.py`
 
 ## What was run
 
@@ -16,7 +16,8 @@
 |---|---|---|
 | Every episode runs to the end with finite observations and consistent bookkeeping | PASS | 5125/5125 episodes |
 | Optical deliveries nested by water: clear >= coastal >= custom (1/m) >= harbour, episode by episode | PASS | 360/360 episode sets |
-| Forward cones deliver nothing from the line start (clean, zero policy) | PASS | 144/144 episodes with no optical delivery |
+| Forward cones deliver nothing from the line start (clean, zero policy, whole episode) | PASS | 144/144 episodes with no optical delivery |
+| Forward cones: the first optical beacons (tick 1) deliver nothing (noisy, zero policy) | PASS | 144/144 episodes |
 | Hybrid redundant: acoustic sends, deliveries and draws identical to acoustic only | PASS | 480/480 |
 | Hybrid redundant: the teammate belief is never older than with acoustic only, tick by tick | PASS | 480/480 |
 | Hybrid optical_first: acoustic draws paired with acoustic only (sent + skipped = sent; same next draw) | PASS | 480/480 |
@@ -46,6 +47,9 @@ With omnidirectional terminals, by water (every policy):
 | custom (c = 1/m) | 97% |
 | harbor | 59% |
 
+Hybrid optical_first across the grid skipped 6,025 acoustic beacons; for 3.2% of them the optical copy sent the same tick was lost too, so the teammate got that state on neither link (a vehicle skips only right after an optical message arrived: `link_up_ticks` = 1).
+
+
 Cone terminals deliver little because the shipped policies were never rewarded for holding attitude: they roll and pitch freely while holding formation (#50), so a narrow cone rarely stays on the teammate. Omni terminals are the fair baseline for these policies.
 
-**10/10 checks passed.**
+**11/11 checks passed.**

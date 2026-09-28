@@ -219,7 +219,7 @@ class CommunicationConfig(BaseModel):
     link: Union[LinkName, list[LinkName]] = "acoustic"
     optical: Optional[OpticalBlock] = None
     hybrid_policy: Literal["optical_first", "redundant"] = "optical_first"
-    link_up_timeout_s: Optional[float] = Field(default=None, gt=0, le=60)
+    link_up_ticks: int = Field(default=1, ge=1, le=600)   # optical_first: "up" = heard within this many ticks
 
     def links(self) -> list:
         return list(dict.fromkeys(self.link)) if isinstance(self.link, list) else [self.link]
@@ -236,7 +236,7 @@ class CommunicationConfig(BaseModel):
             variants = [False] + ([True] if self.optical.compare_omni else [])
             for omni in variants:
                 for oc in self.optical.configs(omni=omni):
-                    lc = LinkConfig(name, oc, self.hybrid_policy, self.link_up_timeout_s)
+                    lc = LinkConfig(name, oc, self.hybrid_policy, self.link_up_ticks)
                     lc.validate()
                     out.append((lc, "omni" if oc.omni else oc.pointing_label))
         return out

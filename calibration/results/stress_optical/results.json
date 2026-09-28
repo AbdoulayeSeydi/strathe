@@ -11,9 +11,14 @@
       "detail": "360/360 episode sets"
     },
     {
-      "name": "Forward cones deliver nothing from the line start (clean, zero policy)",
+      "name": "Forward cones deliver nothing from the line start (clean, zero policy, whole episode)",
       "passed": true,
       "detail": "144/144 episodes with no optical delivery"
+    },
+    {
+      "name": "Forward cones: the first optical beacons (tick 1) deliver nothing (noisy, zero policy)",
+      "passed": true,
+      "detail": "144/144 episodes"
     },
     {
       "name": "Hybrid redundant: acoustic sends, deliveries and draws identical to acoustic only",
@@ -52,12 +57,12 @@
     }
   ],
   "episodes": 5125,
-  "elapsed_s": 272.9,
+  "elapsed_s": 370.7,
   "failures": [],
   "optical_delivered_by_terminals": {
     "omni": 0.8894806809157142,
     "forward_cone": 0.0020912275684564236,
-    "fore_aft_cones": 0.043762492297981695,
+    "fore_aft_cones": 0.04375920415952875,
     "down_cone": 0.02058041461624535,
     "asymmetric": 0.08989839264319169
   },
@@ -66,5 +71,7 @@
     "coastal": 0.9907346284420974,
     "custom": 0.9688734701744242,
     "harbor": 0.589295516925892
-  }
+  },
+  "optical_first_skipped": 6025,
+  "optical_first_skipped_uncovered_share": 0.03186721991701245
 }

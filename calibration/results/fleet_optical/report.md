@@ -1,8 +1,12 @@
 # Optical and hybrid links with the shipped fleet policies (PROJECT_STATUS.md #59)
 
-2026-09-27 · 58,800 episodes · 21 min · `python run_optical_study.py` · criteria fixed in advance: [criteria.md](criteria.md)
+2026-09-28 · 58,800 episodes · 643 min wall clock, most of it with the Mac asleep (the first run took 21 min) · `python run_optical_study.py` · criteria fixed in advance: [criteria.md](criteria.md)
 
-**Read this first.** The optical model is **uncalibrated**: the water values are rough textbook figures and the delivery curve is a placeholder (50% delivery at 30 m in clear water, ~15 m coastal, ~4 m harbour, when pointed). Every number here is conditional on those assumptions. The policies are the shipped PPO fleet policies, trained on acoustic links only: this measures what a better link gives policies that never saw one, not what a policy trained to exploit it could do.
+**Read this first.** The optical model is **uncalibrated**: the water values are rough textbook figures and the delivery curve is a placeholder (50% delivery at 30 m in clear water, ~15 m coastal, ~4 m harbour, when pointed). Every number here is conditional on those assumptions. The policies are the shipped PPO fleet policies, trained on acoustic links only, with no input saying whether the optical link is up (only the teammate-belief age shows it). This study shows whether **fresher teammate information helps existing policies**. It **can't** show whether a fleet learns to stay within optical range and pointed at its teammate: that needs policies trained with `--link hybrid`, the follow-up study (criteria.md, addendum).
+
+What the optical link adds here is **high-rate state sharing**: every tick, the teammate's measured state and the thrust it delivered on that tick. That is not intent sharing (planned commands or a trajectory), which stays open (#48). **No latency effect is modelled:** delivery is quantised to the 0.1 s tick, so optical's 1 ms and acoustic's few ms both arrive on the next tick; the gains below come from send rate and loss.
+
+Hybrid `optical_first` skips a vehicle's acoustic beacon only if an optical message from its teammate arrived on the previous tick (`link_up_ticks` = 1).
 
 **Gate (integration):** 58,800 episodes, 0 bookkeeping failures, every link condition ran with every policy. PASSED.
 
@@ -42,27 +46,27 @@ Optical only (no acoustic channel), against each acoustic condition:
 
 ## 2. Freshness and 3. water
 
-| Condition | Success | Collisions | Optical beacons delivered | Belief updates via optical | Median belief age |
-|---|---|---|---|---|---|
-| L2@1s | 100% | 0% | n/a | 0% | 0.70 s |
-| L2@1s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s |
-| L2@1s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s |
-| L2@1s hybrid/harbor | 100% | 0% | 82% | 99% | 0.10 s |
-| L2@3s | 85% | 1% | n/a | 0% | 1.75 s |
-| L2@3s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s |
-| L2@3s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s |
-| L2@3s hybrid/harbor | 100% | 0% | 81% | 100% | 0.10 s |
-| L3a@1s | 97% | 1% | n/a | 0% | 1.05 s |
-| L3a@1s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s |
-| L3a@1s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s |
-| L3a@1s hybrid/harbor | 100% | 0% | 81% | 99% | 0.10 s |
-| L3a@3s | 67% | 3% | n/a | 0% | 2.50 s |
-| L3a@3s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s |
-| L3a@3s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s |
-| L3a@3s hybrid/harbor | 100% | 0% | 81% | 100% | 0.10 s |
-| optical/clear | 100% | 0% | 98% | 100% | 0.10 s |
-| optical/coastal | 100% | 0% | 97% | 100% | 0.10 s |
-| optical/harbor | 99% | 0% | 80% | 100% | 0.10 s |
+| Condition | Success | Collisions | Optical beacons delivered | Belief updates via optical | Median belief age | Acoustic skipped / episode | Skipped with optical copy lost |
+|---|---|---|---|---|---|---|---|
+| L2@1s | 100% | 0% | n/a | 0% | 0.70 s | 0.0 | n/a |
+| L2@1s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s | 8.1 | 0% |
+| L2@1s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s | 8.1 | 0% |
+| L2@1s hybrid/harbor | 100% | 0% | 82% | 99% | 0.10 s | 7.1 | 6% |
+| L2@3s | 85% | 1% | n/a | 0% | 1.75 s | 0.0 | n/a |
+| L2@3s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s | 2.0 | 0% |
+| L2@3s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s | 2.0 | 0% |
+| L2@3s hybrid/harbor | 100% | 0% | 81% | 100% | 0.10 s | 2.1 | 4% |
+| L3a@1s | 97% | 1% | n/a | 0% | 1.05 s | 0.0 | n/a |
+| L3a@1s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s | 8.1 | 0% |
+| L3a@1s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s | 8.1 | 0% |
+| L3a@1s hybrid/harbor | 100% | 0% | 81% | 99% | 0.10 s | 7.2 | 6% |
+| L3a@3s | 67% | 3% | n/a | 0% | 2.50 s | 0.0 | n/a |
+| L3a@3s hybrid/clear | 100% | 0% | 98% | 100% | 0.10 s | 2.0 | 0% |
+| L3a@3s hybrid/coastal | 100% | 0% | 97% | 100% | 0.10 s | 2.0 | 0% |
+| L3a@3s hybrid/harbor | 100% | 0% | 80% | 100% | 0.10 s | 2.1 | 4% |
+| optical/clear | 100% | 0% | 98% | 100% | 0.10 s | 0.0 | n/a |
+| optical/coastal | 100% | 0% | 97% | 100% | 0.10 s | 0.0 | n/a |
+| optical/harbor | 99% | 0% | 80% | 100% | 0.10 s | 0.0 | n/a |
 
 ## 4. optical_first vs redundant (same episodes)
 

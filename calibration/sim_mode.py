@@ -60,6 +60,12 @@ def link_from_flags(link: Optional[str] = None, hybrid_policy: Optional[str] = N
         raise ValueError("--hybrid-policy only applies to --link hybrid")
     lc = LinkConfig(link, OpticalLinkConfig(**given), hybrid_policy or "optical_first")
     lc.validate()
+    from fleet_env import FleetConfig
+    dt = FleetConfig().dt
+    k = lc.optical.beacon_interval_s / dt
+    if abs(k - round(k)) > 1e-9 or round(k) < 1:
+        raise ValueError(f"--optical-interval must be a positive multiple of the {dt:g} s tick, "
+                         f"got {lc.optical.beacon_interval_s}")
     return lc
 
 

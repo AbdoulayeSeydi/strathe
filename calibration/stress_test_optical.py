@@ -16,7 +16,9 @@ A. Grid: every link (acoustic, optical, hybrid optical_first, hybrid
 B. Exact checks with the zero policy (no commands, so the vehicles move the
    same way whatever the link, and differences are the link's alone):
    - optical delivery is nested by water: clear >= coastal >= custom >= harbour
-   - forward cones deliver nothing from the line start (clean)
+   - forward cones deliver nothing from the line start: over the whole
+     episode in clean mode; in noisy mode (the disturbance rotates the
+     vehicles a little) only the first optical beacons, sent on tick 1
    - hybrid redundant: acoustic deliveries identical to acoustic only, and the
      teammate belief never older
    - acoustic drops paired: a hybrid run uses exactly the acoustic draws an
@@ -127,7 +129,8 @@ def run_combo(c: dict) -> dict:
         obs = sim.reset(comm_seed=c["seed"], initial_separation=c["d0"], closing_speed=c["v0"])
         h = hashlib.sha256()
         tot = {"acoustic_sent": 0, "optical_sent": 0, "acoustic_skipped": 0, "acoustic_delivered": 0,
-               "optical_delivered": 0, "updates_optical": 0, "updates_acoustic": 0}
+               "optical_delivered": 0, "updates_optical": 0, "updates_acoustic": 0, "skipped_uncovered": 0,
+               "first_optical_delivered": 0}
         ages, trace, steps, reason = [], [], 0, None
         while True:
             a, _ = pol.predict(np.stack(obs), deterministic=True)
@@ -141,6 +144,9 @@ def run_combo(c: dict) -> dict:
             tot["acoustic_sent"] += info["sent"]["acoustic"]
             tot["optical_sent"] += info["sent"]["optical"]
             tot["acoustic_skipped"] += info["acoustic_skipped"]
+            tot["skipped_uncovered"] += info["acoustic_skipped_uncovered"]
+            if steps == 2:   # what the tick-1 optical beacons delivered
+                tot["first_optical_delivered"] = sum(x.count("optical") for x in info["delivered_by"])
             tot["updates_optical"] += info["belief_updates"]["optical"]
             tot["updates_acoustic"] += info["belief_updates"]["acoustic"]
             for links in info["delivered_by"]:
@@ -269,8 +275,12 @@ def exact_checks(rows) -> list:
 
     fwd = [by[(k, l, w, "forward_cone")] for k in keys if k[0] == "clean" for l in LINKS[1:] for w in WATERS]
     leaked = [r for r in fwd if r["optical_delivered"]]
-    checks.append(("Forward cones deliver nothing from the line start (clean, zero policy)", not leaked,
+    checks.append(("Forward cones deliver nothing from the line start (clean, zero policy, whole episode)", not leaked,
                    f"{len(fwd) - len(leaked)}/{len(fwd)} episodes with no optical delivery"))
+    fwd_n = [by[(k, l, w, "forward_cone")] for k in keys if k[0] == "noisy" for l in LINKS[1:] for w in WATERS]
+    leaked_n = [r for r in fwd_n if r["first_optical_delivered"]]
+    checks.append(("Forward cones: the first optical beacons (tick 1) deliver nothing (noisy, zero policy)",
+                   not leaked_n, f"{len(fwd_n) - len(leaked_n)}/{len(fwd_n)} episodes"))
 
     red_bad, age_bad, n_red = [], [], 0
     for k in keys:
@@ -358,6 +368,9 @@ def main(argv=None) -> int:
     desc = {t: up([r for r in ok if r["terminals"] == t and r["link"] != "acoustic" and r["policy"] != "zero"])
             for t in TERMINALS}
     desc_water = {w: up([r for r in ok if r["water"] == w and r["terminals"] == "omni"]) for w in WATERS}
+    of = [r for r in ok if r["link"] == "hybrid" and r["terminals"] != "asymmetric"]
+    n_skip = sum(r["acoustic_skipped"] for r in of)
+    uncov = sum(r["skipped_uncovered"] for r in of) / n_skip if n_skip else float("nan")
 
     lines = [f"# Stress test: optical and hybrid links (PROJECT_STATUS.md #59)\n",
              f"{time.strftime('%Y-%m-%d')} · {len(results)} episodes · {elapsed / 60:.1f} min · "
@@ -386,6 +399,10 @@ def main(argv=None) -> int:
     lines += ["", "With omnidirectional terminals, by water (every policy):\n", "| Water | Optical delivered |",
               "|---|---|"]
     lines += [f"| {w}{' (c = 1/m)' if w == 'custom' else ''} | {100 * v:.0f}% |" for w, v in desc_water.items()]
+    lines += ["", f"Hybrid optical_first across the grid skipped {n_skip:,} acoustic beacons; for "
+              f"{100 * uncov:.1f}% of them the optical copy sent the same tick was lost too, so the teammate got that "
+              "state on neither link (a vehicle skips only right after an optical message arrived: "
+              "`link_up_ticks` = 1).\n"]
     lines += ["", "Cone terminals deliver little because the shipped policies were never rewarded for holding "
               "attitude: they roll and pitch freely while holding formation (#50), so a narrow cone rarely stays "
               "on the teammate. Omni terminals are the fair baseline for these policies.\n"]
@@ -397,11 +414,15 @@ def main(argv=None) -> int:
         json.dump({"checks": [{"name": n, "passed": bool(p), "detail": d} for n, p, d in checks],
                    "episodes": len(results), "elapsed_s": round(elapsed, 1),
                    "failures": [{k: v for k, v in r.items() if k not in ("hash", "age_trace")} for r in failed[:20]],
-                   "optical_delivered_by_terminals": desc, "optical_delivered_by_water_omni": desc_water},
+                   "optical_delivered_by_terminals": desc, "optical_delivered_by_water_omni": desc_water,
+                   "optical_first_skipped": n_skip, "optical_first_skipped_uncovered_share": uncov},
                   f, indent=2, default=str)
     print("\n".join(lines))
     return 1 if n_fail else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from keep_awake import keep_awake
+    with keep_awake("optical stress test"):  # PROJECT_STATUS.md #49
+        rc = main()
+    sys.exit(rc)

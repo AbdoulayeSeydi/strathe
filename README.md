@@ -69,10 +69,10 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - **`--link acoustic | optical | hybrid`**, in the fleet simulation, training (`train-fleet --link hybrid`), the CLI, the web forms and the experiment YAML (`communication.link`). Acoustic stays the default, and acoustic runs are bit-identical to before.
 - **The optical model:**
   - **Delivery:** received light power `exp(-c·d)/d²` for water `clear`, `coastal`, `harbor` or `custom`, times a pointing gain, through a smooth delivery curve.
-  - **Rate:** 1 ms latency and Mbps, so a beacon goes every tick.
+  - **Rate:** Mbps, so a beacon goes every tick. Delivery is quantised to the 0.1 s tick, so optical has **no latency advantage** in the simulation: its edge is send rate and loss.
   - **Terminals:** omnidirectional by default; `forward_cone`, `fore_aft_cones` or `down_cone` with half-angles.
   - **Uncalibrated:** textbook water values and a placeholder curve. Every report says so; a lab's link logs would calibrate it.
-- **Hybrid** sends optical beacons every tick and skips the acoustic beacon while the optical link is up (`optical_first`), or sends on both (`redundant`). Asymmetric terminals fall back to `redundant` automatically. A late acoustic copy never rolls a teammate belief back.
+- **Hybrid** sends optical beacons every tick and skips the acoustic beacon only right after an optical message arrived (`optical_first`, within `link_up_ticks` = 1), or sends on both (`redundant`). Asymmetric terminals fall back to `redundant` automatically. A late acoustic copy never rolls a teammate belief back.
 - **The report adds:**
   - each link's delivery, and which link refreshed the beliefs
   - the median belief age
@@ -88,7 +88,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
   - The shipped policies roll and pitch freely (#50), so 30° cones deliver 0–5% of optical beacons.
   - Fore/aft cones connect at the start, then drop out: the first fix arrives in 0.2 s and then goes stale. That **raises collisions**, from 3% to 12% (hybrid, L3a @ 3 s), and to 32% with optical alone.
   - An intermittent high-rate link is worse than a slow steady one for a policy that never learned to keep it up. Whether a policy trained with `--link hybrid` learns to, is the next study.
-- **Stress test:** 5,125 episodes over every link, water, terminal layout, comm level, mode, buoyancy, policy and both engines, with 10 exact checks. All passed, including acoustic bit-identical to before (96 cells hashed observation by observation).
+- **Stress test:** 5,125 episodes over every link, water, terminal layout, comm level, mode, buoyancy, policy and both engines, with 11 exact checks. All passed, including acoustic bit-identical to before (96 cells hashed observation by observation).
 
 **Clean vs noisy simulation, buoyancy, and SAC/TD3 for the fleet (#58)**
 - **One switch: `--mode clean | noisy`**, plus `both` for the fleet. `noisy` adds realistic sensor noise and the fitted roll/pitch disturbance. It works in both simulators, training, the CLI and the web page.
@@ -170,7 +170,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 489 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 493 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -824,7 +824,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (489 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (493 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -853,7 +853,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent
-- 🔄 Physics dead reckoning now ties last-beacon (no longer trails); an omni optical link shares each teammate's last command every tick (#59), planned-trajectory beacons are still to do
+- 🔄 Physics dead reckoning now ties last-beacon (no longer trails); an optical link gives high-rate state sharing (#59), but intent sharing (planned commands or a trajectory in the beacon) is still the open lever
 - ⏳ Fleet policies are trained on the stand-in engine; MuJoCo is used as an independent truth engine for evaluation
 - ⏳ Real hardware validation — not yet done, for either the single-vehicle or fleet work; looking for lab partners with BlueROV2 access
 

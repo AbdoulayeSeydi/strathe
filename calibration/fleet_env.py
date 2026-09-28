@@ -354,6 +354,8 @@ class FleetSim:
         link = self.link
         sent = {"acoustic": 0, "optical": 0}
         skipped = 0
+        skipped_by = []                 # vehicles that skipped their acoustic beacon this tick
+        uncovered = 0                   # ...whose optical copy this tick was lost too
         acoustic_tick = link.uses_acoustic and self._tick % self.cfg.beacon_every_ticks == 0
         optical_tick = link.uses_optical and self._tick % self._optical_every_ticks == 0
         beacons = {}
@@ -366,12 +368,13 @@ class FleetSim:
                 j = 1 - i
                 heard = self._last_optical_rx[i]
                 if (self.hybrid_policy == "optical_first" and heard is not None
-                        and (self._tick - heard) * self.cfg.dt <= link.link_up_timeout + 1e-9):
-                    # the optical link is up (heard the teammate within the timeout):
+                        and self._tick - heard <= link.link_up_ticks):
+                    # the optical link is up (heard the teammate within link_up_ticks):
                     # skip the acoustic beacon, but keep its draw so the acoustic
                     # drop pattern stays paired with an acoustic-only run
                     self.channel.skip_draw()
                     skipped += 1
+                    skipped_by.append(i)
                 else:
                     self.channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
                                       sender_pos=pos[i], receiver_pos=pos[j],
@@ -382,11 +385,15 @@ class FleetSim:
             Rs = [c.rotation_matrix() for c in self.cores]
             for i in range(N_AGENTS):
                 j = 1 - i
-                self.optical_channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
-                                          sender_pos=pos[i], receiver_pos=pos[j],
-                                          message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacons[i],
-                                          payload_size_bytes=BEACON_SIZE_BYTES, sender_R=Rs[i], receiver_R=Rs[j])
+                m = self.optical_channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
+                                              sender_pos=pos[i], receiver_pos=pos[j],
+                                              message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacons[i],
+                                              payload_size_bytes=BEACON_SIZE_BYTES, sender_R=Rs[i], receiver_R=Rs[j])
                 sent["optical"] += 1
+                if m is None and i in skipped_by:
+                    uncovered += 1
+        if not optical_tick:
+            uncovered += len(skipped_by)   # no optical beacon this tick at all
         msgs = [[] for _ in range(N_AGENTS)]
         if link.uses_acoustic:
             self.channel.step(current_time=t)
@@ -430,6 +437,8 @@ class FleetSim:
             "delivered_by": [[m.link for m in msgs[i]] for i in range(N_AGENTS)],
             "sent": sent,
             "acoustic_skipped": skipped,
+            # skipped acoustic beacons whose optical copy (same tick) was lost: the teammate got that state on no link
+            "acoustic_skipped_uncovered": uncovered,
             "belief_updates": updates,
             "belief_ages": [self.beliefs[i].age_s for i in range(N_AGENTS)],
             "terminal_reason": task_info.get("terminal_reason"),
