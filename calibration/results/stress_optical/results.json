@@ -1,0 +1,70 @@
+{
+  "checks": [
+    {
+      "name": "Every episode runs to the end with finite observations and consistent bookkeeping",
+      "passed": true,
+      "detail": "5125/5125 episodes"
+    },
+    {
+      "name": "Optical deliveries nested by water: clear >= coastal >= custom (1/m) >= harbour, episode by episode",
+      "passed": true,
+      "detail": "360/360 episode sets"
+    },
+    {
+      "name": "Forward cones deliver nothing from the line start (clean, zero policy)",
+      "passed": true,
+      "detail": "144/144 episodes with no optical delivery"
+    },
+    {
+      "name": "Hybrid redundant: acoustic sends, deliveries and draws identical to acoustic only",
+      "passed": true,
+      "detail": "480/480"
+    },
+    {
+      "name": "Hybrid redundant: the teammate belief is never older than with acoustic only, tick by tick",
+      "passed": true,
+      "detail": "480/480"
+    },
+    {
+      "name": "Hybrid optical_first: acoustic draws paired with acoustic only (sent + skipped = sent; same next draw)",
+      "passed": true,
+      "detail": "480/480"
+    },
+    {
+      "name": "Asymmetric terminals: optical_first runs as redundant (no acoustic beacon skipped)",
+      "passed": true,
+      "detail": "96/96"
+    },
+    {
+      "name": "Omni terminals in clear/coastal water: optical_first skips acoustic beacons (the link is up)",
+      "passed": true,
+      "detail": "48/48"
+    },
+    {
+      "name": "Determinism: reruns give identical observations and rewards",
+      "passed": true,
+      "detail": "120/120 reruns identical"
+    },
+    {
+      "name": "Acoustic runs unchanged: every observation, reward and delivery identical to main before this change",
+      "passed": true,
+      "detail": "96/96 cells identical"
+    }
+  ],
+  "episodes": 5125,
+  "elapsed_s": 272.9,
+  "failures": [],
+  "optical_delivered_by_terminals": {
+    "omni": 0.8894806809157142,
+    "forward_cone": 0.0020912275684564236,
+    "fore_aft_cones": 0.043762492297981695,
+    "down_cone": 0.02058041461624535,
+    "asymmetric": 0.08989839264319169
+  },
+  "optical_delivered_by_water_omni": {
+    "clear": 0.9916666666666667,
+    "coastal": 0.9907346284420974,
+    "custom": 0.9688734701744242,
+    "harbor": 0.589295516925892
+  }
+}

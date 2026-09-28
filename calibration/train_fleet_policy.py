@@ -51,6 +51,7 @@ from fleet_vec_env import CommCondition, EpisodeSampler, FleetVecEnv
 from mlflow_run_utils import get_git_commit, get_git_dirty
 from optimizer import initial_parameters, load_vehicle_spec
 from keep_awake import keep_awake
+import sim_mode as sim_mode_flags
 
 TRUTH_PARAMS_PATH = "calibrated_parameters_fleet_truth.yaml"
 VEHICLE_SPEC_PATH = "vehicle_spec.yaml"
@@ -122,22 +123,28 @@ def make_belief_sampler(truth, generic):
     return sample
 
 
-def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVALS_S):
-    return [CommCondition(f"{s}@{b:g}s", COMM_CONFIGS[s]["packet_loss_config"], COMM_CONFIGS[s]["bandwidth_config"],
-                          beacon_interval_s=b)
+def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVALS_S, link=None):
+    """link: comm_channel.LinkConfig applied to every condition (None = acoustic only). An optical-only link has
+    no acoustic channel, so the severities and intervals collapse to one condition."""
+    if link is not None and link.link == "optical":
+        return [CommCondition(link.label, COMM_CONFIGS["L0"]["packet_loss_config"],
+                              COMM_CONFIGS["L0"]["bandwidth_config"], link=link)]
+    suffix = "" if link is None or link.link == "acoustic" else f" {link.label}"
+    return [CommCondition(f"{s}@{b:g}s{suffix}", COMM_CONFIGS[s]["packet_loss_config"],
+                          COMM_CONFIGS[s]["bandwidth_config"], beacon_interval_s=b, link=link)
             for s in severities for b in intervals]
 
 
 def build_training_env(n_sims: int, seed: int, truth_path: str = TRUTH_PARAMS_PATH,
                        fleet_config: FleetConfig = None, belief: str = "mix",
-                       spec_path: str = VEHICLE_SPEC_PATH) -> FleetVecEnv:
+                       spec_path: str = VEHICLE_SPEC_PATH, link=None) -> FleetVecEnv:
     spec = load_vehicle_spec(spec_path)
     vehicle = spec.vehicle
     truth = load_calibrated_parameters(truth_path)
     generic = initial_parameters(spec)
     belief_sampler = (make_belief_sampler(truth, generic) if belief == "mix"
                       else make_fixed_belief_sampler(belief, truth, generic))
-    sampler = EpisodeSampler(comm_conditions(), belief_sampler)
+    sampler = EpisodeSampler(comm_conditions(link=link), belief_sampler)
     sims = [FleetSim(truth, vehicle, fleet_config or FleetConfig()) for _ in range(n_sims)]
     return FleetVecEnv(sims, sampler, seed=seed)
 
@@ -183,6 +190,7 @@ def main():
     ap.add_argument("--thrusters", default=None,
                     help="limit commands to what the thrusters can deliver: bluerov2_heavy, or a YAML file with a "
                          "thrusters block (an ingest spec works). Default: no thruster limits")
+    sim_mode_flags.add_link_args(ap)
     ap.add_argument("--out", required=True, help="output path without .zip")
     args = ap.parse_args()
     import sim_mode
@@ -193,6 +201,7 @@ def main():
     try:
         noise = resolve_sensor_noise(args.noise, args.noise_scale)
         buoy = sim_mode.buoyancy_from_flags(args.buoyancy, args.buoyancy_known_to_beliefs)
+        link = sim_mode_flags.link_from_args(args)
     except ValueError as e:
         ap.error(str(e))
     if noise is not None:
@@ -224,7 +233,7 @@ def main():
     torch.set_num_threads(1)  # several trainings run side by side; don't oversubscribe cores
 
     env = VecMonitor(build_training_env(args.n_sims, args.seed, args.truth_params, fleet_config=fleet_config,
-                                        belief=args.belief, spec_path=args.spec))
+                                        belief=args.belief, spec_path=args.spec, link=link))
     model = make_model(args.algorithm, env, args.seed)
     t0 = time.time()
     model.learn(total_timesteps=timesteps, log_interval=(1 if args.algorithm == "ppo" else 50))
@@ -252,7 +261,8 @@ def main():
                                   "sensor_noise": (None if noise is None else
                                                    {"preset": args.noise, "scale": args.noise_scale,
                                                     "described": noise.describe()}),
-                                  "buoyancy": None if buoy is None else buoy.to_dict()},
+                                  "buoyancy": None if buoy is None else buoy.to_dict(),
+                                  "link": {"link": "acoustic"} if link is None else link.to_dict()},
         "git_commit": get_git_commit(), "git_uncommitted_changes": get_git_dirty(),
         "python": platform.python_version(),
         "elapsed_s": round(elapsed, 1), "transitions_per_s": round(timesteps / elapsed, 1),

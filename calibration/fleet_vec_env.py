@@ -24,7 +24,7 @@ import gymnasium as gym
 import numpy as np
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
-from comm_channel import BandwidthConfig, PacketLossConfig
+from comm_channel import BandwidthConfig, LinkConfig, PacketLossConfig
 from fleet_belief import BeliefSpec
 from fleet_env import ACT_DIM, N_AGENTS, OBS_DIM, FleetSim
 
@@ -39,6 +39,7 @@ class CommCondition:
     bandwidth_config: BandwidthConfig
     speed_of_sound_mps: float = 1500.0
     beacon_interval_s: Optional[float] = None  # None = keep the sim's configured interval
+    link: Optional[LinkConfig] = None           # None = acoustic only
 
 
 @dataclass
@@ -68,7 +69,7 @@ class FleetVecEnv(VecEnv):
         sim = self.sims[k]
         comm = self.sampler.sample_comm(rng)
         sim.set_comm(comm.packet_loss_config, comm.bandwidth_config, comm.speed_of_sound_mps,
-                     comm.beacon_interval_s)
+                     comm.beacon_interval_s, comm.link)
         sim.set_belief(self.sampler.belief_sampler(rng))
         return sim.reset(comm_seed=int(rng.integers(2**31)), rng=rng)
 

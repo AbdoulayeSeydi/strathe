@@ -16,6 +16,10 @@ settings is written to `strathe_jobs/` and run; the shipped files are never chan
 |---|---|---|
 | Packet-loss levels | `--comm L0 L2 L3a` | `communication.severities` |
 | Seconds between beacons | `--beacon-interval 1 3` | `communication.beacon_interval_s` |
+| Link: acoustic, optical or hybrid (section 15) | `--link acoustic hybrid --optical-water coastal harbor` | `communication.link`, `communication.optical.water` |
+| Optical terminals (half-angles) | `--optical-terminals fore_aft_cones --optical-beam 20 --optical-fov 20` | `communication.optical.*` |
+| What pointing costs | `--optical-compare-omni` | `communication.optical.compare_omni` |
+| Hybrid policy | `--hybrid-policy redundant` | `communication.hybrid_policy` |
 | Teammate models | `--beliefs calibrated generic last_beacon oracle` | `beliefs` |
 | Headline pair | `--compare calibrated generic` | `compare` |
 | Target separation / tolerance | `--target-separation 3 --tolerance 0.2` | `task.*` |
@@ -36,8 +40,9 @@ settings is written to `strathe_jobs/` and run; the shipped files are never chan
 `--save-config my_experiment.yaml` writes the resulting file instead of running it. Settings that can't
 make a valid experiment are refused before anything runs: a hold time longer than the episode, a starting
 separation inside the collision radius, or a headline pair that isn't among the teammate models. Only
-custom loss probabilities, speed of sound, `physics_params`/`physics_alpha` teammate models and reward
-weights need YAML editing (LIMITS.md).
+custom loss probabilities, speed of sound, `physics_params`/`physics_alpha` teammate models, reward
+weights and the finer optical settings (a custom terminal layout, the delivery curve's width, the modem
+latency, `link_up_timeout_s`) need YAML editing (LIMITS.md).
 
 Every field reaches the simulation. The v1 runner validated task settings and
 comm overrides and then ignored them; both are now covered by regression tests
@@ -397,11 +402,86 @@ python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=my_sac_seed1 --mod
   compared" table gives each group's success and the paired difference with a
   95% CI.
 
+## 15. Optical and hybrid links
+
+```yaml
+communication:
+  severity: L2                 # the acoustic channel, as before (not needed for link: optical)
+  beacon_interval_s: 1.0       # acoustic beacons
+  link: hybrid                 # acoustic (default) | optical | hybrid, or a list: [acoustic, hybrid]
+  optical:
+    water: coastal             # clear | coastal | harbor | custom (then attenuation_per_m), or a list
+    terminals: omni            # omni (default) | forward_cone | fore_aft_cones | down_cone
+    beam_half_angle_deg: 30    # cone presets only; HALF-angles, 180 = every direction
+    receiver_half_fov_deg: 30
+    rated_range_m: 30          # 50% delivery when pointed, in clear water
+    data_rate_bps: 1.0e6
+    beacon_interval_s: 0.1     # optical beacons: every tick
+    compare_omni: false        # true: also run with omni terminals, same episodes
+  hybrid_policy: optical_first # or redundant
+```
+
+```bash
+python strathe.py fleet --link acoustic hybrid --optical-water clear coastal harbor
+python strathe.py fleet --link hybrid --optical-terminals fore_aft_cones --optical-compare-omni
+python strathe.py train-fleet --params <calibration> --link hybrid --optical-water coastal --out my_hybrid
+```
+
+**What the optical link is.** A second link beside the acoustic one:
+- **Range:** short, set by water clarity.
+- **Latency:** 1 ms, the modem's processing delay.
+- **Bandwidth:** Mbps, so a beacon can go every tick.
+
+**How delivery works:**
+- **Received power.** Light power falls off as `exp(-c·d) / d²`, where `c` is the water's attenuation per metre:
+  - clear 0.15
+  - coastal 0.40
+  - harbour 2.2
+  - `custom`: your own value
+- **Pointing gain.** The power is multiplied by a pointing gain: 1 when the receiver is inside a sender terminal's beam and the sender is inside a receiver terminal's field of view, 0 otherwise.
+- **Delivery probability.** A smooth S-curve turns the result into a delivery probability. At the defaults, a pointed link delivers half its messages at 30 m in clear water, about 15 m in coastal water and about 4 m in harbour water.
+- **Judged on the truth.** Delivery uses the true positions and attitudes, because the light follows the real vehicle. The beacon carries what the sender measured.
+
+**Uncalibrated.** The water values are rough textbook figures and the S-curve is a placeholder. Every report says so. A lab's link logs, with success against range and angle, are what would calibrate it; there's no `fit` command for it yet. Check a vendor's specs before quoting a number.
+
+**Terminals:**
+- **`omni`** (the default) covers every direction, like LED arrays. The link then depends only on range and water, which is the fair baseline.
+- **Cone presets** put 30° cones (half-angles) facing forward, forward and aft, or down. A list of `{axis_body: [x, y, z], beam_half_angle_deg, receiver_half_fov_deg}` gives any layout.
+- **Watch the start layout.** The task starts both vehicles in a line facing +x, so `forward_cone` can't connect at the start, and the report says so up front. `fore_aft_cones` connects both ways.
+- **`compare_omni: true`** runs every optical and hybrid condition again with omni terminals on the same episodes. The report's "What pointing costs" table is the paired difference.
+
+**Hybrid policies:**
+- **`optical_first`:** optical beacons at their own rate. A vehicle skips its acoustic beacon while the optical link is up, meaning it heard its teammate optically within `link_up_timeout_s` (default 3 optical intervals, YAML only).
+- **Asymmetric terminals** (beam ≠ receiver half-angle): hearing your teammate doesn't mean it hears you. `optical_first` then runs as `redundant`, and the report says so.
+- **`redundant`:** every beacon on both links.
+- **Why keep `optical_first`?** Acoustic energy and airtime aren't modelled, so `redundant` is never worse here. `optical_first` becomes the realistic choice once more vehicles share one acoustic channel.
+
+**Stale copies:** a teammate belief keeps the beacon with the newest send time, whichever link it came on, so a late acoustic copy never rolls it back.
+
+**Pairing:**
+- The optical link draws from its own random stream, once per optical send.
+- A skipped acoustic beacon still uses its draw.
+- So acoustic, optical and hybrid runs of an experiment share their start states and acoustic packet losses. The "Does the optical link help?" table compares them episode by episode.
+
+**What the report adds** (section "Optical link"):
+- per condition:
+  - the share of acoustic and optical beacons delivered (*optical up*)
+  - acoustic beacons skipped
+  - the share of belief updates that came by light
+  - the median age of the teammate belief
+- the paired comparisons against acoustic only, and of cones against omni
+- a start-geometry warning where the cones can't connect
+
+`episodes.csv` has the same fields per episode.
+
+**The shipped policies were trained on acoustic links only.** What they do with an optical link is in PROJECT_STATUS.md #59 (`results/fleet_optical/`). To see whether a policy learns to stay within optical range and pointed at its teammate, train one with `--link hybrid`.
+
 ## Still not configurable
 
 | What | Why / where |
 |---|---|
 | More than 2 vehicles | `fleet_env.py` is built for 2; the per-vehicle observation and shared policy are the groundwork for N |
+| Optical occlusion, sunlight, bubbles, a soft-edged beam | the optical link is range x water x a hard pointing cone (section 15) |
 | Tasks other than formation hold | `formation_hold_task.py` |
 | Start orientation (always level, facing +x) | `FleetSim.reset` |
 | Correlated sensor errors (e.g. a compass error that depends on heading), DVL altitude limits | the sensor model is white noise + a constant bias per episode + dropouts (section 12) |

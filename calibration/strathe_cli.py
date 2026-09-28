@@ -204,9 +204,12 @@ def experiment_with_overrides(config: Optional[str], overrides: dict, jobs_dir: 
     exp["name"] = overrides.pop("name", None) or name
     for k, v in overrides.items():  # nested blocks (communication, task, ...) are merged, not replaced
         if isinstance(v, dict) and isinstance(exp.get(k), dict) and k not in ("current", "thrusters"):
+            before = exp[k]
             exp[k] = {**exp[k], **v}
             if k == "communication" and "severities" in v:
                 exp[k].pop("severity", None)
+            if k == "communication" and isinstance(v.get("optical"), dict) and isinstance(before.get("optical"), dict):
+                exp[k]["optical"] = {**before["optical"], **v["optical"]}   # --optical-* flags change one field each
         else:
             exp[k] = v
     exp["output_dir"] = os.path.join(jobs_dir, f"{safe_name(exp['name'])}_{stamp}")
@@ -518,6 +521,30 @@ SEVERITIES = ("L0", "L1", "L2", "L3a", "L3b")
 BELIEF_NAMES = ("calibrated", "generic", "last_beacon", "constant_velocity", "oracle")
 
 
+def link_block(args) -> dict:
+    """`communication:` fields set by --link / --optical-* / --hybrid-policy (optical settings are checked when
+    the experiment YAML is validated)."""
+    out = {}
+    if args.link:
+        out["link"] = list(dict.fromkeys(args.link)) if len(args.link) > 1 else args.link[0]
+    optical = {k: v for k, v in (("water", (list(args.optical_water) if args.optical_water and len(args.optical_water) > 1
+                                            else (args.optical_water[0] if args.optical_water else None))),
+                                 ("attenuation_per_m", args.optical_attenuation),
+                                 ("terminals", args.optical_terminals),
+                                 ("beam_half_angle_deg", args.optical_beam),
+                                 ("receiver_half_fov_deg", args.optical_fov),
+                                 ("rated_range_m", args.optical_rated_range),
+                                 ("data_rate_bps", args.optical_data_rate),
+                                 ("beacon_interval_s", args.optical_interval)) if v is not None}
+    if args.optical_compare_omni:
+        optical["compare_omni"] = True
+    if optical:
+        out["optical"] = optical
+    if args.hybrid_policy:
+        out["hybrid_policy"] = args.hybrid_policy
+    return out
+
+
 def fleet_setting_overrides(args) -> dict:
     """The experiment-YAML fields set by `strathe fleet` flags (comm, task, sample size, engine, ...)."""
     o = {}
@@ -526,6 +553,7 @@ def fleet_setting_overrides(args) -> dict:
         comm["severities"] = list(args.comm)
     if args.beacon_interval:
         comm["beacon_interval_s"] = [float(x) for x in args.beacon_interval]
+    comm.update(link_block(args))
     if comm:
         o["communication"] = comm
     task = {k: v for k, v in (("target_separation_m", args.target_separation), ("tolerance_m", args.tolerance),
@@ -657,6 +685,21 @@ def cmd_arena(args, runner=None) -> int:
     return run_step(argv, runner)
 
 
+def link_argv(args) -> list:
+    """--link / --optical-* flags for train_fleet_policy.py, checked here first (ValueError)."""
+    import sim_mode
+    sim_mode.link_from_args(args)
+    argv = []
+    for flag, v in (("--link", args.link), ("--optical-water", args.optical_water),
+                    ("--optical-attenuation", args.optical_attenuation), ("--optical-terminals", args.optical_terminals),
+                    ("--optical-beam", args.optical_beam), ("--optical-fov", args.optical_fov),
+                    ("--optical-rated-range", args.optical_rated_range), ("--optical-data-rate", args.optical_data_rate),
+                    ("--optical-interval", args.optical_interval), ("--hybrid-policy", args.hybrid_policy)):
+        if v is not None:
+            argv += [flag, str(v)]
+    return argv
+
+
 def cmd_train_fleet(args, runner=None) -> int:
     try:
         argv = ["train_fleet_policy.py", "--truth-params", _file_arg(args.params, "calibration file"),
@@ -672,6 +715,7 @@ def cmd_train_fleet(args, runner=None) -> int:
                      "--current-direction", *map(str, args.current_direction)]
         if args.thrusters:
             argv += ["--thrusters", thrusters_arg(args.thrusters)]
+        argv += link_argv(args)
     except ValueError as e:
         print(f"❌ {e}")
         return 2
@@ -792,6 +836,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="physics teammate models know the buoyancy change (default: they don't)")
     g.add_argument("--disturbance", help="roll/pitch disturbance: none, fitted, or a fit file")
     g.add_argument("--disturbance-scale", type=float, default=1.0)
+    import sim_mode
+    sim_mode.add_link_args(g, sweep=True)
+    g.add_argument("--optical-compare-omni", action="store_true",
+                   help="also run every optical/hybrid condition with omnidirectional terminals on the same "
+                        "episodes, to show what pointing costs")
     g.add_argument("--policies", nargs="+", metavar="[LABEL=]ZIP",
                    help="policy files to use (PPO, SAC or TD3; read from each file). Policies with different "
                         "labels, or different algorithms, are compared in the report, e.g. "
@@ -861,6 +910,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                    help="net buoyancy change in N, or MIN MAX drawn per episode (train across trims)")
     t.add_argument("--buoyancy-known-to-beliefs", action="store_true")
+    sim_mode.add_link_args(t)
     t.add_argument("--out", required=True, help="policy path without .zip")
     t.set_defaults(fn=cmd_train_fleet)
 

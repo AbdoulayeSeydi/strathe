@@ -38,6 +38,14 @@ facing +x. closing_speed v0 is split symmetrically: vehicle 0 surges at
 -v0/2 and vehicle 1 at +v0/2, so v0 > 0 means they start separating.
 Reward and termination are FormationHoldTask's, computed from TRUE
 separation; the reward is shared by both vehicles (cooperative task).
+
+## Links (comm_channel.LinkConfig)
+acoustic (default, the original behaviour), optical, or hybrid. Optical
+beacons go at their own rate (every tick by default) and are delivered
+according to range, water and pointing, judged on the TRUE positions and
+attitudes (the light follows the real vehicle); the payload is the same
+measured beacon. A belief keeps the beacon with the newest send tick,
+whichever link it came on, so a late acoustic copy never rolls it back.
 """
 from __future__ import annotations
 
@@ -47,7 +55,8 @@ from typing import Optional
 
 import numpy as np
 
-from comm_channel import BandwidthConfig, CommChannel, PacketLossConfig, MESSAGE_TYPE_POSITION_BEACON
+from comm_channel import (BandwidthConfig, CommChannel, LinkConfig, OpticalChannel, PacketLossConfig,
+                          MESSAGE_TYPE_POSITION_BEACON)
 from buoyancy import BuoyancyConfig, with_buoyancy_offset
 from current import CurrentConfig, WaterCurrent
 from disturbance import DisturbanceConfig, RollPitchDisturbance, episode_seed
@@ -203,7 +212,8 @@ class FleetSim:
                  bandwidth_config: Optional[BandwidthConfig] = None,
                  speed_of_sound_mps: float = 1500.0,
                  belief: Optional[BeliefSpec] = None,
-                 beacon_interval_s: Optional[float] = None):
+                 beacon_interval_s: Optional[float] = None,
+                 link: Optional[LinkConfig] = None):
         self.cfg = copy.deepcopy(config) if config is not None else FleetConfig()
         self.cfg.validate()
         self.vehicle = vehicle
@@ -212,7 +222,7 @@ class FleetSim:
         truth_cls = _FastTruth if self.cfg.dynamics_backend == "stand_in" else _MuJoCoTruth
         self.cores = [truth_cls(truth_params, vehicle, sim_config) for _ in range(N_AGENTS)]
         self.task = FormationHoldTask(self.cfg.task)
-        self.set_comm(packet_loss_config, bandwidth_config, speed_of_sound_mps, beacon_interval_s)
+        self.set_comm(packet_loss_config, bandwidth_config, speed_of_sound_mps, beacon_interval_s, link)
         self.set_belief(belief or BeliefSpec("last_beacon", "last_beacon"))
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
@@ -223,13 +233,24 @@ class FleetSim:
 
     # --- configuration that may change between episodes -------------------
     def set_comm(self, packet_loss_config=None, bandwidth_config=None, speed_of_sound_mps=1500.0,
-                 beacon_interval_s: Optional[float] = None):
+                 beacon_interval_s: Optional[float] = None, link: Optional[LinkConfig] = None):
+        """link: None or LinkConfig('acoustic') = the acoustic channel only (the original behaviour)."""
         self.packet_loss_config = packet_loss_config or PacketLossConfig(0.0, 1000.0, 0.0, 0.0)
         self.bandwidth_config = bandwidth_config or BandwidthConfig(bytes_per_tick=1e9)
         self.speed_of_sound_mps = speed_of_sound_mps
         if beacon_interval_s is not None:
             self.cfg.beacon_interval_s = beacon_interval_s
             self.cfg.validate()
+        self.link = link if link is not None else LinkConfig("acoustic")
+        self.link.validate()
+        self._optical_every_ticks = None
+        if self.link.uses_optical:
+            k = self.link.optical.beacon_interval_s / self.cfg.dt
+            if abs(k - round(k)) > 1e-9 or round(k) < 1:
+                raise ValueError(f"optical beacon_interval_s must be a positive multiple of dt={self.cfg.dt}, "
+                                 f"got {self.link.optical.beacon_interval_s}")
+            self._optical_every_ticks = int(round(k))
+        self.hybrid_policy, self.hybrid_policy_note = self.link.effective_hybrid_policy()
 
     def set_belief(self, spec: BeliefSpec):
         self.belief_spec = spec
@@ -250,6 +271,13 @@ class FleetSim:
         self.cores[1].reset(position=np.array([d0, 0.0, 0.0]), nu=np.array([v0 / 2, 0, 0, 0, 0, 0]))
         self.channel = CommChannel(self.packet_loss_config, self.bandwidth_config,
                                    speed_of_sound_mps=self.speed_of_sound_mps, seed=comm_seed)
+        # the optical link draws from its own stream, so the acoustic drop
+        # pattern is the same with or without it (paired link comparisons)
+        self.optical_channel = (OpticalChannel(self.link.optical, self.cfg.dt,
+                                               seed=episode_seed(comm_seed, N_AGENTS, d0, v0, salt=(0x0F,)))
+                                if self.link.uses_optical else None)
+        self._last_optical_rx = [None] * N_AGENTS      # tick this vehicle last heard its teammate optically
+        self._newest_tick = [-1] * N_AGENTS            # send tick of the beacon each belief holds
         self.task.reset()
         for b in self.beliefs:
             b.reset()
@@ -323,18 +351,63 @@ class FleetSim:
         # is drawn once per send, and send ticks don't depend on actions, so
         # the drop pattern is the same whatever the vehicles do. A beacon carries
         # what the sender measured and believes (the truth without sensor noise).
-        sends = [] if self._tick % self.cfg.beacon_every_ticks else range(N_AGENTS)
-        for i in sends:
-            j = 1 - i
-            beacon = Beacon(send_tick=self._tick, position=meas[i].position.copy(), orientation=meas[i].R.copy(),
-                            nu=meas[i].nu.copy(), tau=taus[i].copy())
-            self.channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
-                              sender_pos=pos[i], receiver_pos=pos[j],
-                              message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacon,
-                              payload_size_bytes=BEACON_SIZE_BYTES)
-        self.channel.step(current_time=t)
-        delivered = [[m.payload for m in self.channel.receive(str(i))] for i in range(N_AGENTS)]
+        link = self.link
+        sent = {"acoustic": 0, "optical": 0}
+        skipped = 0
+        acoustic_tick = link.uses_acoustic and self._tick % self.cfg.beacon_every_ticks == 0
+        optical_tick = link.uses_optical and self._tick % self._optical_every_ticks == 0
+        beacons = {}
+        if acoustic_tick or optical_tick:
+            beacons = {i: Beacon(send_tick=self._tick, position=meas[i].position.copy(),
+                                 orientation=meas[i].R.copy(), nu=meas[i].nu.copy(), tau=taus[i].copy())
+                       for i in range(N_AGENTS)}
+        if acoustic_tick:
+            for i in range(N_AGENTS):
+                j = 1 - i
+                heard = self._last_optical_rx[i]
+                if (self.hybrid_policy == "optical_first" and heard is not None
+                        and (self._tick - heard) * self.cfg.dt <= link.link_up_timeout + 1e-9):
+                    # the optical link is up (heard the teammate within the timeout):
+                    # skip the acoustic beacon, but keep its draw so the acoustic
+                    # drop pattern stays paired with an acoustic-only run
+                    self.channel.skip_draw()
+                    skipped += 1
+                else:
+                    self.channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
+                                      sender_pos=pos[i], receiver_pos=pos[j],
+                                      message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacons[i],
+                                      payload_size_bytes=BEACON_SIZE_BYTES)
+                    sent["acoustic"] += 1
+        if optical_tick:
+            Rs = [c.rotation_matrix() for c in self.cores]
+            for i in range(N_AGENTS):
+                j = 1 - i
+                self.optical_channel.send(sender_id=str(i), receiver_id=str(j), send_time=t,
+                                          sender_pos=pos[i], receiver_pos=pos[j],
+                                          message_type=MESSAGE_TYPE_POSITION_BEACON, payload=beacons[i],
+                                          payload_size_bytes=BEACON_SIZE_BYTES, sender_R=Rs[i], receiver_R=Rs[j])
+                sent["optical"] += 1
+        msgs = [[] for _ in range(N_AGENTS)]
+        if link.uses_acoustic:
+            self.channel.step(current_time=t)
+            for i in range(N_AGENTS):
+                msgs[i] += self.channel.receive(str(i))
+        if link.uses_optical:
+            self.optical_channel.step(current_time=t)
+            for i in range(N_AGENTS):
+                msgs[i] += self.optical_channel.receive(str(i))
+        delivered = [[m.payload for m in msgs[i]] for i in range(N_AGENTS)]
+        updates = {"acoustic": 0, "optical": 0}
         for i in range(N_AGENTS):
+            if any(m.link == "optical" for m in msgs[i]):
+                self._last_optical_rx[i] = self._tick
+            if msgs[i]:
+                newest = max(m.payload.send_tick for m in msgs[i])
+                if newest > self._newest_tick[i]:
+                    self._newest_tick[i] = newest
+                    carrier = "optical" if any(m.link == "optical" and m.payload.send_tick == newest
+                                               for m in msgs[i]) else "acoustic"
+                    updates[carrier] += 1
             self.beliefs[i].on_tick(self._tick, delivered[i])
 
         truncated = self._tick >= self.cfg.max_episode_steps
@@ -354,6 +427,11 @@ class FleetSim:
             "positions": pos,
             "belief_errors": belief_errors,
             "delivered": [bool(d) for d in delivered],
+            "delivered_by": [[m.link for m in msgs[i]] for i in range(N_AGENTS)],
+            "sent": sent,
+            "acoustic_skipped": skipped,
+            "belief_updates": updates,
+            "belief_ages": [self.beliefs[i].age_s for i in range(N_AGENTS)],
             "terminal_reason": task_info.get("terminal_reason"),
             "current_world": current_now,
             "nav_errors": [float(np.linalg.norm(m.position - p)) for m, p in zip(meas, pos)],

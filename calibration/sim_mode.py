@@ -38,3 +38,66 @@ def buoyancy_from_flags(values, known: bool = False):
                          known_to_beliefs=known)
     cfg.validate()
     return cfg if cfg.active else None
+
+
+OPTICAL_FLAG_FIELDS = {"water": "--optical-water", "attenuation_per_m": "--optical-attenuation",
+                       "terminals": "--optical-terminals", "beam_half_angle_deg": "--optical-beam",
+                       "receiver_half_fov_deg": "--optical-fov", "rated_range_m": "--optical-rated-range",
+                       "data_rate_bps": "--optical-data-rate", "beacon_interval_s": "--optical-interval"}
+
+
+def link_from_flags(link: Optional[str] = None, hybrid_policy: Optional[str] = None, **optical):
+    """--link and --optical-* flags -> comm_channel.LinkConfig (validated), or None for acoustic.
+    optical: keyword arguments named as OpticalLinkConfig fields; None = default."""
+    from comm_channel import LinkConfig, OpticalLinkConfig
+    given = {k: v for k, v in optical.items() if v is not None}
+    if link in (None, "", "acoustic"):
+        if given or hybrid_policy:
+            names = ", ".join(OPTICAL_FLAG_FIELDS.get(k, k) for k in given) or "--hybrid-policy"
+            raise ValueError(f"{names} set but the link is acoustic; add --link optical or --link hybrid")
+        return None
+    if hybrid_policy and link != "hybrid":
+        raise ValueError("--hybrid-policy only applies to --link hybrid")
+    lc = LinkConfig(link, OpticalLinkConfig(**given), hybrid_policy or "optical_first")
+    lc.validate()
+    return lc
+
+
+def add_link_args(ap, sweep: bool = False) -> None:
+    """--link and --optical-* flags (shared with `strathe fleet` / `train-fleet`). sweep: lists allowed."""
+    many = "+" if sweep else None
+    ap.add_argument("--link", choices=["acoustic", "optical", "hybrid"], nargs=many, default=None,
+                    help="which link carries the beacons: acoustic (default, today's model), optical, or hybrid "
+                         "(both)" + ("; a list compares them on the same episodes" if sweep else "")
+                         + ". The optical model is UNCALIBRATED (see LIMITS.md)")
+    ap.add_argument("--optical-water", choices=["clear", "coastal", "harbor", "custom"], nargs=many, default=None,
+                    help="water clarity for the optical link (default coastal; custom needs --optical-attenuation)")
+    ap.add_argument("--optical-attenuation", type=float, default=None, metavar="C",
+                    help="water attenuation coefficient per metre, for --optical-water custom (~0.15 clear ocean, "
+                         "~0.4 coastal, 2+ harbour)")
+    ap.add_argument("--optical-terminals", choices=["omni", "forward_cone", "fore_aft_cones", "down_cone"],
+                    default=None, help="optical terminals on each vehicle (default omni: every direction)")
+    ap.add_argument("--optical-beam", type=float, default=None, metavar="DEG",
+                    help="transmit beam HALF-angle in degrees for cone terminals (default 30; 180 = every direction)")
+    ap.add_argument("--optical-fov", type=float, default=None, metavar="DEG",
+                    help="receiver field-of-view HALF-angle in degrees for cone terminals (default 30)")
+    ap.add_argument("--optical-rated-range", type=float, default=None, metavar="M",
+                    help="range at which a pointed link delivers half its messages in clear water (default 30 m)")
+    ap.add_argument("--optical-data-rate", type=float, default=None, metavar="BPS", help="default 1e6 bit/s")
+    ap.add_argument("--optical-interval", type=float, default=None, metavar="S",
+                    help="seconds between optical beacons (default 0.1: every tick)")
+    ap.add_argument("--hybrid-policy", choices=["optical_first", "redundant"], default=None,
+                    help="optical_first (default): skip the acoustic beacon while the optical link is up; "
+                         "redundant: send every beacon on both links")
+
+
+def optical_kwargs(args) -> dict:
+    return {"attenuation_per_m": args.optical_attenuation, "terminals": args.optical_terminals,
+            "beam_half_angle_deg": args.optical_beam, "receiver_half_fov_deg": args.optical_fov,
+            "rated_range_m": args.optical_rated_range, "data_rate_bps": args.optical_data_rate,
+            "beacon_interval_s": args.optical_interval}
+
+
+def link_from_args(args):
+    """The link from single-valued --link/--optical-* flags (None = acoustic). Raises ValueError."""
+    return link_from_flags(args.link, args.hybrid_policy, water=args.optical_water, **optical_kwargs(args))
