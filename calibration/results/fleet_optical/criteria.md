@@ -47,3 +47,30 @@ bookkeeping holds: nothing is delivered that wasn't sent.
 
 Descriptive only; no threshold beyond the Gate. The optical model is uncalibrated, so
 every number is conditional on its assumed water values and delivery curve.
+
+## Addendum (2026-09-27, after the first run, before the rerun with the 1-tick skip window)
+
+Added after review, not before the first results; it changes no question or verdict
+rule above. The rerun uses `optical_first` with a vehicle skipping its acoustic
+beacon only if an optical message arrived on the previous tick (`link_up_ticks: 1`;
+the first run used 0.3 s).
+
+**What this study can and can't answer.** The shipped policies were trained on
+acoustic links only, and nothing in their observation says whether the optical link
+is up; the only trace of it is the belief-age input, which drops to one tick while
+optical beacons arrive. So this study answers **whether fresher teammate information
+helps policies that already exist**. It **cannot** answer the headline question:
+whether a fleet *learns* to stay within optical range and pointed at its teammate,
+and what that costs in collisions. That needs policies trained with the link:
+`strathe train-fleet --link hybrid` (built in this change), cones included, then the
+same grid. That is the follow-up study.
+
+**What the beacons carry.** `Beacon.tau` is the wrench delivered on the send tick, not
+a planned future command. An optical link at 10 Hz therefore gives *high-rate state
+sharing* (the teammate's current state and last thrust, one tick old), not intent
+sharing. Intent sharing (planned commands or a trajectory) stays the open lever from #48.
+
+**No latency effect.** Messages are delivered on the 0.1 s tick: any latency above
+zero arrives on the next tick, so optical's 1 ms and acoustic's few milliseconds at
+these ranges are identical here. Any difference in this study comes from the optical
+link's send rate and loss, not its latency.

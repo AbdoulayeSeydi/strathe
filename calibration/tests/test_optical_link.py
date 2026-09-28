@@ -454,3 +454,64 @@ def test_help_and_web_labels_say_uncalibrated_and_half_angle():
     assert "UNCALIBRATED" in fleet and "HALF-angle" in fleet and "--optical-compare-omni" in fleet
     tf = cli.build_parser()._subparsers._group_actions[0].choices["train-fleet"].format_help()
     assert "--link" in tf and "--optical-terminals" in tf
+
+
+# ----------------------------------------------------------------- review follow-ups
+
+def test_skip_only_when_heard_on_the_previous_tick_and_uncovered_skips_are_counted():
+    """A vehicle skips its acoustic beacon only if an optical message arrived within link_up_ticks; skipped
+    beacons whose optical copy was lost too are counted."""
+    still_apart = lambda obs: [np.zeros(6)] * 2
+    link = lambda k: LinkConfig("hybrid", _optical(water="harbor"), link_up_ticks=k)
+    # ~3.7 m apart in harbour water: the optical link is intermittent (about 60% delivery)
+    for k in (1, 30):
+        _, out = _run(link(k), L2, interval=1.0, d0=3.5, v0=0.7, steps=200, policy=still_apart)
+        prev_optical = [0, 0]
+        for _, _, i in out:
+            if k == 1:
+                assert i["acoustic_skipped"] <= sum(prev_optical)      # only right after an optical receipt
+            assert i["acoustic_skipped_uncovered"] <= i["acoustic_skipped"]
+            prev_optical = [int("optical" in x) for x in i["delivered_by"]]
+        if k == 1:
+            one = (sum(i["acoustic_skipped"] for _, _, i in out), sum(i["acoustic_skipped_uncovered"] for _, _, i in out))
+    wide = (sum(i["acoustic_skipped"] for _, _, i in out), sum(i["acoustic_skipped_uncovered"] for _, _, i in out))
+    assert wide[0] > one[0] and wide[1] > one[1]      # a wide window skips more, and more of them uncovered
+    with pytest.raises(ValueError, match="whole number of ticks"):
+        LinkConfig("hybrid", _optical(), link_up_ticks=0).validate()
+
+
+def test_down_cone_points_at_a_vehicle_below():
+    # body z is down (Fossen) and so is the simulators' world z: a buoyant vehicle rises to negative z
+    down = optical_terminals("down_cone")
+    from comm_channel import beam_covers
+    assert beam_covers((0, 0, 0), np.eye(3), (0, 0, 5), down)          # directly below
+    assert not beam_covers((0, 0, 0), np.eye(3), (0, 0, -5), down)     # directly above
+    assert not beam_covers((0, 0, 0), np.eye(3), (5, 0, 0), down)      # level, ahead
+    from buoyancy import with_buoyancy_offset
+    from dynamics_model import SimulationConfig
+    from fast_dynamics import FastCore
+    core = FastCore(with_buoyancy_offset(TRUTH, 20.0), VEHICLE, SimulationConfig(dt=0.1))
+    core.reset(position=np.zeros(3), nu=np.zeros(6))
+    for _ in range(30):
+        core.step(np.zeros(6))
+    assert core.position_array()[2] < 0                                # buoyant rises: world z is down
+
+
+def test_optical_interval_must_be_whole_ticks(tmp_path):
+    lc = LinkConfig("optical", _optical(beacon_interval_s=0.15))
+    with pytest.raises(ValueError, match="multiple of dt"):
+        FleetSim(TRUTH, VEHICLE, FleetConfig(), *L2, link=lc)
+    params = os.path.join(CAL, "calibrated_parameters_fleet_truth.yaml")
+    assert cli.main(["train-fleet", "--params", params, "--link", "optical", "--optical-interval", "0.15",
+                     "--out", str(tmp_path / "p")], runner=lambda argv: 0) == 2
+    assert cli.main(["fleet", "--link", "optical", "--optical-interval", "0.15",
+                     "--save-config", str(tmp_path / "x.yaml")]) == 2
+
+
+def test_no_latency_advantage_both_links_arrive_on_the_next_tick():
+    no_loss = (PacketLossConfig(0.0, 1000.0, 0.0, 0.0), BandwidthConfig(1e9))
+    for link in (None, LinkConfig("optical", _optical(water="clear"))):
+        _, out = _run(link, no_loss, interval=1.0, steps=12, d0=3.0, v0=0.0,
+                      policy=lambda obs: [np.zeros(6)] * 2)
+        first = next(k for k, (_, _, i) in enumerate(out, start=1) if any(i["delivered"]))
+        assert first == (11 if link is None else 2)       # sent on tick 10 (acoustic) or 1 (optical): +1 tick

@@ -197,8 +197,17 @@ def main(argv=None) -> int:
          "**Read this first.** The optical model is **uncalibrated**: the water values are rough textbook figures and "
          "the delivery curve is a placeholder (50% delivery at 30 m in clear water, ~15 m coastal, ~4 m harbour, when "
          "pointed). Every number here is conditional on those assumptions. The policies are the shipped PPO fleet "
-         "policies, trained on acoustic links only: this measures what a better link gives policies that never saw "
-         "one, not what a policy trained to exploit it could do.\n",
+         "policies, trained on acoustic links only, with no input saying whether the optical link is up (only the "
+         "teammate-belief age shows it). This study shows whether **fresher teammate information helps existing "
+         "policies**. It **can't** show whether a fleet learns to stay within optical range and pointed at its "
+         "teammate: that needs policies trained with `--link hybrid`, the follow-up study (criteria.md, addendum).\n",
+         "What the optical link adds here is **high-rate state sharing**: every tick, the teammate's measured state "
+         "and the thrust it delivered on that tick. That is not intent sharing (planned commands or a trajectory), "
+         "which stays open (#48). **No latency effect is modelled:** delivery is quantised to the 0.1 s tick, so "
+         "optical's 1 ms and acoustic's few ms both arrive on the next tick; the gains below come from send rate "
+         "and loss.\n",
+         "Hybrid `optical_first` skips a vehicle's acoustic beacon only if an optical message from its teammate "
+         "arrived on the previous tick (`link_up_ticks` = 1).\n",
          f"**Gate (integration):** {len(rows):,} episodes, {len(bad)} bookkeeping failures, every link condition ran "
          f"with every policy. {'PASSED' if not bad else 'FAILED'}.\n",
          "## 1. Does the optical link help? Hybrid optical_first vs acoustic only, same episodes\n",
@@ -221,7 +230,8 @@ def main(argv=None) -> int:
                  f"{pp(c)} | {verdict(c)} |")
     L += ["", "## 2. Freshness and 3. water\n",
           "| Condition | Success | Collisions | Optical beacons delivered | Belief updates via optical | "
-          "Median belief age |", "|---|---|---|---|---|---|"]
+          "Median belief age | Acoustic skipped / episode | Skipped with optical copy lost |",
+          "|---|---|---|---|---|---|---|---|"]
     order = [f"{s}@{i:g}s" for s, i in COMMS]
     keys = [k for c in order for k in [c] + [f"{c} hybrid/{w}" for w in WATERS]] + [f"optical/{w}" for w in WATERS]
     for k in keys:
@@ -230,7 +240,7 @@ def main(argv=None) -> int:
             L.append(f"| {k} | {pct(s['success_rate'])} | {pct(s['collision_rate'])} | {pct(s['optical_up_fraction'])} | "
                      f"{pct(s['belief_updates_optical_share'])} | "
                      + ("n/a" if not np.isfinite(s["median_belief_age_s"]) else f"{s['median_belief_age_s']:.2f} s")
-                     + " |")
+                     + f" | {s['acoustic_skipped_per_episode']:.1f} | {pct(s['skipped_uncovered_share'])} |")
     L += ["", "## 4. optical_first vs redundant (same episodes)\n",
           "| Acoustic condition | Water | optical_first | redundant | Redundant − optical_first, pts (95% CI) |",
           "|---|---|---|---|---|"]
@@ -289,4 +299,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from keep_awake import keep_awake
+    with keep_awake("optical link study"):  # PROJECT_STATUS.md #49
+        rc = main()
+    sys.exit(rc)

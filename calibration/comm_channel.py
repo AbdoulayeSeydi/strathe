@@ -294,7 +294,8 @@ LINKS = ("acoustic", "optical", "hybrid")
 HYBRID_POLICIES = ("optical_first", "redundant")
 _PRESET_AXES = {"forward_cone": [(1.0, 0.0, 0.0)],
                 "fore_aft_cones": [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)],
-                "down_cone": [(0.0, 0.0, 1.0)]}   # body z points down (NED-style body frame)
+                "down_cone": [(0.0, 0.0, 1.0)]}   # body z points down: Fossen body frame, and the
+                                                  # simulators' world z is down too (a buoyant vehicle rises to -z)
 _REFERENCE_WATER = "clear"   # rated_range_m is quoted in clear water, as vendors do
 _MIN_RANGE_M = 0.1           # received power is capped below this range
 
@@ -358,6 +359,16 @@ def _within(axis_world, direction, half_angle_deg: float) -> bool:
     a = a / np.linalg.norm(a)
     cosang = float(np.clip(np.dot(a, direction), -1.0, 1.0))
     return cosang >= np.cos(np.radians(half_angle_deg)) - 1e-12
+
+
+def beam_covers(sender_pos, sender_R, target_pos, terminals) -> bool:
+    """True if some terminal's transmit beam covers target_pos (the sender half of pointing_gain)."""
+    v = np.asarray(target_pos, dtype=float) - np.asarray(sender_pos, dtype=float)
+    n = float(np.linalg.norm(v))
+    if n < 1e-9:
+        return True
+    R = np.eye(3) if sender_R is None else np.asarray(sender_R, dtype=float)
+    return any(_within(R @ np.asarray(t.axis_body, dtype=float), v / n, t.beam_half_angle_deg) for t in terminals)
 
 
 def pointing_gain(sender_pos, sender_R, receiver_pos, receiver_R, terminals) -> float:
@@ -561,10 +572,14 @@ class LinkConfig:
     """Which link(s) a fleet uses. acoustic = today's channel only (default);
     optical = the optical link only; hybrid = both. Hybrid policies:
       optical_first  optical beacons at their own rate; a vehicle skips its
-                     acoustic beacon while the optical link is up: it heard
-                     its teammate optically within link_up_timeout_s
-                     (default 3 optical beacon intervals). Needs symmetric
-                     terminals; otherwise it runs as redundant.
+                     acoustic beacon only while the optical link is up: an
+                     optical message from its teammate arrived within the
+                     last link_up_ticks ticks (default 1: on the previous
+                     tick). Needs symmetric terminals; otherwise it runs as
+                     redundant. Symmetric terminals make the geometry
+                     reciprocal at an instant; the two directions still
+                     draw their losses independently, which is why the
+                     window is kept short.
       redundant      every beacon on both links.
     Acoustic energy and airtime aren't modelled, so redundant is never worse
     in this simulation; optical_first's value (saved energy and acoustic
@@ -572,13 +587,7 @@ class LinkConfig:
     link: str = "acoustic"
     optical: Optional[OpticalLinkConfig] = None
     hybrid_policy: str = "optical_first"
-    link_up_timeout_s: Optional[float] = None   # None = 3 optical beacon intervals
-
-    @property
-    def link_up_timeout(self) -> float:
-        if self.link_up_timeout_s is not None:
-            return float(self.link_up_timeout_s)
-        return 3.0 * self.optical.beacon_interval_s
+    link_up_ticks: int = 1                      # "up" = heard optically within this many ticks
 
     @property
     def uses_acoustic(self) -> bool:
@@ -597,8 +606,8 @@ class LinkConfig:
             if self.optical is None:
                 raise ValueError(f"link: {self.link} needs optical settings")
             self.optical.validate()
-        if self.link_up_timeout_s is not None and not (0.0 < self.link_up_timeout_s <= 60.0):
-            raise ValueError(f"link_up_timeout_s must be in (0, 60] s, got {self.link_up_timeout_s}")
+        if not (isinstance(self.link_up_ticks, (int, np.integer)) and 1 <= self.link_up_ticks <= 600):
+            raise ValueError(f"link_up_ticks must be a whole number of ticks from 1 to 600, got {self.link_up_ticks}")
 
     def effective_hybrid_policy(self) -> tuple:
         """(policy actually used, reason or None). optical_first with
@@ -671,6 +680,6 @@ class LinkConfig:
             d["optical"] = self.optical.to_dict()
         if self.link == "hybrid":
             d["hybrid_policy"] = self.hybrid_policy
-            if self.link_up_timeout_s is not None:
-                d["link_up_timeout_s"] = self.link_up_timeout_s
+            if self.link_up_ticks != 1:
+                d["link_up_ticks"] = self.link_up_ticks
         return d
