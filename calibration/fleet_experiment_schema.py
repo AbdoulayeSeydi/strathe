@@ -148,12 +148,98 @@ class CommOverrides(BaseModel):
         return any(getattr(self, f) is not None for f in type(self).model_fields)
 
 
+LinkName = Literal["acoustic", "optical", "hybrid"]
+
+
+class OpticalTerminalBlock(BaseModel):
+    axis_body: list[float] = Field(min_length=3, max_length=3)
+    beam_half_angle_deg: float = 180.0
+    receiver_half_fov_deg: float = 180.0
+
+
+class OpticalBlock(BaseModel):
+    """An optical modem pair (comm_channel.OpticalLinkConfig). UNCALIBRATED: rough water values and a
+    placeholder delivery curve. Angles are HALF-angles (180 = every direction). water may be a list (a sweep).
+    compare_omni: also run every optical/hybrid condition with omnidirectional terminals, same episodes, so
+    the report can show what pointing costs."""
+    water: Union[str, list[str]] = "coastal"
+    attenuation_per_m: Optional[float] = None
+    terminals: Union[str, list[OpticalTerminalBlock]] = "omni"
+    beam_half_angle_deg: Optional[float] = None
+    receiver_half_fov_deg: Optional[float] = None
+    data_rate_bps: float = 1.0e6
+    latency_s: float = 0.001
+    rated_range_m: float = 30.0
+    curve_width: float = 1.0
+    beacon_interval_s: float = 0.1
+    compare_omni: bool = False
+
+    @model_validator(mode="after")
+    def _valid(self):
+        if isinstance(self.water, list) and not self.water:
+            raise ValueError("communication.optical.water must not be empty")
+        if abs(self.beacon_interval_s / 0.1 - round(self.beacon_interval_s / 0.1)) > 1e-9 or self.beacon_interval_s <= 0:
+            raise ValueError(f"optical beacon_interval_s must be a positive multiple of the 0.1 s tick, "
+                             f"got {self.beacon_interval_s}")
+        cfgs = self.configs()
+        if self.compare_omni and all(c.omni for c in cfgs):
+            raise ValueError("compare_omni compares pointing cones with omnidirectional terminals, but these "
+                             "terminals are already omnidirectional; set terminals to a cone preset")
+        return self
+
+    def waters(self) -> list:
+        return list(self.water) if isinstance(self.water, list) else [self.water]
+
+    def configs(self, omni: bool = False) -> list:
+        """One validated OpticalLinkConfig per water type (omni=True: the omnidirectional control)."""
+        from comm_channel import OpticalLinkConfig
+        terms = (self.terminals if isinstance(self.terminals, str)
+                 else [t.model_dump() for t in self.terminals])
+        out = []
+        for w in self.waters():
+            c = OpticalLinkConfig(water=w, attenuation_per_m=self.attenuation_per_m if w == "custom" else None,
+                                  terminals="omni" if omni else terms,
+                                  beam_half_angle_deg=None if omni else self.beam_half_angle_deg,
+                                  receiver_half_fov_deg=None if omni else self.receiver_half_fov_deg,
+                                  data_rate_bps=self.data_rate_bps, latency_s=self.latency_s,
+                                  rated_range_m=self.rated_range_m, curve_width=self.curve_width,
+                                  beacon_interval_s=self.beacon_interval_s)
+            c.validate()
+            out.append(c)
+        return out
+
+
 class CommunicationConfig(BaseModel):
     severities: Optional[list[SeverityLevel]] = None
     severity: Optional[SeverityLevel] = None       # single-level shorthand
     overrides: CommOverrides = Field(default_factory=CommOverrides)
     beacon_interval_s: Union[float, list[float]] = 1.0
     speed_of_sound_mps: float = Field(default=1500.0, gt=0)
+    # acoustic (default) | optical | hybrid, or a list to compare them on the same episodes
+    link: Union[LinkName, list[LinkName]] = "acoustic"
+    optical: Optional[OpticalBlock] = None
+    hybrid_policy: Literal["optical_first", "redundant"] = "optical_first"
+    link_up_timeout_s: Optional[float] = Field(default=None, gt=0, le=60)
+
+    def links(self) -> list:
+        return list(dict.fromkeys(self.link)) if isinstance(self.link, list) else [self.link]
+
+    def link_configs(self) -> list:
+        """[(LinkConfig, pointing)] for every link x water (x the omni control); pointing is the terminal
+        preset's label, or 'omni'."""
+        from comm_channel import LinkConfig
+        out = []
+        for name in self.links():
+            if name == "acoustic":
+                out.append((LinkConfig("acoustic"), "acoustic"))
+                continue
+            variants = [False] + ([True] if self.optical.compare_omni else [])
+            for omni in variants:
+                for oc in self.optical.configs(omni=omni):
+                    lc = LinkConfig(name, oc, self.hybrid_policy, self.link_up_timeout_s)
+                    lc.validate()
+                    out.append((lc, "omni" if oc.omni else oc.pointing_label))
+        return out
 
     @model_validator(mode="after")
     def _resolve(self):
@@ -161,10 +247,23 @@ class CommunicationConfig(BaseModel):
             raise ValueError("give either communication.severity or communication.severities, not both")
         if self.severity is not None:
             self.severities = [self.severity]
+        links = self.links()
+        if not links:
+            raise ValueError("communication.link must not be empty")
+        uses_optical = any(l in ("optical", "hybrid") for l in links)
+        if uses_optical and self.optical is None:
+            # written into the config itself so the saved experiment.yaml reruns the same thing
+            self.optical = OpticalBlock()
+        if not uses_optical and self.optical is not None:
+            raise ValueError("communication.optical is set but link is acoustic; set link: optical or hybrid "
+                             "(or a list, e.g. [acoustic, hybrid])")
         if self.overrides.any_set() and self.severities and len(self.severities) > 1:
             raise ValueError("overrides apply on top of ONE severity; list a single severity (or none) with overrides")
         if not self.severities and not self.overrides.any_set():
-            raise ValueError("communication needs at least one severity (L0-L3b) or an overrides block")
+            if links == ["optical"]:
+                self.severities = ["L0"]   # unused: an optical-only link has no acoustic channel
+            else:
+                raise ValueError("communication needs at least one severity (L0-L3b) or an overrides block")
         intervals = self.beacon_interval_s if isinstance(self.beacon_interval_s, list) else [self.beacon_interval_s]
         if not intervals:
             raise ValueError("communication.beacon_interval_s must not be empty")
@@ -174,6 +273,7 @@ class CommunicationConfig(BaseModel):
         self.beacon_interval_s = intervals
         for _, plc, _ in self.levels():
             plc.validate()
+        self.link_configs()   # raises ValueError with a specific message
         return self
 
     def levels(self) -> list:

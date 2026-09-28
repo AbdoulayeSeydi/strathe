@@ -20,7 +20,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from comm_channel import BandwidthConfig, PacketLossConfig
+from comm_channel import BandwidthConfig, LinkConfig, PacketLossConfig
 from dynamics_model import CalibrationParameters, VehicleConstants
 from fleet_belief import BeliefSpec
 from fleet_env import FleetConfig, FleetSim, N_AGENTS
@@ -33,6 +33,7 @@ class CommSpec:
     bandwidth_config: BandwidthConfig
     speed_of_sound_mps: float = 1500.0
     beacon_interval_s: float = 1.0
+    link: Optional[LinkConfig] = None   # None = acoustic only (the original behaviour)
 
 
 @dataclass
@@ -56,7 +57,11 @@ def episode_comm_seed(comm_seed: int, i_sep: int, i_speed: int) -> int:
 
 def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> dict:
     obs = sim.reset(comm_seed=comm_seed, initial_separation=d0, closing_speed=v0)
-    belief_errs, delivered, sep_err, nav_err = [], [], [], []
+    belief_errs, delivered, sep_err, nav_err, ages = [], [], [], [], []
+    sent = {"acoustic": 0, "optical": 0}
+    got = {"acoustic": 0, "optical": 0}
+    updates = {"acoustic": 0, "optical": 0}
+    skipped = 0
     target = sim.cfg.task.target_separation
     info = {"terminal_reason": None}
     steps = 0
@@ -68,6 +73,14 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
         delivered += info["delivered"]
         sep_err.append(abs(info["true_separation"] - target))
         nav_err += info.get("nav_errors") or []
+        for k in sent:
+            sent[k] += info["sent"][k]
+            updates[k] += info["belief_updates"][k]
+        for links in info["delivered_by"]:
+            for k in links:
+                got[k] += 1
+        skipped += info["acoustic_skipped"]
+        ages += [a for a in info["belief_ages"] if np.isfinite(a)]
         if term or trunc:
             break
     reason = info["terminal_reason"]
@@ -82,6 +95,16 @@ def run_episode(sim: FleetSim, policy, comm_seed: int, d0: float, v0: float) -> 
         "mean_abs_separation_error_m": float(np.mean(sep_err)),
         "mean_nav_error_m": float(np.mean(nav_err)) if nav_err else 0.0,
         "buoyancy_offset_n": float(info.get("buoyancy_offset_n", 0.0)),
+        # per link: beacons sent / delivered (a delivered copy may still be older than what the belief holds)
+        "acoustic_sent": sent["acoustic"], "acoustic_delivered": got["acoustic"], "acoustic_skipped": skipped,
+        "optical_sent": sent["optical"], "optical_delivered": got["optical"],
+        "acoustic_delivery_share": got["acoustic"] / sent["acoustic"] if sent["acoustic"] else float("nan"),
+        # share of optical sends that got through: the fraction of time the optical link was up
+        "optical_up_fraction": got["optical"] / sent["optical"] if sent["optical"] else float("nan"),
+        # which link carried the beacons that actually refreshed a belief
+        "belief_updates_optical_share": (updates["optical"] / (updates["optical"] + updates["acoustic"])
+                                         if updates["optical"] + updates["acoustic"] else float("nan")),
+        "median_belief_age_s": float(np.median(ages)) if ages else float("nan"),
     }
 
 
@@ -125,7 +148,7 @@ def run_cell(cell: CellSpec) -> list:
     sim = FleetSim(cell.truth_params, cell.vehicle, cell.fleet_config,
                    cell.comm.packet_loss_config, cell.comm.bandwidth_config,
                    cell.comm.speed_of_sound_mps, belief=cell.belief,
-                   beacon_interval_s=cell.comm.beacon_interval_s)
+                   beacon_interval_s=cell.comm.beacon_interval_s, link=cell.comm.link)
     rows = []
     for comm_seed in cell.comm_seeds:
         for i_d, d0 in enumerate(cell.separations):
@@ -134,6 +157,7 @@ def run_cell(cell: CellSpec) -> list:
                 r.update({"policy": os.path.basename(cell.policy_path), "comm": cell.comm.label,
                           "belief": cell.belief.label, "belief_kind": cell.belief.kind,
                           "beacon_interval_s": cell.comm.beacon_interval_s,
+                          "link": sim.link.label,
                           "backend": cell.fleet_config.dynamics_backend, "comm_seed": comm_seed,
                           "initial_separation_m": d0, "closing_speed_mps": v0,
                           "episode_key": f"{comm_seed}|{i_d}|{i_v}"})

@@ -100,23 +100,39 @@ def build_cells(cfg, truth, generic, vehicle) -> tuple:
     comm = cfg.communication
     cells = []
     modes = cfg.modes()
+    link_configs = comm.link_configs()
     for backend in backends:
         for mode in modes:
             fc = fleet_config_for(cfg, backend, mode)
             for pol in cfg.policies:
+                optical_done = set()
                 for level, plc, bwc in comm.levels():
                     for interval in comm.beacon_interval_s:
-                        base = f"{level}@{interval:g}s"
-                        # with mode: both, clean and noisy are separate conditions in every table
-                        cs = CommSpec(base + (f" {mode}" if len(modes) > 1 else ""), plc, bwc,
-                                      comm.speed_of_sound_mps, interval)
-                        for spec, _alpha in beliefs:
-                            cells.append(CellSpec(pol.model_path, pol.algorithm, cs, spec, truth, vehicle, fc,
-                                                  cfg.initial_conditions.separations_m,
-                                                  cfg.initial_conditions.closing_speeds_mps,
-                                                  cfg.evaluation.comm_seeds,
-                                                  tags={"mode": mode, "comm_base": base,
-                                                        "policy_group": pol.group}))
+                        acoustic_base = f"{level}@{interval:g}s"
+                        for lc, pointing in link_configs:
+                            if lc.link == "acoustic":
+                                base = acoustic_base          # unchanged labels for acoustic-only runs
+                            elif lc.link == "hybrid":
+                                base = f"{acoustic_base} {lc.label}"
+                            else:
+                                # optical only: the acoustic severity and interval don't apply, so it runs once
+                                base = lc.label
+                                if base in optical_done:
+                                    continue
+                                optical_done.add(base)
+                            # with mode: both, clean and noisy are separate conditions in every table
+                            cs = CommSpec(base + (f" {mode}" if len(modes) > 1 else ""), plc, bwc,
+                                          comm.speed_of_sound_mps, interval,
+                                          link=None if lc.link == "acoustic" else lc)
+                            tags = {"mode": mode, "comm_base": base, "policy_group": pol.group,
+                                    "link_kind": lc.link, "acoustic_base": "none" if lc.link == "optical"
+                                    else acoustic_base, "water": lc.optical.water if lc.uses_optical else "none",
+                                    "pointing": pointing}
+                            for spec, _alpha in beliefs:
+                                cells.append(CellSpec(pol.model_path, pol.algorithm, cs, spec, truth, vehicle, fc,
+                                                      cfg.initial_conditions.separations_m,
+                                                      cfg.initial_conditions.closing_speeds_mps,
+                                                      cfg.evaluation.comm_seeds, tags=dict(tags)))
     alphas = {spec.label: a for spec, a in beliefs if a is not None}
     return cells, alphas
 
@@ -177,8 +193,142 @@ def simulation_lines(cfg) -> list:
     return L
 
 
+def uses_optical(cfg) -> bool:
+    return any(l != "acoustic" for l in cfg.communication.links())
+
+
+def link_summary(rows) -> list:
+    """Per comm condition, pooled over policies and beliefs: how each link did."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(r["comm"], []).append(r)
+
+    def nanmean(xs):
+        xs = np.array([x for x in xs if x is not None], dtype=float)
+        xs = xs[np.isfinite(xs)]
+        return float(xs.mean()) if xs.size else float("nan")
+
+    def nanmedian(xs):
+        xs = np.array([x for x in xs if x is not None], dtype=float)
+        xs = xs[np.isfinite(xs)]
+        return float(np.median(xs)) if xs.size else float("nan")
+    out = []
+    for comm, rs in groups.items():
+        out.append({"comm": comm, "link": rs[0].get("link", "acoustic"), "link_kind": rs[0].get("link_kind", "acoustic"),
+                    "n": len(rs), "success_rate": float(np.mean([r["success"] for r in rs])),
+                    "collision_rate": float(np.mean([r["collision"] for r in rs])),
+                    "acoustic_delivery_share": nanmean(r["acoustic_delivery_share"] for r in rs),
+                    "acoustic_skipped_per_episode": float(np.mean([r["acoustic_skipped"] for r in rs])),
+                    "optical_up_fraction": nanmean(r["optical_up_fraction"] for r in rs),
+                    "belief_updates_optical_share": nanmean(r["belief_updates_optical_share"] for r in rs),
+                    "median_belief_age_s": nanmedian(r["median_belief_age_s"] for r in rs)})
+    return out
+
+
+def link_contrasts(rows) -> tuple:
+    """(each optical/hybrid link minus acoustic, pointing cones minus omni), paired episode by episode.
+    Optical-only runs have no acoustic severity, so they are paired against every acoustic one."""
+    kinds = {r.get("link_kind", "acoustic") for r in rows}
+    if kinds == {"acoustic"}:
+        return [], []
+    acoustic_bases = sorted({r["acoustic_base"] for r in rows if r.get("link_kind") == "acoustic"})
+    aug = []
+    for r in rows:
+        if r.get("link_kind") == "optical":
+            aug += [dict(r, acoustic_base=b) for b in acoustic_bases]
+        else:
+            aug.append(r)
+    vs_acoustic = []
+    if "acoustic" in kinds:
+        for lab in dict.fromkeys(r["link"] for r in rows if r.get("link_kind") != "acoustic"):
+            vs_acoustic += paired_by(aug, "link", lab, "acoustic", match=("policy", "belief", "acoustic_base",
+                                                                         "backend", "mode"),
+                                     group_by=("acoustic_base", "mode"))
+    pointing = []
+    for p in dict.fromkeys(r["pointing"] for r in rows if r.get("pointing") not in ("acoustic", "omni", None)
+                           and not str(r.get("pointing")).startswith("omni")):
+        pointing += paired_by(rows, "pointing", p, "omni", match=("policy", "belief", "acoustic_base", "link_kind",
+                                                                  "water", "backend", "mode"),
+                              group_by=("link_kind", "water", "acoustic_base", "mode"))
+    return vs_acoustic, pointing
+
+
+def _ci(c) -> str:
+    lo, hi = c["success_diff_ci95"]
+    return f"{_pp(c['success_diff'])} ({_pp(lo)} to {_pp(hi)})"
+
+
+def link_lines(cfg, lsum, vs_acoustic, pointing) -> list:
+    """The report's optical-link section."""
+    comm = cfg.communication
+    L = ["## Optical link\n"]
+    seps = cfg.initial_conditions.separations_m
+    seen = set()
+    for lc, _p in comm.link_configs():
+        if lc.link == "acoustic" or lc.label in seen:
+            continue
+        seen.add(lc.label)
+        L.append(f"- `{lc.label}`: {lc.describe()}.")
+        note = lc.start_geometry_note(seps)
+        if note:
+            L.append(f"  - **Start geometry: {note}**")
+    L.append("")
+    L.append("Optical delivery is judged on the true positions and attitudes (the light follows the real vehicle); "
+             "the beacon carries what the sender measured. A belief keeps whichever beacon was sent most recently, "
+             "whichever link it came on, so a late acoustic copy never rolls it back.\n")
+    if "hybrid" in comm.links():
+        pol, why = next(lc for lc, _ in comm.link_configs() if lc.link == "hybrid").effective_hybrid_policy()
+        if why:
+            L.append(f"**Hybrid policy changed:** {why}.\n")
+        L.append("*Why `optical_first` exists:* acoustic energy and airtime aren't modelled here, so sending every "
+                 "beacon on both links (`redundant`) is never worse in this simulation. `optical_first` saves acoustic "
+                 "energy and channel time, which starts to matter once three or more vehicles share one acoustic "
+                 f"channel. Here a vehicle skips its acoustic beacon while it has heard its teammate optically in the "
+                 f"last {next(lc for lc, _ in comm.link_configs() if lc.link == 'hybrid').link_up_timeout:g} s.\n")
+    L.append("| Comm | Success | Collision | Acoustic delivered | Acoustic beacons skipped / episode | Optical up | "
+             "Belief updates via optical | Median belief age |")
+    L.append("|---|---|---|---|---|---|---|---|")
+
+    def f(x, pct=True):
+        return "n/a" if not np.isfinite(x) else (_pct(x) if pct else f"{x:.2f} s")
+    for s in sorted(lsum, key=lambda s: s["comm"]):
+        L.append(f"| {s['comm']} | {_pct(s['success_rate'])} | {_pct(s['collision_rate'])} | "
+                 f"{f(s['acoustic_delivery_share'])} | {s['acoustic_skipped_per_episode']:.1f} | "
+                 f"{f(s['optical_up_fraction'])} | {f(s['belief_updates_optical_share'])} | "
+                 f"{f(s['median_belief_age_s'], pct=False)} |")
+    L.append("\n*Optical up* = share of optical beacons that got through; *belief updates via optical* = share of "
+             "the beacons that actually refreshed a teammate belief that came by light. Pooled over policies and "
+             "belief models.\n")
+    if vs_acoustic:
+        L.append("### Does the optical link help? (vs acoustic only, same episodes)\n")
+        L.append("| Link | Acoustic condition | Mode | With link | Acoustic only | Difference (95% CI) | "
+                 "Collisions with link vs acoustic | Episodes |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for c in vs_acoustic:
+            L.append(f"| `{c['a']}` | {c['acoustic_base']} | {c['mode']} | {_pct(c['success_a'])} | "
+                     f"{_pct(c['success_b'])} | {_ci(c)} | {_pct(c['collision_a'])} vs {_pct(c['collision_b'])} | "
+                     f"{c['n_pairs']} |")
+        L.append("\nOptical-only runs have no acoustic channel; they are paired with each acoustic condition on the "
+                 "same episodes.\n")
+    if pointing:
+        L.append("### What pointing costs (cones vs omnidirectional terminals, same episodes)\n")
+        L.append("| Terminals | Link | Water | Acoustic condition | Mode | Cones | Omni | Cones − omni (95% CI) | "
+                 "Episodes |")
+        L.append("|---|---|---|---|---|---|---|---|---|")
+        for c in pointing:
+            L.append(f"| `{c['a']}` | {c['link_kind']} | {c['water']} | {c['acoustic_base']} | {c['mode']} | "
+                     f"{_pct(c['success_a'])} | {_pct(c['success_b'])} | {_ci(c)} | {c['n_pairs']} |")
+        L.append("")
+    L.append("**Limits of the optical model:** uncalibrated (rough textbook water values, a placeholder delivery "
+             "curve: fit it to your own link logs of success against range and angle before quoting numbers); a hard "
+             "cone (inside = full power, outside = none); no occlusion, sunlight, bubbles or turbidity changes; "
+             "pointing uses the true attitude, so results are more sensitive to roll and pitch than acoustic ones "
+             "(see LIMITS.md).\n")
+    return L
+
+
 def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, dirty, mode_contrasts=None,
-                 group_contrasts=None, group_summary=None):
+                 group_contrasts=None, group_summary=None, link_section=None):
     a, b = (cfg.compare.a, cfg.compare.b) if cfg.compare else (None, None)
     L = []
     L.append(f"# Fleet experiment: {cfg.name or 'unnamed'}\n")
@@ -188,12 +338,19 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
     L.append("Two simulated vehicles must hold "
              f"{cfg.task.target_separation_m} m ± {cfg.task.tolerance_m} m apart for {cfg.task.hold_steps} "
              f"consecutive ticks (0.1 s each) within {cfg.task.max_episode_steps} ticks, without coming closer than "
-             f"{cfg.task.collision_radius_m} m. They share their state over an acoustic link that loses packets. "
-             "Between beacons, each vehicle predicts where its teammate is with a **belief model**; that model is the "
+             f"{cfg.task.collision_radius_m} m. They share their state over "
+             + ("an acoustic link that loses packets. " if not uses_optical(cfg) else
+                f"a link that loses packets ({', '.join(cfg.communication.links())}; see *Optical link* below). ")
+             + "Between beacons, each vehicle predicts where its teammate is with a **belief model**; that model is the "
              "only thing that changes between the conditions below. Both vehicles' true physics is "
              f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "
              "positions and the same lost packets.\n")
     L += simulation_lines(cfg)
+    if uses_optical(cfg):
+        for lc, _p in cfg.communication.link_configs():
+            note = lc.start_geometry_note(cfg.initial_conditions.separations_m) if lc.link != "acoustic" else None
+            if note:
+                L.append(f"**Warning (`{lc.label}`):** {note}\n")
     cur = cfg.current.to_config() if cfg.current is not None else None
     if cur is not None and cur.active:
         L.append(f"**Water current on:** {cur.describe()}. Both vehicles feel the same current; the policy sees only "
@@ -228,6 +385,8 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
             L.append(f"| {c['comm_base']} | `{c['belief']}` | {_pct(c['success_b'])} | {_pct(c['success_a'])} | "
                      f"{_pp(c['success_diff'])} ({_pp(lo)} to {_pp(hi)}) | {c['n_pairs']} |")
         L.append("")
+    if link_section:
+        L += link_section
     if group_summary:
         groups = list(dict.fromkeys(p.group for p in cfg.policies))
         L.append("## Policy groups compared\n")
@@ -377,7 +536,14 @@ def _log_mlflow(cfg, out_dir, summary, contrasts):
                                               if cfg.sensor_noise is not None else "none"),
                              "buoyancy": (cfg.buoyancy_config().describe() if cfg.buoyancy is not None
                                           and cfg.buoyancy_config().active else "none"),
-                             "algorithms": ",".join(sorted({p.algorithm for p in cfg.policies}))})
+                             "algorithms": ",".join(sorted({p.algorithm for p in cfg.policies})),
+                             "link": ",".join(cfg.communication.links()),
+                             "optical_water": (",".join(cfg.communication.optical.waters())
+                                               if cfg.communication.optical is not None else "none"),
+                             "optical_terminals": (str(cfg.communication.optical.terminals)
+                                                   if cfg.communication.optical is not None else "none"),
+                             "hybrid_policy": (cfg.communication.hybrid_policy
+                                               if "hybrid" in cfg.communication.links() else "none")})
             for s in summary:
                 key = f"{s['comm']}.{s['belief']}".replace("@", "_at_")
                 mlflow.log_metric(f"success.{key}", s["success_rate"])
@@ -411,7 +577,18 @@ def run_experiment(config_path: str) -> dict:
           + (f" (sensor noise {cfg.sensor_noise.preset} x{cfg.sensor_noise.scale:g})"
              if cfg.sensor_noise is not None and cfg.sensor_noise.config() is not None else "")
           + (", buoyancy " + cfg.buoyancy_config().describe()
-             if cfg.buoyancy is not None and cfg.buoyancy_config().active else ""))
+             if cfg.buoyancy is not None and cfg.buoyancy_config().active else "")
+          + f", link {'/'.join(cfg.communication.links())}")
+    if uses_optical(cfg):
+        seen = set()
+        for lc, _p in cfg.communication.link_configs():
+            if lc.link == "acoustic" or lc.label in seen:
+                continue
+            seen.add(lc.label)
+            print(f"  {lc.label}: {lc.describe()}")
+            note = lc.start_geometry_note(cfg.initial_conditions.separations_m)
+            if note:
+                print(f"  WARNING: {note}")
 
     print("\n[2/4] Checking policies against the per-vehicle contract...")
     for p in cfg.policies:
@@ -445,6 +622,8 @@ def run_experiment(config_path: str) -> dict:
     group_contrasts = [c for g in groups[1:] for c in
                        paired_by(rows, "policy_group", g, groups[0], match=("belief", "comm", "backend"),
                                  group_by=("comm",))] if len(groups) > 1 else []
+    lsum = link_summary(rows) if uses_optical(cfg) else []
+    vs_acoustic, pointing = link_contrasts(rows) if uses_optical(cfg) else ([], [])
     elapsed = time.monotonic() - t0
     dirty = get_git_dirty()
 
@@ -458,7 +637,8 @@ def run_experiment(config_path: str) -> dict:
         w.writerows(summary)
     metrics = {"summary": summary, "paired_contrast": contrasts, "dose_response": doses, "belief_success_link": links,
                "clean_vs_noisy": mode_contrasts, "policy_groups": group_summary,
-               "policy_group_contrasts": group_contrasts}
+               "policy_group_contrasts": group_contrasts, "links": lsum, "link_vs_acoustic": vs_acoustic,
+               "pointing_vs_omni": pointing}
     with open(os.path.join(out, "metrics.json"), "w") as f:
         json.dump(_jsonable(metrics), f, indent=2)
     from importlib.metadata import version
@@ -478,7 +658,8 @@ def run_experiment(config_path: str) -> dict:
     with open(os.path.join(out, "experiment.yaml"), "w") as f:
         yaml.safe_dump(cfg.model_dump(mode="json", exclude_none=True), f, sort_keys=False)
     write_report(os.path.join(out, "summary_report.md"), cfg, summary, contrasts, doses, links, elapsed, len(rows), dirty,
-                 mode_contrasts=mode_contrasts, group_contrasts=group_contrasts, group_summary=group_summary)
+                 mode_contrasts=mode_contrasts, group_contrasts=group_contrasts, group_summary=group_summary,
+                 link_section=link_lines(cfg, lsum, vs_acoustic, pointing) if uses_optical(cfg) else None)
     try:
         write_plots(os.path.join(out, "plots"), summary, doses)
     except Exception as e:  # plots are a convenience; the numbers are already written
@@ -494,6 +675,13 @@ def run_experiment(config_path: str) -> dict:
               f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
     for c in group_contrasts:
         print(f"- {c['a']} - {c['b']}, {c['comm']}: {100 * c['success_diff']:+.0f} pts "
+              f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
+    for c in vs_acoustic:
+        print(f"- {c['a']} - acoustic, {c['acoustic_base']} {c['mode']}: {100 * c['success_diff']:+.0f} pts "
+              f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
+    for c in pointing:
+        print(f"- {c['a']} - omni, {c['link_kind']} {c['water']} {c['acoustic_base']} {c['mode']}: "
+              f"{100 * c['success_diff']:+.0f} pts "
               f"({100 * c['success_diff_ci95'][0]:+.0f} to {100 * c['success_diff_ci95'][1]:+.0f})")
     print(f"\nDone in {elapsed / 60:.1f} min. Report: {os.path.join(out, 'summary_report.md')}")
     return metrics

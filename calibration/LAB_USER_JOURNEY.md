@@ -127,6 +127,16 @@ That validation is on the reference BlueROV2 and the formation task only; for
 your vehicle, train two or three seeds of each and compare them in one run
 (section 14 shows the commands).
 
+**Q16. Can the vehicles use an optical link, or a hybrid of optical and acoustic?**
+PASS. `communication.link: optical | hybrid` (`--link`, or the web form), with
+water clarity, terminal layout (omnidirectional by default; forward, fore/aft or
+down-facing cones) and a hybrid policy (section 15). The report adds the optical
+link's delivery, which link refreshed each belief, the median belief age, and
+paired comparisons against acoustic only and of cones against omni. It warns up
+front when the cones can't connect at the start layout. The optical model is
+**uncalibrated** (textbook water values, a placeholder delivery curve); a lab's link
+logs would calibrate it. What it gives the shipped policies: PROJECT_STATUS.md #59.
+
 **Q12. Can I use my own vehicle, not the reference BlueROV2?** PASS. Calibrate
 it from its logs (below), then set `truth_params`, `vehicle_spec` and
 `thrusters` in the experiment YAML (CUSTOM_EXPERIMENT.md sections 10-11). Train
@@ -231,5 +241,6 @@ The full list, with what to do about each, is in [`LIMITS.md`](../LIMITS.md). Th
 | 2 vehicles only (or 1 with `strathe arena`) | per-vehicle observations and a shared policy are the groundwork for N |
 | Formation hold only | new tasks need a reward, a config and training |
 | Sensor noise is white noise + a per-dive bias + DVL dropouts | no heading-dependent compass error or other correlated errors (LIMITS.md) |
+| Optical link is uncalibrated | textbook water values, a hard pointing cone, no occlusion or sunlight (LIMITS.md) |
 | No hardware in the loop | the reason to partner with a lab |
 | Policies trained on the stand-in engine only | MuJoCo truth is available for evaluation |

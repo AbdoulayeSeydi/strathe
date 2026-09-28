@@ -17,6 +17,9 @@ Quick answers:
   adds sensor noise and roll/pitch disturbance, `--mode both` runs clean and
   noisy side by side, and `--buoyancy` changes the trim
   ([Clean vs noisy](#clean-vs-noisy-simulation-and-buoyancy)).
+- **Can the fleet use an optical link?** Yes: `--link optical | hybrid`, with water
+  clarity and terminal pointing, but the optical model is uncalibrated
+  ([Communication model](#communication-model)).
 
 ---
 
@@ -104,7 +107,7 @@ Quick answers:
 | **Both vehicles are the same vehicle** | They share `truth_params`, `vehicle_spec` and `thrusters`. | Two different vehicles in one fleet isn't supported yet. |
 | **One task: formation hold** | Hold a separation for a number of ticks without colliding. | Separation, tolerance, hold time, episode length and collision radius are all settable (`strathe fleet --target-separation ...`). |
 | **Start state** | Level, facing +x, on a line. Separation and closing speed are chosen per start. | `--separations`, `--closing-speeds`. |
-| **Policies act on beacons plus a teammate model; no intent sharing** | Calibrated prediction ties "last beacon" in still water (#54). It pulls ahead in a current it knows about (#55). | Intent-sharing beacons are the next lever (research). |
+| **Policies act on beacons plus a teammate model; no explicit intent sharing** | Calibrated prediction ties "last beacon" in still water (#54). It pulls ahead in a current it knows about (#55). Beacons carry the teammate's last delivered thrust, so an optical link (a beacon every tick) shares that command at 10 Hz (#59). No beacon carries a planned trajectory. | Use `--link hybrid` for high-rate command sharing; planned-trajectory beacons are research. |
 | **Policies trained for one teammate model vary across seeds** | Policies specialised to the calibrated model ranged 35–98% (#54). The mixed-trained policies are consistent. | Use `--belief mix` (the default) for policies you report. |
 | **The shipped policies were trained on the reference BlueROV2** | They run on other vehicles, but results for your vehicle should come from policies trained on it. | `strathe train-fleet --params <your calibration>` (~40 min). |
 | **SAC and TD3 fleet policies were validated on one task and one vehicle** | Three seeds each, 1M steps, passed criteria fixed in advance: SAC ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6) over 17,600 paired episodes (#58). That's formation hold on the reference BlueROV2, clean simulation, SB3-standard settings with no tuning for another vehicle. The ranking doesn't necessarily carry over: TD3 went from best in clean simulation to worst under noise (−22 points). | For your vehicle, train two or three seeds of each (`strathe train-fleet --params <yours> --algorithm sac --seed 1 ...`) and compare them in one experiment (`--policies ppo=a ppo=b sac=c sac=d`), ideally with `--mode both`. The report's "Policy groups compared" table gives the paired difference with a 95% CI. |
@@ -116,6 +119,13 @@ Quick answers:
 |---|---|---|
 | **Distance-based packet loss, formula mode only** | No obstruction or multipath, no fitting to measured modem data, no message priorities (`comm_channel.py`). | The named levels L0–L3b span 0–60% loss and a bandwidth-starved case. |
 | **Beacon size is nominal (24 bytes)** | It isn't a real modem framing format. | Matters only for the bandwidth-starved level L3b. |
+| **The optical link is uncalibrated** | Delivery follows received light power `exp(-c·d)/d²` through a smooth S-curve whose midpoint is set by `rated_range_m` (50% delivery at 30 m in clear water by default). Both the curve and its width are placeholders, not fitted to any modem. UNH's thesis gives one data point (about 20 m, 5 kbps, 3 nodes). Every report that uses the optical link says it is uncalibrated. | Set `rated_range_m` and `data_rate_bps` from your modem's datasheet. Calibrating the curve needs your link logs: delivery against range and angle. |
+| **Water clarity values are textbook figures** | `clear` 0.15, `coastal` 0.40, `harbor` 2.2 per metre: classic measured attenuation coefficients as usually quoted, not your site. Turbidity doesn't change during a run. | `water: custom` with `attenuation_per_m` from a transmissometer at your site; list several waters to bracket it. |
+| **Pointing is a hard cone on the true attitude** | Inside a terminal's half-angle the link is at full strength; outside it, nothing. The true roll, pitch and yaw decide it, so optical results are more sensitive to attitude than acoustic ones, and roll/pitch isn't predictive yet (#50). The shipped policies roll and pitch freely while holding formation, so narrow cones rarely stay pointed at the teammate (#59). | `terminals: omni` (the default) is the fair baseline. Use `compare_omni` to measure what pointing costs; train with `--link hybrid` to see whether a policy learns to keep its terminals pointed. |
+| **Not modelled for light: occlusion, sunlight, bubbles, multipath** | The other vehicle's hull, the seabed or anything in between never blocks the beam; ambient light near the surface and bubbles don't degrade it. The same holds for acoustic occlusion. | Treat near-surface optical results as optimistic. |
+| **Two vehicles, so no shared acoustic channel** | Acoustic energy and airtime cost nothing here, so hybrid `redundant` (every beacon on both links) is never worse than `optical_first`. The value of `optical_first` (saving acoustic energy and channel time) can't show up until three or more vehicles share a channel. | Report `redundant` for what the information is worth; `optical_first` for what a real link manager would do. |
+| **`optical_first` decides the link is up from what it has heard** | A vehicle skips its acoustic beacon while it has heard its teammate optically within `link_up_timeout_s` (3 optical intervals by default). With asymmetric terminals (beam ≠ receiver half-angle) that inference is unsafe, so it runs as `redundant` automatically, and the report says so. No acknowledgements are modelled. | Set `link_up_timeout_s` (YAML) to match your modem's link-status logic. |
+| **The shipped fleet policies never saw an optical link** | They were trained with acoustic beacons every 1–3 s. With omni terminals an optical or hybrid link lifts them to 100% in every loss condition. With 30° cones they lose the link as they roll, and fore/aft cones raise collisions: an early fix goes stale while they close (#59). What a policy trained with a link could do isn't measured yet. | `strathe train-fleet --link hybrid` (and the web form) trains with it. |
 
 ## Engines
 
@@ -130,7 +140,7 @@ Quick answers:
 |---|---|---|
 | **`fit-noise`, `report`, `check` and a standalone `estimate-current` have no web form** | They run from the command line only (`python strathe.py fit-noise --data <logs> --out my_noise.yaml`). The web page can *use* a noise file that `fit-noise` wrote ("From my own file" on the one-vehicle, fleet and training forms), and estimating currents during calibration is a checkbox on its form. | Run `fit-noise` once from a terminal, then pick the file on the web page. |
 | **The web page is local and single-user** | It listens on this computer only and runs Strathe's own commands. It isn't a shared server. | Each lab member runs their own. |
-| **Some settings are YAML-only** | Comm overrides (custom loss probabilities, speed of sound), custom teammate-model entries (`physics_params`, `physics_alpha`) and the task's reward weights. | `strathe fleet --save-config my.yaml` writes a full experiment file to edit. Everything else is a flag or a web field. |
+| **Some settings are YAML-only** | Comm overrides (custom loss probabilities, speed of sound), custom teammate-model entries (`physics_params`, `physics_alpha`), the task's reward weights, and the finer optical settings (a custom terminal layout, the delivery curve's width, the modem latency, `link_up_timeout_s`). | `strathe fleet --save-config my.yaml` writes a full experiment file to edit. Everything else is a flag or a web field. |
 | **Python 3.10+; HoloOcean needs a manual install** | `pip install -r requirements.txt` covers everything else, on macOS, Linux and Windows (CI runs on Windows). | |
 
 ---
@@ -150,6 +160,7 @@ What used to be a limit, and where it was fixed:
 - **No sensor noise on a vehicle's own state (#58):** `--mode noisy` / `--noise`, in both simulators, training, the CLI and the web page; `--mode both` compares clean and noisy episode by episode.
 - **Training with PPO only (#58):** `--algorithm sac|td3` for one vehicle and for the fleet; policies of any of the three are recognised from the file.
 - **A vehicle heavier or lighter than calibrated couldn't be simulated (#58):** `--buoyancy`.
+- **Acoustic links only (#59):** `--link optical | hybrid`, with water clarity and terminal pointing, in the fleet simulation, training, the CLI and the web page.
 - **The one-command calibration skipped the identifiability check (#56).**
 - **It assumed 10 Hz (#56).**
 - **The data check crashed on converted logs (#56).**

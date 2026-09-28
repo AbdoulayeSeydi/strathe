@@ -54,6 +54,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | See whether calibration matters | `--compare-generic` | the default `calibrated` vs `generic` headline |
 | Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`) | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` |
 | Set comm and sample size | none (a single vehicle has no link) | `--comm L2 L3a --beacon-interval 1 3 --seeds 5` |
+| Use an optical or hybrid link (uncalibrated) | none | `--link acoustic hybrid --optical-water coastal harbor`, `--optical-terminals fore_aft_cones --optical-compare-omni` |
 | Train policies for your vehicle | built in; `--algorithm ppo \| sac \| td3` | `train-fleet --params ... --algorithm ppo \| sac \| td3` |
 | Does training with the noise help? | `--mode noisy --compare-clean-training` | list clean- and noise-trained policies with labels |
 | Compare algorithms or policies | one run per algorithm, same test episodes | `--policies ppo=... sac=...`: compared episode by episode |
@@ -62,7 +63,32 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 
 ## Recent fixes (September 2026)
 
-What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–58.
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–59.
+
+**Optical and hybrid links for the fleet (#59)**
+- **`--link acoustic | optical | hybrid`**, in the fleet simulation, training (`train-fleet --link hybrid`), the CLI, the web forms and the experiment YAML (`communication.link`). Acoustic stays the default, and acoustic runs are bit-identical to before.
+- **The optical model:**
+  - **Delivery:** received light power `exp(-c·d)/d²` for water `clear`, `coastal`, `harbor` or `custom`, times a pointing gain, through a smooth delivery curve.
+  - **Rate:** 1 ms latency and Mbps, so a beacon goes every tick.
+  - **Terminals:** omnidirectional by default; `forward_cone`, `fore_aft_cones` or `down_cone` with half-angles.
+  - **Uncalibrated:** textbook water values and a placeholder curve. Every report says so; a lab's link logs would calibrate it.
+- **Hybrid** sends optical beacons every tick and skips the acoustic beacon while the optical link is up (`optical_first`), or sends on both (`redundant`). Asymmetric terminals fall back to `redundant` automatically. A late acoustic copy never rolls a teammate belief back.
+- **The report adds:**
+  - each link's delivery, and which link refreshed the beliefs
+  - the median belief age
+  - paired comparisons against acoustic only, and of cones against omni (`--optical-compare-omni`)
+  - a warning when cones can't connect at the start layout
+- **What it gives the shipped policies** (58,800 paired episodes; criteria fixed in advance; policies trained on acoustic links only):
+  - **Omni terminals, any water:** hybrid holds formation 100% of the time, against 67–100% for acoustic alone. The gain is +33 points (95% CI +31 to +36) at 60% loss with 3 s beacons.
+  - **Freshness:** the median teammate belief is 0.1 s old instead of 0.7–2.5 s, with fewer collisions.
+  - **With realistic sensors:** 94% against 56–90%.
+  - **Harbour water** delivers only 80% of optical beacons at these ranges, and still gives 100%.
+  - **optical_first and redundant tie** everywhere.
+- **Pointing is the catch:**
+  - The shipped policies roll and pitch freely (#50), so 30° cones deliver 0–5% of optical beacons.
+  - Fore/aft cones connect at the start, then drop out: the first fix arrives in 0.2 s and then goes stale. That **raises collisions**, from 3% to 12% (hybrid, L3a @ 3 s), and to 32% with optical alone.
+  - An intermittent high-rate link is worse than a slow steady one for a policy that never learned to keep it up. Whether a policy trained with `--link hybrid` learns to, is the next study.
+- **Stress test:** 5,125 episodes over every link, water, terminal layout, comm level, mode, buoyancy, policy and both engines, with 10 exact checks. All passed, including acoustic bit-identical to before (96 cells hashed observation by observation).
 
 **Clean vs noisy simulation, buoyancy, and SAC/TD3 for the fleet (#58)**
 - **One switch: `--mode clean | noisy`**, plus `both` for the fleet. `noisy` adds realistic sensor noise and the fitted roll/pitch disturbance. It works in both simulators, training, the CLI and the web page.
@@ -144,7 +170,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 452 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 489 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -589,6 +615,14 @@ python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=algorithm_policies
 With the assumed `typical` sensors, formation-holding success falls by 10 points; the tank's own sensor noise costs nothing (#58). `typical` isn't measured on a real open-water vehicle, so fit your own sensors (`strathe fit-noise`) for numbers about your fleet.
 
 SAC and TD3 were validated on the reference BlueROV2 and this formation task only. For your vehicle, train a few seeds of each (`train-fleet --algorithm ...`) and compare them in one experiment; the report's "Policy groups compared" table does it episode by episode.
+
+**Optical and hybrid links** (CUSTOM_EXPERIMENT.md section 15; the optical model is uncalibrated):
+```bash
+python strathe.py fleet --link acoustic hybrid --optical-water clear coastal harbor     # compared episode by episode
+python strathe.py fleet --link hybrid --optical-terminals fore_aft_cones --optical-compare-omni   # what pointing costs
+python strathe.py train-fleet --params <calibration> --link hybrid --out my_hybrid_policy
+```
+With omnidirectional terminals, a hybrid link keeps the teammate belief 0.1 s old and lifts the shipped policies to 100% in every loss condition. With 30° cones they lose the link as they roll, and fore/aft cones raise collisions (#59, `results/fleet_optical/`).
 Shipped policies:
 - `fleet_policy_seed1-3.zip`: trained on a mixture of belief models.
 - `specialized_policies/fleet_policy_<belief>_seed1-2.zip`: each trained for one belief model (see results).
@@ -672,6 +706,8 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/buoyancy.py`** — a net-buoyancy change from the calibration, in every engine.
 - **`calibration/policy_io.py`** — loads PPO, SAC and TD3 policies and tells them apart from the file.
 - **`calibration/run_algorithm_study.py`, `run_noise_study.py`, `stress_test_noise_algorithms.py`, `clean_regression_check.py`** — the SAC/TD3 fleet validation (criteria fixed in advance), the clean-vs-noisy and buoyancy study, the stress test, and the proof that clean simulation is unchanged (#58).
+- **`calibration/comm_channel.py`** — the acoustic channel, and the optical link and hybrid policies (#59), with no physics imports.
+- **`calibration/run_optical_study.py`, `stress_test_optical.py`** — what optical and hybrid links give the shipped fleet policies (criteria fixed in advance, `results/fleet_optical/`), and the stress test with its exact checks (`results/stress_optical/`) (#59).
 - **[`LIMITS.md`](LIMITS.md)** — every known limit, what it means, and what to do about it.
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter
@@ -788,7 +824,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (452 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (489 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -811,10 +847,13 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ⏳ `typical` sensor noise is assumed, not measured on an open-water vehicle; a lab's DVL/AHRS logs (`strathe fit-noise`) would replace it
 - ⏳ `strathe fit-noise` has no web form yet (command line only)
 - 🔄 Realistic sensors cost formation-holding 10 points through navigation drift; relative ranging or a navigation filter is the next lever (#58)
+- ✅ Optical and hybrid links (`--link`), with water clarity and terminal pointing, in the fleet simulation, training, the CLI and the web page; acoustic runs bit-identical (#59)
+- ⏳ The optical model is uncalibrated: textbook water values and a placeholder delivery curve until a lab's link logs fit it
+- 🔄 With 30° cones the shipped policies lose the optical link as they roll, and an early fix that goes stale raises collisions; does a policy trained with `--link hybrid` learn to keep it up? (#59)
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts
 - 🔄 Policies trained for the calibrated model alone are unreliable across seeds with the new truth (35–98% at L0, 3 s beacons); the mixed-trained policies are consistent
-- 🔄 Physics dead reckoning now ties last-beacon (no longer trails); intent-sharing beacons are the next lever
+- 🔄 Physics dead reckoning now ties last-beacon (no longer trails); an omni optical link shares each teammate's last command every tick (#59), planned-trajectory beacons are still to do
 - ⏳ Fleet policies are trained on the stand-in engine; MuJoCo is used as an independent truth engine for evaluation
 - ⏳ Real hardware validation — not yet done, for either the single-vehicle or fleet work; looking for lab partners with BlueROV2 access
 

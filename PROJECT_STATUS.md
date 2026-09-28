@@ -982,12 +982,107 @@ Tests: 52 new (`tests/test_noise_buoyancy_algorithms.py`) + 1 web; 449 + 142 fle
 - **Commands without a web form are now listed:** `fit-noise`, `report`, `check` and a standalone `estimate-current`. The README had said every command had a form. The web page explains how to make a noise file in a terminal and then use it on the form.
 - Three tests keep the labels in place.
 
+### 59. Optical and hybrid links for the fleet (2026-09-27)
+
+**Why.**
+- Finding #48 found that calibrated dead reckoning ties "last beacon": the unknown is the teammate's next commands, not its physics.
+- The beacon already carries the teammate's delivered thrust, so a link fast enough to beacon every tick shares that command at 10 Hz.
+- Acoustic links can't do that; optical links can, over short range.
+- That is what FAU and UNH are building: hybrid fleets, optical when close and aligned, acoustic otherwise.
+
+**The model** (`comm_channel.py`, still no physics imports):
+- **Received power.** Received light power is `exp(-c·d)/d²`. The water's attenuation `c` is:
+  - `clear` 0.15/m
+  - `coastal` 0.40/m
+  - `harbor` 2.2/m
+  - `custom`: set by the lab
+  - These are textbook figures, marked assumed.
+- **Pointing gain.** The power is multiplied by a pointing gain: 1 if the receiver is inside one of the sender's terminal beams and the sender is inside one of the receiver's fields of view.
+- **Delivery probability.** A logistic curve in log power turns that into a delivery probability. Its midpoint is set by `rated_range_m`: 50% at 30 m in clear water, which gives ~15 m coastal and ~4 m harbour.
+- **Link properties.** Fixed 1 ms latency; a byte budget of `data_rate_bps·dt/8` per tick; one random draw per send, even when blocked.
+- **Terminals.** Half-angles everywhere; 180 = omni, and more than 180 is refused as a full angle.
+  - Presets: `omni` (default), `forward_cone`, `fore_aft_cones`, `down_cone`, or any list of axes.
+- **Shared queue.** Acoustic and optical share one queue/bandwidth base class (`_QueuedChannel`). `send()` takes both vehicles' rotation matrices.
+- **Uncalibrated.** Every description says so.
+
+**In the fleet** (`fleet_env.py`, `LinkConfig`):
+- **Links.** `link: acoustic | optical | hybrid`. Optical beacons go every `optical.beacon_interval_s` (default every tick). They are judged on the true positions and attitudes and carry the measured beacon.
+- **Separate draws.** The optical link draws from its own seeded stream, so acoustic drops are the same with or without it.
+- **Hybrid `optical_first`.** A vehicle skips its acoustic beacon while the link is up: it heard its teammate optically within `link_up_timeout_s`, default 3 optical intervals. The skipped beacon still uses its acoustic draw, which keeps the pairing.
+  - The first version used "heard since my last acoustic beacon". The smoke test found that one early receipt suppressed a whole 3 s acoustic window after the link had dropped: fore/aft cones went 0/10 against acoustic's 5/10. The timeout fixed it (7/10).
+- **Asymmetric terminals** (beam ≠ receiver half-angle): hearing your teammate doesn't mean it hears you. `optical_first` runs as `redundant` there, and the report says so.
+- **Stale copies.** Beliefs keep the newest send tick whichever link carried it (`fleet_belief.on_tick`, unchanged). A late acoustic copy never rolls one back; a test pins the user's t = 5.0 vs 4.9 case.
+- **Observation unchanged.** It is still 13 numbers, so every shipped policy runs with any link.
+
+**Where it's exposed:**
+- the experiment YAML: `communication.link` (a list sweeps), `optical:` with `water` (a list sweeps) and `compare_omni`, `hybrid_policy`, `link_up_timeout_s`; the defaults are written into the saved `experiment.yaml`
+- `strathe fleet --link ... --optical-*`
+- `strathe train-fleet` / `train_fleet_policy.py --link ...`
+- both web forms
+- MLflow tags
+
+**The report's "Optical link" section:**
+- the settings, with the uncalibrated note, and a start-geometry warning ("0% of vehicle pairs are inside each other's cones")
+- per condition: acoustic and optical delivery, acoustic beacons skipped, the share of belief updates by light, and the median belief age
+- paired tables: each link against acoustic only, and cones against omni
+
+**What it gives the shipped policies** (`run_optical_study.py`, `results/fleet_optical/`; criteria fixed before the run; 58,800 paired episodes; PPO seeds 1–3, trained on acoustic links only; beliefs calibrated/last_beacon; L2/L3a at 1 s/3 s):
+- **Gate:** passed, with 0 bookkeeping failures.
+- **Omni terminals, hybrid vs acoustic** (success, pts, 95% CI):
+
+  | | clear | coastal | harbour |
+  |---|---|---|---|
+  | L2@1s | +0 | +0 | +0 |
+  | L2@3s | +15 (+13 to +17) | +15 | +15 |
+  | L3a@1s | +3 (+2 to +4) | +3 | +3 |
+  | L3a@3s | +33 (+31 to +36) | +33 | +33 |
+
+  - Hybrid is at 100% everywhere.
+  - Collisions fall from 0–3% to 0%.
+  - The median teammate-belief age falls from 0.7–2.5 s to 0.10 s.
+  - Optical only matches this, except −1 point in harbour water at L2@1s.
+- **Water barely matters at these ranges:**
+  - Harbour water delivers 80–82% of optical beacons, against 97–98% in clear or coastal water.
+  - The starts are at 2–5.5 m and the formation is at 2 m, where harbour delivery is ~99%.
+- **optical_first vs redundant:** +0 in all 12 conditions.
+- **Noisy mode** (hybrid coastal omni vs acoustic):
+  - Hybrid is at 94% against acoustic's 90 / 71 / 81 / 56%: +4 to +38 points, all significant.
+  - Hybrid stays 6 points below its clean 100%: a fresher link doesn't recover what the noise costs.
+- **Pointing (coastal, 30° cones):**
+  - **Delivery.** `forward_cone` delivers 0% of optical beacons: the start layout blocks it, and the report warns. `fore_aft_cones` delivers 5%. The shipped policies roll up to ±170° and pitch up to ±60° while holding formation (#50), so a cone rarely stays on the teammate.
+  - **Hybrid with cones** is no better than acoustic on success, 3 points or less either way (+4 at L2@3s).
+  - **Optical-only with cones** falls to 12% (forward) and 34% (fore/aft).
+- **Collisions (flagged by criterion 6):**
+  - `fore_aft_cones` raises collisions: hybrid 12% vs 3% at L3a@3s (+9, +7 to +11); optical only 32% vs 0–3%.
+  - **Mechanism, measured:** the vehicles start inside each other's cones, so the first optical fix arrives at tick 2. The policy starts closing, rolls out of the cones, and the link goes quiet.
+  - All 14 hybrid collisions in an 80-episode check came with a belief 4.6–7.7 s old; acoustic only had none on the same episodes.
+  - An intermittent high-rate link is worse than a slow steady one for a policy that never learned to keep it up.
+
+**Stress test** (`stress_test_optical.py`, `results/stress_optical/`): 5,125 episodes, 10/10 checks.
+- **Coverage:** every link (acoustic, optical, hybrid optical_first/redundant) × water (4) × terminals (omni, 3 cone presets, an asymmetric pair) × L0/L2/L3a/L3b × 1/3 s beacons × clean/noisy × buoyancy (none, ±5 N, a range) × PPO/SAC/TD3/random/zero, plus every link configuration on MuJoCo. All episodes finite and consistent.
+- **Exact checks, zero policy:**
+  - optical deliveries nested clear ≥ coastal ≥ custom ≥ harbour, episode by episode (360/360)
+  - forward cones deliver nothing from the line start (144/144)
+  - hybrid redundant has acoustic sends, deliveries and draws identical to acoustic only (480/480), and a teammate belief never older, tick by tick (480/480)
+  - optical_first's acoustic draws are paired with acoustic only (480/480)
+  - asymmetric terminals skip nothing (96/96)
+  - omni in clear/coastal water does skip (48/48)
+- **Determinism:** 120/120 reruns identical. The first pass reported 88/120; all 32 mismatches were the harness's cached random policy carrying its stream between episodes, and every other policy was identical. Fixed in the harness, not the simulator.
+- **Acoustic unchanged:** 96 acoustic cells (stand-in and MuJoCo, clean and noisy with buoyancy, L0–L3b, 0.5–3 s) are hashed observation by observation against main before the change: identical. `clean_regression_check.py` is also identical: 6,616 fleet episodes, 16 single-vehicle runs.
+
+Tests: 37 new (`tests/test_optical_link.py`): pointing cones, bad settings, range and water, determinism, one draw per send, pairing, the skip rule and its starvation case, stale copies, bit-identical acoustic, the runner, training, the CLI and the web forms; 489 + 142 fleet, all passing. CI also runs a fleet smoke run with `--link acoustic optical hybrid --optical-water harbor --optical-terminals fore_aft_cones --optical-compare-omni`.
+
+**Next.**
+- Train with `--link hybrid`, cones included, and ask whether a policy learns to stay pointed and in range, and what that costs in collisions, from clear to harbour water.
+- Calibrate the delivery curve from a lab's link logs.
+
 ## Honest open items
 
-- **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands; intent-sharing beacons or teammate-policy models are the next lever.
+- **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An omni optical link shares each teammate's last command every tick (#59); planned-trajectory beacons or teammate-policy models are the next lever where no optical link reaches.
 - **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
 - **All limits, with what to do about each, are in `LIMITS.md` (#57).**
 - **Realistic sensors cost formation-holding 10 points (#58)**, through dead-reckoning drift against a ±0.2 m tolerance. Training with the noise doesn't recover it. The levers are relative acoustic ranging between the vehicles, and a navigation filter in the teammate model. TD3, the best algorithm in clean simulation, loses the most under noise (−22 points): compare algorithms with `--mode both`.
+- **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
 - **The `typical` sensor preset is an assumption (#58).** `tank` is measured, but no open-water dataset has been fitted yet; a lab's DVL/AHRS logs would replace the assumption.
 - **Lab data, not built yet (#56, #57):**
   - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)

@@ -322,6 +322,112 @@ def noise_cli_args(form: dict, allow_both: bool = False, teammates: bool = False
     return args
 
 
+LINK_CHOICES = (("acoustic", "Acoustic (today's model)"), ("optical", "Optical only"),
+                ("hybrid", "Hybrid: optical when it's up, acoustic otherwise"))
+WATER_CHOICES = (("clear", "Clear ocean (c 0.15/m)"), ("coastal", "Coastal (c 0.4/m)"), ("harbor", "Harbour (c 2.2/m)"),
+                 ("custom", "Custom (give c below)"))
+TERMINAL_CHOICES = (("omni", "Omnidirectional (LED arrays; every direction; the default)"),
+                    ("forward_cone", "One cone facing forward"), ("fore_aft_cones", "Two cones, forward and aft"),
+                    ("down_cone", "One cone facing down"))
+
+
+def link_fields(prefix: str, sweep: bool = False) -> str:
+    """Acoustic / optical / hybrid link choices (same field names in every form)."""
+    if sweep:
+        links = "".join(f"<label class=inline><input type=checkbox name=link value={v} aria-label='Link {v}'> {d}"
+                        f"</label>" for v, d in LINK_CHOICES)
+        waters = "".join(f"<label class=inline><input type=checkbox name=optical_water value={v} "
+                         f"aria-label='Water {v}'> {d}</label>" for v, d in WATER_CHOICES)
+        link_ui = f"<p class=muted>Links (tick several to compare them on the same episodes; none = the YAML's, " \
+                  f"acoustic by default):</p>{links}<p class=muted>Water (optical; tick several to compare):</p>{waters}"
+    else:
+        link_ui = (f"<label for={prefix}-link>Link</label><select id={prefix}-link name=link>"
+                   + "".join(f"<option value={v}>{d}</option>" for v, d in LINK_CHOICES) + "</select>"
+                   f"<label for={prefix}-water>Water (optical)</label><select id={prefix}-water name=optical_water>"
+                   + "".join(f"<option value={v}{' selected' if v == 'coastal' else ''}>{d}</option>"
+                             for v, d in WATER_CHOICES) + "</select>")
+    terms = "".join(f"<option value={v}>{d}</option>" for v, d in TERMINAL_CHOICES)
+    compare = (f"<label class=inline><input type=checkbox id={prefix}-omni name=optical_compare_omni value=1 "
+               f"aria-label='Also run with omnidirectional terminals'> With cone terminals: also run with "
+               f"omnidirectional terminals on the same episodes, to see what pointing costs</label>" if sweep else "")
+    return f"""<fieldset class=current><legend>Communication link: acoustic, optical or hybrid</legend>
+{link_ui}
+<p class=muted>The optical model is <b>uncalibrated</b>: rough textbook water values and a placeholder delivery curve.
+Check a vendor's specs and fit it to your own link logs before quoting numbers (LIMITS.md).</p>
+<label for={prefix}-att>Custom water attenuation c, per metre (only for Custom)</label>
+<input type=text id={prefix}-att name=optical_attenuation value="">
+<label for={prefix}-terms>Optical terminals on each vehicle</label><select id={prefix}-terms name=optical_terminals>{terms}</select>
+<label for={prefix}-beam>Beam half-angle, degrees (cone terminals; default 30; 180 = every direction)</label>
+<input type=text id={prefix}-beam name=optical_beam value="">
+<label for={prefix}-fov>Receiver half-angle, degrees (cone terminals; default 30)</label>
+<input type=text id={prefix}-fov name=optical_fov value="">
+<label for={prefix}-range>Rated range, m: where a pointed link delivers half its messages in clear water (default 30)</label>
+<input type=text id={prefix}-range name=optical_rated_range value="">
+<label for={prefix}-hyb>Hybrid policy</label><select id={prefix}-hyb name=hybrid_policy>
+<option value="">optical_first (default): skip the acoustic beacon while optical is up</option>
+<option value=redundant>redundant: every beacon on both links</option></select>
+{compare}
+</fieldset>"""
+
+
+def link_cli_args(form: dict, sweep: bool = False) -> list:
+    """--link / --optical-* / --hybrid-policy from the form, validated; blanks add nothing."""
+    multi = form.get("_multi") or {}
+
+    def many(name):
+        return multi.get(name) or ([form[name]] if form.get(name) else [])
+    links = many("link") if sweep else ([form["link"]] if form.get("link") else [])
+    waters = many("optical_water") if sweep else ([form["optical_water"]] if form.get("optical_water") else [])
+    if any(l not in dict(LINK_CHOICES) for l in links):
+        raise ValueError("Unknown link.")
+    if any(w not in dict(WATER_CHOICES) for w in waters):
+        raise ValueError("Unknown water type.")
+    optical = any(l in ("optical", "hybrid") for l in links)
+    args = []
+    if links and links != ["acoustic"]:
+        args += ["--link", *links]
+    if not optical:
+        return args
+    if waters:
+        args += ["--optical-water", *waters]
+    kwargs = {}
+    if form.get("optical_attenuation", "").strip():
+        kwargs["attenuation_per_m"] = _number(form["optical_attenuation"], "Water attenuation", 0.001, 20)
+        args += ["--optical-attenuation", repr(kwargs["attenuation_per_m"])]
+    terms = form.get("optical_terminals", "") or "omni"
+    if terms not in dict(TERMINAL_CHOICES):
+        raise ValueError("Pick optical terminals.")
+    if terms != "omni":
+        args += ["--optical-terminals", terms]
+        kwargs["terminals"] = terms
+    for key, flag, name, field in (("optical_beam", "--optical-beam", "Beam half-angle", "beam_half_angle_deg"),
+                                   ("optical_fov", "--optical-fov", "Receiver half-angle", "receiver_half_fov_deg"),
+                                   ("optical_rated_range", "--optical-rated-range", "Rated range", "rated_range_m")):
+        if form.get(key, "").strip():
+            hi = 500 if field == "rated_range_m" else 180
+            if field != "rated_range_m" and _number(form[key], name, -1e9, 1e9) > 180:
+                raise ValueError(f"{name}: it is a HALF-angle; 360 is a full angle, use 180 for every direction")
+            kwargs[field] = _number(form[key], name, 0.1, hi)
+            args += [flag, repr(kwargs[field])]
+    policy = form.get("hybrid_policy", "")
+    if policy not in ("", "optical_first", "redundant"):
+        raise ValueError("Pick a hybrid policy.")
+    if policy and "hybrid" in links:
+        args += ["--hybrid-policy", policy]
+    if sweep and form.get("optical_compare_omni"):
+        if terms == "omni":
+            raise ValueError("“Also run with omnidirectional terminals” needs cone terminals.")
+        args.append("--optical-compare-omni")
+    import sim_mode
+    for w in waters or ["coastal"]:   # raises ValueError naming what's wrong
+        sim_mode.link_from_flags("hybrid", None, water=w,
+                                 **{k: (v if k != "attenuation_per_m" or w == "custom" else None)
+                                    for k, v in kwargs.items()})
+    if "custom" not in (waters or ["coastal"]) and "attenuation_per_m" in kwargs:
+        raise ValueError("Water attenuation is only used with Custom water.")
+    return args
+
+
 def algorithm_select(prefix: str) -> str:
     return f"""<label for={prefix}-alg>Training algorithm</label><select id={prefix}-alg name=algorithm>
 <option value=ppo>PPO (the default)</option><option value=sac>SAC</option><option value=td3>TD3</option></select>
@@ -420,7 +526,7 @@ train on a clean simulation and compare on the noisy test</label>
 {current_fieldset("acur", teammates=False)}
 <button>Start single-vehicle experiment</button></form></div>
 <div class=card><h2>Run a fleet experiment</h2>
-<p class=muted>Two vehicles holding formation over a lossy acoustic link. Edit a copy of an experiment YAML to change
+<p class=muted>Two vehicles holding formation over a lossy acoustic link (or an optical or hybrid one, below). Edit a copy of an experiment YAML to change
 anything (see CUSTOM_EXPERIMENT.md).</p>
 <form method=post action=/jobs/fleet>{tok}
 <label for=fleet-shipped>Shipped experiment</label><select id=fleet-shipped name=shipped>{fleet_opts}</select>
@@ -428,6 +534,7 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 <input type=text id=fleet-config name=config value="">
 {vehicle_fields("fl")}
 {fleet_settings_fields()}
+{link_fields("fl", sweep=True)}
 {noise_fields("fl", both=True, teammates=True)}
 {engine_disturbance_fields("fl")}
 {current_fieldset("cur", teammates=True)}
@@ -442,6 +549,7 @@ experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
 <label for=tf-steps>Training steps (optional; default 3,000,000 for PPO, 1,000,000 for SAC and TD3)</label>
 <input type=text id=tf-steps name=timesteps value="">
 {noise_fields("tf", teammates=True)}
+{link_fields("tf")}
 {disturbance_select("tf")}
 <label for=tf-dscale>Disturbance size: 1 = as fitted, 2 = twice as rough</label>
 <input type=text id=tf-dscale name=disturbance_scale value="1">
@@ -636,6 +744,7 @@ class StratheHandler(BaseHTTPRequestHandler):
             if form.get("timesteps", "").strip():
                 args += ["--timesteps", str(int(_number(form["timesteps"], "Training steps", 1000, 1e9)))]
             args += noise_cli_args(form, teammates=True)
+            args += link_cli_args(form)
             args += disturbance_cli_args(form)
             if form.get("current_speed", "").strip():
                 speed = _number_or_range(form["current_speed"], "Current speed")
@@ -655,7 +764,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                     raise ValueError("Pick one of the shipped experiments.")
                 config = os.path.join(cli.CAL_DIR, shipped)
             args = ["fleet", "--config", config, *vehicle_cli_args(form, "--vehicle-spec"),
-                    *fleet_settings_cli_args(form), *noise_cli_args(form, allow_both=True, teammates=True),
+                    *fleet_settings_cli_args(form), *link_cli_args(form, sweep=True),
+                    *noise_cli_args(form, allow_both=True, teammates=True),
                     *engine_disturbance_cli_args(form)]
             title = f"Fleet experiment: {os.path.basename(config)}"
             if form.get("current_on"):

@@ -1,0 +1,3196 @@
+{
+  "episodes": 58800,
+  "git_commit": "858880960dc0f244e2ab617e26a0132c7ae1ff56",
+  "git_uncommitted_changes": true,
+  "gate_bookkeeping_failures": 0,
+  "links": [
+    {
+      "comm": "L2@1s",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6673942076442076,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 0.7000000000000001
+    },
+    {
+      "comm": "L2@1s hybrid/clear",
+      "link": "hybrid/clear",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 8.075,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/clear/redundant",
+      "link": "hybrid/clear/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6670590277777777,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/coastal",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 8.075,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/coastal/redundant",
+      "link": "hybrid/coastal/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6670590277777777,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/harbor",
+      "link": "hybrid/harbor",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.7220877607241244,
+      "acoustic_skipped_per_episode": 7.760833333333333,
+      "optical_up_fraction": 0.8180022865499821,
+      "belief_updates_optical_share": 0.9915823764385246,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/harbor/redundant",
+      "link": "hybrid/harbor/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6669299045861546,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.8191724409708039,
+      "belief_updates_optical_share": 0.9867295583372694,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@1s hybrid/coastal/forward_cone",
+      "link": "hybrid/coastal/forward_cone",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6674010757760759,
+      "acoustic_skipped_per_episode": 0.0016666666666666668,
+      "optical_up_fraction": 1.736111111111111e-05,
+      "belief_updates_optical_share": 0.0002307337332718043,
+      "median_belief_age_s": 0.7000000000000001
+    },
+    {
+      "comm": "L2@1s hybrid/coastal/fore_aft_cones",
+      "link": "hybrid/coastal/fore_aft_cones",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6796505702043627,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.06510773716358792,
+      "belief_updates_optical_share": 0.4974594647966708,
+      "median_belief_age_s": 0.6000000000000001
+    },
+    {
+      "comm": "L2@1s noisy",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.8983333333333333,
+      "collision_rate": 0.0008333333333333334,
+      "acoustic_delivery_share": 0.6605462070161664,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 0.7000000000000001
+    },
+    {
+      "comm": "L2@1s hybrid/coastal noisy",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9425,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 15.558333333333334,
+      "optical_up_fraction": 0.9826763820299714,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.8466666666666667,
+      "collision_rate": 0.013333333333333334,
+      "acoustic_delivery_share": 0.7113253968253969,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 1.75
+    },
+    {
+      "comm": "L2@3s hybrid/clear",
+      "link": "hybrid/clear",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 2.033333333333333,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/clear/redundant",
+      "link": "hybrid/clear/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6678628389154706,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/coastal",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 2.033333333333333,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/coastal/redundant",
+      "link": "hybrid/coastal/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6678628389154706,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/harbor",
+      "link": "hybrid/harbor",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6972934472934473,
+      "acoustic_skipped_per_episode": 2.216666666666667,
+      "optical_up_fraction": 0.8065464519707091,
+      "belief_updates_optical_share": 0.9979270270966067,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/harbor/redundant",
+      "link": "hybrid/harbor/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.6727033492822966,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.8063948708281996,
+      "belief_updates_optical_share": 0.996966245519726,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L2@3s hybrid/coastal/forward_cone",
+      "link": "hybrid/coastal/forward_cone",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.85,
+      "collision_rate": 0.013333333333333334,
+      "acoustic_delivery_share": 0.7116666666666667,
+      "acoustic_skipped_per_episode": 0.006666666666666667,
+      "optical_up_fraction": 0.00017908547079794506,
+      "belief_updates_optical_share": 0.006394695251838109,
+      "median_belief_age_s": 1.75
+    },
+    {
+      "comm": "L2@3s hybrid/coastal/fore_aft_cones",
+      "link": "hybrid/coastal/fore_aft_cones",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.89,
+      "collision_rate": 0.03,
+      "acoustic_delivery_share": 0.6812920489296637,
+      "acoustic_skipped_per_episode": 0.005,
+      "optical_up_fraction": 0.04549800615296447,
+      "belief_updates_optical_share": 0.6575005216733159,
+      "median_belief_age_s": 1.6500000000000001
+    },
+    {
+      "comm": "L2@3s noisy",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.7091666666666666,
+      "collision_rate": 0.020833333333333332,
+      "acoustic_delivery_share": 0.711468253968254,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 1.8
+    },
+    {
+      "comm": "L2@3s hybrid/coastal noisy",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9425,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 4.426666666666667,
+      "optical_up_fraction": 0.9826763820299714,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.9683333333333334,
+      "collision_rate": 0.006666666666666667,
+      "acoustic_delivery_share": 0.3811754195648836,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 1.05
+    },
+    {
+      "comm": "L3a@1s hybrid/clear",
+      "link": "hybrid/clear",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 8.075,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/clear/redundant",
+      "link": "hybrid/clear/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.36070949074074077,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/coastal",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 8.075,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/coastal/redundant",
+      "link": "hybrid/coastal/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.36070949074074077,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/harbor",
+      "link": "hybrid/harbor",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.39869891357494663,
+      "acoustic_skipped_per_episode": 7.8975,
+      "optical_up_fraction": 0.8138461490640699,
+      "belief_updates_optical_share": 0.99480615708533,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/harbor/redundant",
+      "link": "hybrid/harbor/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.36354904123654125,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.8145391571342475,
+      "belief_updates_optical_share": 0.992138180932263,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@1s hybrid/coastal/forward_cone",
+      "link": "hybrid/coastal/forward_cone",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9683333333333334,
+      "collision_rate": 0.006666666666666667,
+      "acoustic_delivery_share": 0.381179743944208,
+      "acoustic_skipped_per_episode": 0.0033333333333333335,
+      "optical_up_fraction": 0.00010104393324477927,
+      "belief_updates_optical_share": 0.002143601548363453,
+      "median_belief_age_s": 1.05
+    },
+    {
+      "comm": "L3a@1s hybrid/coastal/fore_aft_cones",
+      "link": "hybrid/coastal/fore_aft_cones",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9791666666666666,
+      "collision_rate": 0.008333333333333333,
+      "acoustic_delivery_share": 0.3896668553736568,
+      "acoustic_skipped_per_episode": 0.006666666666666667,
+      "optical_up_fraction": 0.05450439600706387,
+      "belief_updates_optical_share": 0.5670800362760485,
+      "median_belief_age_s": 1.0
+    },
+    {
+      "comm": "L3a@1s noisy",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.8075,
+      "collision_rate": 0.016666666666666666,
+      "acoustic_delivery_share": 0.3724651903447859,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 1.1500000000000001
+    },
+    {
+      "comm": "L3a@1s hybrid/coastal noisy",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9425,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 15.558333333333334,
+      "optical_up_fraction": 0.9826763820299714,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.6666666666666666,
+      "collision_rate": 0.030833333333333334,
+      "acoustic_delivery_share": 0.4047301587301588,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 2.5
+    },
+    {
+      "comm": "L3a@3s hybrid/clear",
+      "link": "hybrid/clear",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 2.033333333333333,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/clear/redundant",
+      "link": "hybrid/clear/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.38102073365231254,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/coastal",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 2.033333333333333,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/coastal/redundant",
+      "link": "hybrid/coastal/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.38102073365231254,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/harbor",
+      "link": "hybrid/harbor",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9983333333333333,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.3283475783475784,
+      "acoustic_skipped_per_episode": 2.225,
+      "optical_up_fraction": 0.8051056339372182,
+      "belief_updates_optical_share": 0.9990569237879898,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/harbor/redundant",
+      "link": "hybrid/harbor/redundant",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9983333333333333,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": 0.3815709728867624,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.804797799829016,
+      "belief_updates_optical_share": 0.9984884170202594,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "L3a@3s hybrid/coastal/forward_cone",
+      "link": "hybrid/coastal/forward_cone",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.675,
+      "collision_rate": 0.030833333333333334,
+      "acoustic_delivery_share": 0.4047301587301588,
+      "acoustic_skipped_per_episode": 0.0016666666666666668,
+      "optical_up_fraction": 0.00037591643686503244,
+      "belief_updates_optical_share": 0.016174671888957604,
+      "median_belief_age_s": 2.45
+    },
+    {
+      "comm": "L3a@3s hybrid/coastal/fore_aft_cones",
+      "link": "hybrid/coastal/fore_aft_cones",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.6483333333333333,
+      "collision_rate": 0.12416666666666666,
+      "acoustic_delivery_share": 0.35681192660550454,
+      "acoustic_skipped_per_episode": 0.03,
+      "optical_up_fraction": 0.04521581086535075,
+      "belief_updates_optical_share": 0.7626916514714502,
+      "median_belief_age_s": 2.3000000000000003
+    },
+    {
+      "comm": "L3a@3s noisy",
+      "link": "acoustic",
+      "link_kind": "acoustic",
+      "n": 1200,
+      "success_rate": 0.5633333333333334,
+      "collision_rate": 0.03916666666666667,
+      "acoustic_delivery_share": 0.398015873015873,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": NaN,
+      "belief_updates_optical_share": 0.0,
+      "median_belief_age_s": 2.6
+    },
+    {
+      "comm": "L3a@3s hybrid/coastal noisy",
+      "link": "hybrid/coastal",
+      "link_kind": "hybrid",
+      "n": 1200,
+      "success_rate": 0.9425,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 4.426666666666667,
+      "optical_up_fraction": 0.9826763820299714,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "optical/clear",
+      "link": "optical/clear",
+      "link_kind": "optical",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9750267106421758,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "optical/coastal",
+      "link": "optical/coastal",
+      "link_kind": "optical",
+      "n": 1200,
+      "success_rate": 1.0,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.9749038143416681,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "optical/harbor",
+      "link": "optical/harbor",
+      "link_kind": "optical",
+      "n": 1200,
+      "success_rate": 0.9933333333333333,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.8006732539951373,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 0.1
+    },
+    {
+      "comm": "optical/coastal/forward_cone",
+      "link": "optical/coastal/forward_cone",
+      "link_kind": "optical",
+      "n": 1200,
+      "success_rate": 0.125,
+      "collision_rate": 0.0,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.0,
+      "belief_updates_optical_share": NaN,
+      "median_belief_age_s": NaN
+    },
+    {
+      "comm": "optical/coastal/fore_aft_cones",
+      "link": "optical/coastal/fore_aft_cones",
+      "link_kind": "optical",
+      "n": 1200,
+      "success_rate": 0.3375,
+      "collision_rate": 0.32416666666666666,
+      "acoustic_delivery_share": NaN,
+      "acoustic_skipped_per_episode": 0.0,
+      "optical_up_fraction": 0.04995028994830014,
+      "belief_updates_optical_share": 1.0,
+      "median_belief_age_s": 3.1500000000000004
+    }
+  ],
+  "link_vs_acoustic": [
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.30666666666666664,
+        0.3591666666666667
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.30666666666666664,
+        0.3591666666666667
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9425,
+      "success_b": 0.8983333333333333,
+      "success_diff": 0.04416666666666667,
+      "success_diff_ci95": [
+        0.02666666666666667,
+        0.0625
+      ],
+      "mcnemar_p": 1.5716537188665445e-06,
+      "collision_a": 0.0,
+      "collision_b": 0.0008333333333333334
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17333333333333334
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9425,
+      "success_b": 0.7091666666666666,
+      "success_diff": 0.23333333333333334,
+      "success_diff_ci95": [
+        0.2058125,
+        0.26166666666666666
+      ],
+      "mcnemar_p": 2.285496633179234e-58,
+      "collision_a": 0.0,
+      "collision_b": 0.020833333333333332
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.021666666666666667,
+        0.041687499999999884
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9425,
+      "success_b": 0.8075,
+      "success_diff": 0.135,
+      "success_diff_ci95": [
+        0.11083333333333334,
+        0.15833333333333333
+      ],
+      "mcnemar_p": 1.803047221850807e-29,
+      "collision_a": 0.0,
+      "collision_b": 0.016666666666666666
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.3075,
+        0.36083333333333334
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9425,
+      "success_b": 0.5633333333333334,
+      "success_diff": 0.37916666666666665,
+      "success_diff_ci95": [
+        0.35083333333333333,
+        0.4083333333333333
+      ],
+      "mcnemar_p": 3.3495278515840315e-108,
+      "collision_a": 0.0,
+      "collision_b": 0.03916666666666667
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.30666666666666664,
+        0.3591666666666667
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9983333333333333,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.33166666666666667,
+      "success_diff_ci95": [
+        0.30497916666666663,
+        0.35833333333333334
+      ],
+      "mcnemar_p": 3.0980735318794546e-120,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9983333333333333,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.33166666666666667,
+      "success_diff_ci95": [
+        0.30497916666666663,
+        0.35833333333333334
+      ],
+      "mcnemar_p": 3.0980735318794546e-120,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.85,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.0033333333333333335,
+      "success_diff_ci95": [
+        0.0,
+        0.0075
+      ],
+      "mcnemar_p": 0.21875,
+      "collision_a": 0.013333333333333334,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9683333333333334,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.006666666666666667,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.675,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.008333333333333333,
+      "success_diff_ci95": [
+        0.0016666666666666668,
+        0.015
+      ],
+      "mcnemar_p": 0.021270751953125,
+      "collision_a": 0.030833333333333334,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.89,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.043333333333333335,
+      "success_diff_ci95": [
+        0.018333333333333333,
+        0.07083333333333333
+      ],
+      "mcnemar_p": 0.0010033432514928203,
+      "collision_a": 0.03,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9791666666666666,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.010833333333333334,
+      "success_diff_ci95": [
+        -0.0016666666666666668,
+        0.023333333333333334
+      ],
+      "mcnemar_p": 0.09837064844049181,
+      "collision_a": 0.008333333333333333,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.6483333333333333,
+      "success_b": 0.6666666666666666,
+      "success_diff": -0.018333333333333333,
+      "success_diff_ci95": [
+        -0.05416666666666667,
+        0.015
+      ],
+      "mcnemar_p": 0.3178590483264498,
+      "collision_a": 0.12416666666666666,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.30666666666666664,
+        0.3591666666666667
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.15333333333333332,
+      "success_diff_ci95": [
+        0.13333333333333333,
+        0.17416666666666666
+      ],
+      "mcnemar_p": 8.156630584998156e-56,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.03166666666666667,
+      "success_diff_ci95": [
+        0.0225,
+        0.041666666666666664
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.3333333333333333,
+      "success_diff_ci95": [
+        0.30666666666666664,
+        0.3591666666666667
+      ],
+      "mcnemar_p": 7.745183829698637e-121,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9933333333333333,
+      "success_b": 1.0,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9933333333333333,
+      "success_b": 0.8466666666666667,
+      "success_diff": 0.14666666666666667,
+      "success_diff_ci95": [
+        0.125,
+        0.16752083333333323
+      ],
+      "mcnemar_p": 2.9812938493607494e-46,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9933333333333333,
+      "success_b": 0.9683333333333334,
+      "success_diff": 0.025,
+      "success_diff_ci95": [
+        0.015,
+        0.03666666666666667
+      ],
+      "mcnemar_p": 9.24769992138863e-06,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.9933333333333333,
+      "success_b": 0.6666666666666666,
+      "success_diff": 0.32666666666666666,
+      "success_diff_ci95": [
+        0.29833333333333334,
+        0.35252083333333323
+      ],
+      "mcnemar_p": 3.255393086213587e-113,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.125,
+      "success_b": 1.0,
+      "success_diff": -0.875,
+      "success_diff_ci95": [
+        -0.8925,
+        -0.8566666666666667
+      ],
+      "mcnemar_p": 1.6578092e-316,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.125,
+      "success_b": 0.8466666666666667,
+      "success_diff": -0.7216666666666667,
+      "success_diff_ci95": [
+        -0.7466666666666667,
+        -0.6958333333333333
+      ],
+      "mcnemar_p": 4.064936359238081e-261,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.125,
+      "success_b": 0.9683333333333334,
+      "success_diff": -0.8433333333333334,
+      "success_diff_ci95": [
+        -0.8633541666666666,
+        -0.8233333333333334
+      ],
+      "mcnemar_p": 4.5569512622227484e-305,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.125,
+      "success_b": 0.6666666666666666,
+      "success_diff": -0.5416666666666666,
+      "success_diff_ci95": [
+        -0.57,
+        -0.5141666666666667
+      ],
+      "mcnemar_p": 4.280877634782037e-196,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.3375,
+      "success_b": 1.0,
+      "success_diff": -0.6625,
+      "success_diff_ci95": [
+        -0.6883333333333334,
+        -0.6358333333333334
+      ],
+      "mcnemar_p": 9.598059608932038e-240,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.3375,
+      "success_b": 0.8466666666666667,
+      "success_diff": -0.5091666666666667,
+      "success_diff_ci95": [
+        -0.5391666666666667,
+        -0.47833333333333333
+      ],
+      "mcnemar_p": 6.070332826571738e-146,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.3375,
+      "success_b": 0.9683333333333334,
+      "success_diff": -0.6308333333333334,
+      "success_diff_ci95": [
+        -0.66,
+        -0.6033333333333334
+      ],
+      "mcnemar_p": 5.0813363765166395e-216,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.3375,
+      "success_b": 0.6666666666666666,
+      "success_diff": -0.32916666666666666,
+      "success_diff_ci95": [
+        -0.3616666666666667,
+        -0.2966666666666667
+      ],
+      "mcnemar_p": 1.232572771518322e-69,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.030833333333333334
+    }
+  ],
+  "pointing_vs_omni": [
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "forward_cone",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "forward_cone",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.85,
+      "success_b": 1.0,
+      "success_diff": -0.15,
+      "success_diff_ci95": [
+        -0.17083333333333334,
+        -0.13
+      ],
+      "mcnemar_p": 1.305060893599705e-54,
+      "collision_a": 0.013333333333333334,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "forward_cone",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.9683333333333334,
+      "success_b": 1.0,
+      "success_diff": -0.03166666666666667,
+      "success_diff_ci95": [
+        -0.041666666666666664,
+        -0.0225
+      ],
+      "mcnemar_p": 7.275957614183426e-12,
+      "collision_a": 0.006666666666666667,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "forward_cone",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.675,
+      "success_b": 1.0,
+      "success_diff": -0.325,
+      "success_diff_ci95": [
+        -0.3516666666666667,
+        -0.29833333333333334
+      ],
+      "mcnemar_p": 7.931068241611404e-118,
+      "collision_a": 0.030833333333333334,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "optical",
+      "water": "coastal",
+      "acoustic_base": "none",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "forward_cone",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.125,
+      "success_b": 1.0,
+      "success_diff": -0.875,
+      "success_diff_ci95": [
+        -0.8933333333333333,
+        -0.8566666666666667
+      ],
+      "mcnemar_p": 1.6578092e-316,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "fore_aft_cones",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "fore_aft_cones",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.89,
+      "success_b": 1.0,
+      "success_diff": -0.11,
+      "success_diff_ci95": [
+        -0.1275,
+        -0.09247916666666678
+      ],
+      "mcnemar_p": 3.6734198463196485e-40,
+      "collision_a": 0.03,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "fore_aft_cones",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.9791666666666666,
+      "success_b": 1.0,
+      "success_diff": -0.020833333333333332,
+      "success_diff_ci95": [
+        -0.03,
+        -0.013333333333333334
+      ],
+      "mcnemar_p": 5.960464477539063e-08,
+      "collision_a": 0.008333333333333333,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "hybrid",
+      "water": "coastal",
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "fore_aft_cones",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.6483333333333333,
+      "success_b": 1.0,
+      "success_diff": -0.3516666666666667,
+      "success_diff_ci95": [
+        -0.38,
+        -0.325
+      ],
+      "mcnemar_p": 1.8465957235571472e-127,
+      "collision_a": 0.12416666666666666,
+      "collision_b": 0.0
+    },
+    {
+      "link_kind": "optical",
+      "water": "coastal",
+      "acoustic_base": "none",
+      "mode": "clean",
+      "field": "pointing",
+      "a": "fore_aft_cones",
+      "b": "omni",
+      "n_pairs": 1200,
+      "success_a": 0.3375,
+      "success_b": 1.0,
+      "success_diff": -0.6625,
+      "success_diff_ci95": [
+        -0.6891666666666667,
+        -0.6366666666666667
+      ],
+      "mcnemar_p": 9.598059608932038e-240,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.0
+    }
+  ],
+  "redundant_vs_optical_first": [
+    {
+      "acoustic_base": "L2@1s",
+      "water": "clear",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "water": "coastal",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "water": "harbor",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "water": "clear",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "water": "coastal",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "water": "harbor",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "water": "clear",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "water": "coastal",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "water": "harbor",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "water": "clear",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "water": "coastal",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 1.0,
+      "success_b": 1.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "water": "harbor",
+      "field": "hybrid_policy",
+      "a": "redundant",
+      "b": "optical_first",
+      "n_pairs": 1200,
+      "success_a": 0.9983333333333333,
+      "success_b": 0.9983333333333333,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    }
+  ],
+  "collisions_vs_acoustic": [
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/clear/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0008333333333333334,
+      "success_diff": -0.0008333333333333334,
+      "success_diff_ci95": [
+        -0.0025,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0008333333333333334
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.020833333333333332,
+      "success_diff": -0.020833333333333332,
+      "success_diff_ci95": [
+        -0.029166666666666667,
+        -0.013333333333333334
+      ],
+      "mcnemar_p": 5.960464477539063e-08,
+      "collision_a": 0.0,
+      "collision_b": 0.020833333333333332
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.016666666666666666,
+      "success_diff": -0.016666666666666666,
+      "success_diff_ci95": [
+        -0.024166666666666666,
+        -0.009166666666666667
+      ],
+      "mcnemar_p": 1.9073486328125e-06,
+      "collision_a": 0.0,
+      "collision_b": 0.016666666666666666
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "noisy",
+      "field": "link",
+      "a": "hybrid/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.03916666666666667,
+      "success_diff": -0.03916666666666667,
+      "success_diff_ci95": [
+        -0.050833333333333335,
+        -0.028333333333333332
+      ],
+      "mcnemar_p": 1.4210854715202004e-14,
+      "collision_a": 0.0,
+      "collision_b": 0.03916666666666667
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/harbor/redundant",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.013333333333333334,
+      "success_b": 0.013333333333333334,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.013333333333333334,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.006666666666666667,
+      "success_b": 0.006666666666666667,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.006666666666666667,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.030833333333333334,
+      "success_b": 0.030833333333333334,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.030833333333333334,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.03,
+      "success_b": 0.013333333333333334,
+      "success_diff": 0.016666666666666666,
+      "success_diff_ci95": [
+        0.005,
+        0.029166666666666667
+      ],
+      "mcnemar_p": 0.0077874363057435225,
+      "collision_a": 0.03,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.008333333333333333,
+      "success_b": 0.006666666666666667,
+      "success_diff": 0.0016666666666666668,
+      "success_diff_ci95": [
+        -0.005,
+        0.008333333333333333
+      ],
+      "mcnemar_p": 0.803619384765625,
+      "collision_a": 0.008333333333333333,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.12416666666666666,
+      "success_b": 0.030833333333333334,
+      "success_diff": 0.09333333333333334,
+      "success_diff_ci95": [
+        0.07333333333333333,
+        0.1125
+      ],
+      "mcnemar_p": 2.272479748757548e-19,
+      "collision_a": 0.12416666666666666,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/clear",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/harbor",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.0,
+      "success_diff": 0.0,
+      "success_diff_ci95": [
+        0.0,
+        0.0
+      ],
+      "mcnemar_p": 1.0,
+      "collision_a": 0.0,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.013333333333333334,
+      "success_diff": -0.013333333333333334,
+      "success_diff_ci95": [
+        -0.02,
+        -0.0075
+      ],
+      "mcnemar_p": 3.0517578125e-05,
+      "collision_a": 0.0,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.006666666666666667,
+      "success_diff": -0.006666666666666667,
+      "success_diff_ci95": [
+        -0.011666666666666667,
+        -0.0025
+      ],
+      "mcnemar_p": 0.0078125,
+      "collision_a": 0.0,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/forward_cone",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.0,
+      "success_b": 0.030833333333333334,
+      "success_diff": -0.030833333333333334,
+      "success_diff_ci95": [
+        -0.04083333333333333,
+        -0.021666666666666667
+      ],
+      "mcnemar_p": 1.4551915228366852e-11,
+      "collision_a": 0.0,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.0,
+      "success_diff": 0.32416666666666666,
+      "success_diff_ci95": [
+        0.29833333333333334,
+        0.3491666666666667
+      ],
+      "mcnemar_p": 1.5862136483222808e-117,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.013333333333333334,
+      "success_diff": 0.31083333333333335,
+      "success_diff_ci95": [
+        0.285,
+        0.3358333333333333
+      ],
+      "mcnemar_p": 4.629465796507885e-109,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.006666666666666667,
+      "success_diff": 0.3175,
+      "success_diff_ci95": [
+        0.2916666666666667,
+        0.3450208333333332
+      ],
+      "mcnemar_p": 4.060706939705039e-115,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.030833333333333334,
+      "success_diff": 0.29333333333333333,
+      "success_diff_ci95": [
+        0.26666666666666666,
+        0.32083333333333336
+      ],
+      "mcnemar_p": 2.235756069383469e-96,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.030833333333333334
+    }
+  ],
+  "collisions_raised": [
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.03,
+      "success_b": 0.013333333333333334,
+      "success_diff": 0.016666666666666666,
+      "success_diff_ci95": [
+        0.005,
+        0.029166666666666667
+      ],
+      "mcnemar_p": 0.0077874363057435225,
+      "collision_a": 0.03,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "hybrid/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.12416666666666666,
+      "success_b": 0.030833333333333334,
+      "success_diff": 0.09333333333333334,
+      "success_diff_ci95": [
+        0.07333333333333333,
+        0.1125
+      ],
+      "mcnemar_p": 2.272479748757548e-19,
+      "collision_a": 0.12416666666666666,
+      "collision_b": 0.030833333333333334
+    },
+    {
+      "acoustic_base": "L2@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.0,
+      "success_diff": 0.32416666666666666,
+      "success_diff_ci95": [
+        0.29833333333333334,
+        0.3491666666666667
+      ],
+      "mcnemar_p": 1.5862136483222808e-117,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.0
+    },
+    {
+      "acoustic_base": "L2@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.013333333333333334,
+      "success_diff": 0.31083333333333335,
+      "success_diff_ci95": [
+        0.285,
+        0.3358333333333333
+      ],
+      "mcnemar_p": 4.629465796507885e-109,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.013333333333333334
+    },
+    {
+      "acoustic_base": "L3a@1s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.006666666666666667,
+      "success_diff": 0.3175,
+      "success_diff_ci95": [
+        0.2916666666666667,
+        0.3450208333333332
+      ],
+      "mcnemar_p": 4.060706939705039e-115,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.006666666666666667
+    },
+    {
+      "acoustic_base": "L3a@3s",
+      "mode": "clean",
+      "field": "link",
+      "a": "optical/coastal/fore_aft_cones",
+      "b": "acoustic",
+      "n_pairs": 1200,
+      "success_a": 0.32416666666666666,
+      "success_b": 0.030833333333333334,
+      "success_diff": 0.29333333333333333,
+      "success_diff_ci95": [
+        0.26666666666666666,
+        0.32083333333333336
+      ],
+      "mcnemar_p": 2.235756069383469e-96,
+      "collision_a": 0.32416666666666666,
+      "collision_b": 0.030833333333333334
+    }
+  ],
+  "elapsed_min": 21.0
+}

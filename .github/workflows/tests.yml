@@ -57,3 +57,8 @@ jobs:
         env:
           MLFLOW_DISABLE_AGENT_HINT: "1"
         run: python ../strathe.py fleet --config ci_smoke_experiment.yaml --mode both --buoyancy -2 2 --name ci_noisy_smoke
+      - name: Fleet smoke run with acoustic, optical and hybrid links, and cones against omni terminals
+        working-directory: calibration
+        env:
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python ../strathe.py fleet --config ci_smoke_experiment.yaml --link acoustic optical hybrid --optical-water harbor --optical-terminals fore_aft_cones --optical-compare-omni --name ci_optical_smoke
