@@ -45,6 +45,16 @@ Presets (sensor_noise/*.yaml):
              description of it (reports, logs) says so. Fit your own
              vehicle's logs with fit_sensor_noise.py (`strathe fit-noise`,
              command line) and pass that file instead.
+    open_water  a BlueROV2 at a fish farm in Norway (SINTEF's SOLAQUA data,
+             fit_solaqua_noise.py): white noise, DVL dropouts and the USBL
+             starting-fix error MEASURED; the biases are typical's assumed
+             values, because this data can't measure them (assumed_fields
+             in the file). PROJECT_STATUS.md #60.
+
+The starting-fix error (position_std_m in dead_reckoning mode) can be set on
+its own (start_fix_m, `--start-fix-error`): it is the error of each vehicle's
+starting position fix, and in the fleet it dominates what sensor noise costs
+(PROJECT_STATUS.md #60).
 
 Seeding: the noise depends only on the episode's identity, never on the
 policy's actions or the belief model, and every tick draws the same number
@@ -64,7 +74,8 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRESET_DIR = os.path.join(HERE, "sensor_noise")
 PRESETS = {"tank": os.path.join(PRESET_DIR, "bluerov2_tank.yaml"),
-           "typical": os.path.join(PRESET_DIR, "typical_dvl_ahrs.yaml")}
+           "typical": os.path.join(PRESET_DIR, "typical_dvl_ahrs.yaml"),
+           "open_water": os.path.join(PRESET_DIR, "open_water_bluerov2_solaqua.yaml")}
 POSITION_MODES = ("dead_reckoning", "external")
 SIZE_FIELDS = ("velocity_std_mps", "velocity_bias_mps", "gyro_std_rps", "gyro_bias_rps", "attitude_std_rad",
                "attitude_bias_rad", "heading_std_rad", "heading_bias_rad", "depth_std_m", "position_std_m")
@@ -91,6 +102,9 @@ class SensorNoiseConfig:
     position: str = "dead_reckoning"
     position_std_m: float = 0.0
     scale: float = 1.0
+    # The starting-fix error (m, per axis) for dead reckoning, set on its own: overrides position_std_m x scale
+    # for the starting fix. None = position_std_m x scale (the original behaviour).
+    start_fix_m: Optional[float] = None
     source: str = ""                       # where the numbers came from (for reports)
     extra: dict = field(default_factory=dict)
 
@@ -107,12 +121,35 @@ class SensorNoiseConfig:
             raise ValueError(f"velocity_dropout_prob must be between 0 and {MAX_DROPOUT}, got {p!r}")
         if self.position not in POSITION_MODES:
             raise ValueError(f"sensor noise position must be one of {POSITION_MODES}, got {self.position!r}")
+        if self.start_fix_m is not None:
+            if self.position != "dead_reckoning":
+                raise ValueError("a starting-fix error only applies to dead reckoning; with external positioning, "
+                                 "position_std_m is the positioning system's own noise")
+            if not (isinstance(self.start_fix_m, (int, float)) and math.isfinite(self.start_fix_m)
+                    and 0 <= self.start_fix_m <= CEILINGS["position_std_m"]):
+                raise ValueError(f"the starting-fix error must be between 0 and {CEILINGS['position_std_m']:g} m, "
+                                 f"got {self.start_fix_m!r}")
         if not (isinstance(self.scale, (int, float)) and math.isfinite(self.scale) and 0 <= self.scale <= 10):
             raise ValueError(f"sensor noise scale must be between 0 and 10, got {self.scale!r}")
 
     @property
     def active(self) -> bool:
-        return self.scale > 0 and (any(getattr(self, n) > 0 for n in SIZE_FIELDS) or self.velocity_dropout_prob > 0)
+        return (self.scale > 0 and (any(getattr(self, n) > 0 for n in SIZE_FIELDS) or self.velocity_dropout_prob > 0)
+                or bool(self.start_fix_m))
+
+    @property
+    def start_fix(self) -> float:
+        """The starting position fix's error (m, per axis) in dead-reckoning mode."""
+        return float(self.start_fix_m) if self.start_fix_m is not None else self.scaled("position_std_m")
+
+    def with_start_fix(self, metres: Optional[float]) -> "SensorNoiseConfig":
+        """A copy with the starting-fix error set on its own (None = unchanged)."""
+        if metres is None:
+            return self
+        import dataclasses
+        c = dataclasses.replace(self, start_fix_m=float(metres))
+        c.validate()
+        return c
 
     def scaled(self, name: str) -> float:
         return getattr(self, name) * self.scale
@@ -123,7 +160,8 @@ class SensorNoiseConfig:
 
     def describe(self) -> str:
         s = self.scale
-        nav = (f"position dead-reckoned from the DVL and compass (start fix ±{self.scaled('position_std_m'):.2g} m)"
+        nav = (f"position dead-reckoned from the DVL and compass (starting fix ±{self.start_fix:.2g} m"
+               + (", set on its own" if self.start_fix_m is not None else "") + ")"
                if self.position == "dead_reckoning"
                else f"external positioning ±{100 * self.scaled('position_std_m'):.2g} cm")
         return (f"`{self.source or 'custom'}` x{s:g}: DVL ±{100 * self.scaled('velocity_std_mps'):.2g} cm/s "
@@ -150,22 +188,31 @@ class SensorNoiseConfig:
                     "vehicle: fit your own with `strathe fit-noise`")
         if self.provenance == "measured":
             logs = (self.extra.get("fit") or {}).get("logs")
-            return f"; measured from logs{f' ({logs})' if logs else ''}"
+            assumed = self.assumed_fields
+            tail = (f"; except {', '.join(a.replace('_', ' ').rsplit(' ', 1)[0] for a in assumed)}, which are ASSUMED "
+                    f"(not measurable from those logs)" if assumed else "")
+            return f"; measured from logs{f' ({logs})' if logs else ''}{tail}"
         return ""
+
+    @property
+    def assumed_fields(self) -> list:
+        """Fields of a measured file that were assumed rather than measured (the file's `assumed_fields`)."""
+        a = self.extra.get("assumed_fields") or []
+        return [str(x) for x in a] if isinstance(a, list) else []
 
     def to_dict(self) -> dict:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in ("extra",)}
 
 
 def _known_keys() -> set:
-    return {f.name for f in fields(SensorNoiseConfig)} - {"scale", "source", "extra"}
+    return {f.name for f in fields(SensorNoiseConfig)} - {"scale", "source", "extra", "start_fix_m"}
 
 
 def load_sensor_noise(which: str, scale: float = 1.0) -> SensorNoiseConfig:
-    """which: 'tank', 'typical', or a path to a sensor-noise YAML (fit_sensor_noise.py writes one)."""
+    """which: 'tank', 'typical', 'open_water', or a path to a sensor-noise YAML (fit_sensor_noise.py writes one)."""
     path = PRESETS.get(which, which)
     if not os.path.exists(path):
-        raise ValueError(f"sensor noise must be none, tank, typical, or an existing YAML file; got {which!r}")
+        raise ValueError(f"sensor noise must be none, {', '.join(PRESETS)}, or an existing YAML file; got {which!r}")
     try:
         with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
@@ -188,11 +235,15 @@ def load_sensor_noise(which: str, scale: float = 1.0) -> SensorNoiseConfig:
     return cfg
 
 
-def resolve_sensor_noise(which: Optional[str], scale: float = 1.0) -> Optional[SensorNoiseConfig]:
-    """None / 'none' / scale 0 -> None (exact readings, the original behaviour)."""
+def resolve_sensor_noise(which: Optional[str], scale: float = 1.0,
+                         start_fix: Optional[float] = None) -> Optional[SensorNoiseConfig]:
+    """None / 'none' / scale 0 -> None (exact readings, the original behaviour). start_fix: the starting-fix
+    error in m, set on its own (dead reckoning only); None keeps the file's position_std_m x scale."""
     if which in (None, "", "none") or scale == 0:
+        if start_fix is not None:
+            raise ValueError("a starting-fix error needs sensor noise on (a dead-reckoning --noise preset or file)")
         return None
-    cfg = load_sensor_noise(which, scale)
+    cfg = load_sensor_noise(which, scale).with_start_fix(start_fix)
     return cfg if cfg.active else None
 
 
@@ -241,7 +292,7 @@ class SensorSuite:
         self.bias_g = r.standard_normal(3) * c.scaled("gyro_bias_rps")
         self.bias_att = r.standard_normal(2) * c.scaled("attitude_bias_rad")
         self.bias_h = float(r.standard_normal()) * c.scaled("heading_bias_rad")
-        fix = r.standard_normal(2) * c.scaled("position_std_m")
+        fix = r.standard_normal(2) * (c.start_fix if c.position == "dead_reckoning" else c.scaled("position_std_m"))
         self._fix = np.array([fix[0], fix[1], 0.0])
         self._s = {n: c.scaled(n) for n in ("velocity_std_mps", "gyro_std_rps", "attitude_std_rad",
                                             "heading_std_rad", "depth_std_m", "position_std_m")}

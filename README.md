@@ -46,7 +46,8 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Use your calibration and vehicle description | `--params`, `--spec` | `--params`, `--vehicle-spec` |
 | Limit commands to your real thrusters | `--thrusters my_rov.yaml` | `--thrusters my_rov.yaml` |
 | Add a water current | `--current-speed 0 0.3` | `--current-speed 0 0.3` |
-| Simulate realistic sensors, not perfect ones | `--mode noisy` | `--mode noisy`, or `--mode both` to compare clean and noisy episode by episode |
+| Simulate realistic sensors, not perfect ones | `--mode noisy`; `--noise open_water` for sensors measured in open water | `--mode noisy`, or `--mode both` to compare clean and noisy episode by episode; `--noise open_water` |
+| Set how accurate each vehicle's starting position fix is | `--start-fix-error 0.1` (m) | `--start-fix-error 0.1`: in the fleet this is most of what sensor noise costs |
 | Measure your own sensors' noise | `fit-noise --data <logs>` (command line), then `--noise my_noise.yaml` | the same |
 | Change the trim or payload (buoyancy) | `--buoyancy -3` (N; − = heavier) | `--buoyancy -3` |
 | Add roll/pitch disturbance (tether, waves) | `--disturbance fitted --disturbance-scale 2` | `--disturbance fitted --disturbance-scale 2` |
@@ -63,7 +64,22 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 
 ## Recent fixes (September 2026)
 
-What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–59.
+What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–60.
+
+**Open-water sensor noise measured, and a correction to #58 (#60)**
+- **New preset `--noise open_water`, measured from open-water data.**
+  - **Source:** 58 recordings of a BlueROV2 at a fish farm in Norway, from SINTEF Ocean's public SOLAQUA dataset (CC BY-SA 4.0), measured by `fit_solaqua_noise.py`.
+  - **Measured:** white noise, DVL dropouts and the starting position-fix error.
+  - **Measured noise against `typical`:** DVL 0.54 vs 1 cm/s, gyro 0.32 vs 0.6°/s, roll/pitch 0.08 vs 0.5°, heading 0.06 vs 2°, depth 0.24 vs 1 cm. Dropouts are higher: 6.5% against 2%.
+  - **Starting fix:** the USBL fix error is 0.17 m per axis, against `typical`'s assumed 0.2 m.
+  - **Still assumed:** the four biases. The data can't measure them, because the DVL tracks the moving net rather than the seabed. The file and every report say so.
+- **Correction: #58 said realistic sensors cost formation-holding 10 points through dead-reckoning drift.** The 10 points are real, but they come from the 0.2 m starting position fix inside `typical`, not from the sensors. Over 26,400 paired episodes:
+  - **The starting fix alone,** with perfect sensors, costs 9 points (95% CI 7 to 11).
+  - **The `typical` sensors with a perfect fix** cost 1 (0 to 2).
+  - **The measured open-water sensors with a perfect fix** cost 1 (0 to 3).
+  - **Scaling:** the cost grows with the fix error: 1, 3, 9 and 18 points at 0.05, 0.1, 0.2 and 0.3 m.
+- **`--start-fix-error M`** sets the starting fix on its own, in the fleet, the single-vehicle arena, training, the experiment YAML and the web forms. Reports show it. Existing noisy runs are bit-identical.
+- **The lever for formation-holding is relative positioning between the vehicles** (acoustic ranging, a shared USBL), not better sensors.
 
 **Optical and hybrid links for the fleet (#59)**
 - **`--link acoustic | optical | hybrid`**, in the fleet simulation, training (`train-fleet --link hybrid`), the CLI, the web forms and the experiment YAML (`communication.link`). Acoustic stays the default, and acoustic runs are bit-identical to before.
@@ -96,7 +112,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - **Presets:** `tank` is measured from the reference (tank) logs. `typical` (DVL + AHRS, dead reckoning) is **assumed**: sizes of a common magnitude, not measured on any open-water vehicle, and every report that uses it says so. For your own vehicle, `strathe fit-noise` (command line) measures it from your logs; add your sensors' datasheet biases, which logs can't show.
 - **Clean results are unchanged, bit for bit.** 6,616 fleet episodes and 16 single-vehicle runs match the previous code exactly.
 - **What noise does to the fleet** (57,120 paired episodes):
-  - The assumed `typical` sensors cost formation-holding 10 points; twice as noisy, 34. The tank's own noise costs nothing. How much *your* sensors cost depends on their real sizes: fit them.
+  - The assumed `typical` noise costs formation-holding 10 points; twice as noisy, 34. The tank's own noise costs nothing. *(Corrected in #60: almost all of that is `typical`'s 0.2 m starting position fix, which ×2 doubles, not the sensors.)*
   - Training with the noise only helps at the harsh level (+8).
   - TD3, the best algorithm in clean simulation, loses the most under noise (−22).
 - **Buoyancy:** `--buoyancy -3` makes the vehicles 3 N heavier than calibrated; a range trains across trims. Trained policies stay at 100% from −10 to +10 N on one vehicle, and fleet success barely moves. A hand-written controller falls from 65% to about 30%.
@@ -170,7 +186,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 493 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 503 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -612,7 +628,7 @@ python strathe.py fleet --mode noisy --noise my_noise.yaml  # your own sensors (
 python strathe.py fleet --buoyancy -3                       # vehicles 3 N heavier than calibrated
 python strathe.py fleet --policies ppo=fleet_policy_seed1 sac=algorithm_policies/fleet_sac_seed1 td3=algorithm_policies/fleet_td3_seed1
 ```
-With the assumed `typical` sensors, formation-holding success falls by 10 points; the tank's own sensor noise costs nothing (#58). `typical` isn't measured on a real open-water vehicle, so fit your own sensors (`strathe fit-noise`) for numbers about your fleet.
+With sensor noise on, formation-holding success falls by about 10 points (`typical`) or 8 (`open_water`, measured in open water). Almost all of that is each vehicle's starting position fix (0.2 m and 0.17 m per axis), not the sensors: with a perfect fix, either set of sensors costs about 1 point (#60). Set the fix to your positioning's accuracy with `--start-fix-error`.
 
 SAC and TD3 were validated on the reference BlueROV2 and this formation task only. For your vehicle, train a few seeds of each (`train-fleet --algorithm ...`) and compare them in one experiment; the report's "Policy groups compared" table does it episode by episode.
 
@@ -702,7 +718,8 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle, on the stand-in or MuJoCo, with optional disturbance, current and thruster limits (`strathe arena`).
 - **`calibration/ardupilot_reader.py`** — reads ArduPilot DataFlash `.bin` and MAVLink `.tlog` logs for ingestion.
 - **`calibration/estimate_current.py`** — estimates each open-water recording's water current from the logs (`strathe estimate-current`, `calibrate --estimate-current`).
-- **`calibration/sensor_noise.py`, `fit_sensor_noise.py`, `sensor_noise/`, `sim_mode.py`** — sensor noise (DVL, gyro, attitude, compass, depth, dead-reckoned position), measuring it from logs (`strathe fit-noise`), the `tank` and `typical` presets, and the clean/noisy switch.
+- **`calibration/sensor_noise.py`, `fit_sensor_noise.py`, `sensor_noise/`, `sim_mode.py`** — sensor noise (DVL, gyro, attitude, compass, depth, dead-reckoned position), measuring it from logs (`strathe fit-noise`), the `tank`, `typical` and `open_water` presets, and the clean/noisy switch.
+- **`calibration/fit_solaqua_noise.py`, `run_noise_decomposition.py`** — the `open_water` preset measured from SINTEF's SOLAQUA data (`results/solaqua_noise/`), and the study showing the starting position fix is what sensor noise costs (`results/fleet_v2_noise/decomposition.md`) (#60).
 - **`calibration/buoyancy.py`** — a net-buoyancy change from the calibration, in every engine.
 - **`calibration/policy_io.py`** — loads PPO, SAC and TD3 policies and tells them apart from the file.
 - **`calibration/run_algorithm_study.py`, `run_noise_study.py`, `stress_test_noise_algorithms.py`, `clean_regression_check.py`** — the SAC/TD3 fleet validation (criteria fixed in advance), the clean-vs-noisy and buoyancy study, the stress test, and the proof that clean simulation is unchanged (#58).
@@ -824,7 +841,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (493 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (503 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -844,9 +861,10 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Clean vs noisy simulation as one switch (`--mode`), with sensor noise measured from logs or preset, in both simulators, training, the CLI and the web page; clean results bit-identical (#58)
 - ✅ Buoyancy changes (`--buoyancy`) in every engine (#58)
 - ✅ SAC and TD3 fleet policies, validated against criteria fixed in advance on the reference BlueROV2 and formation task: SAC ties PPO, TD3 +4 points (#58); other vehicles and tasks: compare seeds yourself
-- ⏳ `typical` sensor noise is assumed, not measured on an open-water vehicle; a lab's DVL/AHRS logs (`strathe fit-noise`) would replace it
+- ⏳ Sensor biases (DVL, gyro, attitude, heading) are still assumed in every open-water preset: measuring them needs a seabed-locked DVL with an independent position and heading reference
 - ⏳ `strathe fit-noise` has no web form yet (command line only)
-- 🔄 Realistic sensors cost formation-holding 10 points through navigation drift; relative ranging or a navigation filter is the next lever (#58)
+- ✅ Open-water sensor noise measured (`--noise open_water`, SOLAQUA): white noise, DVL dropouts and the USBL fix error; biases still assumed (#60)
+- 🔄 Sensor noise costs formation-holding about 10 points, and almost all of it is the starting position fix, not the sensors (#60, correcting #58); relative positioning between the vehicles is the lever
 - ✅ Optical and hybrid links (`--link`), with water clarity and terminal pointing, in the fleet simulation, training, the CLI and the web page; acoustic runs bit-identical (#59)
 - ⏳ The optical model is uncalibrated: textbook water values and a placeholder delivery curve until a lab's link logs fit it
 - 🔄 With 30° cones the shipped policies lose the optical link as they roll, and an early fix that goes stale raises collisions; does a policy trained with `--link hybrid` learn to keep it up? (#59)

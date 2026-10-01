@@ -458,14 +458,24 @@ def thrusters_arg(value: Optional[str]) -> Optional[str]:
 
 
 def noise_arg(value: Optional[str]) -> Optional[str]:
-    """--noise: none, tank, typical, or a sensor-noise YAML (made absolute). Validated."""
+    """--noise: none, a preset (tank, typical, open_water), or a sensor-noise YAML (made absolute). Validated."""
     if value in (None, ""):
         return None
-    v = value if value in ("none", "tank", "typical") else _file_arg(value, "sensor-noise file")
+    from sensor_noise import PRESETS
+    v = value if value == "none" or value in PRESETS else _file_arg(value, "sensor-noise file")
     if v != "none":
         from sensor_noise import load_sensor_noise
         load_sensor_noise(v)  # raises ValueError with a specific message
     return v
+
+
+def start_fix_arg(value: Optional[float]) -> Optional[float]:
+    """--start-fix-error: metres per axis, 0 to 20. Validated."""
+    if value is None:
+        return None
+    if not (0.0 <= float(value) <= 20.0):
+        raise ValueError(f"--start-fix-error must be between 0 and 20 m, got {value}")
+    return float(value)
 
 
 def buoyancy_block(values, known: bool = False) -> Optional[dict]:
@@ -490,6 +500,9 @@ def simulation_argv(args, known_flag: bool = False) -> list:
         if args.noise_scale < 0:
             raise ValueError("--noise-scale must be 0 or more")
         argv += ["--noise", noise_arg(args.noise), "--noise-scale", str(args.noise_scale)]
+    if getattr(args, "start_fix_error", None) is not None:
+        start_fix_arg(args.start_fix_error)
+        argv += ["--start-fix-error", str(args.start_fix_error)]
     if getattr(args, "disturbance", None) is not None:
         if args.disturbance_scale < 0:
             raise ValueError("--disturbance-scale must be 0 or more")
@@ -590,6 +603,8 @@ def fleet_setting_overrides(args) -> dict:
         if args.noise_scale < 0:
             raise ValueError("--noise-scale must be 0 or more")
         o["sensor_noise"] = {"preset": noise_arg(args.noise), "scale": args.noise_scale}
+    if getattr(args, "start_fix_error", None) is not None:
+        o.setdefault("sensor_noise", {})["start_fix_error_m"] = start_fix_arg(args.start_fix_error)
     if args.buoyancy:
         o["buoyancy"] = buoyancy_block(args.buoyancy, args.buoyancy_known_to_beliefs)
     if args.name:
@@ -828,8 +843,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--mode", choices=["clean", "noisy", "both"],
                    help="clean (exact sensors, no disturbance), noisy (sensor noise + roll/pitch disturbance), or "
                         "both: every condition run clean and noisy, compared episode by episode")
-    g.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
+    g.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), open_water (MEASURED on a BlueROV2 at a fish farm, SOLAQUA; biases assumed), or your file from `strathe fit-noise`")
     g.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    g.add_argument("--start-fix-error", type=float, metavar="M", help="error of each vehicle's starting position fix, m per axis, for dead reckoning (default: the noise preset's; open_water 0.17, typical 0.2). In the fleet it is most of what sensor noise costs (PROJECT_STATUS.md #60)")
     g.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                    help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
     g.add_argument("--buoyancy-known-to-beliefs", action="store_true",
@@ -866,8 +882,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="training algorithm (default ppo; sac and td3 with the settings validated on the reference BlueROV2 in PROJECT_STATUS.md #37; on your vehicle, compare seeds)")
     a.add_argument("--mode", choices=["clean", "noisy"],
                    help="clean (default) or noisy: realistic sensor noise + the fitted roll/pitch disturbance")
-    a.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
+    a.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), open_water (MEASURED on a BlueROV2 at a fish farm, SOLAQUA; biases assumed), or your file from `strathe fit-noise`")
     a.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    a.add_argument("--start-fix-error", type=float, metavar="M", help="error of each vehicle's starting position fix, m per axis, for dead reckoning (default: the noise preset's; open_water 0.17, typical 0.2). In the fleet it is most of what sensor noise costs (PROJECT_STATUS.md #60)")
     a.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                    help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
     a.add_argument("--compare-clean-training", action="store_true",
@@ -903,8 +920,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--thrusters", help="bluerov2_heavy, or a YAML file with a thrusters block")
     t.add_argument("--mode", choices=["clean", "noisy"],
                    help="train clean (default) or noisy: sensor noise + roll/pitch disturbance")
-    t.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), or your file from `strathe fit-noise`")
+    t.add_argument("--noise", help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes for a DVL + AHRS vehicle, not measured), open_water (MEASURED on a BlueROV2 at a fish farm, SOLAQUA; biases assumed), or your file from `strathe fit-noise`")
     t.add_argument("--noise-scale", type=float, default=1.0)
+    t.add_argument("--start-fix-error", type=float, metavar="M", help="error of each vehicle's starting position fix, m per axis, for dead reckoning (default: the noise preset's; open_water 0.17, typical 0.2). In the fleet it is most of what sensor noise costs (PROJECT_STATUS.md #60)")
     t.add_argument("--disturbance", help="roll/pitch disturbance: none, fitted, or a fit file (default: from --mode)")
     t.add_argument("--disturbance-scale", type=float, default=1.0)
     t.add_argument("--buoyancy", type=float, nargs="+", metavar="N",

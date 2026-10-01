@@ -86,7 +86,7 @@ def make_env(params, ek: dict, backend: str = "stand_in"):
     noise = None
     if ek.get("noise"):
         from sensor_noise import resolve_sensor_noise
-        noise = resolve_sensor_noise(ek["noise"], ek.get("noise_scale", 1.0))
+        noise = resolve_sensor_noise(ek["noise"], ek.get("noise_scale", 1.0), ek.get("start_fix"))
     buoyancy = None
     if ek.get("buoyancy"):
         from buoyancy import BuoyancyConfig
@@ -339,11 +339,15 @@ def run(args) -> dict:
     noise_desc = None
     if args.noise not in (None, "none") and args.noise_scale > 0:
         from sensor_noise import resolve_sensor_noise
-        nc = resolve_sensor_noise(args.noise if args.noise in ("tank", "typical") else os.path.abspath(args.noise),
-                                  args.noise_scale)
+        from sensor_noise import PRESETS
+        nc = resolve_sensor_noise(args.noise if args.noise in PRESETS else os.path.abspath(args.noise),
+                                  args.noise_scale, args.start_fix_error)
         noise_desc = nc.describe() if nc is not None else None
+    elif args.start_fix_error is not None:
+        raise ValueError("--start-fix-error needs sensor noise on (--mode noisy, or --noise)")
+    from sensor_noise import PRESETS as _PRESETS
     noise_ref = (None if noise_desc is None else
-                 (args.noise if args.noise in ("tank", "typical") else os.path.abspath(args.noise)))
+                 (args.noise if args.noise in _PRESETS else os.path.abspath(args.noise)))
     from sim_mode import buoyancy_from_flags
     buoy = buoyancy_from_flags(args.buoyancy)
     if args.compare_clean_training and noise_ref is None and dist_path is None:
@@ -352,6 +356,7 @@ def run(args) -> dict:
     ek = {"spec": os.path.abspath(args.spec), "task": args.task, "max_episode_steps": args.max_episode_steps,
           "current": current, "thrusters": args.thrusters, "disturbance": dist_path,
           "disturbance_scale": args.disturbance_scale, "noise": noise_ref, "noise_scale": args.noise_scale,
+          "start_fix": args.start_fix_error if noise_ref is not None else None,
           "buoyancy": None if buoy is None else buoy.to_dict()}
     thr_desc = None
     if args.thrusters:
@@ -432,6 +437,7 @@ def run(args) -> dict:
             "engines": engines, "disturbance": dist_path, "disturbance_scale": args.disturbance_scale,
             "disturbance_described": dist_desc, "algorithm": args.algorithm,
             "mode": args.mode, "noise": noise_ref, "noise_scale": args.noise_scale, "noise_described": noise_desc,
+            "start_fix_error_m": args.start_fix_error,
             "buoyancy": None if buoy is None else buoy.to_dict(),
             "buoyancy_described": None if buoy is None else buoy.describe(teammates=False),
             "compare_clean_training": bool(args.compare_clean_training and not args.policy),
@@ -483,9 +489,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="clean (exact sensors, no disturbance; default) or noisy (sensor noise 'typical' + roll/pitch "
                          "disturbance 'fitted'); --noise and --disturbance override either part")
     ap.add_argument("--noise", default=None,
-                    help="sensor noise: none, tank (measured), typical (assumed sizes, not measured), or a file from "
-                         "fit_sensor_noise.py (default: from --mode)")
+                    help="sensor noise: none, tank (measured), typical (assumed sizes, not measured), open_water "
+                         "(measured on a BlueROV2 at a fish farm; biases assumed), or a file from fit_sensor_noise.py "
+                         "(default: from --mode)")
     ap.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    ap.add_argument("--start-fix-error", type=float, default=None, metavar="M",
+                    help="error of each vehicle's starting position fix, m per axis, for dead reckoning "
+                         "(default: the noise preset's; open_water 0.17, typical 0.2). Most of what sensor "
+                         "noise costs in the fleet (PROJECT_STATUS.md #60)")
     ap.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                     help="net buoyancy change from the calibration in N (- = heavier, e.g. a payload), or MIN MAX "
                          "drawn per episode")

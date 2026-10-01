@@ -919,7 +919,7 @@ Presets:
 | typical ×2 | 50% | **−34 (−36, −31)** | 58% | 52 cm | 78 cm |
 | noisy mode | 73% | −10 (−12, −9) | 74% | 26 cm | 56 cm |
 
-1. **Realistic sensors cost formation-holding 10 points; twice as noisy, 34.** The tank's own sensor noise costs nothing. The cost comes through navigation drift: the believed separation is off by the two vehicles' combined drift, against a ±0.2 m tolerance.
+1. **Realistic sensors cost formation-holding 10 points; twice as noisy, 34.** The tank's own sensor noise costs nothing. The cost comes through navigation drift: the believed separation is off by the two vehicles' combined drift, against a ±0.2 m tolerance. *(Corrected in #60: the numbers stand, but almost all of the cost is `typical`'s 0.2 m starting position fix, not drift. With a perfect fix, the `typical` sensors cost 1 point.)*
 2. **The roll/pitch disturbance adds nothing on top** (noisy mode = typical ×1), consistent with #52.
 3. **Training with the noise helps only when it's severe:**
    - ×1: +1 point (−1 to +3)
@@ -1091,14 +1091,73 @@ Tests: 37 new, 41 after review (`tests/test_optical_link.py`): pointing cones, b
 - Train with `--link hybrid`, cones included, and ask whether a policy learns to stay pointed and in range, and what that costs in collisions, from clear to harbour water.
 - Calibrate the delivery curve from a lab's link logs.
 
+### 60. Open-water sensor noise measured from SOLAQUA; the noise cost is the starting position fix (2026-10-01)
+
+**Why.** The `typical` sensor preset, the default of `--mode noisy`, was an assumption: the most visible one in Strathe, flagged in every report. SINTEF Ocean's public SOLAQUA dataset (a BlueROV2 at a full-scale fish farm in Norway, August 2024; arXiv 2504.01790; CC BY-SA 4.0) logs a Water Linked A50 DVL, ArduSub's attitude and gyro, a depth sensor and a Sonardyne USBL.
+
+**What the data is and isn't** (61 ROS 1 data bags, 173 MB; the 162 GB of video isn't needed):
+- **Message definitions:** the bags carry their own, so `rosbags` reads the custom DVL, USBL and attitude types without SINTEF's code.
+- **No thruster forces:** `/commanded_thrust` is ArduSub's pilot-input channels (pitch, roll, heave, yaw, forward, lateral as RC PWM), not per-thruster commands. ArduSub's mixer and depth-hold and stabilise controllers sit between them and the thrusters, so **SOLAQUA can't calibrate the physics.**
+- **The DVL tracks the net:** it locks onto the fish-farm net at 0.5–2 m (median 1 m), not the seabed. The net moves with the current (0.04–0.2 m/s on the day), while the USBL measures against the earth.
+  - Fitting the DVL's own dead-reckoned track to the USBL gives "drift" of 0.05–0.5 m/s per run: the net moving, not a sensor bias.
+  - The A50's dead reckoning also resets mid-run, jumping 3–15 m between fixes.
+  - **So the biases can't be measured from this data.**
+
+**What was measured** (`fit_solaqua_noise.py`, 58 in-water recordings; the 3 camera-calibration sets on deck are excluded):
+- **White noise:** `fit-noise`'s robust second-difference estimator, applied to each sensor **at its own logged rate**: DVL 9 Hz, attitude/gyro 16 Hz, depth 16 Hz. Interpolating onto a common grid would smooth the noise and bias it low, so nothing is resampled.
+  - DVL 0.54 cm/s (vs `typical` 1)
+  - gyro 0.32°/s (0.6)
+  - roll/pitch 0.08° (0.5)
+  - heading 0.06° (2)
+  - depth 0.24 cm (1)
+- **DVL dropouts:** invalid readings plus time in gaps over 3 nominal periods: 6.5% (vs 2%).
+- **USBL fix error:** 0.17 m per axis, used as the starting-fix error (vs `typical`'s assumed 0.2 m).
+  - **Method:** in 20 s windows, the USBL track is fitted to the DVL's dead reckoning by rotation, scale, offset and drift. Over 20 s the DVL track is good to a few cm, and the drift term absorbs the net's motion.
+  - **Check on synthetic tracks:** it recovers known errors of 0.05 / 0.1 / 0.2 m as 0.050 / 0.094 / 0.195.
+  - **Spread:** per-run values have an interquartile range of 0.13–0.32 m. The USBL's own reported σ is 0.1 m.
+- **Cross-check:** an earlier, uncommitted attempt (left in the working tree, never merged) got the same white noise to within 5%. Its bias estimates (heading 23°, velocity 1.5 cm/s) came from the same DVL-vs-USBL comparison, so they aren't used.
+- **Caveats:** a DVL at 0.5–2 m is quieter than one bottom-locked at 10–50 m. Gyro, roll/pitch and heading are ArduSub's filtered estimates.
+
+**The preset.** `--noise open_water` (`sensor_noise/open_water_bluerov2_solaqua.yaml`):
+- **Measured:** white noise, dropouts and the starting fix.
+- **Assumed:** the four biases are `typical`'s values. The file lists them under `assumed_fields`, and every description says "except velocity bias, gyro bias, attitude bias, heading bias, which are ASSUMED".
+- **Licence:** the derived statistics are shared under CC BY-SA 4.0 with attribution to SINTEF Ocean. The raw bags stay out of the repo (`data/raw/` is ignored).
+- **Default unchanged:** `typical` stays the default of `--mode noisy`.
+
+**Correction to #58: the noise cost is the starting position fix, not the sensors.** Every mix of the `typical` sensors cost the same 10 points, so the sensor model was taken apart (`run_noise_decomposition.py`, `results/fleet_v2_noise/decomposition.md`).
+- **Not pre-registered:** this is an exploratory follow-up, labelled as one.
+- **Setup:** 26,400 paired episodes; shipped PPO seeds 1–3; beliefs calibrated and last_beacon; L2 @ 1 s and L3a @ 3 s; the standard grid.
+
+| Variant | vs clean, pts (95% CI) | Navigation error |
+|---|---|---|
+| typical as shipped (#58) | −10 (−12 to −8) | 26 cm |
+| open_water as shipped | −8 (−10 to −6) | 22 cm |
+| starting fix only, perfect sensors: 0.05 / 0.1 / 0.2 / 0.3 m | −1 / −3 / −9 / −18 | 6 / 13 / 25 / 38 cm |
+| typical sensors, perfect fix | −1 (−2 to −0) | 4 cm |
+| typical white noise only / biases only, perfect fix | −0 / −1 | 2 / 3 cm |
+| open_water sensors, perfect fix | −1 (−3 to −0) | 3 cm |
+
+- **Why the fix dominates.** Each vehicle's starting fix error is independent, so the teammate's believed relative position is off by about 1.4× the fix error, against a ±0.2 m tolerance. Over a 20 s episode, dead-reckoning drift barely builds up.
+- **What was wrong in #58.** #58 said the cost "comes through navigation drift". The numbers stand; the explanation was wrong. Its "×2 costs 34 points" is mostly ×2 doubling the fix to 0.4 m.
+- **The assumed 0.2 m fix was about right:** the measured open-water fix is 0.17 m.
+- **The lever:** relative positioning between the vehicles (acoustic ranging, a shared USBL), not better sensors.
+
+**The starting fix as its own setting.**
+- **Where:** `--start-fix-error M` in `strathe fleet`, `arena`, `train-fleet`, the training scripts, both web forms, and `sensor_noise.start_fix_error_m` in the experiment YAML.
+- **Behaviour:** it overrides the preset's starting fix without scaling the sensors. With `mode: noisy` and no preset it uses `typical`; with sensor noise off, or external positioning, it is refused.
+- **Bit-identical:** the starting fix is drawn from the same random number as before, so 18 noisy fleet and arena runs (typical, tank, typical ×2; both engines) are bit-identical.
+- **Reports:** the fleet report now names the starting fix and its share of the cost.
+
+Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQUA bags when they're present.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
 - **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
 - **All limits, with what to do about each, are in `LIMITS.md` (#57).**
-- **Realistic sensors cost formation-holding 10 points (#58)**, through dead-reckoning drift against a ±0.2 m tolerance. Training with the noise doesn't recover it. The levers are relative acoustic ranging between the vehicles, and a navigation filter in the teammate model. TD3, the best algorithm in clean simulation, loses the most under noise (−22 points): compare algorithms with `--mode both`.
+- **Sensor noise costs formation-holding about 10 points, and almost all of it is the starting position fix (#60, correcting #58).** With a perfect fix, the assumed `typical` or the measured `open_water` sensors cost about 1. The lever is relative positioning between the vehicles (acoustic ranging, a shared USBL). TD3, the best algorithm in clean simulation, loses the most under noise (−22 points): compare algorithms with `--mode both`.
+- **Sensor biases are assumed in every open-water preset (#60).** SOLAQUA measured the white noise, dropouts and USBL fix, but its DVL tracks a moving net, so biases need a seabed-locked DVL with an independent reference.
 - **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
-- **The `typical` sensor preset is an assumption (#58).** `tank` is measured, but no open-water dataset has been fitted yet; a lab's DVL/AHRS logs would replace the assumption.
 - **Lab data, not built yet (#56, #57):**
   - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
   - thruster response lag and battery sag within a run

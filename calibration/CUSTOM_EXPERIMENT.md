@@ -29,7 +29,8 @@ settings is written to `strathe_jobs/` and run; the shipped files are never chan
 | Sample size | `--seeds 5` | `evaluation.comm_seeds` |
 | Physics engine | `--backend stand_in \| mujoco \| both` | `dynamics_backend` |
 | Clean or noisy simulation | `--mode clean \| noisy \| both` | `mode` |
-| Sensor noise | `--noise tank \| typical \| my_noise.yaml --noise-scale 2` | `sensor_noise` |
+| Sensor noise | `--noise tank \| typical \| open_water \| my_noise.yaml --noise-scale 2` | `sensor_noise` |
+| Starting position fix error (m per axis) | `--start-fix-error 0.1` | `sensor_noise.start_fix_error_m` |
 | Buoyancy change | `--buoyancy -3` or `--buoyancy -5 5` (+ `--buoyancy-known-to-beliefs`) | `buoyancy` |
 | Roll/pitch disturbance | `--disturbance fitted --disturbance-scale 1.5` | `disturbance` |
 | Water current | `--current-speed 0 0.3 --current-direction 0 360 ...` | `current` |
@@ -313,8 +314,9 @@ it. The web page's fleet form does the same. For one vehicle instead of two, see
 ```yaml
 mode: noisy              # clean (default) | noisy | both
 sensor_noise:            # optional; with mode noisy it defaults to typical
-  preset: typical        # none | tank | typical | path/to/my_noise.yaml
+  preset: typical        # none | tank | typical | open_water | path/to/my_noise.yaml
   scale: 1.0             # 0 = off, 2 = twice as noisy
+  start_fix_error_m: 0.1 # optional: each vehicle's starting position fix error, m per axis
 ```
 
 - **clean**: each vehicle knows its own velocity, attitude and position exactly,
@@ -339,12 +341,18 @@ positions, and the report shows how far the navigation drifted
 |---|---|
 | `tank` | The noise actually in the reference BlueROV2 tank logs, measured with `fit_sensor_noise.py`: about 2 mm/s velocity, 0.4°/s gyro, 0.1° attitude, 0.2° heading, 1 mm depth, and external positioning (3 mm, no drift). Small. |
 | `typical` | A DVL + AHRS + depth-sensor vehicle navigating by dead reckoning: 1 cm/s velocity (0.5 cm/s bias, 2% dropouts), 0.6°/s gyro, 0.5° attitude, 2° heading (2° bias), 1 cm depth, 20 cm starting fix. **Assumed, not measured:** sizes of a common magnitude, fixed before any result, not taken from any open-water vehicle (`sensor_noise/typical_dvl_ahrs.yaml` gives each one). It's the default for `mode: noisy`, and reports that use it say the sizes are assumed. |
+| `open_water` | A BlueROV2 at a fish farm in Norway, from SINTEF's public SOLAQUA dataset (CC BY-SA 4.0), measured with `fit_solaqua_noise.py` (PROJECT_STATUS.md #60): 0.54 cm/s DVL velocity (6.5% dropouts), 0.32°/s gyro, 0.08° roll/pitch, 0.06° heading, 0.24 cm depth, and a 0.17 m USBL starting fix. **Biases are `typical`'s assumed values**: this data can't measure them (the DVL tracks the moving net, not the seabed). The DVL worked at 0.5–2 m range, which is quieter than a deep bottom lock. |
 | your file | `python strathe.py fit-noise --data <your logs> --out my_noise.yaml` measures the white noise, dropouts and positioning from your own logs. Add your sensors' biases from their datasheets: logs can't show a constant offset. `fit-noise` is command line only (no web form yet); the web forms can use the file it writes ("From my own file"). |
 
 **Which preset to use.** `tank` for a vehicle in a tank with external positioning. For open water, your own
-fitted file; `typical` is a placeholder until you have one, and `--noise-scale 0.5` / `2` show how sensitive
-your result is to it. Results quoted with `typical` (e.g. the 10-point cost in PROJECT_STATUS.md #58) are about
-the assumed sizes, not a measured vehicle.
+fitted file; until you have one, `open_water` is measured on a real BlueROV2 and `typical` is an assumption.
+
+**The starting fix matters most.** In dead reckoning each vehicle starts from its own position fix, with an
+independent error (`position_std_m`, 0.2 m in `typical`, 0.17 m in `open_water`). In formation-holding that
+starting fix is almost all of what sensor noise costs: with perfect sensors, a 0.05 / 0.1 / 0.2 / 0.3 m fix
+costs 1 / 3 / 9 / 18 points; with a perfect fix, the `typical` or `open_water` sensors cost about 1
+(`results/fleet_v2_noise/decomposition.md`, PROJECT_STATUS.md #60). Set it to your positioning's accuracy
+with `--start-fix-error` (`start_fix_error_m`), on its own, without scaling the sensors; reports show it.
 
 Every condition sees the same sensor errors, so comparisons stay paired.
 To train a policy that has experienced the noise:
