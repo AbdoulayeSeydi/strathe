@@ -109,11 +109,14 @@ held-out logs.
 `mode: both` (`--mode both`, or the web form) runs every condition clean and
 noisy on the same episodes and adds a paired "Does noise matter?" table. The
 noise can be the shipped `tank` preset (measured from the reference tank logs),
-the `typical` preset (**assumed** sizes for a DVL + AHRS vehicle, not measured on
-any open-water vehicle), or your own, measured from your logs with
+the `typical` preset (**assumed** sizes for a DVL + AHRS vehicle), the `open_water`
+preset (**measured** on a BlueROV2 at a fish farm, SINTEF's SOLAQUA data; biases
+assumed), or your own, measured from your logs with
 `strathe fit-noise` (command line only; the web forms can then use the file)
 (CUSTOM_EXPERIMENT.md section 12).
-Success is always judged on the true positions.
+Success is always judged on the true positions. Most of what noise costs the fleet
+is each vehicle's starting position fix, not the sensors; set it to your
+positioning's accuracy with `--start-fix-error` (PROJECT_STATUS.md #60).
 
 **Q14. What if the vehicle is heavier or lighter than when it was calibrated?**
 PASS. `buoyancy: {offset_n: -3}` (`--buoyancy -3`), or a range to train across

@@ -278,6 +278,7 @@ def noise_fields(prefix: str, both: bool = False, teammates: bool = False) -> st
 <option value=none>None (exact readings)</option>
 <option value=tank>Tank: measured from the reference tank logs (small)</option>
 <option value=typical>Typical DVL + AHRS vehicle, dead reckoning (assumed sizes, not measured)</option>
+<option value=open_water>Open water, BlueROV2 at a fish farm (measured, SOLAQUA; biases assumed)</option>
 <option value=file>From my own file (below)</option></select>
 <p class=muted>Your own file: measure your sensors from your logs with <code>python strathe.py fit-noise --data
 &lt;logs&gt; --out my_noise.yaml</code> in a terminal (there's no form for it yet), then give its path below.
@@ -286,6 +287,9 @@ def noise_fields(prefix: str, both: bool = False, teammates: bool = False) -> st
 <input type=text id={prefix}-nscale name=noise_scale value="1">
 <label for={prefix}-nfile>Sensor-noise file, full path (only if “From my own file”)</label>
 <input type=text id={prefix}-nfile name=noise_file value="">
+<label for={prefix}-sfix>Starting position fix error, m per axis (optional; default: the preset's, 0.17 for open
+water, 0.2 for typical). In the fleet this is most of what sensor noise costs.</label>
+<input type=text id={prefix}-sfix name=start_fix_error value="">
 <label for={prefix}-buoy>Buoyancy change from the calibration, N (optional: <code>-3</code> for a heavier vehicle,
 e.g. an added payload; a range like <code>-5 to 5</code> is drawn per episode)</label>
 <input type=text id={prefix}-buoy name=buoyancy value="">
@@ -309,10 +313,14 @@ def noise_cli_args(form: dict, allow_both: bool = False, teammates: bool = False
             from sensor_noise import load_sensor_noise
             load_sensor_noise(path)  # raises ValueError naming what's wrong
             args += ["--noise", path, "--noise-scale", repr(scale)]
-        elif choice in ("none", "tank", "typical"):
+        elif choice in ("none", "tank", "typical", "open_water"):
             args += ["--noise", choice, "--noise-scale", repr(scale)]
         else:
             raise ValueError("Pick a sensor-noise option.")
+    if form.get("start_fix_error", "").strip():
+        if not (mode in ("noisy", "both") or choice not in ("", "none")):
+            raise ValueError("A starting-fix error needs sensor noise on: pick the noisy mode or a sensor-noise option.")
+        args += ["--start-fix-error", repr(_number(form["start_fix_error"], "Starting position fix error", 0, 20))]
     if form.get("buoyancy", "").strip():
         vals = _signed_number_or_range(form["buoyancy"], "Buoyancy change")
         cli.buoyancy_block([float(v) for v in vals])  # raises ValueError with a specific message

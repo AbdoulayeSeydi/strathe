@@ -179,7 +179,10 @@ def simulation_lines(cfg) -> list:
     if noise is not None:
         L.append(f"{lead}**Sensor noise on** ({noise.describe()}). Each vehicle's policy sees what its own sensors "
                  "report, and its teammate relative to where it believes it is; beacons carry what the sender "
-                 "measured. Success, collisions and belief errors are still judged on the true positions.\n")
+                 "measured. Success, collisions and belief errors are still judged on the true positions. "
+                 f"Most of what sensor noise costs formation-holding is the starting position fix "
+                 f"(±{noise.start_fix:.2g} m per axis here; `--start-fix-error` sets it on its own): with a perfect "
+                 "fix, even the assumed `typical` sensors cost about 2 points (PROJECT_STATUS.md #60).\n")
     else:
         L.append("Exact sensor readings: no sensor noise (`mode: noisy`, or a `sensor_noise:` block, adds "
                  "realistic DVL, gyro, attitude, compass and depth noise).\n")

@@ -126,8 +126,10 @@ def main():
     parser.add_argument("--mode", choices=["clean", "noisy"], default="clean",
                          help="clean (default; all existing results) or noisy: sensor noise 'typical' + the fitted "
                               "roll/pitch disturbance (sim_mode.py). --noise / --disturbance override either part")
-    parser.add_argument("--noise", default=None, help="sensor noise: none, tank, typical or a sensor-noise YAML")
+    parser.add_argument("--noise", default=None, help="sensor noise: none, tank, typical, open_water or a sensor-noise YAML")
     parser.add_argument("--noise-scale", type=float, default=1.0)
+    parser.add_argument("--start-fix-error", type=float, default=None, metavar="M",
+                        help="starting position fix error, m per axis (dead reckoning); default: the preset's")
     parser.add_argument("--disturbance", default=None, help="roll/pitch disturbance: none, fitted or a fit file")
     parser.add_argument("--disturbance-scale", type=float, default=1.0)
     parser.add_argument("--buoyancy", type=float, nargs="+", default=None,
@@ -137,7 +139,7 @@ def main():
     from sensor_noise import resolve_sensor_noise
     noise_name, dist_name = sim_mode.resolve(args.mode, args.noise, args.disturbance)
     env_kwargs = {}
-    noise_cfg = resolve_sensor_noise(noise_name, args.noise_scale)
+    noise_cfg = resolve_sensor_noise(noise_name, args.noise_scale, args.start_fix_error)
     if noise_cfg is not None:
         env_kwargs["sensor_noise"] = noise_cfg
     if dist_name != "none" and args.disturbance_scale > 0:

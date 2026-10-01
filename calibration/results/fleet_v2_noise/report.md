@@ -1,5 +1,7 @@
 # Clean vs noisy fleet simulation, and buoyancy (PROJECT_STATUS.md #58)
 
+> **Correction (2026-10-01, PROJECT_STATUS.md #60).** The numbers below stand, but their explanation doesn't: the cost of `typical` sensor noise is almost all its 0.2 m starting position fix, not the sensors or their drift. With a perfect fix, the `typical` sensors cost 1 point. See [decomposition.md](decomposition.md), and `--noise open_water` for sensor noise measured in open water.
+
 57,120 paired episodes, stand-in physics. Comm L2 @ 1 s and L3a @ 3 s, beliefs calibrated and last_beacon, pooled unless stated.
 
 **Read this first:** `tank` is measured from the reference tank logs; `typical` uses assumed sizes for a DVL + AHRS vehicle, not measured on any open-water vehicle. The costs below are for those assumed sizes (x0.5 and x2 bracket them); for your own fleet, fit your sensors with `strathe fit-noise` and rerun.

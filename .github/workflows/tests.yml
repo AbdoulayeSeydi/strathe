@@ -57,6 +57,11 @@ jobs:
         env:
           MLFLOW_DISABLE_AGENT_HINT: "1"
         run: python ../strathe.py fleet --config ci_smoke_experiment.yaml --mode both --buoyancy -2 2 --name ci_noisy_smoke
+      - name: Fleet smoke run with the measured open-water sensor noise and a perfect starting fix
+        working-directory: calibration
+        env:
+          MLFLOW_DISABLE_AGENT_HINT: "1"
+        run: python ../strathe.py fleet --config ci_smoke_experiment.yaml --mode noisy --noise open_water --start-fix-error 0 --name ci_open_water_smoke
       - name: Fleet smoke run with acoustic, optical and hybrid links, and cones against omni terminals
         working-directory: calibration
         env:

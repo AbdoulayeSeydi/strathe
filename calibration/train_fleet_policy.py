@@ -166,8 +166,13 @@ def main():
                          "disturbance 'fitted'); --noise and --disturbance override either part")
     ap.add_argument("--noise", default=None,
                     help="sensor noise: none, tank (measured from the reference tank logs), typical (ASSUMED sizes; DVL + AHRS dead "
-                         "reckoning), or a file from fit_sensor_noise.py (default: from --mode)")
+                         "reckoning), open_water (MEASURED on a BlueROV2 at a fish farm; biases assumed), or a file "
+                         "from fit_sensor_noise.py (default: from --mode)")
     ap.add_argument("--noise-scale", type=float, default=1.0, help="0 = off, 2 = twice as noisy")
+    ap.add_argument("--start-fix-error", type=float, default=None, metavar="M",
+                    help="error of each vehicle's starting position fix, m per axis, for dead reckoning "
+                         "(default: the noise preset's; open_water 0.17, typical 0.2). Most of what sensor "
+                         "noise costs in the fleet (PROJECT_STATUS.md #60)")
     ap.add_argument("--buoyancy", type=float, nargs="+", metavar="N",
                     help="net buoyancy change from the calibration in N (- = heavier), or MIN MAX drawn per episode")
     ap.add_argument("--buoyancy-known-to-beliefs", action="store_true",
@@ -199,7 +204,7 @@ def main():
     fleet_kwargs = {}
     from sensor_noise import resolve_sensor_noise
     try:
-        noise = resolve_sensor_noise(args.noise, args.noise_scale)
+        noise = resolve_sensor_noise(args.noise, args.noise_scale, args.start_fix_error)
         buoy = sim_mode.buoyancy_from_flags(args.buoyancy, args.buoyancy_known_to_beliefs)
         link = sim_mode_flags.link_from_args(args)
     except ValueError as e:
@@ -260,6 +265,7 @@ def main():
                                   "mode": args.mode,
                                   "sensor_noise": (None if noise is None else
                                                    {"preset": args.noise, "scale": args.noise_scale,
+                                                    "start_fix_error_m": args.start_fix_error,
                                                     "described": noise.describe()}),
                                   "buoyancy": None if buoy is None else buoy.to_dict(),
                                   "link": {"link": "acoustic"} if link is None else link.to_dict()},

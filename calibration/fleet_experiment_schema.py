@@ -353,19 +353,23 @@ class DisturbanceBlock(BaseModel):
 
 class SensorNoiseBlock(BaseModel):
     """What each vehicle's own sensors report (sensor_noise.py). preset: none, tank (fitted to the reference
-    tank logs), typical (a DVL + AHRS dead-reckoning vehicle; stated assumptions) or a file from
-    fit_sensor_noise.py."""
+    tank logs), typical (a DVL + AHRS dead-reckoning vehicle; stated assumptions), open_water (measured on a
+    BlueROV2 at a fish farm, SOLAQUA; biases assumed) or a file from fit_sensor_noise.py. start_fix_error_m:
+    each vehicle's starting position fix error, set on its own (PROJECT_STATUS.md #60)."""
     preset: str = "none"
     scale: float = Field(default=1.0, ge=0.0, le=10.0)
+    # error of each vehicle's starting position fix (m per axis, dead reckoning), set on its own; None = the preset's
+    start_fix_error_m: Optional[float] = Field(default=None, ge=0.0, le=20.0)
 
     @model_validator(mode="after")
     def _valid(self):
-        self.config()
+        if self.preset != "none" or self.start_fix_error_m is None:
+            self.config()
         return self
 
     def config(self):
         from sensor_noise import resolve_sensor_noise
-        return resolve_sensor_noise(self.preset, self.scale)
+        return resolve_sensor_noise(self.preset, self.scale, self.start_fix_error_m)
 
 
 class BuoyancyBlock(BaseModel):
@@ -465,8 +469,16 @@ class FleetExperimentConfig(BaseModel):
             # noisy's defaults, written into the config itself so the saved experiment.yaml reruns the same thing
             if self.sensor_noise is None:
                 self.sensor_noise = SensorNoiseBlock(preset="typical")
+            elif "preset" not in self.sensor_noise.model_fields_set:
+                # e.g. only start_fix_error_m given: the noisy mode's default preset, with that starting fix
+                self.sensor_noise = SensorNoiseBlock(preset="typical", scale=self.sensor_noise.scale,
+                                                     start_fix_error_m=self.sensor_noise.start_fix_error_m)
             if "disturbance" not in self.model_fields_set:
                 self.disturbance = DisturbanceBlock(roll_pitch="fitted")
+        if (self.mode == "clean" and self.sensor_noise is not None and self.sensor_noise.preset == "none"
+                and self.sensor_noise.start_fix_error_m is not None):
+            raise ValueError("sensor_noise.start_fix_error_m needs sensor noise on: set mode: noisy (or both), or a "
+                             "sensor_noise preset")
         if not os.path.exists(self.truth_params):
             raise ValueError(f"truth_params file not found: {self.truth_params!r}")
         if not os.path.exists(self.vehicle_spec):
