@@ -207,6 +207,17 @@ class ThrusterConfig:
         """(..., n) PWM -> (..., 6) body-frame [Fx, Fy, Fz, Tx, Ty, Tz]."""
         return self.thrusts(pwm) @ np.asarray(self.allocation).T
 
+    def wrench_at_voltage(self, pwm, volts) -> np.ndarray:
+        """(N, n) PWM and (N,) supply voltage per sample -> (N, 6). Each sample's thrust is rescaled as
+        ThrustCurve.at_voltage does for one voltage: forward and reverse thrust separately, to Blue Robotics'
+        published T200 maxima at that voltage (12-20 V; callers clip). The base curve must be the T200
+        dataset curve, not one already rescaled (PROJECT_STATUS.md #63)."""
+        volts = np.asarray(volts, dtype=float)
+        t = self.thrusts(pwm)
+        fwd, rev = np.vectorize(_published_max_n)(volts)
+        t = np.where(t >= 0, t * (fwd / self.curve.max_forward_n)[:, None], t * (rev / self.curve.max_reverse_n)[:, None])
+        return t @ np.asarray(self.allocation).T
+
     def for_simulation(self) -> "ThrusterConfig":
         """The same thrusters with torques taken about the physics model's reference point
         (applies torque_reference_offset_m to the allocation), as the simulators need."""

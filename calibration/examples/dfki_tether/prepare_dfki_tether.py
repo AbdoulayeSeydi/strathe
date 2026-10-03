@@ -89,6 +89,7 @@ def prepare_run(run_dir: str) -> list:
     att = pd.read_csv(os.path.join(run_dir, "attitude.csv"))
     qtm = pd.read_csv(os.path.join(run_dir, "qtm_rov.csv"))
     ten = pd.read_csv(os.path.join(run_dir, "tension.csv")).sort_values("time")
+    bat = pd.read_csv(os.path.join(run_dir, "battery.csv")).sort_values("time")
 
     t = rc["time"].to_numpy()
     th, hd = marker_heading(qtm)
@@ -121,6 +122,7 @@ def prepare_run(run_dir: str) -> list:
     out["r_rps"] = np.interp(t, att["time"], att["yaw_speed"])
     for i in range(1, 7):
         out[f"pwm{i}"] = rc[f"channel{i}"].to_numpy()
+    out["battery_v"] = np.interp(t, bat["time"], bat["voltages_01"])  # thrust depends on it (13.1-15.3 V here)
     # for reference only (not used by calibration): the tether's pull, measured at the surface pulley
     tw = window_mean(ten["time"].to_numpy(), ten[["Tension_horizontal_Fy", "Tenion_vertical_Fx"]].to_numpy(),
                      t, dt / 2)

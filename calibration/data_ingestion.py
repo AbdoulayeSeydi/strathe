@@ -201,9 +201,23 @@ class OrientationSpec(BaseModel):
 
 
 class ThrusterSpec(BaseModel):
-    """pwm_columns plus a thruster_model.thruster_block() block (checked when the spec is loaded)."""
+    """pwm_columns plus a thruster_model.thruster_block() block (checked when the spec is loaded).
+    voltage_column: the battery voltage logged with each sample; each sample's thrust is then scaled to its
+    own voltage (T200 curve only; PROJECT_STATUS.md #63), instead of one voltage: for the whole spec."""
     pwm_columns: list[str] = Field(min_length=1)
+    voltage_column: Optional[str] = None
     model_config = {"extra": "allow"}
+
+    @model_validator(mode="after")
+    def _voltage(self):
+        extra = self.model_extra or {}
+        if self.voltage_column is not None:
+            if extra.get("voltage") is not None:
+                raise ValueError("give voltage (one value) or voltage_column (logged per sample), not both")
+            if extra.get("curve_csv") is not None or extra.get("curve") not in (None, "t200"):
+                raise ValueError("voltage_column rescales Blue Robotics' published T200 curve; it can't rescale "
+                                 "your own curve_csv")
+        return self
 
     def block(self) -> dict:
         return {k: v for k, v in (self.model_extra or {}).items()}
@@ -224,6 +238,18 @@ class WrenchSpec(BaseModel):
         return self
 
 
+class PositionSpec(BaseModel):
+    """Optional world positions (e.g. motion capture, USBL, odometry), in the spec's world frame (NED, or ENU with
+    frame: flu). Used only to check the orientation against the position track (PROJECT_STATUS.md #63)."""
+    x: str
+    y: str
+    z: str
+    unit: Literal["m", "cm", "mm"] = "m"
+
+
+CHECKS = ("force_direction", "orientation_vs_position")
+
+
 class IngestSpec(BaseModel):
     vehicle: str = Field(pattern=r"^[A-Za-z0-9_]+$")
     source: SourceSpec
@@ -234,6 +260,8 @@ class IngestSpec(BaseModel):
     body_velocity: VelocitySpec
     orientation: OrientationSpec
     wrench: WrenchSpec
+    position: Optional[PositionSpec] = None
+    skip_checks: list[Literal["force_direction", "orientation_vs_position"]] = []  # escape hatch, says so
 
     model_config = {"populate_by_name": True}
     _thruster_cfg: object = PrivateAttr(default=None)
@@ -261,6 +289,10 @@ class IngestSpec(BaseModel):
                  else [getattr(o.euler, k) for k in ("roll", "pitch", "yaw")])
         w = self.wrench
         cols += list(w.columns.values()) if w.columns is not None else list(w.thrusters.pwm_columns)
+        if w.thrusters is not None and w.thrusters.voltage_column:
+            cols.append(w.thrusters.voltage_column)
+        if self.position is not None:
+            cols += [self.position.x, self.position.y, self.position.z]
         return cols
 
 
@@ -382,8 +414,11 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         report["time_gaps"] = [{"at_s": round(float(t[i] - t[0]), 3), "length_s": round(float(dts[i]), 3)}
                                for i in gaps[:20]]
         if len(gaps):
-            report["warnings"].append(f"{len(gaps)} time gap(s) longer than 2.5 samples; open-loop replay "
-                                      f"will integrate across them")
+            missing = float(np.sum(dts[gaps] - med))
+            report["time_gaps_total_s"] = round(missing, 2)
+            report["warnings"].append(f"{len(gaps)} time gap(s) longer than 2.5 samples, {missing:.1f} s in all "
+                                      f"({100 * missing / max(float(t[-1] - t[0]), 1e-9):.0f}% of the recording); "
+                                      f"open-loop replay will integrate across them")
         if spec.resample_hz is None and report["timestamp_jitter_pct"] > 5:
             raise IngestError(f"{path}: sample spacing varies by {report['timestamp_jitter_pct']}% -- the "
                               f"pipeline assumes a uniform rate; set resample_hz in the spec")
@@ -426,8 +461,22 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         if np.nanmin(pwm) < 900 or np.nanmax(pwm) > 2100:
             raise IngestError(f"{path}: PWM values span {np.nanmin(pwm):.0f}-{np.nanmax(pwm):.0f}; expected ESC "
                               f"microseconds (~1100-1900)")
-        wrench = cfg.wrench(pwm)
-        report["wrench_source"] = f"computed from PWM ({cfg.label}, curve: {cfg.curve.label})"
+        if th.voltage_column:
+            volts = _col(df, th.voltage_column, path)
+            if not np.all(np.isfinite(volts)):
+                raise IngestError(f"{path}: {th.voltage_column!r} has missing or non-numeric values")
+            clipped = int(np.sum((volts < 12.0) | (volts > 20.0)))
+            if clipped:
+                report["warnings"].append(f"{clipped} sample(s) of {th.voltage_column!r} outside 12-20 V (the "
+                                          f"published T200 range) were clipped to it")
+            wrench = cfg.wrench_at_voltage(pwm, np.clip(volts, 12.0, 20.0))
+            report["voltage_v"] = {"min": round(float(volts.min()), 2), "median": round(float(np.median(volts)), 2),
+                                   "max": round(float(volts.max()), 2)}
+            report["wrench_source"] = (f"computed from PWM ({cfg.label}, curve: {cfg.curve.label}, rescaled to each "
+                                       f"sample's logged voltage)")
+        else:
+            wrench = cfg.wrench(pwm)
+            report["wrench_source"] = f"computed from PWM ({cfg.label}, curve: {cfg.curve.label})"
 
     # frame conversion to FRD body / NED world
     if spec.frame == "flu":
@@ -435,6 +484,15 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         if spec.wrench.columns is not None:  # PWM-derived wrenches are already FRD
             wrench = np.hstack([wrench[:, :3] @ FLU_TO_FRD, wrench[:, 3:] @ FLU_TO_FRD])
         R = ENU_TO_NED @ R @ FLU_TO_FRD
+    if spec.position is not None:
+        pos = np.stack([_col(df, getattr(spec.position, k), path) for k in "xyz"], 1) * \
+            {"m": 1.0, "cm": 0.01, "mm": 0.001}[spec.position.unit]
+        if spec.frame == "flu":
+            pos = pos @ ENU_TO_NED.T
+        check = orientation_vs_position(t, pos, R, lin)
+        report["orientation_vs_position"] = check
+        if check.get("problem") and "orientation_vs_position" not in spec.skip_checks:
+            raise IngestError(f"{path}: {check['problem']}")
 
     data = np.hstack([wrench, lin, ang, Rotation.from_matrix(R).as_quat()])
     finite = np.all(np.isfinite(data), axis=1)
@@ -488,6 +546,72 @@ def torque_reference_for(spec: IngestSpec) -> Optional[list]:
     return [float(x) for x in _thruster_config(spec).torque_reference_offset_m]
 
 
+AXIS_PAIRS = (("Fx", "Bu", "surge"), ("Fy", "Bv", "sway"), ("Fz", "Bw", "heave"), ("Tx", "Bp", "roll"),
+              ("Ty", "Bq", "pitch"), ("Tz", "Br", "yaw"))
+REVERSED_CORRELATION = -0.2
+DIRECTION_CHECKED_AXES = ("surge", "sway", "heave", "yaw")
+
+
+def force_direction_check(frames: list, unreachable: list) -> dict:
+    """Does each axis's force push the way the vehicle moves? Pooled over every converted file, the correlation of
+    force with velocity on each axis. Thrust mostly balances drag, so on an axis the thrusters drive it is clearly
+    positive; clearly negative means the force is reversed: a mirrored thruster layout, wrong `reversed:` flags, a
+    frame mix-up, or (with world-frame velocity) a mirrored heading. Found by hand on DFKI's BlueROV2, where the
+    old preset gave yaw -0.65 (PROJECT_STATUS.md #62, #63)."""
+    d = pd.concat(frames, ignore_index=True)
+    out = {}
+    for f, v, name in AXIS_PAIRS:
+        if d[f].std() < 1e-9 or d[v].std() < 1e-9:
+            out[name] = None
+            continue
+        out[name] = round(float(np.corrcoef(d[f], d[v])[0, 1]), 3)
+    skip = {a.split()[0] for a in unreachable}  # "pitch torque" -> "pitch"
+    # roll and pitch are reported, not judged: restoring moments (buoyancy above weight) dominate them, so their
+    # torque and rate can anti-correlate with the forces the right way round (-0.22 on synthetic test logs)
+    reversed_axes = [a for a, c in out.items() if c is not None and c < REVERSED_CORRELATION and a not in skip
+                     and a in DIRECTION_CHECKED_AXES]
+    return {"correlation_force_vs_velocity": out, "reversed_axes": reversed_axes}
+
+
+def orientation_vs_position(t, pos, R, lin_body) -> dict:
+    """Does the orientation turn the body velocity into the motion the positions show? Horizontal velocity from the
+    position track against the body velocity rotated into the world, as complex numbers: a correct heading gives a
+    ratio near 1; a heading offset rotates it; a mirrored heading matches the conjugate instead. Needs body-frame
+    velocity: world-frame velocity was rotated with this same orientation, so it can't test it."""
+    dt = np.gradient(t)
+    k = max(1, int(round(0.5 / max(float(np.median(dt)), 1e-6))))  # differentiate over ~1 s to beat position noise
+    if len(t) < 4 * k:
+        return {}
+    vp = (pos[2 * k:] - pos[:-2 * k]) / (t[2 * k:] - t[:-2 * k])[:, None]
+    vb = np.einsum("nij,nj->ni", R, lin_body)[k:-k]
+    a, b = vp[:, 0] + 1j * vp[:, 1], vb[:, 0] + 1j * vb[:, 1]
+    moving = np.abs(a) > 0.05
+    if moving.sum() < 20:
+        return {"note": "too little horizontal motion to check"}
+    a, b = a[moving], b[moving]
+
+    def fit(x):
+        c = np.vdot(x, a) / np.vdot(x, x)  # least-squares complex gain: rotation + scale
+        return float(np.angle(c, deg=True)), float(1 - np.linalg.norm(a - c * x) ** 2 / np.linalg.norm(a) ** 2)
+    off, r2 = fit(b)
+    moff, mr2 = fit(np.conj(b))
+    out = {"heading_offset_deg": round(off, 1), "match_r2": round(r2, 3), "mirrored_match_r2": round(mr2, 3)}
+    if mr2 > 0.5 and mr2 > r2 + 0.2:
+        out["problem"] = (f"the orientation's heading is mirrored relative to the positions (it turns the wrong way: "
+                          f"the velocity matches the position track only when the heading's sign is flipped, "
+                          f"R^2 {mr2:.2f} against {r2:.2f}). Check the heading source's frame (e.g. a compass in a "
+                          f"different convention) or set frame: correctly")
+    elif r2 >= 0.5 and abs(off) > 20:
+        out["problem"] = (f"the orientation's heading is about {off:.0f} degrees off the direction the positions show "
+                          f"the vehicle moving (a steady offset, R^2 {r2:.2f} once it's removed). Check the heading "
+                          f"source (a compass offset or declination, or a different world frame from the positions)")
+    elif r2 < 0.5 and mr2 < 0.5:
+        out["problem"] = (f"the body velocity, turned by the orientation, doesn't follow the position track (R^2 "
+                          f"{r2:.2f}, {mr2:.2f} if the heading were mirrored). Check that velocity, orientation and "
+                          f"positions are in the frames the spec says, and on one clock")
+    return out
+
+
 def ingest(spec: IngestSpec, out_dir: str) -> dict:
     if spec.source.format == "rosbag":
         import rosbag_reader as rb
@@ -501,8 +625,10 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
         raise IngestError(f"no files match {spec.source.files!r}")
     os.makedirs(out_dir, exist_ok=True)
     reports, rates, counters = [], [], {}
+    frames = []
     for path in files:
         df, rep = convert_file(spec, path)
+        frames.append(df)
         date = rep["session_date"]
         counters[date] = counters.get(date, 0) + 1
         name = f"{spec.vehicle}-{date}-run{counters[date]}.csv"
@@ -517,6 +643,22 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
                "sessions": {d: c for d, c in sorted(counters.items())},
                "torque_reference_offset_m": torque_reference_for(spec), "files": reports,
                "next_step": f"python strathe.py calibrate --data {out_dir} --name {spec.vehicle}"}
+    unreach = _thruster_config(spec).unreachable_axes() if spec.wrench.thrusters is not None else []
+    fd = force_direction_check(frames, unreach)
+    summary["force_direction"] = fd
+    if fd["reversed_axes"]:
+        msg = (f"the force on {', '.join(fd['reversed_axes'])} pushes against the way the vehicle moves (correlation "
+               + ", ".join(f"{a} {fd['correlation_force_vs_velocity'][a]:+.2f}" for a in fd["reversed_axes"])
+               + "; on an axis the thrusters drive it should be clearly positive). The thruster direction or layout "
+                 "looks reversed: check each thruster's `direction` and `reversed`, the PWM column order, `frame:`, "
+                 "and (for world-frame velocity) the heading. Calibrating with reversed forces fits nonsense.")
+        if "force_direction" in spec.skip_checks:
+            summary.setdefault("warnings", []).append(msg + " (check skipped by skip_checks)")
+        else:
+            with open(os.path.join(out_dir, "ingest_report.json"), "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+            raise IngestError(msg + " If you're sure the forces are right, add `skip_checks: [force_direction]` "
+                                    "to the spec.")
     if len(counters) == 1:
         summary.setdefault("warnings", []).append(
             f"every recording is from one session ({next(iter(counters))}); calibration needs at least two, "
@@ -525,7 +667,9 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
     if spec.wrench.thrusters is not None:
         import thruster_model as tm
         cfg = _thruster_config(spec)
-        summary["thrusters"] = tm.describe(cfg)
+        summary["thrusters"] = tm.describe(cfg) + ("; thrust rescaled to each sample's logged voltage "
+                                                   f"({spec.wrench.thrusters.voltage_column})"
+                                                   if spec.wrench.thrusters.voltage_column else "")
         unreach = cfg.unreachable_axes()
         if unreach:
             summary.setdefault("warnings", []).append(
@@ -544,13 +688,20 @@ def main(argv=None) -> int:
     ap.add_argument("--no-next-step", action="store_true", help=argparse.SUPPRESS)  # inside `strathe calibrate`
     args = ap.parse_args(argv)
     try:
-        s = ingest(load_ingest_spec(args.spec), args.out)
+        spec = load_ingest_spec(args.spec)
+        s = ingest(spec, args.out)
     except IngestError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
     n_warn = sum(len(f["warnings"]) for f in s["files"]) + len(s.get("warnings", []))
     if s.get("thrusters"):
         print(f"Thrusters: {s['thrusters']}")
+    vel = spec.body_velocity
+    print(f"Velocity from: {', '.join(vel.columns[k] for k in 'uvwpqr')} ({vel.linear_frame} frame"
+          + (", rotated into the body frame with the orientation" if vel.linear_frame == "world" else "") + ")")
+    c = s["force_direction"]["correlation_force_vs_velocity"]
+    print("Force vs velocity, per axis (clearly positive where the thrusters drive the motion): "
+          + ", ".join(f"{a} {v:+.2f}" for a, v in c.items() if v is not None))
     for w in s.get("warnings", []):
         print(f"WARNING: {w}")
     print(f"Ingested {s['n_files']} file(s) at {s['sampling_rate_hz']} Hz across {len(s['sessions'])} session date(s) "

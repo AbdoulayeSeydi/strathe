@@ -56,7 +56,7 @@ from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, loa
                        rmse_by_dof, skill_vs_zero, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
-    CalibrationConfig, calibrate, calibrate_parallel,
+    CalibrationConfig, calibrate, calibrate_parallel, parameter_bounds,
 )
 from mlflow_logging import log_calibration_run
 from mlflow_schema import STATUS_SUCCESS, STATUS_FAILED
@@ -98,6 +98,9 @@ class PipelineConfig:
     exclude_axes: tuple = ()  # subset of ("p", "q"): axes the logged inputs don't explain. Their
         # residuals get zero weight and their axis-only parameters are held at vehicle_spec.yaml's
         # initial_guess instead of being fitted (see EXCLUDABLE_AXIS_PARAMS)
+    drag: str = "free"                     # drag_reference.DRAG_MODES: free | linear-fixed | prior
+    drag_reference: str = "bluerov2_wu2018"
+    drag_prior_weight: float = 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +241,7 @@ class CalibrationReport:
     objective_torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
+    objective_drag: Optional[dict] = None
     objective_sampling_rate_hz: float = 10.0
     objective_current_by_file: Optional[tuple] = None
 
@@ -366,6 +370,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                       "current_world_mps": (None if report.objective_current_world_mps is None
                                             else list(report.objective_current_world_mps)),
                       "held_parameters": report.objective_held_parameters,
+                      "drag": report.objective_drag,
                       "sampling_rate_hz": report.objective_sampling_rate_hz,
                       "current_by_file": (None if not report.objective_current_by_file else
                                           [[f, list(c)] for f, c in report.objective_current_by_file])},
@@ -465,6 +470,29 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
         logger.info("Excluded axes %s from the objective; holding %s at vehicle_spec.yaml values",
                     list(config.exclude_axes), held)
+    drag_info = None
+    if config.drag != "free":
+        import drag_reference as dr
+        if config.drag not in dr.DRAG_MODES:
+            raise ValueError(f"drag must be one of {dr.DRAG_MODES}, got {config.drag!r}")
+        if config.parallel:
+            raise ValueError("--drag linear-fixed / prior isn't supported with --parallel restarts")
+        names = list(default_params.param_names)
+        lb, ub = parameter_bounds(loaded_spec)
+        if config.drag == "linear-fixed":
+            held, notes = dr.held_linear_drag(config.drag_reference, names, lb, ub)
+            config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
+            drag_info = {"mode": config.drag, "reference": dr.REFERENCES[config.drag_reference]["source"],
+                         "held": held, "notes": notes}
+        else:
+            targets, notes = dr.within_bounds(dr.reference_values(config.drag_reference), names, lb, ub)
+            config.calibration_config.prior_targets = targets
+            config.calibration_config.prior_weight = config.drag_prior_weight
+            drag_info = {"mode": config.drag, "reference": dr.REFERENCES[config.drag_reference]["source"],
+                         "targets": targets, "weight": config.drag_prior_weight, "notes": notes}
+        for n in notes:
+            logger.info("Drag reference: %s", n)
+        logger.info("Drag: %s, toward %s", config.drag, dr.REFERENCES[config.drag_reference]["source"])
     if config.calibration_config.horizon_samples is not None:
         logger.info("Objective: re-anchored %d-sample prediction windows (%.1f s)",
                     config.calibration_config.horizon_samples,
@@ -575,6 +603,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_torque_reference_offset_m=tuple(config.torque_reference_offset_m),
         objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
+        objective_drag=drag_info,
         objective_sampling_rate_hz=config.sampling_rate_hz,
         objective_current_by_file=config.current_by_file,
     )
@@ -700,6 +729,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="leave these rotational axes out of the fit and hold their axis-only "
                              "parameters at vehicle_spec.yaml's initial_guess -- for data whose roll/pitch "
                              "motion isn't driven by the logged thrusters (PROJECT_STATUS.md #50)")
+    parser.add_argument("--drag", choices=["free", "linear-fixed", "prior"], default="free",
+                        help="free: fit every drag term (default). linear-fixed: hold the linear terms at published "
+                             "values and fit the quadratic ones. prior: fit all, gently pulled toward published "
+                             "values. For data that can't separate linear from quadratic drag (drag_reference.py)")
+    parser.add_argument("--drag-reference", default="bluerov2_wu2018",
+                        help="published drag values for --drag (drag_reference.REFERENCES)")
+    parser.add_argument("--drag-prior-weight", type=float, default=0.1,
+                        help="with --drag prior: weight of the pull toward the published values")
     parser.add_argument("--prediction-horizon-s", type=float, default=None,
                         help="score re-anchored prediction windows of this length instead of replaying "
                              "whole runs open-loop; stops unexplained motion (e.g. roll/pitch) from "
@@ -877,6 +914,7 @@ def main() -> None:
         max_workers=args.max_workers,
         axis_scaling=args.axis_scaling,
         exclude_axes=tuple(args.exclude_axes),
+        drag=args.drag, drag_reference=args.drag_reference, drag_prior_weight=args.drag_prior_weight,
         torque_reference_offset_m=(None if args.torque_reference_offset_m is None
                                    else tuple(args.torque_reference_offset_m)),
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),

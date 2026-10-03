@@ -233,6 +233,8 @@ class CalibrationConfig:
     fixed_params: Optional[dict] = None  # {param_name: fixed_value} — see module
         # docstring's "Fixed parameters" section. None (default) = every
         # parameter is free, identical behavior to before this existed.
+    prior_targets: Optional[dict] = None  # {param_name: published value}: drag_reference.prior_residual_wrapper
+    prior_weight: float = 0.1             # adds sqrt(w) * ln(theta / target) per targeted parameter
 
     # reproducibility / restarts
     seed: Optional[int] = None
@@ -591,6 +593,10 @@ def calibrate(
 
 def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, lb, ub, x_scale,
                     base_residual_fn) -> CalibrationResult:
+    if config.prior_targets:  # --drag prior (drag_reference.py): part of the cost, so checkpoints include it
+        from drag_reference import prior_residual_wrapper
+        base_residual_fn = prior_residual_wrapper(base_residual_fn, list(param_names), config.prior_targets,
+                                                  config.prior_weight)
     residual_fn = _wrap_residual_fn(base_residual_fn, config.on_iteration, config.stall_watchdog)
 
     # --- fixed_params: build the free/fixed split, subset everything the

@@ -71,6 +71,15 @@ axes. For example, a 6-thruster BlueROV2 has no pitch control. The same
 vehicle's commands in `strathe arena`, `strathe fleet` and `strathe train-fleet`
 (`--thrusters my_vehicle_ingest.yaml`).
 
+## Optional extras
+
+- `voltage_column:` (under `wrench: thrusters:`): the battery voltage logged with each sample. Each sample's
+  thrust is then scaled to its own voltage instead of one `voltage:` for the whole spec. A battery that sags
+  from 15.3 to 13.1 V loses 17% of its maximum thrust (Blue Robotics' published T200 data), so this matters
+  for long sessions. T200 curve only.
+- `position: {x: ..., y: ..., z: ..., unit: m}`: world positions (motion capture, USBL, odometry), in the
+  spec's world frame. Used only to check the orientation (below); calibration doesn't need them.
+
 ## What it refuses, and what it warns about
 
 It refuses data that would silently corrupt a calibration:
@@ -81,8 +90,20 @@ It refuses data that would silently corrupt a calibration:
 - PWM that isn't in ESC microseconds
 - topics or fields missing from a bag
 
-It warns about gaps in time and orientation jumps over 45° between samples
-(sensor glitches). Everything is recorded in `ingest_report.json`.
+It also checks the data makes physical sense, and refuses it when it doesn't:
+- **Force direction:** on surge, sway, heave and yaw, force and velocity should move together (thrust
+  mostly balances drag). A clearly negative correlation on any of them means the forces are reversed: a
+  mirrored thruster layout, wrong `reversed:` flags, the wrong `frame:`, or (with world-frame velocity) a
+  mirrored heading. Every axis's correlation is printed. Roll and pitch are printed, not judged: restoring
+  moments dominate them.
+- **Orientation against position** (with `position:` and body-frame velocity): the body velocity, turned by
+  the orientation, must follow the position track. A mirrored heading or a steady compass offset is named,
+  with its size.
+- `skip_checks: [force_direction]` or `[orientation_vs_position]` turns a refusal into a warning, for logs
+  you know are right.
+
+It warns about gaps in time (with their total length and share of the recording) and orientation jumps
+over 45° between samples (sensor glitches). Everything is recorded in `ingest_report.json`.
 
 ## ArduPilot / MAVLink notes
 
