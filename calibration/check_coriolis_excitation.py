@@ -53,7 +53,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--sampling-rate-hz", type=float, required=True)
-    parser.add_argument("--heldout-dates", nargs="*", default=["16-02-2024", "19-02-2024"])
+    parser.add_argument("--heldout-dates", nargs="*", default=None,
+                        help="recording dates to hold out (DD-MM-YYYY); default: the same split calibration uses")
     args = parser.parse_args()
 
     csv_paths, duplicates = discover_csv_files(args.data_dir)

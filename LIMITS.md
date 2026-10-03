@@ -42,13 +42,15 @@ Quick answers:
 | **MAVLink telemetry is low-rate by default** | Ground stations stream ATTITUDE/SERVO_OUTPUT_RAW at a few Hz unless told otherwise. | Raise the stream rates to at least 10 Hz before recording (template comments), and set `resample_hz` no higher. |
 | **Orientation glitches** | Real IMU logs contain sudden jumps (the reference data has 239 jumps over 20° within 0.1 s). Ingestion slerps across them and warns about jumps over 45°. | Check the warnings in `ingest_report.json`; trim or drop recordings with many. |
 | **One vehicle per ingestion spec, one sampling rate per calibration** | All files converted together must end up at one rate. | Set `resample_hz`. Use separate specs for separate vehicles. |
-| **Session dates** | At least two recording days are needed, so one can be held out. | Record on more than one day, or give each session a distinct date. |
+| **One table per recording (CSV)** | CSV ingestion reads one file per recording with every column in it. Logs exported as one CSV per sensor, at different rates, have to be merged first. | Merge them onto one time base; `calibration/examples/dfki_tether/` does it for a public dataset (motion capture + ArduSub telemetry, #62). |
+| **Session dates** | At least two recording sessions are needed, so one can be held out. Ingestion warns, and calibration stops with a plain message, when every recording has the same date. | Record on more than one day, or split one day's recordings into sessions you can tell apart (e.g. morning and afternoon) and give each its own date. |
 
 ## Your vehicle and its thrusters
 
 | Limit | What it means | What to do |
 |---|---|---|
-| **One built-in preset: BlueROV2 Heavy** | Any other vehicle is described once with a `layout:`: position, direction and reversed flag per thruster. There is no one-line preset for, e.g., the standard 6-thruster BlueROV2. | Copy `templates/ingest_csv_pwm_custom_thrusters.yaml` and edit the layout. Vehicles that can't push every axis are supported. |
+| **One built-in preset: BlueROV2 Heavy** | Any other vehicle is described once with a `layout:`: position, direction and reversed flag per thruster. There is no one-line preset for, e.g., the standard 6-thruster BlueROV2. | Copy `templates/ingest_csv_pwm_custom_thrusters.yaml` and edit the layout; `examples/dfki_tether/ingest_dfki_tether.yaml` is a standard 6-thruster BlueROV2. Vehicles that can't push every axis are supported. |
+| **The shipped reference calibration is a mirror image** | The reference dataset is in ROS axes (forward-left-up, z up) and was calibrated as it is. Its model is the same vehicle turned half a turn about x: identical for every experiment, except that its fitted net buoyancy and surge-pitch coupling (`Xq_dot`) have the opposite sign to the real vehicle's, and with `--thrusters bluerov2_heavy` the vertical thrusters' stronger direction (47.9 vs 37.2 N each) is reversed relative to gravity (#62). | Nothing for formation or station-keeping experiments. Don't quote the reference calibration's net buoyancy as the real vehicle's. Your own calibration, from logs converted at ingestion, is in FRD/NED. |
 | **The thruster model isn't calibrated** | The PWM → thrust curve and the layout are taken as given (T200 data, or your curve file). Errors in them become errors in the calibrated drag. | Use a bollard-pull curve at your battery voltage if you have one (`curve_csv`). |
 | **No thruster response lag, no battery sag** | PWM maps to thrust instantly, at one voltage per spec. | Set `voltage:` to your typical battery voltage. |
 | **The thruster-limit mixer isn't ArduSub's exact mixer** | In the simulators a command is split over the thrusters by least squares and scaled down as a whole if any thruster saturates. That matches ArduSub's direction-preserving behaviour, not its exact code. | Fine for experiments; don't expect saturation to match the vehicle to the newton. |
@@ -156,6 +158,8 @@ What used to be a limit, and where it was fixed:
   - ROS bags are read directly (#56).
   - ArduPilot `.bin` and MAVLink `.tlog` are read directly (#57).
 - **Custom thrusters needed hand-made matrix files (#56):** a `layout:` in the ingestion YAML now does it.
+- **The BlueROV2 Heavy preset was in ROS axes (#62):** it pushed sideways, vertically, in pitch and in yaw the wrong way for ArduSub logs. It is now in ArduSub's motor numbering and FRD, checked against ArduSub's motor table and against a second, independent BlueROV2 with motion capture.
+- **`strathe calibrate` only worked on logs with the reference dataset's dates (#62):** the data check, the identifiability step and the report defaulted to its held-out dates; they now use the same split as calibration.
 - **Water current:**
   - A known current is supported (#55).
   - An unknown one is estimated per recording (#57).

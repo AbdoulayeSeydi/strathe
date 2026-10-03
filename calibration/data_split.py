@@ -182,6 +182,13 @@ def split_by_date(
     grouping key. heldout_dates, if given, are "DD-MM-YYYY" strings and
     must exactly match dates found in the filenames.
     """
+    dates = {extract_date(p) for p in filepaths}
+    if len(dates) == 1:
+        raise ValueError(
+            f"All {len(filepaths)} recordings are from one session ({next(iter(dates))}). Calibration checks "
+            f"itself on whole sessions it never saw, so it needs at least two. If your recordings come from one "
+            f"day, split them into sessions you can tell apart (e.g. morning and afternoon, or by manoeuvre) "
+            f"and give each its own date in the file names, or record a second session.")
     return split_by_group(
         filepaths,
         group_key_fn=extract_date,

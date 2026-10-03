@@ -2,11 +2,11 @@
 # frame FRD) x one column per thruster, giving the force/torque each thruster
 # produces per newton of thrust. Most labs should use layout: instead (positions
 # and directions, from which this matrix is computed). This example is the
-# BlueROV2 Heavy with torques about the horizontal-thruster plane. Use with
+# BlueROV2 Heavy (ArduSub motor numbering) with torques about the horizontal-thruster plane. Use with
 # allocation_csv: allocation_template.csv and directions: [-1, -1, 1, 1, -1, 1, 1, -1].
 -0.7071,-0.7071,0.7071,0.7071,0,0,0,0
--0.7071,0.7071,-0.7071,0.7071,0,0,0,0
-0,0,0,0,-1,-1,-1,-1
+0.7071,-0.7071,0.7071,-0.7071,0,0,0,0
+0,0,0,0,1,1,1,1
 0,0,0,0,0.218,-0.218,0.218,-0.218
-0,0,0,0,0.12,0.12,-0.12,-0.12
--0.1888,0.1888,0.1888,-0.1888,0,0,0,0
+0,0,0,0,-0.12,-0.12,0.12,0.12
+0.1888,-0.1888,-0.1888,0.1888,0,0,0,0

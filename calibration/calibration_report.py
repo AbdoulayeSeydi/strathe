@@ -68,8 +68,6 @@ GOOD_SKILL = 0.3   # explains at least ~half the motion's variance: 1 - (1 - 0.3
 
 GOOD, CAUTION, BAD = "Trust it", "Use with care", "Don't rely on it"
 IDENT_FILENAME = "identifiability_report.json"
-DEFAULT_HELDOUT_DATES = ("16-02-2024", "19-02-2024")  # the reference dataset's
-
 
 def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[str], heldout_dates) -> Optional[tuple]:
     """(default_rmse[6], calibrated_rmse[6], zero_rmse[6] or None) on held-out
@@ -335,8 +333,8 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
         identifiability = os.path.join(result_dir, IDENT_FILENAME)  # written by `strathe calibrate`
     ident = json.load(open(identifiability, encoding="utf-8")) if identifiability else None
     if heldout_dates is None:  # the dates the calibration itself held out
-        heldout_dates = ((metrics or {}).get("dataset") or {}).get("heldout_dates") or DEFAULT_HELDOUT_DATES
-    axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates))
+        heldout_dates = ((metrics or {}).get("dataset") or {}).get("heldout_dates")  # None: the default split
+    axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates) if heldout_dates else None)
     pinned = pinned_parameters(params, spec)
     implausible = implausible_parameters(params)
     names_flagged = {p["name"] for p in pinned}, {p["name"] for p in implausible}

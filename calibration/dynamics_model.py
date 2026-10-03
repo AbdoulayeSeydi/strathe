@@ -12,12 +12,15 @@ they are, not the backstory.
 - Body-fixed frame: SNAME/Fossen convention — x forward (surge), y
   starboard (sway), z down (heave); roll about x, pitch about y, yaw
   about z.
-- World frame: NOT verified from the source dataset (no frame convention
-  documented there — NED vs ENU unconfirmed). Doesn't affect correctness
-  here since the restoring-force term only depends on roll/pitch relative
-  to gravity, not a specific world-frame convention — but this WILL matter
-  once world-frame position is simulated (not done in this stand-in), so
-  flagging it now rather than letting it surface as a silent bug later.
+- The reference dataset's own frame: ROS FLU body / ENU world (z up; every
+  depth in it is negative), not FRD/NED (PROJECT_STATUS.md #62). It is used
+  as-is, so the shipped reference calibration is the vehicle described in
+  that frame: a half turn about x of the FRD description. The equations are
+  unchanged by that turn except for two signs: the restoring force's net
+  buoyancy and the surge-pitch added-mass coupling Xq_dot. So the reference
+  calibration's net_buoyancy_z and Xq_dot have the opposite sign to the
+  real vehicle's; simulations of it are a self-consistent mirror image. Lab
+  logs are converted to FRD/NED at ingestion.
 
 ## Assumptions (all of them, one place)
 - Constant timestep (fixed dt, no variable-rate integration)

@@ -14,7 +14,7 @@ from objective import (DatasetConfig, ParallelJointResiduals, RunData, _raw_resi
                        horizon_windows, joint_residuals, load_run, rmse_by_dof, shift_torque_reference, skill_vs_zero,
                        zero_baseline_rmse)
 from optimizer import CalibrationConfig, initial_parameters, load_vehicle_spec
-from thruster_model import BLUEROV2_HEAVY_ALLOCATION
+from thruster_model import BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME
 
 SPEC = load_vehicle_spec("vehicle_spec.yaml")
 VEHICLE = SPEC.vehicle
@@ -106,10 +106,13 @@ def test_shift_torque_reference():
     out = shift_torque_reference(W, r)
     assert np.allclose(out[:, :3], W[:, :3]) and np.allclose(out[:, 3:], W[:, 3:] - np.cross(r, W[:, :3]))
     # the BlueROV2 Heavy's horizontal thrusters sit 8.5 cm above the dataset's
-    # torque reference: moving the reference up removes exactly their roll/pitch torque
-    horiz = shift_torque_reference(BLUEROV2_HEAVY_ALLOCATION[:, :4].T, (0, 0, -0.085))
-    assert np.allclose(horiz[:, 3:5], 0, atol=1e-4)
-    assert np.allclose(horiz[:, 5], BLUEROV2_HEAVY_ALLOCATION[5, :4])
+    # torque reference: moving the reference up removes exactly their roll/pitch torque,
+    # in the dataset's own frame (z up) and in FRD (z down)
+    for B, offset in ((BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME, (0, 0, -0.085)),
+                      (BLUEROV2_HEAVY_ALLOCATION, (0, 0, 0.085))):
+        horiz = shift_torque_reference(B[:, :4].T, offset)
+        assert np.allclose(horiz[:, 3:5], 0, atol=1e-4)
+        assert np.allclose(horiz[:, 5], B[5, :4])
 
 
 def test_dataset_config_applies_and_validates_the_offset():

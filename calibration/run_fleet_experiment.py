@@ -31,6 +31,7 @@ import platform
 import sys
 import time
 from datetime import datetime
+from typing import Optional
 
 import numpy as np
 import yaml
@@ -164,6 +165,53 @@ def headline_sentences(contrasts, a, b) -> list:
                    f"{_pp(lo)} to {_pp(hi)}; McNemar p = {c['mcnemar_p']:.2g}; {c['n_pairs']} matched episodes). "
                    f"Difference in {err}; collisions {_pp(c['collision_diff'])}.")
     return out
+
+
+def policies_trained_elsewhere(cfg) -> list:
+    """[(policy name, the parameters file it was trained on)] for policies whose training vehicle (from the
+    metadata JSON train_fleet_policy.py writes next to each policy) isn't this experiment's true vehicle.
+    Compared by parameter values, not file names. Policies without metadata are left out (unknown)."""
+    try:
+        with open(cfg.truth_params, encoding="utf-8") as f:
+            truth = (yaml.safe_load(f) or {}).get("parameters") or {}
+    except OSError:
+        return []
+    out = []
+    for p in cfg.policies:
+        meta_path = os.path.splitext(p.model_path)[0] + ".json"
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                trained_on = json.load(f).get("truth_params")
+        except (OSError, ValueError):
+            continue
+        if not trained_on:
+            continue
+        cands = [trained_on] if os.path.isabs(trained_on) else \
+            [os.path.join(os.path.dirname(os.path.abspath(meta_path)), trained_on), os.path.join(HERE, trained_on)]
+        path = next((c for c in cands if os.path.exists(c)), None)
+        if path is None:
+            continue
+        with open(path, encoding="utf-8") as f:
+            theirs = (yaml.safe_load(f) or {}).get("parameters") or {}
+        same = set(theirs) == set(truth) and all(np.isclose(float(theirs[k]), float(truth[k]), rtol=1e-9, atol=1e-12)
+                                                  for k in truth)
+        if not same:
+            out.append((os.path.basename(p.model_path), os.path.basename(path)))
+    return out
+
+
+def trained_elsewhere_note(cfg) -> Optional[str]:
+    other = policies_trained_elsewhere(cfg)
+    if not other:
+        return None
+    names = ", ".join(n for n, _ in other)
+    sources = ", ".join(sorted({f"`{t}`" for _, t in other}))
+    return (f"**Caution: the policies were trained on a different vehicle.** {names} learned to hold formation on "
+            f"{sources}, not on this experiment's vehicle (`{os.path.basename(cfg.truth_params)}`). Policies tuned "
+            "to another vehicle hold formation less often, and that can blur or reverse the belief-model "
+            "comparison below. For conclusions about your vehicle, train policies on it first: `python strathe.py "
+            f"train-fleet --params {cfg.truth_params} --out my_policy` (about 40 min; add the "
+            "same `--thrusters` as here), then run this experiment with `--policies my_policy`.\n")
 
 
 def simulation_lines(cfg) -> list:
@@ -383,6 +431,9 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
         L.append(f"**Buoyancy changed:** {buoy.describe()}. Every condition sees the same buoyancy.\n")
     if os.path.basename(cfg.vehicle_spec) != "vehicle_spec.yaml" or os.path.dirname(os.path.abspath(cfg.vehicle_spec)) != HERE:
         L.append(f"Vehicle description: `{cfg.vehicle_spec}`.\n")
+    note = trained_elsewhere_note(cfg)
+    if note:
+        L.append(note)
     if contrasts:
         L.append(f"## Headline: `{a}` vs `{b}`\n")
         L += headline_sentences(contrasts, a, b)
@@ -607,6 +658,9 @@ def run_experiment(config_path: str) -> dict:
     for p in cfg.policies:
         load_fleet_policy(p.model_path, p.algorithm)
         print(f"  PASS {p.model_path} ({p.algorithm.upper()}" + (f", group {p.label}" if p.label else "") + ")")
+    for name, trained_on in policies_trained_elsewhere(cfg):
+        print(f"  NOTE {name} was trained on {trained_on}, not on this experiment's vehicle; the report explains "
+              f"what that means (train-fleet trains policies for your vehicle)")
 
     cells, alphas = build_cells(cfg, truth, generic, spec.vehicle)
     n_per_cell = (len(cfg.initial_conditions.separations_m) * len(cfg.initial_conditions.closing_speeds_mps)

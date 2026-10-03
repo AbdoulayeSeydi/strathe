@@ -37,7 +37,9 @@ data_conventions:
     torques about the thruster plane lifted held-out roll/pitch skill from
     -0.49/-0.84 to about zero with no cost on other axes
     (PROJECT_STATUS.md #50). Set to [0, 0, 0] if your logs already give
-    torques about the point your drag acts through.
+    torques about the point your drag acts through. The reference dataset is
+    in ROS FLU (z up), so -0.085 is below the thrusters there; logs ingested
+    with the bluerov2_heavy preset are FRD and record +0.085 (#62).
   source: "measured from the dataset's own allocation matrix and logs"
   confidence: measured
 

@@ -62,6 +62,23 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 
 **3. Know what the limits are:** [LIMITS.md](LIMITS.md) lists every known one, what it means for you, and what to do.
 
+## Recent fixes (October 2026)
+
+Before the first lab pilots (PROJECT_STATUS.md #61–62):
+- **A second public BlueROV2 dataset, run through the lab flow as a new lab would:**
+  - **The data:** DFKI's 6-thruster BlueROV2 with motion capture (Scientific Data 2025, CC BY 4.0).
+  - **The flow:** from its raw per-sensor CSVs to `strathe calibrate`, then `arena` and `fleet` on the result.
+  - **Worked example:** `calibration/examples/dfki_tether/`.
+- **The BlueROV2 Heavy thruster preset was mirrored for ArduSub logs.**
+  - **Why:** the reference dataset turned out to be in ROS axes (forward-left-up, z up), and the preset came from it.
+  - **What was wrong:** for ArduSub logs, which are forward-right-down, its sway, heave, pitch and yaw forces had the wrong sign. On DFKI's ArduSub vehicle, its yaw torque ran against the vehicle's own gyro in 14 of 14 runs.
+  - **Now:** the preset is in ArduSub's motor numbering, checked against ArduSub's motor table and that vehicle.
+  - **The shipped reference calibration:** unchanged and self-consistent. Its fitted net buoyancy has the opposite sign to the real vehicle's (LIMITS.md).
+- **`strathe calibrate` stopped at its data check for any logs not dated like the reference dataset.** Three steps defaulted to that dataset's held-out dates. It is now tested end to end, every step for real, on logs with their own dates.
+- **`strathe calibrate ... --finish`** turns an interrupted fit (a sleeping laptop, a stopped run) into a result with the same settings.
+- **Clearer messages:** a lab with only one recording session is told what to do.
+- **Cleanup:** 402 unused research scripts and stale outputs were removed. Tag `research-archive-2026-10` keeps them.
+
 ## Recent fixes (September 2026)
 
 What changed, and why the numbers in this README differ from earlier versions. Details are in [PROJECT_STATUS.md](PROJECT_STATUS.md) #39–60.
@@ -314,7 +331,7 @@ separate scripts, run in order:
    ```
    - **Torque convention.** Logged torques are re-expressed about the point set in `vehicle_spec.yaml` → `data_conventions` (the thruster plane for the BlueROV2 dataset, PROJECT_STATUS.md #50). Override it with `--torque-reference-offset-m X Y Z`.
    - **Output.** `metrics.json` records each axis's held-out skill against predicting no motion, and the objective settings used.
-   - **If a run stops early** (interrupted, or out of evaluations), `python finalize_checkpoint.py --checkpoint <output-dir>/checkpoint.yaml --data-dir <path> --heldout-dates ...` turns its best parameters into a normal, clearly-marked "not converged" result.
+   - **If a run stops early** (interrupted, or out of evaluations), `python finalize_checkpoint.py --checkpoint <output-dir>/checkpoint.yaml --data-dir <path> --heldout-dates ...` turns its best parameters into a normal, clearly-marked "not converged" result. Pass the same objective options the run used (`--axis-scaling`, `--torque-reference-offset-m`, the rate). Through `strathe calibrate`, `--finish` does all of this for you (below).
    **The machine is kept awake automatically while the run lasts.** This uses
    `caffeinate` on macOS, `SetThreadExecutionState` on Windows and
    `systemd-inhibit` on Linux. Without it, a Mac sleeps and evaluations that
@@ -405,14 +422,17 @@ It runs five steps and stops at the first that fails, saying what to fix:
 
 If the fit runs out of its evaluation budget (`--max-nfev`) before converging, the best result so far is kept, marked "not converged", and the remaining steps still run. The report says so.
 
+If the run is interrupted instead (the machine slept with the lid closed, or the run was stopped), run the same command again with `--finish`. It turns the best result so far into a calibration with the same settings, marked "not converged", and writes the report. On a converged fit's plateau that costs nothing: the DFKI example (#62) was finished this way after its laptop slept for 2.5 hours with the fit already flat.
+
 The web page's calibration form does the same. Each piece is below.
 
 **1. Thruster PWM → force** (`calibration/thruster_model.py`). Most logs record
 the PWM each ESC was sent, not force. `ThrusterConfig.wrench(pwm)` applies
 motor directions, a thrust curve and the thruster allocation matrix.
 - **BlueROV2 Heavy preset** (8 × T200): extracted from the public dataset, which
-  logs all three stages. It reproduces the dataset's own forces from raw PWM on
-  all 183,555 rows. Its thrust curve (+47.9 N / −37.2 N) matches Blue Robotics'
+  logs all three stages, and given in ArduSub's motor numbering and FRD. It
+  reproduces the dataset's own forces from raw PWM on all 183,555 rows (that
+  dataset is in ROS axes, so they match after flipping y and z, #62). Its thrust curve (+47.9 N / −37.2 N) matches Blue Robotics'
   published T200 figures at ~15 V (a 4S battery), and `voltage:` rescales it to
   12–20 V.
 - **Any other vehicle:** give a `layout:`, one entry per thruster with:
@@ -725,6 +745,7 @@ test suite (`calibration/tests/`, CI-verified on every push).
 - **`calibration/run_algorithm_study.py`, `run_noise_study.py`, `stress_test_noise_algorithms.py`, `clean_regression_check.py`** — the SAC/TD3 fleet validation (criteria fixed in advance), the clean-vs-noisy and buoyancy study, the stress test, and the proof that clean simulation is unchanged (#58).
 - **`calibration/comm_channel.py`** — the acoustic channel, and the optical link and hybrid policies (#59), with no physics imports.
 - **`calibration/run_optical_study.py`, `stress_test_optical.py`** — what optical and hybrid links give the shipped fleet policies (criteria fixed in advance, `results/fleet_optical/`), and the stress test with its exact checks (`results/stress_optical/`) (#59).
+- **`calibration/examples/dfki_tether/`** — a worked example on a second public BlueROV2 dataset (DFKI, motion capture): from one CSV per sensor to a calibration, for labs whose logs look like that (#62).
 - **[`LIMITS.md`](LIMITS.md)** — every known limit, what it means, and what to do about it.
 - Fleet v1 (`two_agent_*.py`, `evaluate_comm_degradation_curve*.py`, `run_fleet_experiment_v1.py`) — retired, kept for reproducing old results.
 - **`calibration_output_*/`** — saved, ready-to-use calibrated parameter

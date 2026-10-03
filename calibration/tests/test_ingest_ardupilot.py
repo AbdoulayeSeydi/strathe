@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 pytest.importorskip("pymavlink")
 from ardupilot_log_writer import write_bin, write_tlog  # noqa: E402
-from data_ingestion import IngestError, ingest, load_ingest_spec  # noqa: E402
+from data_ingestion import reference_run_in_frd, IngestError, ingest, load_ingest_spec  # noqa: E402
 
 TEMPLATES = os.path.join(HERE, "..", "templates")
 DATA = os.path.join(HERE, "..", "..", "data", "raw", "Bluerov2_trajectory_dataset", "dataset")
@@ -56,7 +56,7 @@ def _check(csv_path, d, v_tol, rot_tol_deg, f_tol=5e-3):
 @needs_data
 @pytest.mark.parametrize("gps", [True, False])
 def test_dataflash_bin_round_trip(tmp_path, gps):
-    d = pd.read_csv(REAL[0]).iloc[:600].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:600].reset_index(drop=True)
     (tmp_path / "logs").mkdir()
     write_bin(tmp_path / "logs" / "2024-02-03_dive1.bin", d, t0_unix=T0 if gps else None)
     over = {"session_date": {"from": "recording"}} if gps else {}
@@ -72,7 +72,7 @@ def test_dataflash_bin_round_trip(tmp_path, gps):
 
 @needs_data
 def test_mavlink_tlog_round_trip_with_offset_messages(tmp_path):
-    d = pd.read_csv(REAL[1]).iloc[:600].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[1])).iloc[:600].reset_index(drop=True)
     (tmp_path / "telemetry").mkdir()
     write_tlog(tmp_path / "telemetry" / "flight.tlog", d, t0_unix=T0)
     s = ingest(load_ingest_spec(_template(tmp_path, "ingest_mavlink_tlog.yaml")), str(tmp_path / "out"))
@@ -90,7 +90,7 @@ def test_mavlink_tlog_round_trip_with_offset_messages(tmp_path):
 
 @needs_data
 def test_corrupt_and_truncated_logs_are_read_up_to_the_damage(tmp_path):
-    d = pd.read_csv(REAL[2]).iloc[:400].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[2])).iloc[:400].reset_index(drop=True)
     (tmp_path / "logs").mkdir()
     write_bin(tmp_path / "logs" / "2024-02-03_a.bin", d, garbage_every=37, corrupt_tail=True)
     s = ingest(load_ingest_spec(_template(tmp_path, "ingest_ardupilot_bin.yaml")), str(tmp_path / "out"))
@@ -113,7 +113,7 @@ def test_corrupt_and_truncated_logs_are_read_up_to_the_damage(tmp_path):
 def test_yaw_wrapping_through_360_is_not_interpolated_the_long_way(tmp_path):
     """ATT.Yaw is logged 0-360: a heading crossing north jumps 359.9 -> 0.1. Resampling at 20 Hz puts grid
     points between those samples; without unwrapping they'd be interpolated to ~180 deg (backwards)."""
-    d = pd.read_csv(REAL[0]).iloc[:300].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:300].reset_index(drop=True)
     yaw = np.linspace(-20, 20, len(d))  # heading sweeping through north
     R = Rotation.from_euler("z", yaw[:, None], degrees=True)
     d[["qx", "qy", "qz", "qw"]] = R.as_quat()
@@ -139,7 +139,7 @@ def test_yaw_wrapping_through_360_is_not_interpolated_the_long_way(tmp_path):
                   "p": "IMU[0].GyrX", "q": "IMU[0].GyrY", "r": "IMU[0].GyrZ"}}, r"isn't an ArduPilot log column"),
 ])
 def test_log_errors_say_what_to_fix(tmp_path, change, match):
-    d = pd.read_csv(REAL[0]).iloc[:100]
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:100]
     (tmp_path / "logs").mkdir()
     write_bin(tmp_path / "logs" / "2024-02-03_e.bin", d)
     with pytest.raises(IngestError, match=match):
@@ -149,7 +149,7 @@ def test_log_errors_say_what_to_fix(tmp_path, change, match):
 
 @needs_data
 def test_missing_pwm_and_boot_clock_dates_are_explained(tmp_path):
-    d = pd.read_csv(REAL[0]).iloc[:100]
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:100]
     (tmp_path / "logs").mkdir()
     write_bin(tmp_path / "logs" / "2024-02-03_e.bin", d, drop_type="RCOU")
     with pytest.raises(IngestError, match=r"\['RCOU'\] not in the log"):

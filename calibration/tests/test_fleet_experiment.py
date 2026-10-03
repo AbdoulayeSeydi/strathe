@@ -169,3 +169,27 @@ def test_beacon_interval_sweep_creates_one_comm_cell_each(tmp_path, tiny_policy)
     m = _run(_config(tmp_path, tiny_policy, beliefs=["calibrated", "generic"],
                      communication={"severity": "L0", "beacon_interval_s": [0.5, 2.0]}))
     assert sorted({s["comm"] for s in m["summary"]}) == ["L0@0.5s", "L0@2s"]
+
+
+def test_report_cautions_when_the_policies_were_trained_on_another_vehicle(tmp_path):
+    """A lab's own vehicle with the shipped policies: the report says the policies learned on another vehicle and
+    how to train ones for theirs (PROJECT_STATUS.md #62). The shipped experiment gets no such note."""
+    import yaml
+    import run_fleet_experiment as rfe
+    from fleet_experiment_schema import load_fleet_experiment
+    cwd = os.getcwd()
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        cfg = load_fleet_experiment("default_experiment.yaml")
+        assert rfe.policies_trained_elsewhere(cfg) == [] and rfe.trained_elsewhere_note(cfg) is None
+        mine = yaml.safe_load(open(cfg.truth_params, encoding="utf-8"))
+        mine["parameters"]["Xu"] = float(mine["parameters"]["Xu"]) * 1.5
+        path = tmp_path / "my_vehicle.yaml"
+        path.write_text(yaml.safe_dump(mine))
+        other = cfg.model_copy(update={"truth_params": str(path)})
+        assert [n for n, _ in rfe.policies_trained_elsewhere(other)] == [os.path.basename(p.model_path)
+                                                                         for p in cfg.policies]
+        note = rfe.trained_elsewhere_note(other)
+        assert "trained on a different vehicle" in note and f"train-fleet --params {path}" in note
+    finally:
+        os.chdir(cwd)

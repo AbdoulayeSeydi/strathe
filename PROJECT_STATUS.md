@@ -1169,6 +1169,68 @@ Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQ
 
 **Checked:** 503 tests (1 skipped), the 142-test fleet suite and the 10 root tests pass after the removal.
 
+### 62. A second public BlueROV2 dataset, run through the lab flow as a new lab would (2026-10-03)
+
+**Why.** Before the first pilot emails go out, the whole lab flow had to work on data Strathe had never seen, run as a lab would run it: download, prepare, `strathe calibrate`, read the report, then `strathe arena` and `strathe fleet` on the result.
+
+**The data.** Khanmeh, Wehbe, Simetti and Indiveri, Scientific Data (2025), Zenodo 10.5281/zenodo.17360027, CC BY 4.0.
+- **Vehicle:** a standard 6-thruster BlueROV2 (ArduSub), with a gripper and ballast.
+- **Where:** DFKI's 23 × 19 × 8 m basin.
+- **Tracking:** 12-camera Qualisys motion capture.
+- **Tether:** its pull is measured at the surface.
+- **Runs:** 14 piloted runs, 63 minutes in all. 11 have a limited tether length; 3 are free (circle, serpentine, random).
+- **Unlike the reference data in every way that matters to a lab:**
+  - one CSV per sensor, at different rates
+  - a 6-thruster vehicle
+  - world-frame motion-capture velocity
+  - no dates
+
+**What it found in Strathe, and what was fixed:**
+1. **The BlueROV2 Heavy thruster preset was in ROS axes.**
+   - **The cause:** the reference dataset is a ROS recording. Its world z points up (every depth is negative), and its body velocities rotate onto the world track with that same up-pointing z (correlation 0.92–0.97 on every axis). So its body frame is forward-left-up, not forward-right-down. The allocation matrix was recovered from it exactly, so it was in FLU too: the mirror image, in y and z, of ArduSub's own motor definitions.
+   - **The effect:** for a lab's ArduSub logs (FRD), the preset's sway, heave, pitch and yaw forces had the wrong sign. Calibration would have fitted those four axes to forces pointing the wrong way.
+   - **The evidence on DFKI's ArduSub vehicle:** motors 1–4 are the same in ArduSub's 6- and 8-thruster frames. Through the old preset, yaw torque ran *against* ArduSub's own gyro yaw rate in 14 of 14 runs (median correlation −0.67).
+   - **Independent confirmation:** the pilot's sticks (RC_IN) mapped through the old preset come out mirrored: "lateral right" became a push to the left.
+   - **The fix:** `bluerov2_heavy` is now FRD in ArduSub's motor numbering. Its 8 columns match ArduSub's VECTORED_6DOF motor factors in sign, and a test checks that. The as-recovered matrix stays available as `bluerov2_heavy(frame="reference")` for reproducing the dataset's own forces, which it still does on all 183,555 rows. The custom-layout template and the allocation CSV template were rewritten the same way, with each motor's place named.
+   - **The shipped calibration:** unchanged, because it was fitted to the FLU data as-is and is self-consistent. It is the same vehicle turned half a turn about x. The equations are unchanged by that turn except for two signs: the restoring force's net buoyancy and the surge-pitch coupling `Xq_dot`. So those two fitted values have the opposite sign to the real vehicle's. With `--thrusters bluerov2_heavy`, the vertical thrusters' stronger direction (47.9 vs 37.2 N each) is also reversed relative to gravity in its simulations. Formation-holding and station-keeping are unaffected (LIMITS.md).
+2. **`strathe calibrate` only worked on logs that carried the reference dataset's dates.**
+   - **The cause:** three steps defaulted to its held-out dates (16-02-2024, 19-02-2024): the data check (`check_coriolis_excitation.py`), the identifiability step and the report.
+   - **The effect:** any other lab's calibration stopped at step 2. The message "the data check found problems" pointed at no message at all, because the traceback had been written above the step's header.
+   - **Why tests missed it:** every calibrate test replaced the steps with stubs.
+   - **The fix:** the three steps now use calibration's own split. The data check flushes its output in order. `tests/test_calibrate_end_to_end.py` runs every step as its own process, on logs dated 2030. Without the fix it fails.
+3. **No way back from an interrupted run in one command.**
+   - **What happened:** the DFKI fit converged after about 400 evaluations (cost 457.6 → 28.35, flat from there). The laptop then slept for 2.5 hours with the fit still running (`stall_watchdog` caught it: 9,237 s wall against 31 s monotonic), and the run was stopped.
+   - **The old recovery:** the documented `finalize_checkpoint.py` command needs the fit's hidden settings re-typed: `--axis-scaling zero_rms`, the torque point and the rate. With the defaults, it would have re-evaluated with the reference dataset's torque point.
+   - **The fix:** `strathe calibrate ... --finish` (the same command, plus `--finish`) does it with the run's own settings, then checks identifiability and writes the report.
+4. **Smaller:**
+   - **One recording session:** a lab with only one was told "Need at least 2 distinct groups". Ingestion now warns, and calibration explains what to do in plain words.
+   - **A stray hint:** `calibrate` printed "Next: python strathe.py calibrate ..." in the middle of its own run.
+   - **MLflow noise:** MLflow 3's hint for AI agents appeared in `strathe check`.
+
+**What a lab has to do with data like this** (`calibration/examples/dfki_tether/`, a worked example to copy):
+- **One CSV per recording:** CSV ingestion reads one table per recording, so the per-sensor CSVs are merged onto ArduSub's ~10 Hz timestamps.
+- **Velocity:** taken from the origin marker's track (seen about 100% of the time). The live motion-capture velocity stream misses up to a third of each run, and the two agree to 2 cm/s where both exist.
+- **Heading:** ArduSub's yaw is mirrored relative to the basin, offset by about 175° and drifting up to 15° near the basin's steel. The script corrects it by its offset from the markers, tracked wherever the markers are seen.
+- **Thrusters:** ArduSub's vectored frame. Which motors are reversed (1, 2 and 5) comes from regressing each motor's output on the pilot's sticks (R² 0.94).
+- **Assumed:** where the vertical thrusters sit.
+- **Sessions:** with no dates, the limited-tether runs and the free runs are labelled as two sessions.
+- **Check:** after ingestion, every force moves with its velocity (surge 0.80, sway 0.57, heave 0.74, yaw 0.65). With a mirrored layout, sway, heave and yaw would be negative.
+
+**The calibration** (`results/pilot_dfki_tether/`; 14 limited-tether training recordings, 8 free-piloting held-out ones; the reference BlueROV2 Heavy `vehicle_spec.yaml`, as a new lab would start):
+
+| Axis | Held-out skill vs "no motion" | vs default physics | Verdict in the report |
+|---|---|---|---|
+| surge | +0.60 | −4.6% | don't rely on it |
+| sway | +0.62 | +85% | use with care (drag at its limit) |
+| heave | +0.39 | +62% | use with care |
+| roll | −0.26 | +88% | don't rely on it |
+| pitch | −0.01 | +85% | don't rely on it |
+| yaw | +0.43 | +56% | trust it |
+
+- **Surge is worse than the default model on the free runs.** The training runs had a tether held at 5–15 m, which holds the vehicle back. The fit learned forward drag at its limits (`Xu` −50, `Xuu` −100), which the free runs don't have. The report flags both.
+- **Roll and pitch aren't predictable from the thrusters here.** A 6-thruster BlueROV2 can't pitch on command, and the tether pulls on it. The report says so and recommends free-decay tests.
+- **Overall:** the report's bottom line ("trustworthy for 1 of 6 axes", 62% better than the default on average) and its next steps are what a lab with this data should hear.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

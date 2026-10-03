@@ -27,6 +27,19 @@ jobs:
           git init data/raw/Bluerov2_trajectory_dataset
           git -C data/raw/Bluerov2_trajectory_dataset fetch --depth 1 https://github.com/oceansystemslab/Bluerov2_trajectory_dataset.git 5104d15d2f9756ff45b4b0ed2b95d284a6e30e43
           git -C data/raw/Bluerov2_trajectory_dataset checkout FETCH_HEAD
+      # A second public BlueROV2 dataset (DFKI, Zenodo 10.5281/zenodo.17360027, CC BY 4.0), pinned by
+      # checksum: an ArduSub vehicle with motion capture, which checks the thruster conventions against
+      # measured motion (PROJECT_STATUS.md #62). ~223 MB.
+      - name: Fetch DFKI tether dataset
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          New-Item -ItemType Directory -Force data/raw/dfki_rov_tether | Out-Null
+          $zip = "data/raw/dfki_rov_tether/rov_tether_dataset_v3.zip"
+          Invoke-WebRequest -Uri https://zenodo.org/api/records/17360027/files/rov_tether_dataset_v3.zip/content -OutFile $zip
+          $h = (Get-FileHash $zip -Algorithm MD5).Hash
+          if ($h -ne "F357044A1D6D1F76164C8C94048EF2AE") { throw "DFKI dataset checksum mismatch: $h" }
+          tar -xf $zip -C data/raw/dfki_rov_tether
       - name: Install dependencies
         run: |
           pip install -r requirements.txt

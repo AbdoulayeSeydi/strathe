@@ -318,15 +318,17 @@ def cmd_calibrate(args, runner=None) -> int:
 
     steps = []
     if args.ingest_spec:
-        steps.append(("Converting your logs into Strathe's layout", lambda: ingest_argv(args.ingest_spec, data),
+        steps.append(("Converting your logs into Strathe's layout",
+                      lambda: ingest_argv(args.ingest_spec, data) + ["--no-next-step"],
                       "Your logs couldn't be converted; the message above says what's wrong with them or with "
                       "the ingestion spec (templates are in calibration/templates/).", True))
     steps.append(("Checking your data before spending compute on it",
                   lambda: preflight_argv(data, spec, args.heldout_dates, settings()[0]),
                   "The data check found problems; its messages above say what to fix.", True))
-    fit_hint = ("Calibration didn't finish. If it ran out of evaluations, re-run with a larger --max-nfev, or turn "
-                "the best result so far (checkpoint.yaml in the output folder) into a usable, clearly-marked result "
-                "with calibration/finalize_checkpoint.py.")
+    fit_hint = ("Calibration didn't finish. If it ran out of evaluations, re-run with a larger --max-nfev. If it was "
+                "interrupted (the machine slept, or the run was stopped), run the same command again with --finish: "
+                "it turns the best result so far (checkpoint.yaml in the output folder) into a usable, "
+                "clearly-marked result and writes the report.")
     fit_title = ("Calibrating (this takes a while: minutes on a small log set, about an hour on the reference "
                  "dataset; the machine is kept awake)")
     if args.estimate_current and args.current_world_mps:
@@ -366,6 +368,27 @@ def cmd_calibrate(args, runner=None) -> int:
                       lambda: fit_argv(out, final_currents, prev), fit_hint, True))
     else:
         steps.append((fit_title, lambda: fit_argv(out, currents_file), fit_hint, True))
+    if args.finish:
+        # an interrupted fit: keep its best parameters, with the settings this command gives the fit
+        if args.estimate_current:
+            print("❌ --finish doesn't support --estimate-current runs; re-run them, or use "
+                  "calibration/finalize_checkpoint.py on the last round's checkpoint")
+            return 2
+        if not os.path.exists(os.path.join(out, "checkpoint.yaml")):
+            print(f"❌ --finish: no checkpoint.yaml in {out}; nothing to finish (did the fit start?)")
+            return 2
+        if args.ingest_spec and os.path.isdir(data):
+            steps = [st for st in steps if not st[0].startswith("Converting")]  # already converted
+        steps = [st for st in steps if not st[0].startswith(("Checking your data", "Calibrating"))]
+
+        def finish_argv():
+            rate, extra = settings()
+            cur = ["--currents-file", currents_file] if currents_file else []
+            return finalize_argv(out, data, spec, args.heldout_dates, rate, extra + cur,
+                                 "interrupted; finished from its checkpoint with strathe calibrate --finish")
+        steps.append(("Turning the interrupted fit's best result into a calibration (marked not converged)",
+                      finish_argv, "The checkpoint couldn't be turned into a result; the message above says why.",
+                      True))
     if not args.skip_identifiability:
         steps.append(("Checking which values your data can pin down (a few minutes)",
                       lambda: identifiability_argv(out, data, spec, args.workers),
@@ -791,6 +814,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--current-rounds", type=int, default=2, help="with --estimate-current: rounds (default 2)")
     c.add_argument("--exclude-axes", nargs="+", choices=["p", "q"],
                    help="advanced: leave roll (p) / pitch (q) out of the fit (see run_calibration.py --help)")
+    c.add_argument("--finish", action="store_true",
+                   help="the fit was interrupted (the machine slept, the run was stopped): turn its best result so "
+                        "far into a calibration, marked not converged, and write the report. Same command and "
+                        "flags as the interrupted run, plus --finish")
     c.set_defaults(fn=cmd_calibrate)
 
     e = sub.add_parser("estimate-current", help="estimate the water current in each open-water recording")
