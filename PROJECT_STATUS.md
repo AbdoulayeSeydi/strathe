@@ -1193,6 +1193,11 @@ Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQ
    - **Independent confirmation:** the pilot's sticks (RC_IN) mapped through the old preset come out mirrored: "lateral right" became a push to the left.
    - **The fix:** `bluerov2_heavy` is now FRD in ArduSub's motor numbering. Its 8 columns match ArduSub's VECTORED_6DOF motor factors in sign, and a test checks that. The as-recovered matrix stays available as `bluerov2_heavy(frame="reference")` for reproducing the dataset's own forces, which it still does on all 183,555 rows. The custom-layout template and the allocation CSV template were rewritten the same way, with each motor's place named.
    - **The shipped calibration:** unchanged, because it was fitted to the FLU data as-is and is self-consistent. It is the same vehicle turned half a turn about x. The equations are unchanged by that turn except for two signs: the restoring force's net buoyancy and the surge-pitch coupling `Xq_dot`. So those two fitted values have the opposite sign to the real vehicle's. With `--thrusters bluerov2_heavy`, the vertical thrusters' stronger direction (47.9 vs 37.2 N each) is also reversed relative to gravity in its simulations. Formation-holding and station-keeping are unaffected (LIMITS.md).
+   - **What changed in simulation:** only thruster-limited runs, because policies often command more pitch torque than the Heavy can give (30 vs 17.9 N·m), and the command is scaled down by whichever thruster binds first.
+     - **Fleet:** in `clean_regression_check.py`'s 216 thruster-limited fleet episodes (with disturbance and current), 192 differ. Success changed in 3 (96.8% → 97.2%), collisions in none, and separation error by a median 9 mm.
+     - **Arena:** the 8 single-vehicle runs with thrusters on differ.
+     - **Everything else:** the other 6,400 clean episodes and 8 arena runs are identical. The reference was regenerated with this note (`clean_reference_62.json`).
+     - **Committed studies:** none use thruster limits, so no published number changes.
 2. **`strathe calibrate` only worked on logs that carried the reference dataset's dates.**
    - **The cause:** three steps defaulted to its held-out dates (16-02-2024, 19-02-2024): the data check (`check_coriolis_excitation.py`), the identifiability step and the report.
    - **The effect:** any other lab's calibration stopped at step 2. The message "the data check found problems" pointed at no message at all, because the traceback had been written above the step's header.
@@ -1230,6 +1235,29 @@ Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQ
 - **Surge is worse than the default model on the free runs.** The training runs had a tether held at 5–15 m, which holds the vehicle back. The fit learned forward drag at its limits (`Xu` −50, `Xuu` −100), which the free runs don't have. The report flags both.
 - **Roll and pitch aren't predictable from the thrusters here.** A 6-thruster BlueROV2 can't pitch on command, and the tether pulls on it. The report says so and recommends free-decay tests.
 - **Overall:** the report's bottom line ("trustworthy for 1 of 6 axes", 62% better than the default on average) and its next steps are what a lab with this data should hear.
+
+**The rest of the flow on the calibrated vehicle, with its own 6-thruster limits** (`--thrusters` the example spec):
+- **`strathe arena`, station-keeping, `--compare-generic`, default budget (150k steps):**
+  - **Result:** policies trained on the calibration succeed 78% (71–83%), and policies trained on default physics 100% (−22 points, CI −28 to −18).
+  - **The report explains it:** the budget is probably too short for a heavily damped vehicle, so re-run with a larger `--timesteps`.
+  - **Following that advice (450k steps, 13.5 min):** both reach 100%, and the hand-written controller 96%.
+  - **So the advice holds.**
+- **`strathe fleet --params` with the shipped fleet policies:**
+  - **The results:** success 46–63%, against 52–100% on the reference vehicle. The belief comparison is mixed: one condition favours calibrated, one generic, two show no difference.
+  - **The cause:** those policies learned on the reference Heavy, and nothing in the report said so. A lab would have concluded that calibration doesn't matter for coordination.
+  - **New caution:** the report now compares each policy's training vehicle (from its metadata) with the experiment's, and says when they differ and how to train policies for this vehicle.
+  - **Following it:** one policy trained on the DFKI vehicle (`strathe train-fleet`, 3M steps, 20.6 min) gives calibrated +12 points over generic at L2@3s, L3a@1s and L3a@3s (CIs +3 to +20, +6 to +17, +3 to +20), and 100% vs 98% at L2@1s.
+  - **So the coordination result holds on a second, independently calibrated vehicle,** once the policy is trained for it.
+
+**The fresh install** (a clean clone from GitHub, a new Python 3.13 environment, `pip install -r requirements.txt`, `strathe check`, the reference dataset's download script, both test suites, then `strathe fleet`) works end to end in about 14 minutes on an M1. The only blemish was the MLflow hint, now gone.
+
+Tests: 8 new.
+- `tests/test_calibrate_end_to_end.py` (2): every step for real, and the one-session messages.
+- `tests/test_dfki_tether_pilot.py` (2): needs the DFKI data, which CI now downloads, pinned by checksum.
+- `tests/test_thruster_model.py` (2): the ArduSub motor table, and the reference dataset's frame.
+- `--finish` on the command line and on the web form (2).
+- The fleet report's training-vehicle caution (1).
+- 13 ingestion and thruster tests rewritten: they had encoded the reference dataset as FRD.
 
 ## Honest open items
 

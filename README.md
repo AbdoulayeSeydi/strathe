@@ -203,7 +203,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 503 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 512 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
