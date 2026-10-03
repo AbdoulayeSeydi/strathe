@@ -28,7 +28,11 @@ def test_calibrate_runs_every_step_on_logs_with_their_own_dates(tmp_path):
             name = name.replace(old, new)
         pd.read_csv(f).iloc[:150].to_csv(data / name, index=False)
     out = tmp_path / "result"
-    env = {**os.environ, "MLFLOW_DISABLE_AGENT_HINT": "1"}
+    # output to a pipe that can't encode the symbols strathe prints, as on Windows (cp1252) and in its web page's
+    # job logs: this crashed calibrate on Windows before the launcher switched to UTF-8
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONIOENCODING"}
+    env.update({"MLFLOW_DISABLE_AGENT_HINT": "1", "LC_ALL": "C", "LANG": "C", "PYTHONCOERCECLOCALE": "0",
+                "PYTHONUTF8": "0"})
     r = subprocess.run([sys.executable, os.path.join(ROOT, "strathe.py"), "calibrate", "--data", str(data),
                         "--name", "e2e", "--out", str(out), "--max-nfev", "1", "--workers", "1"],
                        capture_output=True, text=True, env=env, timeout=900)

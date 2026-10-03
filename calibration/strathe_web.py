@@ -84,7 +84,7 @@ class JobManager:
 
     @staticmethod
     def _popen(cmd, log_file):
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1"}
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1", "PYTHONIOENCODING": "utf-8"}
         return subprocess.Popen(cmd, cwd=cli.CAL_DIR, stdout=log_file, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, env=env)
 

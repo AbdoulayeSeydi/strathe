@@ -985,4 +985,11 @@ def main(argv=None, runner=None) -> int:
 
 
 if __name__ == "__main__":
+    # see strathe.py: Windows writes cp1252 to files and pipes, which can't encode the symbols printed here
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     sys.exit(main())
