@@ -900,7 +900,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--task", default="waypoint", choices=["waypoint", "station_keeping", "docking",
                                                           "obstacle_avoidance"])
     a.add_argument("--seeds", type=int, default=2, help="training seeds per condition")
-    a.add_argument("--timesteps", type=int, default=150_000, help="training steps per policy (~5 min each)")
+    a.add_argument("--timesteps", type=int, default=450_000, help="training steps per policy (~15 min each, 4 at a time)")
     a.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
     a.add_argument("--compare-generic", action="store_true",
                    help="also train on the default (uncalibrated) physics, to see whether calibration matters")

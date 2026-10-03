@@ -4,7 +4,7 @@
 
 ## Bottom line
 
-It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording sessions the calibration never saw, it predicts your vehicle's motion 62% more accurately than the default model on average, but that comparison alone can flatter a poor default; each verdict below also checks the model against simply assuming no motion.
+It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording sessions the calibration never saw, it predicts 4 of 6 axes better than simply assuming no motion (skill, where 1 is perfect: sideways speed (sway) +0.62, forward speed (surge) +0.60, turning rate (yaw) +0.43, up/down speed (heave) +0.39); on the other 2 it does no better. Beating the default model alone can flatter a poor default, so each verdict below checks both.
 
 ## Can I trust it for this motion?
 
@@ -21,7 +21,7 @@ It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording s
 
 ## Did it learn the vehicle, or just memorise the training runs?
 
-It generalises: accuracy on unseen sessions is as good as on the training runs. (held-out / training error ratio 0.65; 1.0 is ideal.)
+Can't tell from these sessions: the error on unseen sessions is lower than on the training runs, which usually means the unseen sessions were easier (gentler, or recorded in different conditions), not that the model learned more. Hold out sessions like the ones you'll simulate. (Unseen / training error, median over the six axes: 0.67; about 1 is what you want.)
 
 ## Be careful with
 

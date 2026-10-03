@@ -3,7 +3,7 @@
 run_arena_experiment.py -- the single-vehicle experiment for a lab's own vehicle.
 
     python run_arena_experiment.py --params ../calibration_output_my_rov/calibrated_parameters.yaml \
-        --spec vehicle_spec.yaml --task station_keeping --seeds 2 --timesteps 150000 \
+        --spec vehicle_spec.yaml --task station_keeping --seeds 2 --timesteps 450000 \
         [--current-speed 0 0.3] [--thrusters bluerov2_heavy] [--compare-generic] \
         [--algorithm sac] [--mode noisy [--compare-clean-training]] [--buoyancy -3] --out ../arena_my_rov
     (or: python strathe.py arena ...)
@@ -297,7 +297,9 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
                      "short for your vehicle, not that the calibration is wrong. Every policy is tested on your "
                      "calibrated vehicle, and a heavily damped vehicle is slower to learn on than the lighter default "
                      "physics. In our tests, tripling `--timesteps` took calibration-trained policies from 10% to 96% "
-                     "(PROJECT_STATUS.md #56). Re-run with a larger `--timesteps` before drawing conclusions.\n")
+                     "on the reference vehicle (PROJECT_STATUS.md #56) and from 78% to 100% on a second one (#62); "
+                     "the default is now that tripled budget (450k). Re-run with a larger `--timesteps` before "
+                     "drawing conclusions, and don't read this as calibration hurting.\n")
     L += ["## What this does and doesn't show\n",
           "- It is simulation only: the \"vehicle\" is your calibrated model. How well that model matches the real "
           "vehicle is what your calibration report measures; a hardware trial is the final test.",
@@ -476,7 +478,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--spec", default=os.path.join(HERE, "vehicle_spec.yaml"), help="vehicle description")
     ap.add_argument("--task", choices=TASKS, default="waypoint")
     ap.add_argument("--seeds", type=int, default=2, help="training seeds per condition")
-    ap.add_argument("--timesteps", type=int, default=150_000, help="training steps per policy")
+    ap.add_argument("--timesteps", type=int, default=450_000,
+                    help="training steps per policy (450k: 150k was too short for heavily damped vehicles, #56, #63)")
     ap.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
     ap.add_argument("--max-episode-steps", type=int, default=200)
     ap.add_argument("--compare-generic", action="store_true",

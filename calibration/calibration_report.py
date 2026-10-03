@@ -231,18 +231,33 @@ def water_note(metrics: Optional[dict], result_dir: str) -> Optional[str]:
     return None
 
 
+def skill_sentence(verdicts) -> str:
+    """Per-axis skill on unseen sessions, in words: never one average over the axes, which a badly wrong default
+    on one or two axes would dominate (PROJECT_STATUS.md #50, #63)."""
+    rated = [v for v in verdicts if v.get("skill") is not None and not v.get("excluded")]
+    if not rated:
+        return ("Each verdict below compares it with the default model; re-run with --data-dir to also compare "
+                "it with simply assuming no motion.")
+    useful = sorted((v for v in rated if v["skill"] > 0), key=lambda v: -v["skill"])
+    if not useful:
+        return ("On recording sessions the calibration never saw, it predicts no axis better than simply assuming "
+                "the vehicle isn't moving.")
+    parts = ", ".join(f"{v['label']} {v['skill']:+.2f}" for v in useful)
+    rest = len(rated) - len(useful)
+    return (f"On recording sessions the calibration never saw, it predicts {len(useful)} of {len(rated)} axes better "
+            f"than simply assuming no motion (skill, where 1 is perfect: {parts})"
+            + (f"; on the other {rest} it does no better." if rest else ".")
+            + " Beating the default model alone can flatter a poor default, so each verdict below checks both.")
+
+
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if verdicts:
         good = [v for v in verdicts if v["verdict"] == GOOD]
-        overall = np.mean([v["improvement_pct"] for v in verdicts])
         L.append("## Bottom line\n")
         L.append(f"It is trustworthy for **{len(good)} of 6** motion axes"
                  + (f": {', '.join(v['label'] for v in good)}." if good else ".")
-                 + f" On recording sessions the calibration never saw, it predicts your vehicle's motion "
-                 f"{overall:.0f}% more accurately than the default model on average, but that comparison alone can "
-                 f"flatter a poor default; each verdict below also checks the model against simply assuming no "
-                 f"motion.\n")
+                 + " " + skill_sentence(verdicts) + "\n")
         L.append("## Can I trust it for this motion?\n")
         L.append("| Motion | Verdict | Why |")
         L.append("|---|---|---|")
@@ -258,11 +273,18 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                  "longer run.\n")
     if gen_gap is not None:
         L.append("## Did it learn the vehicle, or just memorise the training runs?\n")
-        verdict = ("It generalises: accuracy on unseen sessions is as good as on the training runs."
-                   if gen_gap < 1.15 else
-                   f"Accuracy on unseen sessions is {100 * (gen_gap - 1):.0f}% worse than on training runs, a sign of "
-                   f"over-fitting to those particular recordings.")
-        L.append(f"{verdict} (held-out / training error ratio {gen_gap:.2f}; 1.0 is ideal.)\n")
+        if gen_gap < 0.85:
+            verdict = ("Can't tell from these sessions: the error on unseen sessions is lower than on the training "
+                       "runs, which usually means the unseen sessions were easier (gentler, or recorded in different "
+                       "conditions), not that the model learned more. Hold out sessions like the ones you'll simulate.")
+        elif gen_gap <= 1.15:
+            verdict = ("No sign of memorising: the error on unseen sessions is about the same as on the training "
+                       "runs.")
+        else:
+            verdict = (f"Error on unseen sessions is {100 * (gen_gap - 1):.0f}% higher than on training runs, a sign "
+                       f"of over-fitting to those particular recordings.")
+        L.append(f"{verdict} (Unseen / training error, median over the six axes: {gen_gap:.2f}; about 1 is what "
+                 f"you want.)\n")
     if water:
         L.append("## Water current\n")
         L.append(water + "\n")
@@ -343,7 +365,12 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                 if axes else [])
     gen_gap = None
     if metrics and "rmse" in metrics and "calibrated_train" in metrics["rmse"]:
-        gen_gap = metrics["rmse"]["calibrated_heldout"] / metrics["rmse"]["calibrated_train"]
+        # median of the per-axis ratios: one overall error mixes m/s with rad/s and lets one axis dominate
+        pd_ = metrics.get("per_dof") or {}
+        if pd_.get("calibrated_heldout") and pd_.get("calibrated_train"):
+            gen_gap = float(np.median(np.array(pd_["calibrated_heldout"]) / np.array(pd_["calibrated_train"])))
+        else:
+            gen_gap = metrics["rmse"]["calibrated_heldout"] / metrics["rmse"]["calibrated_train"]
     converged = None
     if metrics:
         converged = metrics.get("optimizer", {}).get("converged", metrics.get("converged"))

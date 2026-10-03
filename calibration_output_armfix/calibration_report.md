@@ -1,10 +1,10 @@
 # Calibration report: calibration_output_armfix
 
-2026-09-24
+2026-10-03
 
 ## Bottom line
 
-It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording sessions the calibration never saw, it predicts your vehicle's motion 69% more accurately than the default model on average, but that comparison alone can flatter a poor default; each verdict below also checks the model against simply assuming no motion.
+It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording sessions the calibration never saw, it predicts 4 of 6 axes better than simply assuming no motion (skill, where 1 is perfect: forward speed (surge) +0.72, up/down speed (heave) +0.59, turning rate (yaw) +0.58, sideways speed (sway) +0.51); on the other 2 it does no better. Beating the default model alone can flatter a poor default, so each verdict below checks both.
 
 ## Can I trust it for this motion?
 
@@ -21,7 +21,7 @@ It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording s
 
 ## Did it learn the vehicle, or just memorise the training runs?
 
-It generalises: accuracy on unseen sessions is as good as on the training runs. (held-out / training error ratio 1.01; 1.0 is ideal.)
+No sign of memorising: the error on unseen sessions is about the same as on the training runs. (Unseen / training error, median over the six axes: 0.98; about 1 is what you want.)
 
 ## Be careful with
 

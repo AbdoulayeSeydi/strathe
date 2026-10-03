@@ -525,7 +525,7 @@ whether the calibration matters. Roughly 5 minutes per policy at the default bud
 <option value=station_keeping>Reach a point and hold station</option><option value=docking>Dock (slow and level)</option>
 <option value=obstacle_avoidance>Reach a point around an obstacle</option></select>
 <label for=ar-seeds>Training seeds per condition</label><input type=text id=ar-seeds name=seeds value="2">
-<label for=ar-steps>Training steps per policy</label><input type=text id=ar-steps name=timesteps value="150000">
+<label for=ar-steps>Training steps per policy</label><input type=text id=ar-steps name=timesteps value="450000">
 <label for=ar-eps>Evaluation episodes</label><input type=text id=ar-eps name=episodes value="100">
 {algorithm_select("ar")}
 <label class=inline><input type=checkbox id=ar-cmp name=compare_generic value=1 checked aria-label="Compare with training on default physics"> Compare with training on
@@ -734,7 +734,7 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"arena_{task}_{time.strftime('%Y%m%d-%H%M%S')}")
             args = ["arena", "--task", task, *vehicle_cli_args(form),
                     "--seeds", str(int(_number(form.get("seeds", "2"), "Training seeds", 1, 20))),
-                    "--timesteps", str(int(_number(form.get("timesteps", "150000"), "Training steps", 1000, 1e8))),
+                    "--timesteps", str(int(_number(form.get("timesteps", "450000"), "Training steps", 1000, 1e8))),
                     "--episodes", str(int(_number(form.get("episodes", "100"), "Evaluation episodes", 1, 10000))),
                     "--out", out]
             if form.get("compare_generic"):
