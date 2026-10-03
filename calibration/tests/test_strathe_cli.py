@@ -196,6 +196,23 @@ def test_calibration_form_starts_exactly_the_cli_command(server):
     assert status == 200 and "working..." in body and "running" in body
 
 
+def test_calibration_form_finishes_an_interrupted_run(server):
+    import shutil
+    request, token, started, manager, tmp_path = server
+    form = {"token": token, "data": str(tmp_path), "name": "pytest_finish_check", "finish": "1"}
+    out = os.path.join(cli.REPO_DIR, "calibration_output_pytest_finish_check")
+    shutil.rmtree(out, ignore_errors=True)
+    status, body, _ = request("POST", "/jobs/calibrate", form)
+    assert status == 400 and "Nothing to finish" in body and not started
+    try:
+        os.makedirs(out)
+        open(os.path.join(out, "checkpoint.yaml"), "w").write("best_parameters_so_far: {}\n")
+        status, _, _ = request("POST", "/jobs/calibrate", form)
+        assert status == 303 and started[-1][-1] == "--finish"
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
 @pytest.mark.parametrize("form,msg", [
     ({"data": "/definitely/not/here", "name": "x"}, "Folder not found"),
     ({"data": ".", "name": "x", "heldout": "yesterday"}, "Held-out dates"),

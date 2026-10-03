@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--spec", default="vehicle_spec.yaml")
     ap.add_argument("--heldout-dates", nargs="+", default=None,
-                    help="default: the latest 20%% of recording dates, as run_calibration.py does")
+                    help="default: the latest 30%% of recording dates (at least one), as run_calibration.py does")
     ap.add_argument("--output-dir", help="default: the checkpoint's folder")
     ap.add_argument("--sampling-rate-hz", type=float, default=10.0)
     ap.add_argument("--torque-reference-offset-m", type=float, nargs=3, default=None)

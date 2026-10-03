@@ -799,7 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--out", help="output folder (default: calibration_output_<name> in the repository)")
     c.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description (default: the BlueROV2 Heavy)")
     c.add_argument("--heldout-dates", nargs="+",
-                   help="recording dates to hold out for validation, e.g. 16-02-2024 (default: the last 20%%)")
+                   help="recording dates to hold out for validation, e.g. 16-02-2024 (default: the latest 30%% of dates, at least one)")
     c.add_argument("--workers", type=int, default=default_workers(), help="CPU cores to use")
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
