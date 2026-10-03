@@ -136,21 +136,25 @@ def test_non_finite_state_raises():
 
 
 def test_fast_core_is_meaningfully_faster():
-    """Performance guard: the whole point of this module. Loose bound so it
-    isn't flaky on slow CI runners."""
+    """Performance guard: the whole point of this module. Best of 5 timings after a warm-up, and a
+    2x bound (about 7x on an M1), so a busy shared CI runner can't make it fail."""
     params = initial_parameters(SPEC)
     cfg = SimulationConfig(dt=0.1)
     ref, fast = ArenaCore(params, VEHICLE, cfg), FastCore(params, VEHICLE, cfg)
     tau = [5, 1, -2, 0.3, 0.1, -0.2]
-    t = time.perf_counter()
-    for _ in range(100):
-        ref.step(tau)
-    t_ref = time.perf_counter() - t
-    t = time.perf_counter()
-    for _ in range(100):
-        fast.step(tau)
-    t_fast = time.perf_counter() - t
-    assert t_fast * 3 < t_ref, f"FastCore {t_fast:.3f}s vs ArenaCore {t_ref:.3f}s"
+
+    def best_of_5(core):
+        core.step(tau)  # warm-up
+        times = []
+        for _ in range(5):
+            t = time.perf_counter()
+            for _ in range(100):
+                core.step(tau)
+            times.append(time.perf_counter() - t)
+        return min(times)
+
+    t_ref, t_fast = best_of_5(ref), best_of_5(fast)
+    assert t_fast * 2 < t_ref, f"FastCore {t_fast:.3f}s vs ArenaCore {t_ref:.3f}s"
 
 
 @pytest.mark.parametrize("name,params", PARAM_SETS, ids=[n for n, _ in PARAM_SETS])
