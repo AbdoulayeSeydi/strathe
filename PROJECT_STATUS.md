@@ -1150,6 +1150,25 @@ Tests: 37 new, 41 after review (`tests/test_optical_link.py`): pointing cones, b
 
 Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQUA bags when they're present.
 
+### 61. Research leftovers removed before the first lab pilots (2026-10-03)
+
+**Why.** A lab opening the repo saw about 150 one-off scripts and 35 stale output folders next to the product, with no way to tell which ones mattered.
+
+**What was removed:** 402 tracked files (12.5 MB) that nothing uses or mentions.
+- **152 one-off scripts:** README patchers, `add_finding*_patch.py`, `diagnose_*`/`check_*`/`fix_*` scripts from findings #1–#50, and the old `test_parallel_restarts_v1`–`v6`.
+- **250 stale outputs:** 35 top-level `*_placeholder`/`*_check`/old `calibration_output_*` folders, 14 under `calibration/`, 79 old CSVs (comm curves, monitors, recovery grids) and 12 superseded PPO zips.
+
+**How "unused" was decided** (a script, not by hand):
+- Start from the product: `strathe.py`, the CLI and web modules, every test, the CI workflow, and every file the user docs name.
+- Follow imports and file names mentioned in code, recursively.
+- Keep anything still mentioned by name in any file that stays: every `.md` (this file included), every script and every YAML.
+
+**Kept:** everything in `results/`, every shipped policy, the templates, the sensor-noise presets and the calibration outputs this file cites.
+
+**Getting one back:** tag `research-archive-2026-10` is the last commit with all of them, e.g. `git show research-archive-2026-10:calibration/diagnose_speed.py`.
+
+**Checked:** 503 tests (1 skipped), the 142-test fleet suite and the 10 root tests pass after the removal.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
