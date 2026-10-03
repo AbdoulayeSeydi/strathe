@@ -35,7 +35,7 @@ def test_calibrate_runs_every_step_on_logs_with_their_own_dates(tmp_path):
                 "PYTHONUTF8": "0"})
     r = subprocess.run([sys.executable, os.path.join(ROOT, "strathe.py"), "calibrate", "--data", str(data),
                         "--name", "e2e", "--out", str(out), "--max-nfev", "1", "--workers", "1"],
-                       capture_output=True, text=True, env=env, timeout=900)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=900)
     log = r.stdout + r.stderr
     assert r.returncode == 0, log[-3000:]
     assert "Traceback" not in log, log[-3000:]
