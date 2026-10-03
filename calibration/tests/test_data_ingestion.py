@@ -15,7 +15,7 @@ import pytest
 import yaml
 from scipy.spatial.transform import Rotation
 
-from data_ingestion import ENU_TO_NED, FLU_TO_FRD, IngestError, ingest, load_ingest_spec
+from data_ingestion import ENU_TO_NED, FLU_TO_FRD, IngestError, ingest, load_ingest_spec, reference_run_in_frd
 from data_split import split_by_date
 from objective import DatasetConfig, load_run, rmse_by_dof
 from optimizer import initial_parameters, load_vehicle_spec
@@ -27,8 +27,8 @@ PWM = [f"pwm{i}" for i in range(1, 9)]
 
 
 def _disguise(src_csv, out_csv, n=600, jitter_ms=0.0, seed=0, drop_forces=True):
-    """Canonical dataset run -> 'foreign' ROS-style log."""
-    d = pd.read_csv(src_csv).iloc[:n]
+    """Reference dataset run, converted to FRD/NED (PROJECT_STATUS.md #62) -> 'foreign' ROS-style log."""
+    d = reference_run_in_frd(pd.read_csv(src_csv)).iloc[:n]
     R_ned_frd = Rotation.from_quat(d[["qx", "qy", "qz", "qw"]].values).as_matrix()
     R_enu_flu = ENU_TO_NED @ R_ned_frd @ FLU_TO_FRD
     eul = np.degrees(Rotation.from_matrix(R_enu_flu).as_euler("xyz"))

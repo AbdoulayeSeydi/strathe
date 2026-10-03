@@ -50,7 +50,9 @@ def sampling_rate_source(data_dir: str, requested_hz: float) -> tuple:
 
 
 def run_check(name: str, cmd: list) -> bool:
-    print(f"\n{'=' * 70}\nPRE-FLIGHT CHECK: {name}\n{'=' * 70}")
+    # flush first: when the output goes to a file (the web page's job logs), the check's own output
+    # would otherwise land before this header
+    print(f"\n{'=' * 70}\nPRE-FLIGHT CHECK: {name}\n{'=' * 70}", flush=True)
     result = subprocess.run(cmd, capture_output=False)
     passed = result.returncode == 0
     print(f"\n{'PASS' if passed else 'FAIL (non-zero exit code)'}: {name}")

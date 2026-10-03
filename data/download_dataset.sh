@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Downloads the oceansystemslab public BlueROV2 trajectory dataset.
 # CSV columns (per repo README):
-#   x,y,z                  - position, world frame
+#   x,y,z                  - position, world frame (ROS ENU: z up, depths negative)
 #   qx,qy,qz,qw             - orientation quaternion
-#   Bu,Bv,Bw                - linear velocity, body frame
+#   Bu,Bv,Bw                - linear velocity, body frame (ROS FLU; PROJECT_STATUS.md #62)
 #   Bq,Bp,Br                - angular velocity, body frame
 #   Ux,Uy,Uz,Vx,Vy,Vz       - normalized input force, body frame
 #   Fx,Fy,Fz,Tx,Ty,Tz       - input forces/torques, body frame

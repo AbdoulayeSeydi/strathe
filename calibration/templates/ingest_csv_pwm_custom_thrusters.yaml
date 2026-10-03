@@ -11,7 +11,10 @@
 #               drag acts through (PROJECT_STATUS.md #50).
 #               Any point on the thruster's line of thrust gives the same result.
 #   direction   [dx, dy, dz] the way the thruster pushes the VEHICLE for positive
-#               thrust (need not be unit length). Pointing up is [0, 0, -1].
+#               thrust (need not be unit length). Pointing up is [0, 0, -1]. For ArduSub,
+#               "positive thrust" is a positive motor output: the direction ArduSub's
+#               own motor factors give that motor (forward, lateral = right, throttle -1
+#               = pushes down); the example below follows them exactly.
 #   reversed    true if the motor's command is mirrored (ArduSub
 #               MOT_n_DIRECTION = -1, or a counter-rotating propeller).
 # Vehicles that can't push every axis (e.g. 6 thrusters, no pitch control) are
@@ -32,14 +35,14 @@ orientation:
 wrench:
   thrusters:
     pwm_columns: [pwm1, pwm2, pwm3, pwm4, pwm5, pwm6, pwm7, pwm8]
-    layout:
-      - {position_m: [0.1335, -0.1335, 0.0], direction: [-1, -1, 0], reversed: true}
-      - {position_m: [0.1335, 0.1335, 0.0], direction: [-1, 1, 0], reversed: true}
-      - {position_m: [-0.1335, -0.1335, 0.0], direction: [1, -1, 0], reversed: false}
-      - {position_m: [-0.1335, 0.1335, 0.0], direction: [1, 1, 0], reversed: false}
-      - {position_m: [0.12, -0.218, 0.0], direction: [0, 0, -1], reversed: true}
-      - {position_m: [0.12, 0.218, 0.0], direction: [0, 0, -1], reversed: false}
-      - {position_m: [-0.12, -0.218, 0.0], direction: [0, 0, -1], reversed: false}
-      - {position_m: [-0.12, 0.218, 0.0], direction: [0, 0, -1], reversed: true}
+    layout:                # ArduSub motor numbering; front = +x, right = +y, down = +z
+      - {position_m: [0.1335, 0.1335, 0.0], direction: [-1, 1, 0], reversed: true}     # 1 front right
+      - {position_m: [0.1335, -0.1335, 0.0], direction: [-1, -1, 0], reversed: true}   # 2 front left
+      - {position_m: [-0.1335, 0.1335, 0.0], direction: [1, 1, 0], reversed: false}    # 3 rear right
+      - {position_m: [-0.1335, -0.1335, 0.0], direction: [1, -1, 0], reversed: false}  # 4 rear left
+      - {position_m: [0.12, 0.218, 0.0], direction: [0, 0, 1], reversed: true}         # 5 front right, vertical
+      - {position_m: [0.12, -0.218, 0.0], direction: [0, 0, 1], reversed: false}       # 6 front left, vertical
+      - {position_m: [-0.12, 0.218, 0.0], direction: [0, 0, 1], reversed: false}       # 7 rear right, vertical
+      - {position_m: [-0.12, -0.218, 0.0], direction: [0, 0, 1], reversed: true}       # 8 rear left, vertical
     curve: t200            # Blue Robotics T200; or curve_csv: my_curve.csv (see thrust_curve_template.csv)
     voltage: 15.0          # T200 only: rescales the curve to your battery voltage (12-20 V)

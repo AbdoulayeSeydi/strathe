@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from thruster_model import (BLUEROV2_HEAVY_ALLOCATION, KGF, ThrustCurve, ThrusterConfig,
-                            allocation_from_geometry, bluerov2_heavy, voltage_matching)
+from thruster_model import (BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME, FLU_TO_FRD_WRENCH,
+                            KGF, ThrustCurve, ThrusterConfig, allocation_from_geometry, bluerov2_heavy,
+                            voltage_matching)
 
 DATA = os.path.join(os.path.dirname(__file__), "..", "..", "data", "raw", "Bluerov2_trajectory_dataset", "dataset")
 HAVE_DATA = bool(glob.glob(os.path.join(DATA, "*.csv")))
@@ -17,11 +18,44 @@ HAVE_DATA = bool(glob.glob(os.path.join(DATA, "*.csv")))
 def test_raw_pwm_reproduces_the_datasets_forces_on_every_row():
     d = pd.concat([pd.read_csv(f) for f in sorted(glob.glob(os.path.join(DATA, "*.csv")))], ignore_index=True)
     pwm = d[[f"pwm{i}" for i in range(1, 9)]].values
-    wrench = bluerov2_heavy().wrench(pwm)
     ref = d[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].values
     assert len(d) > 180_000
     # allocation matrix entries are stored to 4 decimals; forces reach ~100 N
-    np.testing.assert_allclose(wrench, ref, atol=5e-3)
+    np.testing.assert_allclose(bluerov2_heavy(frame="reference").wrench(pwm), ref, atol=5e-3)
+    # the preset is the same forces in FRD: y and z of force and torque flipped (PROJECT_STATUS.md #62)
+    np.testing.assert_allclose(bluerov2_heavy().wrench(pwm), ref @ FLU_TO_FRD_WRENCH, atol=5e-3)
+
+
+@pytest.mark.skipif(not HAVE_DATA, reason="BlueROV2 dataset not downloaded (data/download_dataset.sh)")
+def test_reference_dataset_is_ros_flu_enu():
+    """Why the preset isn't the as-recovered matrix: the dataset's world z points up (every depth is
+    negative) and its body velocities rotate onto the world track with the same up-pointing z."""
+    from scipy.spatial.transform import Rotation
+    for f in sorted(glob.glob(os.path.join(DATA, "*.csv")))[:4]:
+        d = pd.read_csv(f)
+        assert d["z"].max() < 0
+        vw = Rotation.from_quat(d[["qx", "qy", "qz", "qw"]].values).apply(d[["Bu", "Bv", "Bw"]].values)
+        dz = np.gradient(d["z"].values, 0.1)
+        assert np.corrcoef(vw[:, 2], dz)[0, 1] > 0.9
+
+
+# ArduSub's AP_Motors6DOF SUB_FRAME_VECTORED_6DOF (BlueROV2 Heavy) motor factors, FRD/NED:
+# (roll, pitch, yaw, throttle, forward, lateral) for a positive motor output. Throttle -1 means a
+# positive output pushes the vehicle down (+z).
+ARDUSUB_HEAVY_FACTORS = [(0, 0, 1, 0, -1, 1), (0, 0, -1, 0, -1, -1), (0, 0, -1, 0, 1, 1), (0, 0, 1, 0, 1, -1),
+                         (1, -1, 0, -1, 0, 0), (-1, -1, 0, -1, 0, 0), (1, 1, 0, -1, 0, 0), (-1, 1, 0, -1, 0, 0)]
+
+
+def test_preset_matches_ardusub_motor_numbering_in_frd():
+    """Each preset column pushes the way ArduSub says that motor pushes, on every axis it uses; the
+    as-recovered (FLU) matrix gets sway, heave, pitch and yaw backwards."""
+    for i, (roll, pitch, yaw, thr, fwd, lat) in enumerate(ARDUSUB_HEAVY_FACTORS):
+        want = np.array([fwd, lat, -thr, roll, pitch, yaw], dtype=float)
+        got = np.sign(np.round(BLUEROV2_HEAVY_ALLOCATION[:, i], 3))
+        used = want != 0
+        np.testing.assert_array_equal(got[used], want[used], err_msg=f"motor {i + 1}")
+        assert not np.array_equal(np.sign(np.round(BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME[:, i], 3))[used],
+                                  want[used])
 
 
 def test_curve_shape_and_deadband():
@@ -77,10 +111,10 @@ def test_config_validation():
 
 
 def test_allocation_from_geometry_reproduces_the_bluerov2_matrix():
-    """Positions/directions consistent with the recovered matrix: a vertical
-    thruster at (x, y) = (0.12, -0.218), pointing up (-z), and a 45-degree
+    """Positions/directions consistent with the preset (FRD): motor 5 is the front-right vertical
+    thruster, at (x, y) = (0.12, 0.218), pushing down (+z) for a positive output; and a 45-degree
     horizontal one."""
-    B = allocation_from_geometry([[0.12, -0.218, 0.0]], [[0.0, 0.0, -1.0]])
+    B = allocation_from_geometry([[0.12, 0.218, 0.0]], [[0.0, 0.0, 1.0]])
     np.testing.assert_allclose(B[:, 0], BLUEROV2_HEAVY_ALLOCATION[:, 4], atol=1e-3)
     B = allocation_from_geometry([[0.0, 0.0, 0.0]], [[1.0, 1.0, 0.0]])
     np.testing.assert_allclose(B[:3, 0], [0.7071, 0.7071, 0.0], atol=1e-4)

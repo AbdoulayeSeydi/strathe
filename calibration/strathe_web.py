@@ -84,7 +84,7 @@ class JobManager:
 
     @staticmethod
     def _popen(cmd, log_file):
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1"}
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1", "PYTHONIOENCODING": "utf-8"}
         return subprocess.Popen(cmd, cwd=cli.CAL_DIR, stdout=log_file, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, env=env)
 
@@ -496,7 +496,7 @@ thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <input type=text id=cal-data name=data value="{html.escape(default_data)}">
 <label for=cal-name>Name for this calibration</label><input type=text id=cal-name name=name value="my_vehicle" required>
 <label for=cal-heldout>Recording dates to hold out for validation (optional, e.g. <code>16-02-2024 19-02-2024</code>;
-default: the latest 20%)</label>
+default: the latest 30% of dates, at least one)</label>
 <input type=text id=cal-heldout name=heldout value="">
 <label for=cal-spec>Vehicle description YAML, full path (optional; default: the BlueROV2 Heavy)</label>
 <input type=text id=cal-spec name=vehicle_spec value="">
@@ -511,6 +511,9 @@ current field above empty.</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
 <label class=inline><input type=checkbox id=cal-excl name=exclude_rp value=1 aria-label="Leave roll and pitch out of the fit"> Leave roll and pitch out of the fit
 (advanced: when your logs' roll/pitch motion isn't caused by the thrusters)</label>
+<label class=inline><input type=checkbox id=cal-finish name=finish value=1 aria-label="Finish an interrupted calibration"> Finish an
+interrupted calibration with this name (the computer slept or the run was stopped): keep its best result so far,
+marked not converged, and write the report. Same settings as the interrupted run.</label>
 <button>Start calibration</button></form></div>
 <div class=card><h2>One vehicle: train and test a controller</h2>
 <p class=muted>Trains controllers in the simulator on your calibrated vehicle and tests them on a task, with a
@@ -718,6 +721,11 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args.append("--estimate-current")
             if heldout:
                 args += ["--heldout-dates", *heldout]
+            if form.get("finish"):
+                if not os.path.exists(os.path.join(out, "checkpoint.yaml")):
+                    raise ValueError(f"Nothing to finish: no interrupted calibration named {name!r} "
+                                     f"(no checkpoint.yaml in {out}).")
+                args.append("--finish")
             return self.manager.start("calibrate", f"Calibration: {name}", args, [out])
         if path == "/jobs/arena":
             task = form.get("task", "waypoint")

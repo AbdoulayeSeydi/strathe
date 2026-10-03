@@ -16,7 +16,8 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 import thruster_model as tm
-from data_ingestion import ENU_TO_NED, FLU_TO_FRD, IngestError, ingest, load_ingest_spec, torque_reference_for
+from data_ingestion import (ENU_TO_NED, FLU_TO_FRD, IngestError, ingest, load_ingest_spec, reference_run_in_frd,
+                            torque_reference_for)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, "..", "templates")
@@ -54,8 +55,8 @@ def test_custom_layout_template_is_exactly_the_bluerov2_heavy():
     np.testing.assert_allclose(lay.wrench(pwm), tm.ThrusterConfig(pre.for_simulation().allocation, pre.directions,
                                                                    pre.curve).wrench(pwm), atol=0.02)
     # the two specs tell calibration how to treat their torques: the preset keeps the dataset's reference
-    # point (shift 8.5 cm); a layout is already about the thruster plane
-    assert torque_reference_for(preset_spec) == [0.0, 0.0, -0.085]
+    # point (shift 8.5 cm, z down in FRD); a layout is already about the thruster plane
+    assert torque_reference_for(preset_spec) == [0.0, 0.0, 0.085]
     assert torque_reference_for(layout_spec) == [0.0, 0.0, 0.0]
 
 
@@ -69,13 +70,14 @@ def test_allocation_template_matches_the_layout():
 
 
 def test_six_thruster_vehicle_without_pitch_authority():
-    """A 6-thruster BlueROV2-like layout: 4 vectored horizontal + 2 vertical on the centreline."""
-    layout = [{"position_m": [0.1335, -0.1335, 0], "direction": [-1, -1, 0], "reversed": True},
-              {"position_m": [0.1335, 0.1335, 0], "direction": [-1, 1, 0], "reversed": True},
-              {"position_m": [-0.1335, -0.1335, 0], "direction": [1, -1, 0]},
+    """A 6-thruster BlueROV2 (ArduSub's vectored frame, FRD): 4 vectored horizontal + 2 vertical on the
+    centreline."""
+    layout = [{"position_m": [0.1335, 0.1335, 0], "direction": [-1, 1, 0], "reversed": True},
+              {"position_m": [0.1335, -0.1335, 0], "direction": [-1, -1, 0], "reversed": True},
               {"position_m": [-0.1335, 0.1335, 0], "direction": [1, 1, 0]},
-              {"position_m": [0, -0.11, 0], "direction": [0, 0, -1]},
-              {"position_m": [0, 0.11, 0], "direction": [0, 0, -1], "reversed": True}]
+              {"position_m": [-0.1335, -0.1335, 0], "direction": [1, -1, 0]},
+              {"position_m": [0, 0.11, 0], "direction": [0, 0, 1], "reversed": True},
+              {"position_m": [0, -0.11, 0], "direction": [0, 0, 1]}]
     cfg = tm.thruster_block({"layout": layout, "curve": "t200", "voltage": 16})
     assert cfg.unreachable_axes() == ["pitch torque"]
     w = cfg.achievable_wrench([10, 0, 0, 0, 5, 0])
@@ -296,7 +298,7 @@ def _check_matches(got_csv, d, atol_v=1e-6, atol_f=5e-3):
 @needs_data
 @pytest.mark.parametrize("kind", ["ros1", "mcap", "sqlite3"])
 def test_real_runs_round_trip_through_ros_bags(tmp_path, kind):
-    d = pd.read_csv(REAL[0]).iloc[:600].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:600].reset_index(drop=True)
     target = tmp_path / "bags" / ("run.bag" if kind == "ros1" else "run")
     target.parent.mkdir()
     write_bag(target, d, kind)
@@ -313,12 +315,12 @@ def test_real_runs_round_trip_through_ros_bags(tmp_path, kind):
     assert len(got) >= 598
     rep = summary["files"][0]["bag"]
     assert rep["topics"]["/odom"]["timestamps"] == "header.stamp"
-    assert summary["torque_reference_offset_m"] == [0.0, 0.0, -0.085]
+    assert summary["torque_reference_offset_m"] == [0.0, 0.0, 0.085]
 
 
 @needs_data
 def test_sqlite3_bag_with_custom_messages_and_no_definitions_says_what_to_do(tmp_path):
-    d = pd.read_csv(REAL[0]).iloc[:100]
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:100]
     (tmp_path / "bags").mkdir()
     write_bag(tmp_path / "bags" / "run", d, "sqlite3")
     strip_definitions(tmp_path / "bags" / "run")
@@ -329,7 +331,7 @@ def test_sqlite3_bag_with_custom_messages_and_no_definitions_says_what_to_do(tmp
 @needs_data
 def test_topics_at_different_rates_and_times(tmp_path):
     """Odometry at 50 Hz starting 13 ms late, PWM at 5 Hz: velocities are interpolated, PWM held."""
-    d = pd.read_csv(REAL[1]).iloc[:600].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[1])).iloc[:600].reset_index(drop=True)
     d_fine = d.copy()
     (tmp_path / "bags").mkdir()
     write_bag(tmp_path / "bags" / "run.bag", d_fine, "ros1", odom_dt=0.02, odom_offset=0.013, rc_dt=0.2)
@@ -349,7 +351,7 @@ def test_topics_at_different_rates_and_times(tmp_path):
 
 @needs_data
 def test_receive_time_option_and_bag_errors(tmp_path):
-    d = pd.read_csv(REAL[0]).iloc[:120]
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:120]
     (tmp_path / "bags").mkdir()
     write_bag(tmp_path / "bags" / "run.bag", d, "ros1")
     s = ingest(load_ingest_spec(bag_spec(tmp_path, "bags/*.bag", source={"stamp": "receive"})), str(tmp_path / "o1"))
@@ -392,7 +394,7 @@ def test_preflight_passes_on_converted_logs_and_catches_a_wrong_rate(tmp_path):
     for i, src in enumerate((REAL[0], REAL[-1])):
         old, T0 = T0, 1_707_000_000.0 + 86400.0 * 3 * i  # two different days
         try:
-            write_bag(tmp_path / "bags" / f"run{i}.bag", pd.read_csv(src).iloc[:400], "ros1")
+            write_bag(tmp_path / "bags" / f"run{i}.bag", reference_run_in_frd(pd.read_csv(src)).iloc[:400], "ros1")
         finally:
             T0 = old
     out = tmp_path / "out"
@@ -446,7 +448,7 @@ def test_random_thruster_layouts_never_exceed_a_thruster_and_report_what_they_ca
 def test_bags_with_messy_timing(tmp_path):
     """Messages written out of order, duplicated stamps, jittered stamps and a gap: ingestion sorts,
     drops duplicates, interpolates, reports the gap, and the result stays close to the original."""
-    d = pd.read_csv(REAL[2]).iloc[:500].reset_index(drop=True)
+    d = reference_run_in_frd(pd.read_csv(REAL[2])).iloc[:500].reset_index(drop=True)
     ts = _typestore(True)
     lin, ang, q = _ros_frames(d)
     pwm = np.ascontiguousarray(d[[f"pwm{i}" for i in range(1, 9)]].values.astype(np.uint16))

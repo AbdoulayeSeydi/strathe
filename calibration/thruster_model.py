@@ -26,6 +26,20 @@ pwm_virtual_i, thrust_i, and Fx..Tz). From it:
 tests/test_thruster_model.py reproduces the dataset's Fx..Tz from raw PWM
 alone to floating-point precision on every row.
 
+## Frames: the dataset is ROS FLU/ENU; the preset is FRD (PROJECT_STATUS.md #62)
+The reference dataset is a ROS recording: its world z points up (depths are
+negative) and its body frame is forward-left-up. The allocation recovered
+from it (BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME) is therefore in FLU, the
+mirror image in y and z of ArduSub's own motor definitions. The preset,
+bluerov2_heavy(), is the same vehicle in FRD (forward-right-down), matching
+ArduSub's motor numbering and every lab log Strathe converts to FRD. Checked
+against ArduSub's VECTORED_6DOF motor factors (tests/test_thruster_model.py)
+and against a second, independent ArduSub BlueROV2 with motion capture
+(DFKI, tests/test_dfki_tether_pilot.py): in the FLU version, yaw torque runs
+opposite to the vehicle's own measured yaw rate in 14 of 14 runs.
+bluerov2_heavy(frame="reference") keeps the as-recovered version for
+reproducing the dataset's own logged forces.
+
 ## Other voltages
 The T200's thrust grows with supply voltage. at_voltage() rescales the
 reference curve so its forward and reverse maxima match Blue Robotics'
@@ -72,8 +86,8 @@ KGF = 9.80665
 T200_PUBLISHED_MAX_KGF = {12.0: (3.71, 2.92), 16.0: (5.25, 4.10), 20.0: (6.70, 5.05)}
 
 # BlueROV2 Heavy allocation (rows Fx, Fy, Fz, Tx, Ty, Tz; columns thrusters 1-8),
-# recovered exactly from the dataset (see module docstring).
-BLUEROV2_HEAVY_ALLOCATION = np.array([
+# recovered exactly from the dataset (see module docstring), in the dataset's own ROS FLU frame.
+BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME = np.array([
     [-0.7071, -0.7071, 0.7071, 0.7071, 0.0, 0.0, 0.0, 0.0],
     [-0.7071, 0.7071, -0.7071, 0.7071, 0.0, 0.0, 0.0, 0.0],
     [0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, -1.0],
@@ -82,9 +96,16 @@ BLUEROV2_HEAVY_ALLOCATION = np.array([
     [-0.1888, 0.1888, 0.1888, -0.1888, 0.0, 0.0, 0.0, 0.0],
 ])
 BLUEROV2_HEAVY_DIRECTIONS = np.array([-1, -1, 1, 1, -1, 1, 1, -1])
-# the dataset's torques are about a point 8.5 cm below the horizontal thrusters; this moves them to
-# the thruster plane (same value as vehicle_spec.yaml data_conventions, PROJECT_STATUS.md #50)
+# the dataset's torques are about a point 8.5 cm below the horizontal thrusters (z is up in its FLU
+# frame); this moves them to the thruster plane (same value as vehicle_spec.yaml data_conventions,
+# PROJECT_STATUS.md #50)
 BLUEROV2_DATASET_TORQUE_OFFSET_M = (0.0, 0.0, -0.085)
+
+# FLU <-> FRD for a wrench: a half turn about x flips y and z of the force and of the torque
+FLU_TO_FRD_WRENCH = np.diag([1.0, -1.0, -1.0, 1.0, -1.0, -1.0])
+# The same vehicle in FRD, ArduSub's own motor numbering: what lab logs need (PROJECT_STATUS.md #62)
+BLUEROV2_HEAVY_ALLOCATION = FLU_TO_FRD_WRENCH @ BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME
+BLUEROV2_HEAVY_TORQUE_OFFSET_M = (0.0, 0.0, 0.085)  # the same point, 8.5 cm below, with z down
 
 
 def _published_max_n(voltage: float) -> tuple:
@@ -222,14 +243,21 @@ class ThrusterConfig:
         return np.array([self.achievable_wrench(1e6 * np.eye(6)[j])[j] for j in range(6)])
 
 
-def bluerov2_heavy(voltage: Optional[float] = None) -> ThrusterConfig:
+def bluerov2_heavy(voltage: Optional[float] = None, frame: str = "frd") -> ThrusterConfig:
     """BlueROV2 Heavy (8 x T200), validated against the oceansystemslab dataset.
-    voltage=None uses the dataset's own curve (~15 V)."""
+    voltage=None uses the dataset's own curve (~15 V). frame="frd" (the preset everywhere: ArduSub's
+    motor numbering in forward-right-down); frame="reference" gives the dataset's own FLU version,
+    only for reproducing its logged forces (module docstring)."""
     curve = ThrustCurve.t200_bluerov2_dataset()
     if voltage is not None:
         curve = curve.at_voltage(voltage)
-    return ThrusterConfig(BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_DIRECTIONS, curve, "BlueROV2 Heavy",
-                          BLUEROV2_DATASET_TORQUE_OFFSET_M)
+    if frame == "frd":
+        return ThrusterConfig(BLUEROV2_HEAVY_ALLOCATION, BLUEROV2_HEAVY_DIRECTIONS, curve, "BlueROV2 Heavy",
+                              BLUEROV2_HEAVY_TORQUE_OFFSET_M)
+    if frame == "reference":
+        return ThrusterConfig(BLUEROV2_HEAVY_ALLOCATION_REFERENCE_FRAME, BLUEROV2_HEAVY_DIRECTIONS, curve,
+                              "BlueROV2 Heavy (reference dataset's FLU frame)", BLUEROV2_DATASET_TORQUE_OFFSET_M)
+    raise ValueError(f"frame must be 'frd' or 'reference', got {frame!r}")
 
 
 AXIS_NAMES = ("surge force", "sway force", "heave force", "roll torque", "pitch torque", "yaw torque")

@@ -1,0 +1,28 @@
+generated_at_utc: '2026-10-03T18:20:50.571047+00:00'
+spec_version: 0.3.0
+git_commit: a054deb581d029ee28b4df73b6539c89d700363e
+note: 'finalized from checkpoint, not formally converged: interrupted; finished from
+  its checkpoint with strathe calibrate --finish (600 evaluations)'
+parameters:
+  Ieff_roll: 0.2550000000010744
+  Ieff_pitch: 0.23499999999999996
+  Ieff_yaw: 1.1022428191239622
+  Xu: -49.9999999996591
+  Yv: -72.7262843243656
+  Zw: -71.3477721684748
+  Kp: -9.999999999999861
+  Mq: -4.999999999503178
+  Nr: -6.000491949002292
+  Xuu: -99.99999999750278
+  Yvv: -99.99999999988039
+  Zww: -3.0000000215728635
+  Kpp: -9.999999999999917
+  Mqq: -9.999999999804649
+  Nrr: -2.433025465389311
+  Xu_dot: 22.208549197684658
+  Yv_dot: 26.054511106610413
+  Zw_dot: 26.413588172036853
+  net_buoyancy_z: 0.9999999999999999
+  cg_cb_offset_z: 0.0022583905696013156
+  Xq_dot: -0.031823462569427086
+  Zq_dot: 0.034578050434869376

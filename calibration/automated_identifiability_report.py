@@ -140,7 +140,8 @@ def main():
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--spec", required=True)
     parser.add_argument("--sampling-rate-hz", type=float, default=10.0)
-    parser.add_argument("--heldout-dates", nargs="*", default=["16-02-2024", "19-02-2024"])
+    parser.add_argument("--heldout-dates", nargs="*", default=None,
+                        help="recording dates to hold out (DD-MM-YYYY); default: the same split calibration uses")
     parser.add_argument("--calibrated-params")
     parser.add_argument("--correlation-threshold", type=float, default=0.8)
     parser.add_argument("--n-runs", type=int, default=None,

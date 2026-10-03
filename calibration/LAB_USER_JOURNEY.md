@@ -164,8 +164,10 @@ python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 - ROS 1 `.bag` and ROS 2 `.mcap`/`.db3` are read directly.
 - Units and ROS FLU/ENU frames are converted.
 - It refuses the classic silent errors.
+- Logs exported as one CSV per sensor need merging onto one time base first: `calibration/examples/dfki_tether/`
+  is a worked example on a second public BlueROV2 dataset (motion capture + ArduSub telemetry, #62).
 
-**C2. My logs have thruster PWM, not forces.** PASS. Choose one:
+**C2. My logs have thruster PWM, not forces.** PASS. In ArduSub's motor numbering, FRD (#62). Choose one:
 - the BlueROV2 Heavy preset
 - a per-thruster `layout` for any vehicle, including ones that can't push every axis
 - your own allocation matrix and thrust curve
@@ -177,9 +179,12 @@ python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 4. which values the data can pin down
 5. the report
 
-It stops with a plain message at the first failing step. If the fit runs out of its evaluation budget,
+It stops with a plain message at the first failing step. Checked end to end, every step as its own process, on
+logs with their own dates (`tests/test_calibrate_end_to_end.py`): until #62 the data check only worked on the
+reference dataset's dates. If the fit runs out of its evaluation budget,
 the best result so far is kept, marked not converged, and the report is still written.
-The web page has the same form.
+If it is interrupted (the machine slept, the run was stopped), the same command with `--finish`
+does the same from its checkpoint. The web page has the same form.
 
 **C4. My logs aren't at 10 Hz.** PASS. The rate measured from the timestamps is
 recorded and used by every step. Before this, `strathe calibrate` silently

@@ -1,0 +1,92 @@
+{
+  "condition_number": 20592.820929082558,
+  "correlated_pairs": [
+    {
+      "param_a": "Xu",
+      "param_b": "Xuu",
+      "correlation": -0.9865677031554717
+    },
+    {
+      "param_a": "Zw",
+      "param_b": "Zww",
+      "correlation": -0.9526344799333106
+    },
+    {
+      "param_a": "Kp",
+      "param_b": "Kpp",
+      "correlation": -0.9361674606256476
+    },
+    {
+      "param_a": "Yv",
+      "param_b": "Yvv",
+      "correlation": -0.9031054545843905
+    },
+    {
+      "param_a": "Nr",
+      "param_b": "Nrr",
+      "correlation": -0.8950045244503044
+    }
+  ],
+  "weak_combinations": [
+    {
+      "parameters": [
+        "Ieff_pitch",
+        "Ieff_roll"
+      ],
+      "relative_strength": 4.856061262533163e-05
+    },
+    {
+      "parameters": [
+        "Ieff_roll",
+        "Ieff_pitch"
+      ],
+      "relative_strength": 5.3844457033319625e-05
+    },
+    {
+      "parameters": [
+        "Mqq"
+      ],
+      "relative_strength": 0.0005835153949288355
+    }
+  ],
+  "free_parameters": [
+    "Ieff_roll",
+    "Ieff_pitch",
+    "Ieff_yaw",
+    "Xu",
+    "Yv",
+    "Zw",
+    "Kp",
+    "Mq",
+    "Nr",
+    "Xuu",
+    "Yvv",
+    "Zww",
+    "Kpp",
+    "Mqq",
+    "Nrr",
+    "Xu_dot",
+    "Yv_dot",
+    "Zw_dot",
+    "net_buoyancy_z",
+    "cg_cb_offset_z",
+    "Xq_dot",
+    "Zq_dot"
+  ],
+  "held_parameters": [],
+  "n_train_runs_used": 14,
+  "correlation_threshold": 0.8,
+  "objective": {
+    "sampling_rate_hz": 10.0,
+    "torque_reference_offset_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "current_world_mps": null,
+    "axis_scaling": "zero_rms",
+    "excluded_axes": [],
+    "prediction_horizon_samples": null
+  },
+  "elapsed_s": 35.1
+}

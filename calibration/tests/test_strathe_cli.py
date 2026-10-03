@@ -196,6 +196,23 @@ def test_calibration_form_starts_exactly_the_cli_command(server):
     assert status == 200 and "working..." in body and "running" in body
 
 
+def test_calibration_form_finishes_an_interrupted_run(server):
+    import shutil
+    request, token, started, manager, tmp_path = server
+    form = {"token": token, "data": str(tmp_path), "name": "pytest_finish_check", "finish": "1"}
+    out = os.path.join(cli.REPO_DIR, "calibration_output_pytest_finish_check")
+    shutil.rmtree(out, ignore_errors=True)
+    status, body, _ = request("POST", "/jobs/calibrate", form)
+    assert status == 400 and "Nothing to finish" in body and not started
+    try:
+        os.makedirs(out)
+        open(os.path.join(out, "checkpoint.yaml"), "w").write("best_parameters_so_far: {}\n")
+        status, _, _ = request("POST", "/jobs/calibrate", form)
+        assert status == 303 and started[-1][-1] == "--finish"
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
 @pytest.mark.parametrize("form,msg", [
     ({"data": "/definitely/not/here", "name": "x"}, "Folder not found"),
     ({"data": ".", "name": "x", "heldout": "yesterday"}, "Held-out dates"),
@@ -506,6 +523,35 @@ def test_calibrate_keeps_the_best_result_when_the_budget_runs_out(tmp_path, caps
     import finalize_checkpoint
     parsed = finalize_checkpoint.build_parser().parse_args(fin[2:])
     assert parsed.exclude_axes == ["p", "q"] and parsed.axis_scaling == "zero_rms" and parsed.heldout_dates is None
+
+
+def test_calibrate_finish_turns_an_interrupted_fit_into_a_result(tmp_path, capsys):
+    """The machine slept or the run was stopped: the same command plus --finish skips conversion, the data
+    check and the fit, and finalizes the checkpoint with the settings the fit was given (from the ingestion
+    report here), then checks identifiability and writes the report."""
+    out = tmp_path / "res"
+    logs = out / "ingested_logs"
+    logs.mkdir(parents=True)
+    (logs / "ingest_report.json").write_text('{"sampling_rate_hz": 9.4, "torque_reference_offset_m": [0, 0, 0.085]}')
+    spec = tmp_path / "spec.yaml"
+    spec.write_text("vehicle: x\n")
+    calls = []
+    run = lambda cmd: calls.append(cmd) or 0
+    assert cli.main(["calibrate", "--ingest-spec", str(spec), "--out", str(out), "--finish"], runner=run) == 2
+    assert "no checkpoint.yaml" in capsys.readouterr().out and not calls
+    (out / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    assert cli.main(["calibrate", "--ingest-spec", str(spec), "--out", str(out), "--finish"], runner=run) == 0
+    assert [c[1] for c in calls] == ["finalize_checkpoint.py", "automated_identifiability_report.py",
+                                     "calibration_report.py"]
+    fin = calls[0]
+    assert fin[fin.index("--sampling-rate-hz") + 1] == "9.4" and fin[fin.index("--axis-scaling") + 1] == "zero_rms"
+    assert fin[fin.index("--torque-reference-offset-m") + 1:fin.index("--torque-reference-offset-m") + 4] == \
+        ["0", "0", "0.085"]
+    assert "interrupted" in fin[fin.index("--reason") + 1]
+    import finalize_checkpoint
+    finalize_checkpoint.build_parser().parse_args(fin[2:])
+    assert cli.main(["calibrate", "--data", str(logs), "--out", str(out), "--finish", "--estimate-current"],
+                    runner=run) == 2
 
 
 def test_calibrate_without_a_checkpoint_still_fails_clearly(tmp_path, capsys):

@@ -22,6 +22,10 @@ can pin down, and writes a plain-language report. To only convert:
 
 Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
 
+CSV ingestion reads **one table per recording**. If your logs are one CSV per sensor at different
+rates (a common export), merge them onto one time base first; `../examples/dfki_tether/` does exactly
+that for a public dataset (motion capture + ArduSub telemetry) and is a worked example to copy.
+
 ## What every spec needs
 
 - **Velocity** (surge, sway, heave, roll/pitch/yaw rates): from a DVL or
@@ -40,8 +44,10 @@ Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start fr
 
 ## Thrusters
 
-- `preset: bluerov2_heavy`: the validated BlueROV2 Heavy. It reproduces the
-  reference dataset's forces from PWM on all 183,555 rows.
+- `preset: bluerov2_heavy`: the validated BlueROV2 Heavy, in ArduSub's motor
+  numbering and FRD. It reproduces the reference dataset's forces from PWM on all
+  183,555 rows (that dataset is in ROS FLU, so they match after flipping y and z;
+  PROJECT_STATUS.md #62).
 - `layout:`: any vehicle. Give one entry per thruster, in PWM-column order:
   - `position_m`: x, y from the vehicle's centre; z from the plane of the
     horizontal thrusters.
@@ -49,7 +55,11 @@ Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start fr
   - `reversed`: ArduSub `MOT_n_DIRECTION = -1`.
 
   The custom-thrusters template is a BlueROV2 Heavy written this way, as an
-  example. A test checks it matches the preset exactly.
+  example. A test checks it matches the preset exactly. For ArduSub, "positive
+  thrust" is a positive motor output, in the direction ArduSub's own motor factors
+  give that motor (forward; lateral = right; throttle -1 = pushes down).
+  `../examples/dfki_tether/ingest_dfki_tether.yaml` is a standard 6-thruster
+  BlueROV2 (ArduSub's vectored frame), checked against motion capture.
 - `allocation_csv:` + `directions:`: if you already have the 6 x n matrix
   (`allocation_template.csv`).
 - `curve: t200` (default), optionally with `voltage:` (12–20 V). Or give your own

@@ -100,6 +100,18 @@ FLU_TO_FRD = np.diag([1.0, -1.0, -1.0])                                # body ve
 ENU_TO_NED = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]])  # world vectors
 
 CANONICAL_COLUMNS = ["Fx", "Fy", "Fz", "Tx", "Ty", "Tz", "Bu", "Bv", "Bw", "Bp", "Bq", "Br", "qx", "qy", "qz", "qw"]
+
+
+def reference_run_in_frd(df: pd.DataFrame) -> pd.DataFrame:
+    """A run of the reference oceansystemslab dataset, whose numbers are ROS FLU body / ENU world (z up;
+    PROJECT_STATUS.md #62), converted to FRD/NED exactly as `frame: flu` ingestion converts a lab's
+    ROS logs. Other columns (pwm*, positions) are kept as they are."""
+    out = df.copy()
+    for c in ("Bv", "Bw", "Bq", "Br", "Fy", "Fz", "Ty", "Tz"):
+        out[c] = -df[c]
+    R = Rotation.from_quat(df[["qx", "qy", "qz", "qw"]].values).as_matrix()
+    out[["qx", "qy", "qz", "qw"]] = Rotation.from_matrix(ENU_TO_NED @ R @ FLU_TO_FRD).as_quat()
+    return out
 assert set(CANONICAL_COLUMNS) == set(REQUIRED_COLUMNS), "keep in step with objective.REQUIRED_COLUMNS"
 
 # Beyond these, a declared unit is almost certainly wrong (e.g. deg/s logged as rad/s)
@@ -505,6 +517,11 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
                "sessions": {d: c for d, c in sorted(counters.items())},
                "torque_reference_offset_m": torque_reference_for(spec), "files": reports,
                "next_step": f"python strathe.py calibrate --data {out_dir} --name {spec.vehicle}"}
+    if len(counters) == 1:
+        summary.setdefault("warnings", []).append(
+            f"every recording is from one session ({next(iter(counters))}); calibration needs at least two, "
+            f"because it checks itself on a session it never saw. Give recordings from different sessions "
+            f"(e.g. morning and afternoon, or different manoeuvres) different dates via session_date")
     if spec.wrench.thrusters is not None:
         import thruster_model as tm
         cfg = _thruster_config(spec)
@@ -524,6 +541,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--spec", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--no-next-step", action="store_true", help=argparse.SUPPRESS)  # inside `strathe calibrate`
     args = ap.parse_args(argv)
     try:
         s = ingest(load_ingest_spec(args.spec), args.out)
@@ -537,7 +555,8 @@ def main(argv=None) -> int:
         print(f"WARNING: {w}")
     print(f"Ingested {s['n_files']} file(s) at {s['sampling_rate_hz']} Hz across {len(s['sessions'])} session date(s) "
           f"-> {args.out} ({n_warn} warning(s); see ingest_report.json)")
-    print(f"Next: {s['next_step']}")
+    if not args.no_next_step:
+        print(f"Next: {s['next_step']}")
     return 0
 
 

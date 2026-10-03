@@ -13,10 +13,17 @@ The episodes: the shipped default experiment's cells for two policy seeds
 roll/pitch disturbance, a fluctuating current and thruster limits on, a few on
 MuJoCo, and single-vehicle runs of every task on both engines with and without
 those options (every observation and reward hashed).
+
+The reference was regenerated once, deliberately, in #62: the BlueROV2 Heavy
+thruster preset became FRD (ArduSub's numbering), which changes the
+thruster-limited runs only (192 of 216 fleet episodes, by a median 9 mm of
+separation error, success 96.8% -> 97.2%; the 8 arena runs with thrusters on).
+Every other episode was still identical to 6c8a2ef (clean_reference_6c8a2ef.json
+in git history).
 """
 import hashlib, json, os, sys
 import numpy as np
-REFERENCE = "results/stress_noise_algorithms/clean_reference_6c8a2ef.json"
+REFERENCE = "results/stress_noise_algorithms/clean_reference_62.json"
 from build_two_agent_cores import load_calibrated_parameters
 from optimizer import initial_parameters, load_vehicle_spec
 from fleet_experiment_schema import load_fleet_experiment
