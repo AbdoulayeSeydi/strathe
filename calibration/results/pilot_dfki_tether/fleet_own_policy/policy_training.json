@@ -1,5 +1,5 @@
 {
-  "policy": "<pilot runs>/dfki_fleet_policy.zip",
+  "policy": "<pilot runs>/fleet_policy.zip",
   "contract": {
     "observation": "Box(13,) float32",
     "action": "Box(6,) float32 in [-1, 1]",
@@ -63,9 +63,9 @@
       "link": "acoustic"
     }
   },
-  "git_commit": "bc73d36cf28358ea2c29b9d18f46004f09d8ca80",
+  "git_commit": "a289d7de15c02046ae3163db508bc70626b6bad9",
   "git_uncommitted_changes": false,
   "python": "3.13.5",
-  "elapsed_s": 1235.7,
-  "transitions_per_s": 2427.8
+  "elapsed_s": 1639.2,
+  "transitions_per_s": 1830.2
 }

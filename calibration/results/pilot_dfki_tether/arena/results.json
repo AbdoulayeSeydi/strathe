@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "name": "arena",
+    "task": "station_keeping",
+    "params": "<calibration output>/calibrated_parameters.yaml",
+    "spec": "<repo>/calibration/vehicle_spec.yaml",
+    "current": null,
+    "current_described": null,
+    "thrusters": "<repo>/calibration/examples/dfki_tether/ingest_dfki_tether.yaml",
+    "thrusters_described": "custom layout: 6 thrusters, curve T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V (+43.2 N / -33.8 N); max force 96/96/86 N, max torque 7.4/0.0/25.6 N*m (surge/sway/heave, roll/pitch/yaw); can't push: pitch torque",
+    "seeds": 2,
+    "engines": [
+      "stand_in"
+    ],
+    "disturbance": null,
+    "disturbance_scale": 1.0,
+    "disturbance_described": null,
+    "algorithm": "ppo",
+    "mode": "clean",
+    "noise": null,
+    "noise_scale": 1.0,
+    "noise_described": null,
+    "start_fix_error_m": null,
+    "buoyancy": null,
+    "buoyancy_described": null,
+    "compare_clean_training": false,
+    "noise_training_contrasts": {},
+    "timesteps": 450000,
+    "n_episodes": 100,
+    "max_episode_steps": 200,
+    "compare_generic": true,
+    "policy": null,
+    "command": "python run_arena_experiment.py --params <calibration output>/calibrated_parameters.yaml --spec <repo>/calibration/vehicle_spec.yaml --task station_keeping --seeds 2 --timesteps 450000 --episodes 100 --workers 7 --compare-generic --thrusters <repo>/calibration/examples/dfki_tether/ingest_dfki_tether.yaml --backend stand_in --algorithm ppo --out <pilot runs>/arena",
+    "python": "3.13.5",
+    "elapsed_s": 912.5
+  },
+  "summary": [
+    {
+      "controller": "trained on your calibration",
+      "engine": "stand_in",
+      "episodes": 200,
+      "success_rate": 1.0,
+      "ci": [
+        0.9811539940816791,
+        1.0
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 8.74,
+      "mean_final_distance_m": 0.299,
+      "mean_effort_Ns": 513.3,
+      "mean_nav_error_m": 0.0
+    },
+    {
+      "controller": "trained on default physics",
+      "engine": "stand_in",
+      "episodes": 200,
+      "success_rate": 1.0,
+      "ci": [
+        0.9811539940816791,
+        1.0
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 6.65,
+      "mean_final_distance_m": 0.052,
+      "mean_effort_Ns": 439.8,
+      "mean_nav_error_m": 0.0
+    },
+    {
+      "controller": "hand-written controller",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.85,
+      "ci": [
+        0.7671626666784216,
+        0.906940968088377
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": 14.81,
+      "mean_final_distance_m": 0.396,
+      "mean_effort_Ns": 286.9,
+      "mean_nav_error_m": 0.0
+    },
+    {
+      "controller": "random commands",
+      "engine": "stand_in",
+      "episodes": 100,
+      "success_rate": 0.0,
+      "ci": [
+        0.0,
+        0.03699480747600191
+      ],
+      "collision_rate": 0.0,
+      "mean_time_to_success_s": null,
+      "mean_final_distance_m": 2.983,
+      "mean_effort_Ns": 802.8,
+      "mean_nav_error_m": 0.0
+    }
+  ],
+  "calibrated_vs_default": {
+    "diff": 0.0,
+    "ci": [
+      0.0,
+      0.0
+    ],
+    "n_pairs": 200
+  },
+  "noise_trained_vs_clean_trained_by_engine": {},
+  "calibrated_vs_default_by_engine": {
+    "stand_in": {
+      "diff": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "n_pairs": 200
+    }
+  },
+  "per_seed": [
+    {
+      "physics": "calibrated",
+      "seed": 1,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    },
+    {
+      "physics": "calibrated",
+      "seed": 2,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    },
+    {
+      "physics": "generic",
+      "seed": 1,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    },
+    {
+      "physics": "generic",
+      "seed": 2,
+      "engine": "stand_in",
+      "success_rate": 1.0
+    }
+  ],
+  "policies": [
+    {
+      "policy": "<pilot runs>/arena/policies/ppo_calibrated_seed1.zip",
+      "physics": "calibrated",
+      "seed": 1,
+      "algorithm": "ppo",
+      "train_s": 863.0
+    },
+    {
+      "policy": "<pilot runs>/arena/policies/ppo_calibrated_seed2.zip",
+      "physics": "calibrated",
+      "seed": 2,
+      "algorithm": "ppo",
+      "train_s": 865.5
+    },
+    {
+      "policy": "<pilot runs>/arena/policies/ppo_generic_seed1.zip",
+      "physics": "generic",
+      "seed": 1,
+      "algorithm": "ppo",
+      "train_s": 870.8
+    },
+    {
+      "policy": "<pilot runs>/arena/policies/ppo_generic_seed2.zip",
+      "physics": "generic",
+      "seed": 2,
+      "algorithm": "ppo",
+      "train_s": 863.0
+    }
+  ]
+}

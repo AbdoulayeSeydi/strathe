@@ -1,9 +1,10 @@
 {
-  "vehicle": "dfki_bluerov2",
+  "vehicle": "dfki_bluerov2_slack",
   "n_files": 22,
+  "n_recordings": 57,
   "sampling_rate_hz": 10.0,
   "sessions": {
-    "01-01-2025": 14,
+    "01-01-2025": 49,
     "02-01-2025": 8
   },
   "torque_reference_offset_m": [
@@ -20,20 +21,111 @@
       "timestamp_jitter_pct": 7.162,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.28,
+        "median": 13.8,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 962
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.9519,
       "max_abs_angular_velocity_radps": 2.361,
-      "rows_out": 2327,
+      "rows_out": 151,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run1.csv"
+      "kept_after_exclusions": "775 of 2327 samples, in 4 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run1.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_10m.csv",
+      "rows_in": 2328,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9976,
+      "timestamp_jitter_pct": 7.162,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.28,
+        "median": 13.8,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 962
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9519,
+      "max_abs_angular_velocity_radps": 2.361,
+      "rows_out": 126,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "775 of 2327 samples, in 4 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run2.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_10m.csv",
+      "rows_in": 2328,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9976,
+      "timestamp_jitter_pct": 7.162,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.28,
+        "median": 13.8,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 962
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9519,
+      "max_abs_angular_velocity_radps": 2.361,
+      "rows_out": 203,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "775 of 2327 samples, in 4 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run3.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_10m.csv",
+      "rows_in": 2328,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9976,
+      "timestamp_jitter_pct": 7.162,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.28,
+        "median": 13.8,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 962
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9519,
+      "max_abs_angular_velocity_radps": 2.361,
+      "rows_out": 295,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "775 of 2327 samples, in 4 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run4.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_11m.csv",
       "rows_in": 1730,
       "warnings": [
-        "1 time gap(s) longer than 2.5 samples; open-loop replay will integrate across them"
+        "1 time gap(s) longer than 2.5 samples, 9.9 s in all (5% of the recording); open-loop replay will integrate across them"
       ],
       "detected_sampling_rate_hz": 9.9985,
       "timestamp_jitter_pct": 237.594,
@@ -43,15 +135,166 @@
           "length_s": 9.98
         }
       ],
+      "time_gaps_total_s": 9.88,
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.06,
+        "median": 13.65,
+        "max": 14.36
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 495
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.8623,
       "max_abs_angular_velocity_radps": 2.4195,
-      "rows_out": 1824,
+      "rows_out": 144,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run2.csv"
+      "kept_after_exclusions": "1009 of 1824 samples, in 5 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run5.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_11m.csv",
+      "rows_in": 1730,
+      "warnings": [
+        "1 time gap(s) longer than 2.5 samples, 9.9 s in all (5% of the recording); open-loop replay will integrate across them"
+      ],
+      "detected_sampling_rate_hz": 9.9985,
+      "timestamp_jitter_pct": 237.594,
+      "time_gaps": [
+        {
+          "at_s": 34.99,
+          "length_s": 9.98
+        }
+      ],
+      "time_gaps_total_s": 9.88,
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.06,
+        "median": 13.65,
+        "max": 14.36
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 495
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8623,
+      "max_abs_angular_velocity_radps": 2.4195,
+      "rows_out": 245,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1009 of 1824 samples, in 5 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run6.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_11m.csv",
+      "rows_in": 1730,
+      "warnings": [
+        "1 time gap(s) longer than 2.5 samples, 9.9 s in all (5% of the recording); open-loop replay will integrate across them"
+      ],
+      "detected_sampling_rate_hz": 9.9985,
+      "timestamp_jitter_pct": 237.594,
+      "time_gaps": [
+        {
+          "at_s": 34.99,
+          "length_s": 9.98
+        }
+      ],
+      "time_gaps_total_s": 9.88,
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.06,
+        "median": 13.65,
+        "max": 14.36
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 495
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8623,
+      "max_abs_angular_velocity_radps": 2.4195,
+      "rows_out": 237,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1009 of 1824 samples, in 5 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run7.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_11m.csv",
+      "rows_in": 1730,
+      "warnings": [
+        "1 time gap(s) longer than 2.5 samples, 9.9 s in all (5% of the recording); open-loop replay will integrate across them"
+      ],
+      "detected_sampling_rate_hz": 9.9985,
+      "timestamp_jitter_pct": 237.594,
+      "time_gaps": [
+        {
+          "at_s": 34.99,
+          "length_s": 9.98
+        }
+      ],
+      "time_gaps_total_s": 9.88,
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.06,
+        "median": 13.65,
+        "max": 14.36
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 495
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8623,
+      "max_abs_angular_velocity_radps": 2.4195,
+      "rows_out": 140,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1009 of 1824 samples, in 5 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run8.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_11m.csv",
+      "rows_in": 1730,
+      "warnings": [
+        "1 time gap(s) longer than 2.5 samples, 9.9 s in all (5% of the recording); open-loop replay will integrate across them"
+      ],
+      "detected_sampling_rate_hz": 9.9985,
+      "timestamp_jitter_pct": 237.594,
+      "time_gaps": [
+        {
+          "at_s": 34.99,
+          "length_s": 9.98
+        }
+      ],
+      "time_gaps_total_s": 9.88,
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.06,
+        "median": 13.65,
+        "max": 14.36
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 495
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8623,
+      "max_abs_angular_velocity_radps": 2.4195,
+      "rows_out": 243,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1009 of 1824 samples, in 5 piece(s)",
+      "piece": 5,
+      "output": "dfki_bluerov2_slack-01-01-2025-run9.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
@@ -61,14 +304,159 @@
       "timestamp_jitter_pct": 6.671,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 1.0221,
       "max_abs_angular_velocity_radps": 2.6568,
-      "rows_out": 2541,
+      "rows_out": 170,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run3.csv"
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run10.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
+      "rows_in": 2542,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.671,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0221,
+      "max_abs_angular_velocity_radps": 2.6568,
+      "rows_out": 179,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run11.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
+      "rows_in": 2542,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.671,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0221,
+      "max_abs_angular_velocity_radps": 2.6568,
+      "rows_out": 238,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run12.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
+      "rows_in": 2542,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.671,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0221,
+      "max_abs_angular_velocity_radps": 2.6568,
+      "rows_out": 228,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run13.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
+      "rows_in": 2542,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.671,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0221,
+      "max_abs_angular_velocity_radps": 2.6568,
+      "rows_out": 201,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 5,
+      "output": "dfki_bluerov2_slack-01-01-2025-run14.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_12m.csv",
+      "rows_in": 2542,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.671,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.48,
+        "max": 14.25
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 755
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0221,
+      "max_abs_angular_velocity_radps": 2.6568,
+      "rows_out": 185,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1201 of 2541 samples, in 6 piece(s)",
+      "piece": 6,
+      "output": "dfki_bluerov2_slack-01-01-2025-run15.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
@@ -78,14 +466,159 @@
       "timestamp_jitter_pct": 7.012,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.9615,
       "max_abs_angular_velocity_radps": 2.6255,
-      "rows_out": 1584,
+      "rows_out": 186,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run4.csv"
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run16.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
+      "rows_in": 1585,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 7.012,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9615,
+      "max_abs_angular_velocity_radps": 2.6255,
+      "rows_out": 132,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run17.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
+      "rows_in": 1585,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 7.012,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9615,
+      "max_abs_angular_velocity_radps": 2.6255,
+      "rows_out": 174,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run18.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
+      "rows_in": 1585,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 7.012,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9615,
+      "max_abs_angular_velocity_radps": 2.6255,
+      "rows_out": 193,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run19.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
+      "rows_in": 1585,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 7.012,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9615,
+      "max_abs_angular_velocity_radps": 2.6255,
+      "rows_out": 144,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 5,
+      "output": "dfki_bluerov2_slack-01-01-2025-run20.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part1.csv",
+      "rows_in": 1585,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 7.012,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.34,
+        "max": 14.16
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 505
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9615,
+      "max_abs_angular_velocity_radps": 2.6255,
+      "rows_out": 128,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "957 of 1584 samples, in 6 piece(s)",
+      "piece": 6,
+      "output": "dfki_bluerov2_slack-01-01-2025-run21.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part2.csv",
@@ -95,14 +628,105 @@
       "timestamp_jitter_pct": 6.961,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.38,
+        "median": 13.22,
+        "max": 13.88
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 317
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.9684,
       "max_abs_angular_velocity_radps": 2.5102,
-      "rows_out": 1938,
+      "rows_out": 112,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run5.csv"
+      "kept_after_exclusions": "1331 of 1938 samples, in 4 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run22.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part2.csv",
+      "rows_in": 1939,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 6.961,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.38,
+        "median": 13.22,
+        "max": 13.88
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 317
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9684,
+      "max_abs_angular_velocity_radps": 2.5102,
+      "rows_out": 227,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1331 of 1938 samples, in 4 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run23.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part2.csv",
+      "rows_in": 1939,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 6.961,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.38,
+        "median": 13.22,
+        "max": 13.88
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 317
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9684,
+      "max_abs_angular_velocity_radps": 2.5102,
+      "rows_out": 480,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1331 of 1938 samples, in 4 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run24.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_13m_part2.csv",
+      "rows_in": 1939,
+      "warnings": [],
+      "detected_sampling_rate_hz": 10.0,
+      "timestamp_jitter_pct": 6.961,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.38,
+        "median": 13.22,
+        "max": 13.88
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 317
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9684,
+      "max_abs_angular_velocity_radps": 2.5102,
+      "rows_out": 512,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1331 of 1938 samples, in 4 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run25.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_14m.csv",
@@ -112,14 +736,105 @@
       "timestamp_jitter_pct": 6.756,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.15,
+        "median": 13.72,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 364
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 1.0645,
       "max_abs_angular_velocity_radps": 1.5667,
-      "rows_out": 1791,
+      "rows_out": 175,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run6.csv"
+      "kept_after_exclusions": "1228 of 1791 samples, in 4 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run26.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_14m.csv",
+      "rows_in": 1791,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9998,
+      "timestamp_jitter_pct": 6.756,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.15,
+        "median": 13.72,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 364
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0645,
+      "max_abs_angular_velocity_radps": 1.5667,
+      "rows_out": 181,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1228 of 1791 samples, in 4 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run27.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_14m.csv",
+      "rows_in": 1791,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9998,
+      "timestamp_jitter_pct": 6.756,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.15,
+        "median": 13.72,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 364
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0645,
+      "max_abs_angular_velocity_radps": 1.5667,
+      "rows_out": 261,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1228 of 1791 samples, in 4 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run28.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_14m.csv",
+      "rows_in": 1791,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9998,
+      "timestamp_jitter_pct": 6.756,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.15,
+        "median": 13.72,
+        "max": 14.55
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 364
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.0645,
+      "max_abs_angular_velocity_radps": 1.5667,
+      "rows_out": 611,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1228 of 1791 samples, in 4 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run29.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_15m_part1.csv",
@@ -129,14 +844,78 @@
       "timestamp_jitter_pct": 4.684,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.94,
+        "median": 13.59,
+        "max": 14.35
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 432
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 2.1814,
       "max_abs_angular_velocity_radps": 1.2923,
-      "rows_out": 1560,
+      "rows_out": 132,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run7.csv"
+      "kept_after_exclusions": "628 of 1560 samples, in 3 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run30.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_15m_part1.csv",
+      "rows_in": 1561,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9999,
+      "timestamp_jitter_pct": 4.684,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.94,
+        "median": 13.59,
+        "max": 14.35
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 432
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 2.1814,
+      "max_abs_angular_velocity_radps": 1.2923,
+      "rows_out": 389,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "628 of 1560 samples, in 3 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run31.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_15m_part1.csv",
+      "rows_in": 1561,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9999,
+      "timestamp_jitter_pct": 4.684,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.94,
+        "median": 13.59,
+        "max": 14.35
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 432
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 2.1814,
+      "max_abs_angular_velocity_radps": 1.2923,
+      "rows_out": 107,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "628 of 1560 samples, in 3 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run32.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_15m_part2.csv",
@@ -146,14 +925,51 @@
       "timestamp_jitter_pct": 5.652,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.83,
+        "median": 13.39,
+        "max": 14.11
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 90
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 1.162,
       "max_abs_angular_velocity_radps": 1.1481,
-      "rows_out": 447,
+      "rows_out": 162,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run8.csv"
+      "kept_after_exclusions": "312 of 447 samples, in 2 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run33.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_15m_part2.csv",
+      "rows_in": 448,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 5.652,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 12.83,
+        "median": 13.39,
+        "max": 14.11
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 90
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 1.162,
+      "max_abs_angular_velocity_radps": 1.1481,
+      "rows_out": 150,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "312 of 447 samples, in 2 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run34.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_5m.csv",
@@ -163,31 +979,51 @@
       "timestamp_jitter_pct": 7.161,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.94,
+        "median": 14.86,
+        "max": 15.4
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 768
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.972,
       "max_abs_angular_velocity_radps": 2.4327,
       "rows_out": 1728,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run9.csv"
+      "kept_after_exclusions": "106 of 1728 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-01-01-2025-run35.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_6m.csv",
       "rows_in": 1397,
-      "warnings": [],
+      "warnings": [
+        "nothing left after exclude_samples (no stretch of 10 s)"
+      ],
       "detected_sampling_rate_hz": 10.0001,
       "timestamp_jitter_pct": 6.227,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 14.17,
+        "median": 15.15,
+        "max": 15.59
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 678
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.8915,
       "max_abs_angular_velocity_radps": 2.4264,
       "rows_out": 1397,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run10.csv"
+      "kept_after_exclusions": "0 of 1397 samples, in 0 piece(s)",
+      "output": null
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_7m.csv",
@@ -197,14 +1033,78 @@
       "timestamp_jitter_pct": 5.773,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 14.55,
+        "median": 15.45,
+        "max": 15.8
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 522
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.847,
       "max_abs_angular_velocity_radps": 1.3925,
-      "rows_out": 1611,
+      "rows_out": 256,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run11.csv"
+      "kept_after_exclusions": "499 of 1611 samples, in 3 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run36.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_7m.csv",
+      "rows_in": 1611,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9972,
+      "timestamp_jitter_pct": 5.773,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 14.55,
+        "median": 15.45,
+        "max": 15.8
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 522
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.847,
+      "max_abs_angular_velocity_radps": 1.3925,
+      "rows_out": 130,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "499 of 1611 samples, in 3 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run37.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_7m.csv",
+      "rows_in": 1611,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9972,
+      "timestamp_jitter_pct": 5.773,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 14.55,
+        "median": 15.45,
+        "max": 15.8
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 522
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.847,
+      "max_abs_angular_velocity_radps": 1.3925,
+      "rows_out": 113,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "499 of 1611 samples, in 3 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run38.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_8m_part1.csv",
@@ -214,14 +1114,105 @@
       "timestamp_jitter_pct": 7.383,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.64,
+        "median": 14.3,
+        "max": 14.95
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 237
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.8408,
       "max_abs_angular_velocity_radps": 3.0264,
-      "rows_out": 846,
+      "rows_out": 124,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run12.csv"
+      "kept_after_exclusions": "564 of 846 samples, in 4 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run39.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_8m_part1.csv",
+      "rows_in": 847,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9991,
+      "timestamp_jitter_pct": 7.383,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.64,
+        "median": 14.3,
+        "max": 14.95
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 237
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8408,
+      "max_abs_angular_velocity_radps": 3.0264,
+      "rows_out": 150,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "564 of 846 samples, in 4 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run40.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_8m_part1.csv",
+      "rows_in": 847,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9991,
+      "timestamp_jitter_pct": 7.383,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.64,
+        "median": 14.3,
+        "max": 14.95
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 237
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8408,
+      "max_abs_angular_velocity_radps": 3.0264,
+      "rows_out": 179,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "564 of 846 samples, in 4 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run41.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_8m_part1.csv",
+      "rows_in": 847,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.9991,
+      "timestamp_jitter_pct": 7.383,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.64,
+        "median": 14.3,
+        "max": 14.95
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 237
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.8408,
+      "max_abs_angular_velocity_radps": 3.0264,
+      "rows_out": 111,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "564 of 846 samples, in 4 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run42.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_8m_part2.csv",
@@ -231,14 +1222,23 @@
       "timestamp_jitter_pct": 6.479,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.63,
+        "median": 14.13,
+        "max": 14.78
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 215
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 1.0635,
       "max_abs_angular_velocity_radps": 2.3857,
       "rows_out": 662,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run13.csv"
+      "kept_after_exclusions": "215 of 662 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-01-01-2025-run43.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
@@ -248,14 +1248,159 @@
       "timestamp_jitter_pct": 6.471,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.9216,
       "max_abs_angular_velocity_radps": 2.523,
-      "rows_out": 2925,
+      "rows_out": 101,
       "sampling_rate_hz": 10.0,
       "session_date": "01-01-2025",
-      "output": "dfki_bluerov2-01-01-2025-run14.csv"
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 1,
+      "output": "dfki_bluerov2_slack-01-01-2025-run44.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
+      "rows_in": 2926,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.471,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9216,
+      "max_abs_angular_velocity_radps": 2.523,
+      "rows_out": 284,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 2,
+      "output": "dfki_bluerov2_slack-01-01-2025-run45.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
+      "rows_in": 2926,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.471,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9216,
+      "max_abs_angular_velocity_radps": 2.523,
+      "rows_out": 283,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 3,
+      "output": "dfki_bluerov2_slack-01-01-2025-run46.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
+      "rows_in": 2926,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.471,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9216,
+      "max_abs_angular_velocity_radps": 2.523,
+      "rows_out": 142,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 4,
+      "output": "dfki_bluerov2_slack-01-01-2025-run47.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
+      "rows_in": 2926,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.471,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9216,
+      "max_abs_angular_velocity_radps": 2.523,
+      "rows_out": 207,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 5,
+      "output": "dfki_bluerov2_slack-01-01-2025-run48.csv"
+    },
+    {
+      "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-01_limited_9m.csv",
+      "rows_in": 2926,
+      "warnings": [],
+      "detected_sampling_rate_hz": 9.998,
+      "timestamp_jitter_pct": 6.471,
+      "time_gaps": [],
+      "velocity_rotated_from_world_frame": true,
+      "voltage_v": {
+        "min": 13.42,
+        "median": 14.04,
+        "max": 14.77
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 979
+      },
+      "resampled_to_hz": 10.0,
+      "max_abs_linear_velocity_mps": 0.9216,
+      "max_abs_angular_velocity_radps": 2.523,
+      "rows_out": 135,
+      "sampling_rate_hz": 10.0,
+      "session_date": "01-01-2025",
+      "kept_after_exclusions": "1152 of 2925 samples, in 6 piece(s)",
+      "piece": 6,
+      "output": "dfki_bluerov2_slack-01-01-2025-run49.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_circle.csv",
@@ -265,14 +1410,23 @@
       "timestamp_jitter_pct": 5.969,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 12.81,
+        "median": 13.28,
+        "max": 13.97
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.8004,
       "max_abs_angular_velocity_radps": 1.4476,
       "rows_out": 4492,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run1.csv"
+      "kept_after_exclusions": "4492 of 4492 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run1.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_random_part1.csv",
@@ -282,14 +1436,23 @@
       "timestamp_jitter_pct": 4.129,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 14.23,
+        "median": 14.43,
+        "max": 15.07
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.6885,
       "max_abs_angular_velocity_radps": 1.097,
       "rows_out": 487,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run2.csv"
+      "kept_after_exclusions": "487 of 487 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run2.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_random_part2.csv",
@@ -299,14 +1462,23 @@
       "timestamp_jitter_pct": 3.636,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 14.02,
+        "median": 14.25,
+        "max": 14.97
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.5932,
       "max_abs_angular_velocity_radps": 1.0932,
       "rows_out": 599,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run3.csv"
+      "kept_after_exclusions": "599 of 599 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run3.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_random_part3.csv",
@@ -316,14 +1488,23 @@
       "timestamp_jitter_pct": 3.35,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.83,
+        "median": 14.15,
+        "max": 14.9
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.7823,
       "max_abs_angular_velocity_radps": 1.1863,
       "rows_out": 485,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run4.csv"
+      "kept_after_exclusions": "485 of 485 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run4.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_random_part4.csv",
@@ -333,14 +1514,23 @@
       "timestamp_jitter_pct": 6.274,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 14.02,
+        "median": 14.31,
+        "max": 14.81
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.625,
       "max_abs_angular_velocity_radps": 1.1304,
       "rows_out": 347,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run5.csv"
+      "kept_after_exclusions": "346 of 347 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run5.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_serpentine_part1.csv",
@@ -350,14 +1540,23 @@
       "timestamp_jitter_pct": 6.602,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.41,
+        "median": 13.68,
+        "max": 14.34
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.6523,
       "max_abs_angular_velocity_radps": 1.199,
       "rows_out": 941,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run6.csv"
+      "kept_after_exclusions": "941 of 941 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run6.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_serpentine_part2.csv",
@@ -367,14 +1566,23 @@
       "timestamp_jitter_pct": 4.74,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.32,
+        "median": 13.74,
+        "max": 14.27
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.583,
       "max_abs_angular_velocity_radps": 1.2272,
       "rows_out": 1480,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run7.csv"
+      "kept_after_exclusions": "1480 of 1480 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run7.csv"
     },
     {
       "file": "<repo>/calibration/examples/dfki_tether/../../../data/raw/dfki_rov_tether/strathe_csv/2025-01-02_unlimited_serpentine_part3.csv",
@@ -384,18 +1592,39 @@
       "timestamp_jitter_pct": 5.069,
       "time_gaps": [],
       "velocity_rotated_from_world_frame": true,
-      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V)",
+      "voltage_v": {
+        "min": 13.35,
+        "median": 13.56,
+        "max": 14.22
+      },
+      "wrench_source": "computed from PWM (custom layout, curve: T200 @ ~15 V (BlueROV2 dataset), rescaled to each sample's logged voltage)",
+      "excluded_by_rule": {
+        "tether_tension_peak_n": 0
+      },
       "resampled_to_hz": 10.0,
       "max_abs_linear_velocity_mps": 0.6766,
       "max_abs_angular_velocity_radps": 1.2582,
       "rows_out": 1401,
       "sampling_rate_hz": 10.0,
       "session_date": "02-01-2025",
-      "output": "dfki_bluerov2-02-01-2025-run8.csv"
+      "kept_after_exclusions": "1401 of 1401 samples, in 1 piece(s)",
+      "output": "dfki_bluerov2_slack-02-01-2025-run8.csv"
     }
   ],
-  "next_step": "python strathe.py calibrate --data <calibration output>/ingested_logs --name dfki_bluerov2",
-  "thrusters": "custom layout: 6 thrusters, curve T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V (+43.2 N / -33.8 N); max force 96/96/86 N, max torque 7.4/0.0/25.6 N*m (surge/sway/heave, roll/pitch/yaw); can't push: pitch torque",
+  "next_step": "python strathe.py calibrate --data <calibration output>/ingested_logs --name dfki_bluerov2_slack",
+  "force_direction": {
+    "correlation_force_vs_velocity": {
+      "surge": 0.909,
+      "sway": 0.681,
+      "heave": 0.729,
+      "roll": 0.179,
+      "pitch": null,
+      "yaw": 0.7
+    },
+    "reversed_axes": [],
+    "weak_axes": []
+  },
+  "thrusters": "custom layout: 6 thrusters, curve T200 @ ~15 V (BlueROV2 dataset) (+47.9 N / -37.2 N); max force 105/105/96 N, max torque 8.2/0.0/28.1 N*m (surge/sway/heave, roll/pitch/yaw); can't push: pitch torque; thrust rescaled to each sample's logged voltage (battery_v)",
   "warnings": [
     "your thrusters can't push: pitch torque. That's normal for some vehicles (a 6-thruster BlueROV2 can't pitch on command); those axes are then only moved by the water and buoyancy, so expect the calibration to learn little about them"
   ]

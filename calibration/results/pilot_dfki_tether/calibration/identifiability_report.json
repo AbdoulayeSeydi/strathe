@@ -1,52 +1,89 @@
 {
-  "condition_number": 20592.820929082558,
+  "condition_number": 32631.28656832079,
   "correlated_pairs": [
+    {
+      "param_a": "Xu_dot",
+      "param_b": "Zw_dot",
+      "correlation": 0.9884914535234117
+    },
     {
       "param_a": "Xu",
       "param_b": "Xuu",
-      "correlation": -0.9865677031554717
+      "correlation": -0.9832348687733252
     },
     {
       "param_a": "Zw",
       "param_b": "Zww",
-      "correlation": -0.9526344799333106
+      "correlation": -0.9557472740682506
+    },
+    {
+      "param_a": "Ieff_pitch",
+      "param_b": "Xq_dot",
+      "correlation": -0.9503439905457478
+    },
+    {
+      "param_a": "cg_cb_offset_z",
+      "param_b": "Xq_dot",
+      "correlation": -0.9391647948876081
+    },
+    {
+      "param_a": "Mq",
+      "param_b": "Xq_dot",
+      "correlation": 0.933996268238472
     },
     {
       "param_a": "Kp",
       "param_b": "Kpp",
-      "correlation": -0.9361674606256476
+      "correlation": -0.9237367692901176
     },
     {
-      "param_a": "Yv",
-      "param_b": "Yvv",
-      "correlation": -0.9031054545843905
+      "param_a": "Mq",
+      "param_b": "cg_cb_offset_z",
+      "correlation": -0.9131478625828066
+    },
+    {
+      "param_a": "Ieff_pitch",
+      "param_b": "cg_cb_offset_z",
+      "correlation": 0.9128498878884991
     },
     {
       "param_a": "Nr",
       "param_b": "Nrr",
-      "correlation": -0.8950045244503044
+      "correlation": -0.9082063347746082
+    },
+    {
+      "param_a": "Xu_dot",
+      "param_b": "Yv_dot",
+      "correlation": 0.8896906224150491
+    },
+    {
+      "param_a": "Ieff_pitch",
+      "param_b": "Mq",
+      "correlation": -0.8799764052110916
+    },
+    {
+      "param_a": "Yv_dot",
+      "param_b": "Zw_dot",
+      "correlation": 0.879130194609657
+    },
+    {
+      "param_a": "Yv",
+      "param_b": "Yvv",
+      "correlation": -0.8474317006247635
     }
   ],
   "weak_combinations": [
     {
       "parameters": [
-        "Ieff_pitch",
         "Ieff_roll"
       ],
-      "relative_strength": 4.856061262533163e-05
+      "relative_strength": 3.064543587352217e-05
     },
     {
       "parameters": [
-        "Ieff_roll",
         "Ieff_pitch"
       ],
-      "relative_strength": 5.3844457033319625e-05
-    },
-    {
-      "parameters": [
-        "Mqq"
-      ],
-      "relative_strength": 0.0005835153949288355
+      "relative_strength": 0.00014506808244421965
     }
   ],
   "free_parameters": [
@@ -74,7 +111,7 @@
     "Zq_dot"
   ],
   "held_parameters": [],
-  "n_train_runs_used": 14,
+  "n_train_runs_used": 49,
   "correlation_threshold": 0.8,
   "objective": {
     "sampling_rate_hz": 10.0,
@@ -88,5 +125,5 @@
     "excluded_axes": [],
     "prediction_horizon_samples": null
   },
-  "elapsed_s": 35.1
+  "elapsed_s": 15.0
 }

@@ -1221,7 +1221,7 @@ Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQ
 - **Sessions:** with no dates, the limited-tether runs and the free runs are labelled as two sessions.
 - **Check:** after ingestion, every force moves with its velocity (surge 0.80, sway 0.57, heave 0.74, yaw 0.65). With a mirrored layout, sway, heave and yaw would be negative.
 
-**The calibration** (`results/pilot_dfki_tether/`; 14 limited-tether training recordings, 8 free-piloting held-out ones; the reference BlueROV2 Heavy `vehicle_spec.yaml`, as a new lab would start):
+**The calibration** (`results/pilot_dfki_tether/first_run_62/`; superseded by the rerun in #63; 14 limited-tether training recordings, 8 free-piloting held-out ones; the reference BlueROV2 Heavy `vehicle_spec.yaml`, as a new lab would start):
 
 | Axis | Held-out skill vs "no motion" | vs default physics | Verdict in the report |
 |---|---|---|---|
@@ -1272,7 +1272,7 @@ Tests: 8 new.
   - The #62 sleep wasn't `keep_awake` failing. macOS logged "Low Power Sleep ... Using Batt (Charge:1%)": the battery ran out, which no `caffeinate` flag prevents.
   - "Oracle below last-beacon means the policies don't fit the vehicle" would fire on Strathe's own shipped experiment (3 of 4 cells, e.g. 92.7% vs 100% at L2@1s, with policies trained on that vehicle). The training-vehicle caution from #62 is the reliable signal.
   - Roll and pitch inertia are already pinned within ±0.005 of published BlueROV2 values (#30); "at their limits" there means "at the published value".
-- **For emails:** "In simulation, on a second BlueROV2 calibrated from another lab's public data, a teammate model matching the vehicle beat generic physics by 12 points at 3 of 4 comm levels." That's simulation, one policy seed, and the vehicle as calibrated by us. Quote per-axis skill (sway +0.62, surge +0.60, yaw +0.43, heave +0.39), never an average.
+- **For emails** (from the rerun below, which supersedes #62's numbers): "In simulation, on a second BlueROV2 calibrated from another lab's public data, a teammate model matching the vehicle beat generic physics by 10 to 22 points at 3 of 4 comm levels, and tied at the fourth." That's simulation, one policy seed, and the vehicle as calibrated by us. Quote per-axis skill (surge +0.80, sway +0.61, yaw +0.56, heave +0.45 on held-out free runs), never an average.
 
 **Is the tether being learned as drag? Yes.**
 - **Method:** fits on DFKI with per-sample battery voltage. Every fit is scored on the same held-out set (the 4 free "random" recordings), with the same budget (`--max-nfev 30`), so only the training data changes.
@@ -1310,6 +1310,24 @@ Tests: 8 new.
 - **Holding all six linear terms at Wu's values** makes slow-speed damping too weak, and the open-loop replay diverges. So does holding only Xu, Yv and Zw (fit D2): surge +0.62, sway −1.20, heave −0.59, roll −4.82. Published linear drag is too small for real logged motion, so `--drag linear-fixed` was removed rather than offered.
 
 **Roll and pitch.** Excluding them (`--exclude-axes p q`, fit F, data as B) makes the other axes worse: surge +0.59, sway +0.57, heave +0.39, yaw +0.46, against B's +0.64 / +0.69 / +0.47 / +0.46. The roll and pitch replay is far worse too (−9.0, −2.8), because the held values don't damp them. So it is not made a default for tethered data, and the report doesn't recommend it. The free-decay advice stands.
+
+**The pilot rerun** (`results/pilot_dfki_tether/`; the first run moved to `first_run_62/`). The whole lab flow was run again:
+- **What changed:** `ingest_dfki_tether_slack.yaml` (taut stretches dropped) and per-sample battery voltage.
+- **What stayed the same:** the split (tethered sessions train, free ones held out), so it's a fair before/after.
+
+| | First run (#62) | Rerun (#63) |
+|---|---|---|
+| Calibration | stopped by a dead battery, finished with `--finish` | converged in 4.5 min |
+| Held-out skill: surge / sway / heave / yaw | +0.60 / +0.62 / +0.39 / +0.43 | **+0.80** / +0.61 / +0.45 / **+0.56** |
+| Held-out skill: roll / pitch | −0.26 / −0.01 | −0.25 / +0.01 |
+| Surge vs default model | −4.6% | +46.5% |
+| Axes the report calls trustworthy | 1 (yaw) | 0 (each better-predicted axis now relies on a drag value at its limit) |
+| Arena, station-keeping (calibration / default / hand-written) | 78% / 100% / 96% at 150k; 100% / 100% at 450k | 100% / 100% / 85% at the 450k default |
+| Fleet, shipped policies: calibrated − generic (L2@1s, L2@3s, L3a@1s, L3a@3s) | +2, −6, 0, +5 | 0, +8, +7, +6 |
+| Fleet, a policy trained on this vehicle | +2, +12, +12, +12 | 0 (100% vs 100%), **+12, +10, +22** |
+
+- **The conclusion holds,** and it is stronger on the better calibration.
+- **The "0 of 6 trustworthy" verdict** follows the report's rule (an axis that relies on a value at its limit gets "use with care"). The rule was left as it is.
 
 **Battery voltage.**
 - **Effect:** from 15.3 to 13.1 V the T200 loses 17% of its maximum thrust (Blue Robotics' published data).
