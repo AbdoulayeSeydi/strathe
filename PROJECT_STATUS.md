@@ -1259,6 +1259,75 @@ Tests: 8 new.
 - The fleet report's training-vehicle caution (1).
 - 13 ingestion and thruster tests rewritten: they had encoded the reference dataset as FRD.
 
+### 63. A review of the DFKI run: what not to claim, the tether, drag, battery voltage and automatic checks (2026-10-03)
+
+**Why.** A review of #62 asked: which of its numbers can go in pilot emails, why surge got worse than the default model, and which by-hand discoveries the tool should make on its own.
+
+**What not to claim, and what Strathe itself was claiming:**
+- **Averaged improvement.** "N% lower held-out error" averaged over six axes is the trap #50 retracted: default physics is wildly wrong on roll and pitch (about 1.09 rad/s), so those two axes dominate the average while still being no better than predicting no motion. Strathe's own report did this: "62% more accurately than the default model on average" on DFKI, 69% on the reference calibration. **Fixed:** the bottom line now lists each axis that beats "no motion", with its skill.
+- **The generalisation check.** It called a held-out/training error ratio below 1 "It generalises", using one error that mixes m/s with rad/s. On DFKI the held-out runs were free and the training runs tethered, so held-out error was lower because those runs were easier. **Fixed:** the median of the per-axis ratios; below 0.85 the report says the unseen sessions were probably easier and that this can't show generalisation. Both reports were regenerated (wording only).
+- **Corrections to the review itself:**
+  - The mirrored preset affected turning PWM into force for ArduSub logs; no lab had run that yet, and no shipped result used it. In simulation it changed 3 of 216 thruster-limited outcomes, so not "every thruster-limited result was wrong".
+  - The clean regressions weren't identical: thruster-limited runs changed, by design (#62).
+  - The #62 sleep wasn't `keep_awake` failing. macOS logged "Low Power Sleep ... Using Batt (Charge:1%)": the battery ran out, which no `caffeinate` flag prevents.
+  - "Oracle below last-beacon means the policies don't fit the vehicle" would fire on Strathe's own shipped experiment (3 of 4 cells, e.g. 92.7% vs 100% at L2@1s, with policies trained on that vehicle). The training-vehicle caution from #62 is the reliable signal.
+  - Roll and pitch inertia are already pinned within ±0.005 of published BlueROV2 values (#30); "at their limits" there means "at the published value".
+- **For emails:** "In simulation, on a second BlueROV2 calibrated from another lab's public data, a teammate model matching the vehicle beat generic physics by 12 points at 3 of 4 comm levels." That's simulation, one policy seed, and the vehicle as calibrated by us. Quote per-axis skill (sway +0.62, surge +0.60, yaw +0.43, heave +0.39), never an average.
+
+**Is the tether being learned as drag? Yes.**
+- **Method:** fits on DFKI with per-sample battery voltage. Every fit is scored on the same held-out set (the 4 free "random" recordings), with the same budget (`--max-nfev 30`), so only the training data changes.
+- **The tension sensor:** in the limited-tether runs the cable goes taut in bursts: median 0.1–3 N, 95th percentile 43–65 N, above 5 N for 20–40% of the time. The free runs never reach 1 N.
+
+| Fit | Training data | Surge | Sway | Heave | Yaw | Surge vs default | Xu / Xuu |
+|---|---|---|---|---|---|---|---|
+| A | tethered (14) | +0.59 | +0.69 | +0.46 | +0.42 | +0% | −50 / −100 (both limits) |
+| B | tethered + free circle/serpentine | +0.64 | +0.69 | +0.47 | +0.46 | +11% | −41 / −100 |
+| C | free only (4 recordings) | **+0.79** | +0.67 | +0.53 | +0.55 | +49% | −11.6 / −84 |
+| H | tethered, taut stretches dropped | +0.65 | −0.36 | −0.16 | −0.50 | +14% | −32.7 / −8.6 |
+| **G** | **tethered with taut stretches dropped + free** | **+0.75** | +0.67 | **+0.55** | **+0.56** | **+39%** | −50 / −5.1 |
+
+- **Conclusion:** training only on free runs gives the best surge, and dropping the taut stretches from the tethered runs (G) recovers almost all of it while keeping five times the data.
+- **H on its own is worse:** the slack stretches are 10-second fragments of gentle motion, too little to pin sway, heave and yaw.
+- **A single constant force per recording is the wrong model here:** the pull comes in bursts, so averaging it into one force misrepresents it. **What shipped instead:**
+  - `exclude_samples:` in the ingest spec drops stretches where a logged column crosses a threshold (tension, a contact or override flag), splitting the recordings.
+  - `examples/dfki_tether/ingest_dfki_tether_slack.yaml` drops the taut stretches.
+  - LIMITS.md tells labs to record free sessions with the tether slack.
+- **Dropping taut stretches** lifts the surge force/velocity correlation from +0.79 to +0.91.
+
+**Drag: separating linear from quadratic.**
+
+| Fit (data as B) | Surge | Sway | Heave | Roll | Yaw | Notes |
+|---|---|---|---|---|---|---|
+| B, free drag | +0.64 | +0.69 | +0.47 | −0.30 | +0.46 | Xuu, Yvv −100; Zww −3 (limits) |
+| E, `--drag prior` (Wu 2018, weight 0.1) | +0.66 | +0.70 | +0.48 | −0.30 | +0.48 | Yvv −38, Zww −29: off their limits; Xuu still −100 |
+| D, linear terms held at Wu (all six) | +0.44 | −2.42 | −0.60 | −11.3 | −0.67 | the replay goes unstable |
+| D2, linear terms held at Wu (Xu, Yv, Zw) | +0.62 | −1.20 | −0.59 | −4.82 | +0.15 | the replay goes unstable |
+
+- **The reference values:** Wu (2018), Flinders University, Table 5.3, standard BlueROV2. They are derived from the literature (Sandoy 2016), not measured, and roll and pitch are taken equal to yaw.
+- **Bounds:** three of Wu's rotational linear terms (−0.07) are below the spec's bounds and are clamped to them, with a note in the log.
+- **The prior** helps a little and moves two quadratic terms off their limits. It ships as an opt-in.
+- **Holding all six linear terms at Wu's values** makes slow-speed damping too weak, and the open-loop replay diverges. So does holding only Xu, Yv and Zw (fit D2): surge +0.62, sway −1.20, heave −0.59, roll −4.82. Published linear drag is too small for real logged motion, so `--drag linear-fixed` was removed rather than offered.
+
+**Roll and pitch.** Excluding them (`--exclude-axes p q`, fit F, data as B) makes the other axes worse: surge +0.59, sway +0.57, heave +0.39, yaw +0.46, against B's +0.64 / +0.69 / +0.47 / +0.46. The roll and pitch replay is far worse too (−9.0, −2.8), because the held values don't damp them. So it is not made a default for tethered data, and the report doesn't recommend it. The free-decay advice stands.
+
+**Battery voltage.**
+- **Effect:** from 15.3 to 13.1 V the T200 loses 17% of its maximum thrust (Blue Robotics' published data).
+- **The fix:** `voltage_column:` scales each sample's thrust to its logged voltage, rescaling forward and reverse thrust separately, as `voltage:` does for one value. A steady log gives exactly the single-voltage result.
+- **DFKI:** the example now uses it.
+
+**Automatic checks for what #62 found by hand** (ingestion refuses the data; `skip_checks:` is the escape hatch):
+- **Force direction:**
+  - **The check:** on surge, sway, heave and yaw, force against velocity is pooled over every file. A correlation below −0.2 on an axis the thrusters drive means the forces are reversed: a mirrored layout, wrong `reversed:` flags, the wrong frame, or (with world-frame velocity) a mirrored heading. Every axis's correlation is printed.
+  - **Roll and pitch:** reported, not judged. Restoring moments dominate them, and synthetic logs gave −0.22 with correct forces.
+  - **On DFKI:** the old ROS-axes layout is refused on sway, heave and yaw.
+- **Orientation against position** (with the optional `position:` and body-frame velocity): the body velocity, turned by the orientation, must follow the position track. A mirrored heading and a steady offset are named, with their size; tested on a synthetic circle with DFKI's 175° mirror and a 90° compass offset.
+- **Gaps and velocity source:** gap warnings give total time and share of the recording, and ingestion prints which columns the velocity came from.
+
+**Also in this round:**
+- **The arena** trains 450k steps by default (150k was too short on both vehicles).
+- **`keep_awake`** warns when a run starts on battery, and again at 20%.
+- **Windows output:** UTF-8 everywhere, so `calibrate` doesn't crash when its output goes to a file. The new end-to-end test caught this on the Windows runner; it now runs under an ASCII-only locale on every platform.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

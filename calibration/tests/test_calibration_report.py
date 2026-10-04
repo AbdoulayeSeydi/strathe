@@ -49,10 +49,14 @@ def test_real_converged_calibration(tmp_path):
         assert v[ax]["verdict"] == BAD and "assuming the vehicle isn't moving" in v[ax]["why"]
     assert {p["name"] for p in r["implausible"]} == {"Ieff_roll", "Ieff_pitch"}
     assert len(r["pinned"]) == 9
-    assert r["generalization_ratio"] == pytest.approx(1.0077, abs=1e-3)
+    assert r["generalization_ratio"] == pytest.approx(0.9966, abs=1e-3)  # median of the per-axis ratios
     assert any("free-decay" in s and "roll rate" in s for s in r["next_steps"])
     text = open(r["report"], encoding="utf-8").read()
-    assert "65% more accurately" in text and "Parameters your data can't tell apart" in text
+    # per-axis skill, never one average over the axes (the average was "65% more accurately", carried by roll and
+    # pitch, which are no better than predicting no motion; PROJECT_STATUS.md #63)
+    assert "more accurately than the default model on average" not in text
+    assert "better than simply assuming no motion" in text and "Parameters your data can't tell apart" in text
+    assert "No sign of memorising" in text
     assert "| p |" in text and "Skill" in text
 
 
@@ -66,7 +70,25 @@ def test_worse_than_default_axis_gets_a_clear_warning_and_advice(tmp_path):
     # without a no-motion baseline nothing can be trusted outright
     assert v["u"]["verdict"] == CAUTION and "couldn't be compared" in v["u"]["why"]
     assert any("Record more" in s and "turning rate" in s for s in r["next_steps"])
-    assert "50% worse than on training runs" in open(r["report"], encoding="utf-8").read()
+    assert "50% higher than on training runs" in open(r["report"], encoding="utf-8").read()
+
+
+def test_easier_unseen_sessions_are_not_called_generalisation(tmp_path):
+    """DFKI (#62/#63): the held-out runs were free, the training runs tethered, so held-out error came out lower.
+    That can't show generalisation, and the report must not say it does."""
+    d = _result_dir(tmp_path, _generic_dict(), per_dof=([0.15, 0.22, 0.21, 1.09, 1.08, 0.44],
+                                                         [0.155, 0.033, 0.078, 0.136, 0.166, 0.196]),
+                    zero=[0.392, 0.086, 0.128, 0.109, 0.164, 0.343],
+                    rmse={"calibrated_train": 0.214, "calibrated_heldout": 0.139})
+    mpath = os.path.join(d, "metrics.json")
+    m = json.load(open(mpath))
+    m["per_dof"]["calibrated_train"] = [0.228, 0.126, 0.080, 0.181, 0.248, 0.317]
+    json.dump(m, open(mpath, "w"))
+    r = build_report(d)
+    text = open(r["report"], encoding="utf-8").read()
+    assert r["generalization_ratio"] == pytest.approx(0.67, abs=0.01)
+    assert "Can't tell from these sessions" in text and "generalises" not in text
+    assert "4 of 6 axes better than simply assuming no motion" in text and "sideways speed (sway) +0.62" in text
 
 
 def test_small_improvement_is_caution(tmp_path):

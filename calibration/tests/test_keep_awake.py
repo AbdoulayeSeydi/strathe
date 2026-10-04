@@ -191,3 +191,44 @@ def test_real_caffeinate_dies_with_a_killed_run():
 def test_real_windows_execution_state():
     with keep_awake("pytest") as h:
         assert h.mechanism == "SetThreadExecutionState"
+
+
+# ----------------------------------------------------------------- battery (PROJECT_STATUS.md #63)
+
+def test_on_battery_warns_at_the_start_and_once_when_low(capsys):
+    """The 2.5-hour gap in #62's calibration was the battery running out, not caffeinate failing."""
+    readings = iter([(True, 60), (True, 40), (True, 18), (True, 12), (True, 9)])
+    with keep_awake("t", platform="darwin", _popen=FakePopen(), _which=_which_all,
+                    _battery=lambda: next(readings, (True, 5)), _battery_interval_s=0.01):
+        time.sleep(0.3)
+    err = capsys.readouterr().err
+    assert "running on battery (60%)" in err
+    assert err.count("the battery is at") == 1 and "the battery is at 18%" in err and "--finish" in err
+
+
+def test_on_mains_power_says_nothing_about_the_battery(capsys):
+    with keep_awake("t", platform="darwin", _popen=FakePopen(), _which=_which_all,
+                    _battery=lambda: (False, 15), _battery_interval_s=0.01):
+        time.sleep(0.05)
+    assert "battery" not in capsys.readouterr().err
+
+
+def test_a_failing_battery_check_never_breaks_the_run(capsys):
+    def broken():
+        raise OSError("no pmset")
+    with keep_awake("t", platform="darwin", _popen=FakePopen(), _which=_which_all, _battery=broken) as h:
+        assert h.active
+
+
+def test_battery_status_reads_pmset():
+    from keep_awake import battery_status
+
+    class R:
+        def __init__(self, out):
+            self.stdout = out
+    on = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t23%; discharging; 0:53 remaining present: true"
+    ac = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t80%; charging; present: true"
+    assert battery_status("darwin", _run=lambda *a, **k: R(on)) == (True, 23)
+    assert battery_status("darwin", _run=lambda *a, **k: R(ac)) == (False, 80)
+    assert battery_status("darwin", _run=lambda *a, **k: R("Now drawing from 'AC Power'\n")) == (None, None)
+    assert battery_status("plan9") == (None, None)

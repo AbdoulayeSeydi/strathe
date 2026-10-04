@@ -23,6 +23,13 @@ How, per platform:
     Anything else, or the tool is missing: one warning, then the run
     carries on normally.
 
+Nothing keeps a laptop running when its battery runs out: PROJECT_STATUS.md #63's
+2.5-hour gap was macOS's "Low Power Sleep" at 1% charge, with caffeinate still
+holding. So the run also checks the power source: on battery it says so at the
+start, and warns once if the charge falls to LOW_BATTERY_PCT during the run
+(battery_status(): pmset on macOS, GetSystemPowerStatus on Windows,
+/sys/class/power_supply on Linux; unknown elsewhere, and on desktops).
+
 Opt out with the environment variable STRATHE_ALLOW_SLEEP=1.
 
 Never raises into the run: same "observational, never operational" rule as
@@ -34,12 +41,16 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
 OPT_OUT_ENV = "STRATHE_ALLOW_SLEEP"
+
+LOW_BATTERY_PCT = 20
+BATTERY_CHECK_S = 120
 
 # winbase.h
 ES_CONTINUOUS = 0x80000000
@@ -118,10 +129,58 @@ def _stop(handle: AwakeHandle, kernel32) -> None:
         kernel32.SetThreadExecutionState(ES_CONTINUOUS)
 
 
+def battery_status(platform: Optional[str] = None, _run=subprocess.run) -> tuple:
+    """(on_battery, percent): on_battery is True/False, or None when it can't be told (a desktop, or an
+    unknown platform); percent is the charge, or None."""
+    platform = platform or sys.platform
+    try:
+        if platform == "darwin":
+            out = _run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
+            if "InternalBattery" not in out:
+                return None, None
+            import re
+            m = re.search(r"(\d+)%", out)
+            return "Battery Power" in out, (int(m.group(1)) if m else None)
+        if platform == "win32":
+            import ctypes
+
+            class _PowerStatus(ctypes.Structure):
+                _fields_ = [("ACLineStatus", ctypes.c_byte), ("BatteryFlag", ctypes.c_byte),
+                            ("BatteryLifePercent", ctypes.c_byte), ("SystemStatusFlag", ctypes.c_byte),
+                            ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+            st = _PowerStatus()
+            if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(st)) or st.BatteryFlag & 128:
+                return None, None  # 128: no system battery
+            pct = st.BatteryLifePercent & 0xFF
+            return {0: True, 1: False}.get(st.ACLineStatus), (None if pct == 255 else pct)
+        if platform.startswith("linux"):
+            import glob
+            for d in glob.glob("/sys/class/power_supply/BAT*"):
+                status = open(os.path.join(d, "status")).read().strip()
+                pct = int(open(os.path.join(d, "capacity")).read().strip())
+                return status == "Discharging", pct
+    except Exception:
+        pass
+    return None, None
+
+
+def _watch_battery(stop: threading.Event, battery, interval_s: float) -> None:
+    warned = False
+    while not stop.wait(interval_s):
+        on_batt, pct = battery()
+        if on_batt and pct is not None and pct <= LOW_BATTERY_PCT and not warned:
+            _warn(f"the battery is at {pct}% and this run is on battery: plug in now, or the computer will "
+                  f"sleep when it runs out and the run will stop (a calibration can then be finished with "
+                  f"`strathe calibrate ... --finish`)")
+            warned = True
+
+
 @contextmanager
 def keep_awake(reason: str = "Strathe long run", *, platform: Optional[str] = None,
-               _popen=subprocess.Popen, _which=shutil.which, _kernel32=None):
-    """Prevent system sleep for the duration of the block. Yields an AwakeHandle."""
+               _popen=subprocess.Popen, _which=shutil.which, _kernel32=None, _battery=None,
+               _battery_interval_s: float = BATTERY_CHECK_S):
+    """Prevent system sleep for the duration of the block, and warn about running on battery. Yields an
+    AwakeHandle."""
     platform = platform or sys.platform
     try:
         handle = _start(reason, platform, _popen, _which, _kernel32)
@@ -130,9 +189,24 @@ def keep_awake(reason: str = "Strathe long run", *, platform: Optional[str] = No
     if not handle.active and not handle.reason_inactive.startswith(OPT_OUT_ENV):
         _warn(f"could not prevent sleep ({handle.reason_inactive}); if the machine sleeps, "
               f"this run pauses with it (PROJECT_STATUS.md #49)")
+    stop, watcher = threading.Event(), None
+    if handle.active:
+        battery = _battery or (lambda: battery_status(platform))
+        try:
+            on_batt, pct = battery()
+            if on_batt:
+                charge = f" ({pct}%)" if pct is not None else ""
+                _warn(f"running on battery{charge}: nothing keeps a laptop running when the battery runs out. "
+                      "Plug in for long runs.")
+            watcher = threading.Thread(target=_watch_battery, args=(stop, battery, _battery_interval_s),
+                                       daemon=True)
+            watcher.start()
+        except Exception:
+            pass
     try:
         yield handle
     finally:
+        stop.set()
         try:
             _stop(handle, _kernel32)
         except Exception as e:

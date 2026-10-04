@@ -166,6 +166,9 @@ python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 - It refuses the classic silent errors.
 - Logs exported as one CSV per sensor need merging onto one time base first: `calibration/examples/dfki_tether/`
   is a worked example on a second public BlueROV2 dataset (motion capture + ArduSub telemetry, #62).
+- Ingestion checks the physics, not just the format: forces that push against the motion (a reversed thruster
+  layout, a mirrored heading) are refused with the axis named, and a logged battery voltage (`voltage_column:`)
+  or bad stretches (`exclude_samples:`, e.g. a taut tether) are handled (#63).
 
 **C2. My logs have thruster PWM, not forces.** PASS. In ArduSub's motor numbering, FRD (#62). Choose one:
 - the BlueROV2 Heavy preset

@@ -1,0 +1,40 @@
+# The DFKI example with the taut-tether stretches left out (PROJECT_STATUS.md #63): the same spec as
+# ingest_dfki_tether.yaml, plus exclude_samples. In the limited-tether runs the cable goes taut in bursts
+# that pull the vehicle back by tens of newtons; a calibration that sees them learns them as drag.
+#     python strathe.py calibrate --ingest-spec calibration/examples/dfki_tether/ingest_dfki_tether_slack.yaml \
+#         --name dfki_bluerov2_slack
+vehicle: dfki_bluerov2_slack
+source: {files: "../../../data/raw/dfki_rov_tether/strathe_csv/*.csv"}
+time: {column: time_s, unit: s}
+resample_hz: 10                 # ArduSub's telemetry is ~10 Hz with some jitter
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}  # placeholder dates
+frame: frd                      # the prepared files are FRD body / NED-like world
+body_velocity:
+  columns: {u: vel_n, v: vel_e, w: vel_d, p: p_rps, q: q_rps, r: r_rps}
+  linear_frame: world           # motion-capture velocity is in the basin's frame; rotated with the attitude
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: roll_rad, pitch: pitch_rad, yaw: yaw_rad, unit: rad}
+wrench:
+  thrusters:
+    pwm_columns: [pwm1, pwm2, pwm3, pwm4, pwm5, pwm6]   # ArduSub motors 1-6 (RC_OUT channels 1-6)
+    # A standard (6-thruster) BlueROV2: ArduSub's "vectored" frame. Horizontal thrusters as on the Heavy;
+    # two vertical ones on the sides. Motor 5 is on the right (ArduSub roll factor +1).
+    # reversed: recovered from the logs by regressing each motor's output on the pilot's sticks
+    # (RC_IN; R^2 0.94 for motors 1-4): motors 1, 2 and 5 are reversed, as on the reference Heavy.
+    # ASSUMED: the vertical thrusters' position (on the centreline, 0.11 m to each side); the dataset
+    # doesn't give it. It only sets the roll torque.
+    layout:
+      - {position_m: [0.1335, 0.1335, 0.0], direction: [-1, 1, 0], reversed: true}     # 1 front right
+      - {position_m: [0.1335, -0.1335, 0.0], direction: [-1, -1, 0], reversed: true}   # 2 front left
+      - {position_m: [-0.1335, 0.1335, 0.0], direction: [1, 1, 0], reversed: false}    # 3 rear right
+      - {position_m: [-0.1335, -0.1335, 0.0], direction: [1, -1, 0], reversed: false}  # 4 rear left
+      - {position_m: [0.0, 0.11, 0.0], direction: [0, 0, 1], reversed: true}           # 5 right, vertical
+      - {position_m: [0.0, -0.11, 0.0], direction: [0, 0, 1], reversed: false}         # 6 left, vertical
+    curve: t200
+    voltage_column: battery_v   # ingestion: each sample's thrust at its own logged battery voltage (13.1-15.3 V)
+    voltage: 13.8               # simulators (--thrusters this file): the logged median, as a nominal voltage
+exclude_samples:
+  - {column: tether_tension_peak_n, above: 5}   # newtons at the surface sensor; the free runs never reach 1
+min_segment_s: 10                              # taut bursts cut the runs into shorter pieces

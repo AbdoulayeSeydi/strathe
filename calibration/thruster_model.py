@@ -207,6 +207,17 @@ class ThrusterConfig:
         """(..., n) PWM -> (..., 6) body-frame [Fx, Fy, Fz, Tx, Ty, Tz]."""
         return self.thrusts(pwm) @ np.asarray(self.allocation).T
 
+    def wrench_at_voltage(self, pwm, volts) -> np.ndarray:
+        """(N, n) PWM and (N,) supply voltage per sample -> (N, 6). Each sample's thrust is rescaled as
+        ThrustCurve.at_voltage does for one voltage: forward and reverse thrust separately, to Blue Robotics'
+        published T200 maxima at that voltage (12-20 V; callers clip). The base curve must be the T200
+        dataset curve, not one already rescaled (PROJECT_STATUS.md #63)."""
+        volts = np.asarray(volts, dtype=float)
+        t = self.thrusts(pwm)
+        fwd, rev = np.vectorize(_published_max_n)(volts)
+        t = np.where(t >= 0, t * (fwd / self.curve.max_forward_n)[:, None], t * (rev / self.curve.max_reverse_n)[:, None])
+        return t @ np.asarray(self.allocation).T
+
     def for_simulation(self) -> "ThrusterConfig":
         """The same thrusters with torques taken about the physics model's reference point
         (applies torque_reference_offset_m to the allocation), as the simulators need."""
@@ -302,14 +313,16 @@ def thruster_block(block, base_dir: str = ".") -> ThrusterConfig:
             raw = yaml.safe_load(f) or {}
         inner = (raw.get("wrench") or {}).get("thrusters") or raw.get("thrusters")
         if inner is None:
-            if not isinstance(raw, dict) or not set(raw) <= THRUSTER_BLOCK_KEYS | {"pwm_columns"}:
+            if not isinstance(raw, dict) or not set(raw) <= THRUSTER_BLOCK_KEYS | {"pwm_columns", "voltage_column"}:
                 raise ValueError(f"{path} has no thrusters: block (top level, or under wrench: as in an ingest "
                                  f"spec)")
             inner = raw
         return thruster_block(inner, os.path.dirname(os.path.abspath(path)))
     if not isinstance(block, dict):
         raise ValueError(f"thrusters must be a mapping or a path to a YAML file, got {type(block).__name__}")
-    block = {k: v for k, v in block.items() if k != "pwm_columns"}
+    # ingestion-only keys: which log columns hold the PWM and the battery voltage (simulators have no logs; with
+    # voltage_column they use voltage:, the nominal voltage, or the dataset curve's ~15 V)
+    block = {k: v for k, v in block.items() if k not in ("pwm_columns", "voltage_column")}
     unknown = set(block) - THRUSTER_BLOCK_KEYS
     if unknown:
         raise ValueError(f"unknown thrusters key(s) {sorted(unknown)}; allowed: {sorted(THRUSTER_BLOCK_KEYS)}")

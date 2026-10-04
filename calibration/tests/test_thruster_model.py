@@ -118,3 +118,30 @@ def test_allocation_from_geometry_reproduces_the_bluerov2_matrix():
     np.testing.assert_allclose(B[:, 0], BLUEROV2_HEAVY_ALLOCATION[:, 4], atol=1e-3)
     B = allocation_from_geometry([[0.0, 0.0, 0.0]], [[1.0, 1.0, 0.0]])
     np.testing.assert_allclose(B[:3, 0], [0.7071, 0.7071, 0.0], atol=1e-4)
+
+
+def test_per_sample_voltage_matches_the_one_voltage_rescale():
+    """voltage_column (PROJECT_STATUS.md #63): a log at a steady 13.8 V gives exactly what voltage: 13.8 gives,
+    and lower voltage means less thrust in both directions."""
+    rng = np.random.default_rng(3)
+    pwm = rng.uniform(1100, 1900, (300, 8))
+    base, fixed = bluerov2_heavy(), bluerov2_heavy(13.8)
+    np.testing.assert_allclose(base.wrench_at_voltage(pwm, np.full(300, 13.8)), fixed.wrench(pwm), atol=1e-9)
+    lo = base.wrench_at_voltage(pwm, np.full(300, 12.0))
+    hi = base.wrench_at_voltage(pwm, np.full(300, 16.0))
+    assert np.all(np.abs(lo[:, 0]) <= np.abs(hi[:, 0]) + 1e-9) and np.abs(hi[:, 0]).sum() > 1.2 * np.abs(lo[:, 0]).sum()
+
+
+def test_voltage_column_spec_rules():
+    import os
+    from data_ingestion import ThrusterSpec, load_ingest_spec
+    import thruster_model as tm
+    ok = ThrusterSpec(pwm_columns=["a"], voltage_column="v", preset="bluerov2_heavy")
+    assert ok.voltage_column == "v" and "voltage_column" not in ok.block()
+    with pytest.raises(ValueError, match="curve_csv"):
+        ThrusterSpec(pwm_columns=["a"], voltage_column="v", layout=[], curve_csv="c.csv")
+    # with both: ingestion rescales per sample from the unscaled curve; the simulators use voltage: as nominal
+    ex = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples", "dfki_tether",
+                      "ingest_dfki_tether.yaml")
+    assert load_ingest_spec(ex)._thruster_cfg.curve.max_forward_n == pytest.approx(47.9, abs=0.1)
+    assert tm.thruster_block(ex).curve.max_forward_n == pytest.approx(tm.bluerov2_heavy(13.8).curve.max_forward_n)
