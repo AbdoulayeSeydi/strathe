@@ -1306,7 +1306,11 @@ Tests: 8 new.
 - **The reference values:** Wu (2018), Flinders University, Table 5.3, standard BlueROV2. They are derived from the literature (Sandoy 2016), not measured, and roll and pitch are taken equal to yaw.
 - **Bounds:** three of Wu's rotational linear terms (−0.07) are below the spec's bounds and are clamped to them, with a note in the log.
 - **The prior** helps a little and moves two quadratic terms off their limits. It ships as an opt-in.
-- **Tested on DFKI only.** These drag fits used one dataset, a standard BlueROV2. Before `--drag prior` could become a default it has to help on the reference dataset too, and that dataset is a BlueROV2 Heavy, while Wu's values are for the standard vehicle. The reference comparison is RESULT_PLACEHOLDER.
+- **On the reference dataset it changes nothing.** That dataset is a BlueROV2 Heavy, and Wu's values are for the standard vehicle.
+  - **Method:** free drag against `--drag prior` with the shipped calibration's settings and equal budgets. Both runs were stopped by a time limit at about 440 evaluations and finished with `--finish`.
+  - **The prior fit ends at the shipped free-drag solution.** Its held-out skill matches to two decimals: surge +0.72, sway +0.51, heave +0.59, roll −0.03, pitch −0.10, yaw +0.58. The same drag terms sit at their limits. Each recording's residuals are normalised, so this isn't the dataset's size: these logs pull drag to the limits harder than a weight-0.1 prior pulls back.
+  - **The free run at the same budget** hadn't reached that point yet (surge +0.50, sway −0.43). That is its optimizer path, not the prior: the shipped calibration is a free-drag fit that did reach it.
+  - **So `--drag prior` stays opt-in:** a small gain on DFKI, none on the reference dataset.
 - **Holding all six linear terms at Wu's values** makes slow-speed damping too weak, and the open-loop replay diverges. So does holding only Xu, Yv and Zw (fit D2): surge +0.62, sway −1.20, heave −0.59, roll −4.82. Published linear drag is too small for real logged motion, so `--drag linear-fixed` was removed rather than offered.
 
 **Roll and pitch.** Excluding them (`--exclude-axes p q`, fit F, data as B) makes the other axes worse: surge +0.59, sway +0.57, heave +0.39, yaw +0.46, against B's +0.64 / +0.69 / +0.47 / +0.46. The roll and pitch replay is far worse too (−9.0, −2.8), because the held values don't damp them. So it is not made a default for tethered data, and the report doesn't recommend it. The free-decay advice stands.
