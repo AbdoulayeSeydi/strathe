@@ -1,6 +1,6 @@
-# Fleet experiment: pilot_dfki_fleet_shipped
+# Fleet experiment: pilot_dfki_fleet_shipped_committed
 
-2026-10-03 15:16 · 9600 episodes · 5.7 min · **ran with uncommitted code changes**
+2026-10-03 20:21 · 9600 episodes · 7.3 min
 
 ## What was tested
 
@@ -14,7 +14,7 @@ Still water: no current (set `current:` in the YAML for open-water conditions).
 
 **Thruster limits on:** custom layout: 6 thrusters, curve T200 @ ~15 V (BlueROV2 dataset) rescaled to 13.8 V (+43.2 N / -33.8 N); max force 96/96/86 N, max torque 7.4/0.0/25.6 N*m (surge/sway/heave, roll/pitch/yaw); can't push: pitch torque. Every command is limited to what these thrusters can deliver; the beacons carry the delivered force.
 
-**Caution: the policies were trained on a different vehicle.** fleet_policy_seed1, fleet_policy_seed2, fleet_policy_seed3 learned to hold formation on `calibrated_parameters_fleet_truth.yaml`, not on this experiment's vehicle (`calibrated_parameters.yaml`). Policies tuned to another vehicle hold formation less often, and that can blur or reverse the belief-model comparison below. For conclusions about your vehicle, train policies on it first: `python strathe.py train-fleet --params <calibration output>/calibrated_parameters.yaml --out my_policy` (about 40 min; add the same `--thrusters` as here), then run this experiment with `--policies my_policy`.
+**Caution: the policies were trained on a different vehicle.** fleet_policy_seed1, fleet_policy_seed2, fleet_policy_seed3 learned to hold formation on `calibrated_parameters_fleet_truth.yaml`, not on this experiment's vehicle (`calibrated_parameters.yaml`). Policies tuned to another vehicle hold formation less often, and that can blur or reverse the belief-model comparison below. For conclusions about your vehicle, train policies on it first: `python strathe.py train-fleet --params <repo>/calibration/results/pilot_dfki_tether/calibration/calibrated_parameters.yaml --out my_policy` (about 40 min; add the same `--thrusters` as here), then run this experiment with `--policies my_policy`.
 
 ## Headline: `calibrated` vs `generic`
 
