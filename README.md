@@ -64,7 +64,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 
 ## Recent fixes (October 2026)
 
-Before the first lab pilots (PROJECT_STATUS.md #61–62):
+Before the first lab pilots (PROJECT_STATUS.md #61–63):
 - **A second public BlueROV2 dataset, run through the lab flow as a new lab would:**
   - **The data:** DFKI's 6-thruster BlueROV2 with motion capture (Scientific Data 2025, CC BY 4.0).
   - **The flow:** from its raw per-sensor CSVs to `strathe calibrate`, then `arena` and `fleet` on the result.
@@ -78,6 +78,15 @@ Before the first lab pilots (PROJECT_STATUS.md #61–62):
 - **`strathe calibrate ... --finish`** turns an interrupted fit (a sleeping laptop, a stopped run) into a result with the same settings.
 - **Clearer messages:** a lab with only one recording session is told what to do.
 - **Cleanup:** 402 unused research scripts and stale outputs were removed. Tag `research-archive-2026-10` keeps them.
+
+After a review of that run (#63):
+- **The report quotes per-axis skill, never an average** over the axes. The old bottom line ("62% more accurately"; 69% on the reference calibration) was carried by roll and pitch, which are no better than predicting no motion.
+- **A held-out/training error ratio below 1 is no longer called generalisation.** It usually means the held-out sessions were easier.
+- **A taut tether is learned as drag.** On DFKI, training on tethered runs gave surge skill +0.59 on free runs; dropping the taut stretches gave +0.75, and free runs alone +0.79. `exclude_samples:` in the ingest spec drops such stretches when you log tension.
+- **`voltage_column:`** scales each sample's thrust to the logged battery voltage. 15.3 to 13.1 V costs 17% of maximum thrust.
+- **Ingestion checks the physics.** It refuses forces that push against the motion on surge, sway, heave or yaw (a reversed layout or a mirrored heading). It checks orientation against positions when given, and prints every axis's correlation.
+- **`calibrate --drag prior`** (opt-in) pulls drag gently toward published BlueROV2 values when linear and quadratic drag can't be told apart.
+- **Defaults:** the arena trains 450k steps by default, and long runs warn when on battery.
 
 ## Recent fixes (September 2026)
 
@@ -203,7 +212,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 512 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 529 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 

@@ -31,7 +31,22 @@ python calibration/examples/dfki_tether/prepare_dfki_tether.py \
 
 # 3. calibrate: convert, check, fit, identifiability, report
 python strathe.py calibrate --ingest-spec calibration/examples/dfki_tether/ingest_dfki_tether.yaml --name dfki_bluerov2
+# or, better, without the stretches where the tether was pulled taut (#63)
+python strathe.py calibrate --ingest-spec calibration/examples/dfki_tether/ingest_dfki_tether_slack.yaml --name dfki_bluerov2_slack
 ```
+
+**The tether matters** (PROJECT_STATUS.md #63).
+- **The bursts:** in the limited-tether runs the cable goes taut in bursts of tens of newtons for 20–40% of the time.
+- **What the fit does with them:** trained on those runs, the calibration learns the pull as the vehicle's own drag, pushing surge drag to its limits.
+- **On held-out free runs, the surge skill by training set:**
+
+| Training set | Surge skill |
+|---|---|
+| tethered runs | +0.59 |
+| tethered runs without the taut stretches, plus free runs (`ingest_dfki_tether_slack.yaml`) | +0.75 |
+| free runs only | +0.79 |
+
+- **Thrust and battery:** each sample's thrust is scaled to its logged battery voltage (`voltage_column: battery_v`; 13.1–15.3 V here).
 
 ## What the preparation had to work out
 
@@ -50,6 +65,10 @@ python strathe.py calibrate --ingest-spec calibration/examples/dfki_tether/inges
 
 - **The BlueROV2 Heavy preset was in ROS axes.** The reference dataset turned out to be forward-left-up / z-up, and the preset had been recovered from it. On this ArduSub vehicle, its yaw torque ran against the vehicle's own gyro in 14 of 14 runs. The preset is now FRD in ArduSub's numbering. With the right layout, every force here moves with its velocity: surge 0.80, sway 0.57, heave 0.74, yaw 0.65.
 - **`strathe calibrate` failed for any lab.** Its data check, identifiability step and report kept the reference dataset's held-out dates as their defaults.
+- **Problems the review round fixed (#63):**
+  - **Battery sag:** ignored until `voltage_column:`.
+  - **Checks:** reversed forces or a mirrored heading went unnoticed until ingestion checked them.
+  - **Tether stretches:** there was no way to drop them (`exclude_samples:`).
 - **Smaller problems:**
   - **Out-of-order output:** the data check's output arrived out of order in log files.
   - **A stray "Next:" hint:** printed in the middle of `calibrate`.
