@@ -130,7 +130,7 @@ def implausible_parameters(params) -> list:
 
 
 def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zero_rmse=None,
-                  excluded_axes=()) -> list:
+                  excluded_axes=(), measured_axes=()) -> list:
     """One verdict per axis. The main test is skill against predicting "no
     motion" (see module docstring); improvement over the default model is
     reported too but can't earn a "Trust it" on its own."""
@@ -143,6 +143,16 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
             v, why = BAD, ("not calibrated: your logs don't explain this motion, so it was left out of the fit and "
                            "the simulator uses the reference values from vehicle_spec.yaml")
         elif skill is not None and skill <= 0:
+            if k in measured_axes:
+                v, why = BAD, (f"it predicts this motion no better than assuming no motion (skill {skill:+.2f}). Its "
+                               f"damping and righting were measured in your free-decay tests, so what's wrong is the "
+                               f"thruster-driven part: the roll/pitch the model gets from the thrusters doesn't match "
+                               f"these logs (LIMITS.md)")
+                verdicts.append({"axis": k, "label": label, "improvement_pct": imp, "skill": skill, "verdict": v,
+                                 "why": why, "excluded": k in excluded_axes, "measured": True,
+                                 "default_rmse": float(default_rmse[i]), "calibrated_rmse": float(calib_rmse[i]),
+                                 "zero_rmse": None if zero_rmse is None else float(zero_rmse[i])})
+                continue
             v, why = BAD, (f"it predicts this motion no better than simply assuming the vehicle isn't moving on this "
                            f"axis (skill {skill:+.2f}), even though it is {imp:.0f}% better than the default model"
                            if imp > 0 else
@@ -171,7 +181,7 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
             v, why = GOOD, (f"it predicts this motion well on unseen sessions (skill {skill:+.2f}; 1 = perfect) and "
                             f"{imp:.0f}% more accurately than the default model")
         verdicts.append({"axis": k, "label": label, "improvement_pct": imp, "skill": skill, "verdict": v, "why": why,
-                         "excluded": k in excluded_axes,
+                         "excluded": k in excluded_axes, "measured": k in measured_axes,
                          "default_rmse": float(default_rmse[i]), "calibrated_rmse": float(calib_rmse[i]),
                          "zero_rmse": None if zero_rmse is None else float(zero_rmse[i])})
     return verdicts
@@ -182,6 +192,8 @@ def next_steps(verdicts, pinned, implausible, ident) -> list:
     # more data helps axes the model predicts poorly; axes flagged only because a
     # parameter hit a limit need the limits reviewed instead (next step)
     unexplained = [v for v in verdicts if v.get("excluded") or (v.get("skill") is not None and v["skill"] <= 0)]
+    measured = [v for v in unexplained if v.get("measured")]
+    unexplained = [v for v in unexplained if not v.get("measured")]
     weak = [v for v in verdicts if v not in unexplained and
             (v["improvement_pct"] < 30 or (v.get("skill") is not None and v["skill"] < GOOD_SKILL))]
     if unexplained:
@@ -191,6 +203,12 @@ def next_steps(verdicts, pinned, implausible, ident) -> list:
                        "vehicle and let it settle (a free-decay test), and command deliberate roll/pitch moves, "
                        "with the tether slack. Until then, treat the simulator's values for those motions as "
                        "reference values, not measurements.")
+    if measured:
+        steps.append("Your free-decay tests measured " + ", ".join(v["label"] for v in measured)
+                     + " (damping and righting), and these logs still aren't predicted: the roll/pitch the model gets "
+                       "from the thrusters is wrong. Record deliberate roll/pitch commands with the tether slack: those "
+                       "are what calibrate the thruster-driven part. Until then, compare this calibration with one "
+                       "made without --free-decay before simulating attitude-sensitive tasks.")
     if weak:
         steps.append("Record more manoeuvres that exercise " + ", ".join(v["label"] for v in weak)
                      + ": short, sharp, varied commands on those axes, in several separate sessions.")
@@ -250,7 +268,22 @@ def skill_sentence(verdicts) -> str:
             + " Beating the default model alone can flatter a poor default, so each verdict below checks both.")
 
 
-def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None):
+def free_decay_note(metrics: Optional[dict]) -> Optional[str]:
+    """One plain paragraph on roll/pitch values held from free-decay tank tests, or None."""
+    fd = ((metrics or {}).get("objective") or {}).get("free_decay")
+    if not fd:
+        return None
+    held = fd.get("held") or {}
+    words = ", ".join(f"{PLAIN.get(n, n)} (`{n}` = {v:.4g})" for n, v in held.items())
+    text = (f"These values were measured in free-decay tank tests (`{fd.get('file')}`) and held fixed, not fitted "
+            f"from these logs: {words}.")
+    if fd.get("notes"):
+        text += " " + " ".join(n + "." for n in fd["notes"])
+    return text
+
+
+def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
+                 free_decay=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if verdicts:
         good = [v for v in verdicts if v["verdict"] == GOOD]
@@ -288,6 +321,9 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
     if water:
         L.append("## Water current\n")
         L.append(water + "\n")
+    if free_decay:
+        L.append("## Roll and pitch from tank tests\n")
+        L.append(free_decay + "\n")
     L.append("## Be careful with\n")
     if not (pinned or implausible or (ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")))):
         L.append("Nothing flagged.\n")
@@ -357,11 +393,14 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     if heldout_dates is None:  # the dates the calibration itself held out
         heldout_dates = ((metrics or {}).get("dataset") or {}).get("heldout_dates")  # None: the default split
     axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates) if heldout_dates else None)
-    pinned = pinned_parameters(params, spec)
+    fd_held = set(((metrics or {}).get("objective", {}).get("free_decay") or {}).get("held") or {})
+    pinned = [p for p in pinned_parameters(params, spec) if p["name"] not in fd_held]  # measured, not fitted
     implausible = implausible_parameters(params)
+    measured_axes = tuple(ax for ax, ps in (("p", ("Kp", "Kpp")), ("q", ("Mq", "Mqq"))) if fd_held & set(ps))
     names_flagged = {p["name"] for p in pinned}, {p["name"] for p in implausible}
     excluded = tuple((metrics or {}).get("objective", {}).get("excluded_axes", ()))
-    verdicts = (axis_verdicts(axes[0], axes[1], *names_flagged, zero_rmse=axes[2], excluded_axes=excluded)
+    verdicts = (axis_verdicts(axes[0], axes[1], *names_flagged, zero_rmse=axes[2], excluded_axes=excluded,
+                              measured_axes=measured_axes)
                 if axes else [])
     gen_gap = None
     if metrics and "rmse" in metrics and "calibrated_train" in metrics["rmse"]:
@@ -377,7 +416,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     steps = next_steps(verdicts, pinned, implausible, ident)
     out = os.path.join(result_dir, "calibration_report.md")
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
-                 ident, steps, converged, water_note(metrics, result_dir))
+                 ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps}
 

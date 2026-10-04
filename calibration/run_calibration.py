@@ -101,6 +101,8 @@ class PipelineConfig:
     drag: str = "free"                     # drag_reference.DRAG_MODES: free | prior
     drag_reference: str = "bluerov2_wu2018"
     drag_prior_weight: float = 0.1
+    free_decay: Optional[str] = None  # free_decay.yaml (free_decay.py): roll/pitch damping and righting arm
+        # measured in free-decay tank tests, held fixed instead of fitted from the mission logs
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +244,7 @@ class CalibrationReport:
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
     objective_drag: Optional[dict] = None
+    objective_free_decay: Optional[dict] = None
     objective_sampling_rate_hz: float = 10.0
     objective_current_by_file: Optional[tuple] = None
 
@@ -295,6 +298,20 @@ def spec_torque_reference_offset(loaded_spec) -> tuple:
 # motion is not driven by the logged thruster torques, and fitting it pushes
 # every roll/pitch damping term to its bound.
 EXCLUDABLE_AXIS_PARAMS = {"p": ["Kp", "Kpp", "Ieff_roll"], "q": ["Mq", "Mqq", "Ieff_pitch"]}
+
+
+def free_decay_setup(path: str, loaded_spec, default_params) -> dict:
+    """The values a free_decay.yaml says to hold (free_decay.py), clamped into vehicle_spec.yaml's bounds with a
+    note: {"file", "held", "measured", "notes"}. They override --exclude-axes' held reference values."""
+    import free_decay as fd
+    names = list(default_params.param_names)
+    lb, ub = parameter_bounds(loaded_spec)
+    measured = fd.hold_values(path)
+    if not measured:
+        raise ValueError(f"{path} holds nothing: the free-decay tests gave no usable roll or pitch fit (its "
+                         f"warnings say why)")
+    held, notes = fd.within_bounds(measured, names, lb, ub)
+    return {"file": str(Path(path).resolve()), "held": held, "measured": measured, "notes": notes}
 
 
 def excluded_axis_setup(exclude_axes, dof_scales, default_params) -> tuple:
@@ -371,6 +388,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                                             else list(report.objective_current_world_mps)),
                       "held_parameters": report.objective_held_parameters,
                       "drag": report.objective_drag,
+                      "free_decay": report.objective_free_decay,
                       "sampling_rate_hz": report.objective_sampling_rate_hz,
                       "current_by_file": (None if not report.objective_current_by_file else
                                           [[f, list(c)] for f, c in report.objective_current_by_file])},
@@ -470,6 +488,15 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
         logger.info("Excluded axes %s from the objective; holding %s at vehicle_spec.yaml values",
                     list(config.exclude_axes), held)
+    free_decay_info = None
+    if config.free_decay:
+        free_decay_info = free_decay_setup(config.free_decay, loaded_spec, default_params)
+        config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}),
+                                                  **free_decay_info["held"]}
+        for n in free_decay_info["notes"]:
+            logger.warning("Free decay: %s", n)
+        logger.info("Holding roll/pitch values from free-decay tests (%s): %s", config.free_decay,
+                    free_decay_info["held"])
     drag_info = None
     if config.drag != "free":
         import drag_reference as dr
@@ -598,6 +625,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
         objective_drag=drag_info,
+        objective_free_decay=free_decay_info,
         objective_sampling_rate_hz=config.sampling_rate_hz,
         objective_current_by_file=config.current_by_file,
     )
@@ -730,6 +758,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="published drag values for --drag (drag_reference.REFERENCES)")
     parser.add_argument("--drag-prior-weight", type=float, default=0.1,
                         help="with --drag prior: weight of the pull toward the published values")
+    parser.add_argument("--free-decay", default=None,
+                        help="free_decay.yaml from free_decay.py (`strathe free-decay`): hold the roll/pitch damping "
+                             "and righting arm measured in free-decay tank tests instead of fitting them")
     parser.add_argument("--prediction-horizon-s", type=float, default=None,
                         help="score re-anchored prediction windows of this length instead of replaying "
                              "whole runs open-loop; stops unexplained motion (e.g. roll/pitch) from "
@@ -908,6 +939,7 @@ def main() -> None:
         axis_scaling=args.axis_scaling,
         exclude_axes=tuple(args.exclude_axes),
         drag=args.drag, drag_reference=args.drag_reference, drag_prior_weight=args.drag_prior_weight,
+        free_decay=args.free_decay,
         torque_reference_offset_m=(None if args.torque_reference_offset_m is None
                                    else tuple(args.torque_reference_offset_m)),
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),

@@ -10,6 +10,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py fleet [--config my_experiment.yaml]  two vehicles: run a fleet experiment
     python strathe.py train-fleet --params <calibration> train a fleet policy (PPO, SAC or TD3) for your vehicle
     python strathe.py fit-noise --data <logs> --out n.yaml  how noisy your vehicle's sensors are, for --noise
+    python strathe.py free-decay --data <tank tests> --out <folder>  roll and pitch from free-decay tank tests
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -279,6 +280,9 @@ def cmd_calibrate(args, runner=None) -> int:
         return 2
     out = _abs(args.out) if args.out else os.path.join(REPO_DIR, f"calibration_output_{safe_name(args.name)}")
     spec = spec_path(args.spec)
+    if args.free_decay and not os.path.exists(_abs(args.free_decay)):
+        print(f"❌ free-decay result not found: {_abs(args.free_decay)} (make it with `strathe free-decay`)")
+        return 2
     if args.ingest_spec:
         if not os.path.exists(_abs(args.ingest_spec)):
             print(f"❌ ingestion spec not found: {_abs(args.ingest_spec)}")
@@ -305,6 +309,8 @@ def cmd_calibrate(args, runner=None) -> int:
             extra += ["--torque-reference-offset-m", *map(str, offset)]
         if args.exclude_axes:
             extra += ["--exclude-axes", *args.exclude_axes]
+        if args.free_decay:
+            extra += ["--free-decay", _abs(args.free_decay)]
         if args.current_world_mps:
             extra += ["--current-world-mps", *map(str, args.current_world_mps)]
         if rate is None:
@@ -773,6 +779,34 @@ def cmd_fit_noise(args, runner=None) -> int:
     return run_step(argv, runner)
 
 
+def cmd_free_decay(args, runner=None) -> int:
+    if bool(args.data) == bool(args.ingest_spec):
+        print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
+        return 2
+    out = _abs(args.out)
+    if args.ingest_spec:
+        if not os.path.exists(_abs(args.ingest_spec)):
+            print(f"❌ ingestion spec not found: {_abs(args.ingest_spec)}")
+            return 2
+        data = os.path.join(out, "ingested_logs")
+        _banner(1, 2, "Converting your tank-test logs into Strathe's layout")
+        rc = run_step(ingest_argv(args.ingest_spec, data) + ["--no-next-step"], runner)
+        if rc != 0:
+            print(f"\n❌ The logs couldn't be converted (exit code {rc}); the message above says why.")
+            return rc
+        _banner(2, 2, "Finding the releases and fitting roll and pitch")
+    else:
+        data = _abs(args.data)
+        if not os.path.isdir(data):
+            print(f"❌ data folder not found: {data}")
+            return 2
+    argv = ["free_decay.py", "--data-dir", data, "--spec", spec_path(args.spec), "--out", out,
+            "--min-start-deg", str(args.min_start_deg), "--max-start-deg", str(args.max_start_deg)]
+    if args.sampling_rate_hz:
+        argv += ["--sampling-rate-hz", str(args.sampling_rate_hz)]
+    return run_step(argv, runner)
+
+
 def cmd_ingest(args, runner=None) -> int:
     return run_step(ingest_argv(args.spec, args.out), runner)
 
@@ -819,6 +853,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--drag", choices=["free", "prior"], default="free",
                    help="advanced, when the report says linear and quadratic drag can't be told apart: prior pulls "
                         "every drag term gently toward published BlueROV2 values (calibration/drag_reference.py)")
+    c.add_argument("--free-decay", metavar="FREE_DECAY_YAML",
+                   help="hold the roll/pitch damping and righting measured in free-decay tank tests (the "
+                        "free_decay.yaml `strathe free-decay` writes) instead of fitting them from these logs")
     c.add_argument("--finish", action="store_true",
                    help="the fit was interrupted (the machine slept, the run was stopped): turn its best result so "
                         "far into a calibration, marked not converged, and write the report. Same command and "
@@ -971,6 +1008,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how the vehicle knows its position (default: external if the logs have x/y)")
     n.add_argument("--sampling-rate-hz", type=float)
     n.set_defaults(fn=cmd_fit_noise)
+
+    d = sub.add_parser("free-decay", help="roll and pitch from free-decay tank tests (calibration/FREE_DECAY_PROTOCOL.md)")
+    d.add_argument("--data", help="the tank-test logs in Strathe's CSV layout")
+    d.add_argument("--ingest-spec", help="or: an ingestion spec for them; they're converted first")
+    d.add_argument("--out", required=True, help="output folder: free_decay.yaml and free_decay_report.md")
+    d.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description (mass, inertia, bounds)")
+    d.add_argument("--sampling-rate-hz", type=float, help="default: from ingest_report.json")
+    d.add_argument("--min-start-deg", type=float, default=8.0,
+                   help="smallest tilt at release that counts (default 8)")
+    d.add_argument("--max-start-deg", type=float, default=35.0,
+                   help="largest; beyond it the vehicle is probably at the surface (default 35)")
+    d.set_defaults(fn=cmd_free_decay)
 
     i = sub.add_parser("ingest", help="convert your own logs into Strathe's CSV layout")
     i.add_argument("--spec", required=True, help="ingestion spec YAML (see data_ingestion.py)")
