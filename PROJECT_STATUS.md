@@ -1306,6 +1306,7 @@ Tests: 8 new.
 - **The reference values:** Wu (2018), Flinders University, Table 5.3, standard BlueROV2. They are derived from the literature (Sandoy 2016), not measured, and roll and pitch are taken equal to yaw.
 - **Bounds:** three of Wu's rotational linear terms (−0.07) are below the spec's bounds and are clamped to them, with a note in the log.
 - **The prior** helps a little and moves two quadratic terms off their limits. It ships as an opt-in.
+- **Tested on DFKI only.** These drag fits used one dataset, a standard BlueROV2. Before `--drag prior` could become a default it has to help on the reference dataset too, and that dataset is a BlueROV2 Heavy, while Wu's values are for the standard vehicle. The reference comparison is RESULT_PLACEHOLDER.
 - **Holding all six linear terms at Wu's values** makes slow-speed damping too weak, and the open-loop replay diverges. So does holding only Xu, Yv and Zw (fit D2): surge +0.62, sway −1.20, heave −0.59, roll −4.82. Published linear drag is too small for real logged motion, so `--drag linear-fixed` was removed rather than offered.
 
 **Roll and pitch.** Excluding them (`--exclude-axes p q`, fit F, data as B) makes the other axes worse: surge +0.59, sway +0.57, heave +0.39, yaw +0.46, against B's +0.64 / +0.69 / +0.47 / +0.46. The roll and pitch replay is far worse too (−9.0, −2.8), because the held values don't damp them. So it is not made a default for tethered data, and the report doesn't recommend it. The free-decay advice stands.
@@ -1320,8 +1321,12 @@ Tests: 8 new.
   - **The check:** on surge, sway, heave and yaw, force against velocity is pooled over every file. A correlation below −0.2 on an axis the thrusters drive means the forces are reversed: a mirrored layout, wrong `reversed:` flags, the wrong frame, or (with world-frame velocity) a mirrored heading. Every axis's correlation is printed.
   - **Roll and pitch:** reported, not judged. Restoring moments dominate them, and synthetic logs gave −0.22 with correct forces.
   - **On DFKI:** the old ROS-axes layout is refused on sway, heave and yaw.
-- **Orientation against position** (with the optional `position:` and body-frame velocity): the body velocity, turned by the orientation, must follow the position track. A mirrored heading and a steady offset are named, with their size; tested on a synthetic circle with DFKI's 175° mirror and a 90° compass offset.
+- **Orientation against position** (with the optional `position:` and body-frame velocity): the body velocity, turned by the orientation, must follow the position track. A mirrored heading and a steady offset are named, with their size; tested on a synthetic circle with a 175° mirror like DFKI's and a 90° compass offset.
+  - **What it could not have caught on DFKI:** there, velocity is world-frame motion capture, rotated into the body frame with the very orientation under test, so turning it back reproduces the positions whatever the heading is. The check only works with body-frame velocity (a DVL, or body-frame odometry).
+  - **What flags DFKI's mirror:** a test with ArduSub's mirrored yaw showed the force-direction check as first built did *not* catch it. Surge fell from +0.79 to −0.05 and sway from +0.57 to +0.08: near zero, not below the −0.2 refusal threshold.
+  - **The fix:** a warning when a driven axis sits between −0.2 and +0.2, which names a wrong heading as the likely cause with world-frame velocity. It is a warning, not a refusal: the data passes, and the lab has to act on it. Correct DFKI data stays clear (lowest driven axis +0.57), and `tests/test_ingest_checks.py` checks both cases.
 - **Gaps and velocity source:** gap warnings give total time and share of the recording, and ingestion prints which columns the velocity came from.
+  - **Limit:** these are gaps in the timeline ingestion receives. DFKI's live velocity stream was missing up to a third of each run, but inside a raw per-sensor file, before the lab's own merge step, where Strathe never sees it. Labs that merge sensor files themselves have to check each stream's gaps in that step (`examples/dfki_tether/prepare_dfki_tether.py` sidesteps them by taking velocity from the marker track).
 
 **Also in this round:**
 - **The arena** trains 450k steps by default (150k was too short on both vehicles).

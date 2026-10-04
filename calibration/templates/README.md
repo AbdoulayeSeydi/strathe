@@ -92,18 +92,21 @@ It refuses data that would silently corrupt a calibration:
 
 It also checks the data makes physical sense, and refuses it when it doesn't:
 - **Force direction:** on surge, sway, heave and yaw, force and velocity should move together (thrust
-  mostly balances drag). A clearly negative correlation on any of them means the forces are reversed: a
-  mirrored thruster layout, wrong `reversed:` flags, the wrong `frame:`, or (with world-frame velocity) a
-  mirrored heading. Every axis's correlation is printed. Roll and pitch are printed, not judged: restoring
-  moments dominate them.
+  mostly balances drag). A clearly negative correlation (below -0.2) on any of them means the forces are
+  reversed: a mirrored thruster layout, wrong `reversed:` flags or the wrong `frame:`, and is refused. One
+  near zero (-0.2 to +0.2) is warned about: with world-frame velocity, usually a wrong heading. Every axis's
+  correlation is printed. Roll and pitch are printed, not judged: restoring moments dominate them.
 - **Orientation against position** (with `position:` and body-frame velocity): the body velocity, turned by
   the orientation, must follow the position track. A mirrored heading or a steady compass offset is named,
-  with its size.
+  with its size. With world-frame velocity this can't test the heading (the velocity was turned with that same
+  heading). There, a wrong heading shows as force and velocity barely moving together on surge or sway, which
+  ingestion warns about (it doesn't refuse: a mirrored heading took DFKI's surge to about 0, not below -0.2).
 - `skip_checks: [force_direction]` or `[orientation_vs_position]` turns a refusal into a warning, for logs
   you know are right.
 
 It warns about gaps in time (with their total length and share of the recording) and orientation jumps
-over 45° between samples (sensor glitches). Everything is recorded in `ingest_report.json`.
+over 45° between samples (sensor glitches). Everything is recorded in `ingest_report.json`. It only sees
+the timeline you give it: if you merge per-sensor files yourself, check each stream's gaps when you merge.
 
 ## ArduPilot / MAVLink notes
 
