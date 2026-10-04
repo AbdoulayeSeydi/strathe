@@ -816,10 +816,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--current-rounds", type=int, default=2, help="with --estimate-current: rounds (default 2)")
     c.add_argument("--exclude-axes", nargs="+", choices=["p", "q"],
                    help="advanced: leave roll (p) / pitch (q) out of the fit (see run_calibration.py --help)")
-    c.add_argument("--drag", choices=["free", "linear-fixed", "prior"], default="free",
-                   help="advanced, when the report says linear and quadratic drag can't be told apart: linear-fixed "
-                        "holds the linear drag at published BlueROV2 values; prior pulls every drag term gently "
-                        "toward them (calibration/drag_reference.py)")
+    c.add_argument("--drag", choices=["free", "prior"], default="free",
+                   help="advanced, when the report says linear and quadratic drag can't be told apart: prior pulls "
+                        "every drag term gently toward published BlueROV2 values (calibration/drag_reference.py)")
     c.add_argument("--finish", action="store_true",
                    help="the fit was interrupted (the machine slept, the run was stopped): turn its best result so "
                         "far into a calibration, marked not converged, and write the report. Same command and "

@@ -87,3 +87,29 @@ def test_dfki_with_the_old_mirrored_layout_is_refused(tmp_path):
     (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec))
     with pytest.raises(IngestError, match="force on sway, heave, yaw pushes against"):
         ingest(load_ingest_spec(str(tmp_path / "s.yaml")), str(tmp_path / "out"))
+
+
+def test_exclude_samples_splits_recordings_at_the_dropped_stretches(tmp_path):
+    """A tension column over 5 N for two stretches: three pieces, the short one discarded (PROJECT_STATUS.md #63)."""
+    src = os.path.join(CAL, "synth_test_data", "odom-03-03-2024-run1.csv")
+    d = pd.read_csv(src).iloc[:800].reset_index(drop=True)
+    d.insert(0, "t", np.arange(len(d)) * 0.1)
+    tension = np.zeros(len(d))
+    tension[200:260] = 40.0   # 6 s taut
+    tension[300:310] = 12.0   # 1 s taut: leaves a 4 s piece between them, under min_segment_s
+    d["tension"] = tension
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    d.to_csv(raw / "2024-01-10_run.csv", index=False)
+    spec = load_ingest_spec(_logged_force_spec(tmp_path, exclude_samples=[{"column": "tension", "above": 5}],
+                                               min_segment_s=10, skip_checks=["force_direction"]))
+    s = ingest(spec, str(tmp_path / "out"))
+    rows = [f["rows_out"] for f in s["files"]]
+    assert s["n_recordings"] == 2 and rows == [200, 490]   # 0-199 and 310-799; 260-299 is too short
+    assert s["files"][0]["excluded_by_rule"] == {"tension": 70}
+    assert "tension" not in pd.read_csv(tmp_path / "out" / s["files"][0]["output"]).columns
+    strict = load_ingest_spec(_logged_force_spec(tmp_path, exclude_samples=[{"column": "tension", "below": 100}]))
+    with pytest.raises(IngestError, match="nothing left"):
+        ingest(strict, str(tmp_path / "out2"))
+    with pytest.raises(ValueError, match="above: and/or below:"):
+        load_ingest_spec(_logged_force_spec(tmp_path, exclude_samples=[{"column": "tension"}]))

@@ -133,10 +133,15 @@ def test_per_sample_voltage_matches_the_one_voltage_rescale():
 
 
 def test_voltage_column_spec_rules():
-    from data_ingestion import ThrusterSpec
+    import os
+    from data_ingestion import ThrusterSpec, load_ingest_spec
+    import thruster_model as tm
     ok = ThrusterSpec(pwm_columns=["a"], voltage_column="v", preset="bluerov2_heavy")
     assert ok.voltage_column == "v" and "voltage_column" not in ok.block()
-    with pytest.raises(ValueError, match="not both"):
-        ThrusterSpec(pwm_columns=["a"], voltage_column="v", preset="bluerov2_heavy", voltage=14)
     with pytest.raises(ValueError, match="curve_csv"):
         ThrusterSpec(pwm_columns=["a"], voltage_column="v", layout=[], curve_csv="c.csv")
+    # with both: ingestion rescales per sample from the unscaled curve; the simulators use voltage: as nominal
+    ex = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples", "dfki_tether",
+                      "ingest_dfki_tether.yaml")
+    assert load_ingest_spec(ex)._thruster_cfg.curve.max_forward_n == pytest.approx(47.9, abs=0.1)
+    assert tm.thruster_block(ex).curve.max_forward_n == pytest.approx(tm.bluerov2_heavy(13.8).curve.max_forward_n)

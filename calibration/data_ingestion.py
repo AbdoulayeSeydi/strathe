@@ -202,8 +202,9 @@ class OrientationSpec(BaseModel):
 
 class ThrusterSpec(BaseModel):
     """pwm_columns plus a thruster_model.thruster_block() block (checked when the spec is loaded).
-    voltage_column: the battery voltage logged with each sample; each sample's thrust is then scaled to its
-    own voltage (T200 curve only; PROJECT_STATUS.md #63), instead of one voltage: for the whole spec."""
+    voltage_column: the battery voltage logged with each sample; ingestion scales each sample's thrust to its own
+    voltage (T200 curve only; PROJECT_STATUS.md #63). voltage:, if also given, is then only the nominal voltage the
+    simulators use when this spec is passed as --thrusters (they have no logged voltage)."""
     pwm_columns: list[str] = Field(min_length=1)
     voltage_column: Optional[str] = None
     model_config = {"extra": "allow"}
@@ -212,8 +213,6 @@ class ThrusterSpec(BaseModel):
     def _voltage(self):
         extra = self.model_extra or {}
         if self.voltage_column is not None:
-            if extra.get("voltage") is not None:
-                raise ValueError("give voltage (one value) or voltage_column (logged per sample), not both")
             if extra.get("curve_csv") is not None or extra.get("curve") not in (None, "t200"):
                 raise ValueError("voltage_column rescales Blue Robotics' published T200 curve; it can't rescale "
                                  "your own curve_csv")
@@ -250,6 +249,21 @@ class PositionSpec(BaseModel):
 CHECKS = ("force_direction", "orientation_vs_position")
 
 
+class ExcludeRule(BaseModel):
+    """Drop samples where a logged column is above and/or below a value: a tether pulled taut (a tension sensor),
+    contact with the bottom, a manual-override flag. The recording is split at the dropped stretches
+    (PROJECT_STATUS.md #63)."""
+    column: str
+    above: Optional[float] = None
+    below: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _one(self):
+        if self.above is None and self.below is None:
+            raise ValueError(f"exclude_samples rule for {self.column!r} needs above: and/or below:")
+        return self
+
+
 class IngestSpec(BaseModel):
     vehicle: str = Field(pattern=r"^[A-Za-z0-9_]+$")
     source: SourceSpec
@@ -262,6 +276,8 @@ class IngestSpec(BaseModel):
     wrench: WrenchSpec
     position: Optional[PositionSpec] = None
     skip_checks: list[Literal["force_direction", "orientation_vs_position"]] = []  # escape hatch, says so
+    exclude_samples: list[ExcludeRule] = []
+    min_segment_s: float = Field(default=10.0, gt=0)  # with exclude_samples: shorter pieces are discarded
 
     model_config = {"populate_by_name": True}
     _thruster_cfg: object = PrivateAttr(default=None)
@@ -293,6 +309,7 @@ class IngestSpec(BaseModel):
             cols.append(w.thrusters.voltage_column)
         if self.position is not None:
             cols += [self.position.x, self.position.y, self.position.z]
+        cols += [r.column for r in self.exclude_samples if r.column not in cols]
         return cols
 
 
@@ -310,7 +327,7 @@ def load_ingest_spec(path: str) -> IngestSpec:
     if th is not None:
         import thruster_model as tm
         try:
-            cfg = tm.thruster_block(th.block(), base)
+            cfg = tm.thruster_block(ingestion_thruster_block(spec), base)
         except (ValueError, OSError) as e:
             raise IngestError(f"invalid thrusters block in {path!r}: {e}") from e
         if cfg.n_thrusters != len(th.pwm_columns):
@@ -331,8 +348,17 @@ def _col(df, name, path):
 def _thruster_config(spec: IngestSpec):
     if spec._thruster_cfg is None:  # spec built in code rather than by load_ingest_spec
         import thruster_model as tm
-        spec._thruster_cfg = tm.thruster_block(spec.wrench.thrusters.block())
+        spec._thruster_cfg = tm.thruster_block(ingestion_thruster_block(spec))
     return spec._thruster_cfg
+
+
+def ingestion_thruster_block(spec: IngestSpec) -> dict:
+    """The thrusters block ingestion uses: with voltage_column, the unscaled T200 curve (each sample is rescaled
+    to its own logged voltage), so a nominal voltage: meant for the simulators isn't applied twice."""
+    b = spec.wrench.thrusters.block()
+    if spec.wrench.thrusters.voltage_column:
+        b.pop("voltage", None)
+    return b
 
 
 def _session_date(spec: IngestSpec, path: str, start_unix_s: Optional[float] = None) -> str:
@@ -495,12 +521,22 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
             raise IngestError(f"{path}: {check['problem']}")
 
     data = np.hstack([wrench, lin, ang, Rotation.from_matrix(R).as_quat()])
+    drop = np.zeros(len(data), dtype=bool)
+    for rule in spec.exclude_samples:
+        x = _col(df, rule.column, path)
+        hit = np.zeros_like(drop)
+        if rule.above is not None:
+            hit |= x > rule.above
+        if rule.below is not None:
+            hit |= x < rule.below
+        report.setdefault("excluded_by_rule", {})[rule.column] = int(hit.sum())
+        drop |= hit | ~np.isfinite(x)
     finite = np.all(np.isfinite(data), axis=1)
     if not finite.all():
         report["warnings"].append(f"dropped {int((~finite).sum())} row(s) with NaN/inf")
         if (~finite).sum() > 0.05 * n:
             raise IngestError(f"{path}: {int((~finite).sum())} of {n} rows have NaN/inf in required quantities")
-        data, t = data[finite], t[finite]
+        data, t, drop = data[finite], t[finite], drop[finite]
 
     if spec.resample_hz is not None and spec.source.format == "csv" and spec.time.column is not None:
         # t[0] + k / rate rather than np.arange(t[0], ...), which drifts at Unix-epoch magnitudes
@@ -508,9 +544,12 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         cols = [np.interp(grid, t, data[:, j]) for j in range(12)]
         from rosbag_reader import slerp  # orientation: spherical interpolation, valid across sudden jumps
         data = np.hstack([np.stack(cols, 1), slerp(t, data[:, 12:16], grid)])
+        drop = np.interp(grid, t, drop.astype(float)) > 0  # a grid sample next to a dropped one is dropped too
         report["resampled_to_hz"] = spec.resample_hz
 
     out = pd.DataFrame(data, columns=CANONICAL_COLUMNS)
+    if spec.exclude_samples:
+        out[DROP_COLUMN] = drop
     Rq = Rotation.from_quat(out[["qx", "qy", "qz", "qw"]].values)
     jumps = int(np.sum(np.degrees((Rq[1:] * Rq[:-1].inv()).magnitude()) > MAX_PLAUSIBLE_ORIENTATION_JUMP_DEG))
     if jumps:
@@ -544,6 +583,26 @@ def torque_reference_for(spec: IngestSpec) -> Optional[list]:
     if spec.wrench.thrusters is None:
         return None
     return [float(x) for x in _thruster_config(spec).torque_reference_offset_m]
+
+
+DROP_COLUMN = "_excluded"
+
+
+def split_excluded(out: pd.DataFrame, rate_hz: float, min_segment_s: float) -> list:
+    """exclude_samples: the stretches between dropped samples, each at least min_segment_s long."""
+    if DROP_COLUMN not in out.columns:
+        return [out]
+    keep = ~out[DROP_COLUMN].to_numpy(dtype=bool)
+    out = out.drop(columns=[DROP_COLUMN])
+    pieces, start = [], None
+    for i, k in enumerate(np.append(keep, False)):
+        if k and start is None:
+            start = i
+        elif not k and start is not None:
+            if (i - start) / rate_hz >= min_segment_s:
+                pieces.append(out.iloc[start:i].reset_index(drop=True))
+            start = None
+    return pieces
 
 
 AXIS_PAIRS = (("Fx", "Bu", "surge"), ("Fy", "Bv", "sway"), ("Fz", "Bw", "heave"), ("Tx", "Bp", "roll"),
@@ -627,19 +686,32 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
     reports, rates, counters = [], [], {}
     frames = []
     for path in files:
-        df, rep = convert_file(spec, path)
-        frames.append(df)
-        date = rep["session_date"]
-        counters[date] = counters.get(date, 0) + 1
-        name = f"{spec.vehicle}-{date}-run{counters[date]}.csv"
-        df.to_csv(os.path.join(out_dir, name), index=False)
-        rep["output"] = name
-        reports.append(rep)
-        rates.append(rep["sampling_rate_hz"])
+        df_all, rep0 = convert_file(spec, path)
+        pieces = split_excluded(df_all, rep0["sampling_rate_hz"], spec.min_segment_s)
+        if spec.exclude_samples:
+            kept = sum(len(p) for p in pieces)
+            rep0["kept_after_exclusions"] = f"{kept} of {len(df_all)} samples, in {len(pieces)} piece(s)"
+        for j, df in enumerate(pieces):
+            rep = dict(rep0) if len(pieces) == 1 else {**rep0, "piece": j + 1, "rows_out": int(len(df))}
+            frames.append(df)
+            date = rep["session_date"]
+            counters[date] = counters.get(date, 0) + 1
+            name = f"{spec.vehicle}-{date}-run{counters[date]}.csv"
+            df.to_csv(os.path.join(out_dir, name), index=False)
+            rep["output"] = name
+            reports.append(rep)
+            rates.append(rep["sampling_rate_hz"])
+        if not pieces:
+            rep0["output"] = None
+            rep0["warnings"].append(f"nothing left after exclude_samples (no stretch of {spec.min_segment_s:g} s)")
+            reports.append(rep0)
+    if not frames:
+        raise IngestError("nothing left to calibrate on after exclude_samples; loosen the rules or min_segment_s")
     if max(rates) - min(rates) > 0.01 * min(rates):
         raise IngestError(f"files have different sampling rates ({sorted(set(round(r, 3) for r in rates))} Hz); "
                           f"set resample_hz so every run shares one rate")
-    summary = {"vehicle": spec.vehicle, "n_files": len(files), "sampling_rate_hz": round(rates[0], 4),
+    summary = {"vehicle": spec.vehicle, "n_files": len(files), "n_recordings": len(frames),
+               "sampling_rate_hz": round(rates[0], 4),
                "sessions": {d: c for d, c in sorted(counters.items())},
                "torque_reference_offset_m": torque_reference_for(spec), "files": reports,
                "next_step": f"python strathe.py calibrate --data {out_dir} --name {spec.vehicle}"}
@@ -704,7 +776,9 @@ def main(argv=None) -> int:
           + ", ".join(f"{a} {v:+.2f}" for a, v in c.items() if v is not None))
     for w in s.get("warnings", []):
         print(f"WARNING: {w}")
-    print(f"Ingested {s['n_files']} file(s) at {s['sampling_rate_hz']} Hz across {len(s['sessions'])} session date(s) "
+    print(f"Ingested {s['n_files']} file(s)"
+          + (f" into {s['n_recordings']} recording(s) after exclude_samples" if spec.exclude_samples else "")
+          + f" at {s['sampling_rate_hz']} Hz across {len(s['sessions'])} session date(s) "
           f"-> {args.out} ({n_warn} warning(s); see ingest_report.json)")
     if not args.no_next_step:
         print(f"Next: {s['next_step']}")

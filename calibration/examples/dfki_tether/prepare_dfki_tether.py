@@ -35,6 +35,11 @@ What this script does, and why each step is needed:
   holds out the free-piloting runs.
 - Samples more than MAX_HEADING_GAP_S from a marker heading are dropped by splitting the recording
   there.
+- The tether: in the limited-tether runs the cable goes taut in bursts (the surface sensor reads median
+  0.1-3 N, 95th percentile 43-65 N, and above 5 N for 20-40% of the time); the free runs stay under 1 N.
+  A calibration that sees those bursts learns them as the vehicle's own drag (PROJECT_STATUS.md #63).
+  Each sample's peak tension is written as tether_tension_peak_n, and ingest_dfki_tether_slack.yaml drops
+  the taut stretches with exclude_samples.
 """
 from __future__ import annotations
 
@@ -127,6 +132,11 @@ def prepare_run(run_dir: str) -> list:
     tw = window_mean(ten["time"].to_numpy(), ten[["Tension_horizontal_Fy", "Tenion_vertical_Fx"]].to_numpy(),
                      t, dt / 2)
     out["tether_horizontal_n"], out["tether_vertical_n"] = tw[:, 0], tw[:, 1]
+    # the tether's peak pull over each sample (the 2 kHz sensor; a 0.1 s burst still counts): the slack-tether
+    # example spec drops samples above a few newtons with exclude_samples
+    tens = np.hypot(ten["Tension_horizontal_Fy"].to_numpy(), ten["Tenion_vertical_Fx"].to_numpy())
+    lo, hi = np.searchsorted(ten["time"].to_numpy(), t - dt / 2), np.searchsorted(ten["time"].to_numpy(), t + dt / 2)
+    out["tether_tension_peak_n"] = np.array([tens[a:b].max() if b > a else np.nan for a, b in zip(lo, hi)])
 
     # split at every dropped sample; keep pieces long enough to calibrate on
     pieces, start = [], None
@@ -142,11 +152,12 @@ def prepare_run(run_dir: str) -> list:
 
 
 def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 2:
-        print(__doc__)
-        return 2
-    src, dest = argv
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("src")
+    ap.add_argument("dest")
+    args = ap.parse_args(sys.argv[1:] if argv is None else argv)
+    src, dest = args.src, args.dest
     os.makedirs(dest, exist_ok=True)
     n = 0
     for group, date in SESSIONS.items():

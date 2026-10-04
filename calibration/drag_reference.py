@@ -2,16 +2,18 @@
 drag_reference.py -- published drag values, and two opt-in ways to use them in a calibration
 (PROJECT_STATUS.md #63).
 
-The problem they address: logged motion can rarely separate linear from quadratic drag (on DFKI's
+The problem it addresses: logged motion can rarely separate linear from quadratic drag (on DFKI's
 BlueROV2, Xu/Xuu correlate at -0.99, Kp/Kpp at -0.94), so the fit slides along that trade-off until one
 term hits its bound, and tether pull or other unmodelled forces end up in whichever term is free.
 
-    --drag free            (default) every drag term is fitted, as before
-    --drag linear-fixed    the six linear terms are held at the published values; only the quadratic
-                           ones are fitted
-    --drag prior           all twelve are fitted, with a weak penalty on their log-distance from the
-                           published values, so a term the data can't pin settles near the published value
-                           instead of at a bound
+    --drag free     (default) every drag term is fitted, as before
+    --drag prior    all twelve are fitted, with a weak penalty on their log-distance from the published values,
+                    so a term the data can't pin settles nearer the published value instead of at a bound
+
+Tested on DFKI (#63): the prior gave a little better surge and moved two quadratic terms off their bounds.
+Holding the linear terms at the published values instead (all six, or only Xu/Yv/Zw) made the open-loop
+replay unstable (sway skill -2.42 and -1.20, roll -11.3 and -4.8): the published linear drag is too small
+for real logged motion. That option was removed.
 
 The published values: Wu (2018), "6-DoF Modelling and Control of a Remotely Operated Vehicle",
 Flinders University, Table 5.3, a standard 6-thruster BlueROV2. Wu derived them from published
@@ -29,7 +31,7 @@ REFERENCES = {
         "quadratic": {"Xuu": -18.18, "Yvv": -21.66, "Zww": -36.99, "Kpp": -1.55, "Mqq": -1.55, "Nrr": -1.55},
     },
 }
-DRAG_MODES = ("free", "linear-fixed", "prior")
+DRAG_MODES = ("free", "prior")
 DEFAULT_PRIOR_WEIGHT = 0.1
 
 
@@ -51,11 +53,6 @@ def within_bounds(values: dict, names: list, lb, ub) -> tuple:
                          f"using {c:g}")
         out[k] = c
     return out, notes
-
-
-def held_linear_drag(reference: str, names: list, lb, ub) -> tuple:
-    """--drag linear-fixed: ({param: value} to hold, notes)."""
-    return within_bounds(REFERENCES[reference]["linear"], names, lb, ub)
 
 
 def prior_residual_wrapper(base_fn, names: list, targets: dict, weight: float):

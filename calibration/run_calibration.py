@@ -98,7 +98,7 @@ class PipelineConfig:
     exclude_axes: tuple = ()  # subset of ("p", "q"): axes the logged inputs don't explain. Their
         # residuals get zero weight and their axis-only parameters are held at vehicle_spec.yaml's
         # initial_guess instead of being fitted (see EXCLUDABLE_AXIS_PARAMS)
-    drag: str = "free"                     # drag_reference.DRAG_MODES: free | linear-fixed | prior
+    drag: str = "free"                     # drag_reference.DRAG_MODES: free | prior
     drag_reference: str = "bluerov2_wu2018"
     drag_prior_weight: float = 0.1
 
@@ -476,20 +476,14 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         if config.drag not in dr.DRAG_MODES:
             raise ValueError(f"drag must be one of {dr.DRAG_MODES}, got {config.drag!r}")
         if config.parallel:
-            raise ValueError("--drag linear-fixed / prior isn't supported with --parallel restarts")
+            raise ValueError("--drag prior isn't supported with --parallel restarts")
         names = list(default_params.param_names)
         lb, ub = parameter_bounds(loaded_spec)
-        if config.drag == "linear-fixed":
-            held, notes = dr.held_linear_drag(config.drag_reference, names, lb, ub)
-            config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
-            drag_info = {"mode": config.drag, "reference": dr.REFERENCES[config.drag_reference]["source"],
-                         "held": held, "notes": notes}
-        else:
-            targets, notes = dr.within_bounds(dr.reference_values(config.drag_reference), names, lb, ub)
-            config.calibration_config.prior_targets = targets
-            config.calibration_config.prior_weight = config.drag_prior_weight
-            drag_info = {"mode": config.drag, "reference": dr.REFERENCES[config.drag_reference]["source"],
-                         "targets": targets, "weight": config.drag_prior_weight, "notes": notes}
+        targets, notes = dr.within_bounds(dr.reference_values(config.drag_reference), names, lb, ub)
+        config.calibration_config.prior_targets = targets
+        config.calibration_config.prior_weight = config.drag_prior_weight
+        drag_info = {"mode": config.drag, "reference": dr.REFERENCES[config.drag_reference]["source"],
+                     "targets": targets, "weight": config.drag_prior_weight, "notes": notes}
         for n in notes:
             logger.info("Drag reference: %s", n)
         logger.info("Drag: %s, toward %s", config.drag, dr.REFERENCES[config.drag_reference]["source"])
@@ -729,10 +723,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="leave these rotational axes out of the fit and hold their axis-only "
                              "parameters at vehicle_spec.yaml's initial_guess -- for data whose roll/pitch "
                              "motion isn't driven by the logged thrusters (PROJECT_STATUS.md #50)")
-    parser.add_argument("--drag", choices=["free", "linear-fixed", "prior"], default="free",
-                        help="free: fit every drag term (default). linear-fixed: hold the linear terms at published "
-                             "values and fit the quadratic ones. prior: fit all, gently pulled toward published "
-                             "values. For data that can't separate linear from quadratic drag (drag_reference.py)")
+    parser.add_argument("--drag", choices=["free", "prior"], default="free",
+                        help="free: fit every drag term (default). prior: fit all, gently pulled toward published "
+                             "values, for data that can't separate linear from quadratic drag (drag_reference.py)")
     parser.add_argument("--drag-reference", default="bluerov2_wu2018",
                         help="published drag values for --drag (drag_reference.REFERENCES)")
     parser.add_argument("--drag-prior-weight", type=float, default=0.1,

@@ -19,11 +19,11 @@ def test_published_values_are_wu_2018_table_5_3():
         dr.reference_values("bluerov9")
 
 
-def test_held_values_are_clamped_into_the_spec_bounds_and_say_so():
-    held, notes = dr.held_linear_drag("bluerov2_wu2018", NAMES, LB, UB)
-    assert set(held) == {"Xu", "Yv", "Zw", "Kp", "Mq", "Nr"} and held["Xu"] == -4.03
-    assert held["Kp"] == -0.1 and held["Nr"] == -0.2  # -0.07 is outside the spec's bounds
+def test_published_values_are_clamped_into_the_spec_bounds_and_say_so():
+    clamped, notes = dr.within_bounds(dr.reference_values("bluerov2_wu2018"), NAMES, LB, UB)
+    assert clamped["Xu"] == -4.03 and clamped["Kp"] == -0.1 and clamped["Nr"] == -0.2  # -0.07 is outside
     assert len(notes) == 3 and all("outside" in n for n in notes)
+    assert dr.DRAG_MODES == ("free", "prior")  # linear-fixed made DFKI's replay unstable (#63) and was removed
 
 
 def test_prior_adds_one_log_distance_residual_per_term():

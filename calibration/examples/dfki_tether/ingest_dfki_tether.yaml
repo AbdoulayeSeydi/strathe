@@ -35,4 +35,5 @@ wrench:
       - {position_m: [0.0, 0.11, 0.0], direction: [0, 0, 1], reversed: true}           # 5 right, vertical
       - {position_m: [0.0, -0.11, 0.0], direction: [0, 0, 1], reversed: false}         # 6 left, vertical
     curve: t200
-    voltage_column: battery_v   # each sample's thrust at its own logged battery voltage (13.1-15.3 V here)
+    voltage_column: battery_v   # ingestion: each sample's thrust at its own logged battery voltage (13.1-15.3 V)
+    voltage: 13.8               # simulators (--thrusters this file): the logged median, as a nominal voltage
