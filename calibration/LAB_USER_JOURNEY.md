@@ -206,6 +206,11 @@ assumed 10 Hz (PROJECT_STATUS.md #56).
   calibrates with it. It flags recordings where the current changed or the vehicle didn't turn.
 - Limit: one constant current per recording (LIMITS.md).
 
+**C7. My report says roll and pitch aren't predicted.** PASS, with a limit.
+- `FREE_DECAY_PROTOCOL.md` says how to record free-decay tank tests (30-60 minutes), with an ArduSub template.
+- `strathe free-decay` measures the unforced roll and pitch from them; `calibrate --free-decay` holds those values, and the report says they were measured.
+- Limit: the thruster-driven roll/pitch isn't fitted yet. On the reference dataset, holding the measured values made whole-mission roll/pitch prediction worse (PROJECT_STATUS.md #64), so compare with a calibration made without them before simulating attitude-sensitive tasks.
+
 ## The single-vehicle journey
 
 ```bash
