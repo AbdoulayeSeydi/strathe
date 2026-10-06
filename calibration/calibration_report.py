@@ -44,6 +44,7 @@ from optimizer import initial_parameters, load_vehicle_spec, parameter_bounds
 
 AXES = [("u", "forward speed (surge)"), ("v", "sideways speed (sway)"), ("w", "up/down speed (heave)"),
         ("p", "roll rate"), ("q", "pitch rate"), ("r", "turning rate (yaw)")]
+LABELS = dict(AXES)
 
 PLAIN = {
     "Ieff_roll": "resistance to rolling (inertia + added inertia)", "Ieff_pitch": "resistance to pitching",
@@ -268,6 +269,17 @@ def skill_sentence(verdicts) -> str:
             + " Beating the default model alone can flatter a poor default, so each verdict below checks both.")
 
 
+def load_validation(result_dir: str) -> Optional[dict]:
+    path = os.path.join(result_dir, VALIDATION_DIR, "validation.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def free_decay_note(metrics: Optional[dict]) -> Optional[str]:
     """One plain paragraph on roll/pitch values held from free-decay tank tests, or None."""
     fd = ((metrics or {}).get("objective") or {}).get("free_decay")
@@ -299,8 +311,104 @@ def diverged_note(metrics: Optional[dict]) -> Optional[str]:
             "(`--free-decay`, `--exclude-axes`), compare with a calibration that doesn't hold them.")
 
 
+VALIDATION_DIR = "validation"
+
+
+def _m(s, unit="", digits=2):
+    return "n/a" if s is None or s.get("median") is None else f"{s['median']:.{digits}f}{unit}"
+
+
+def validation_section(v: dict) -> list:
+    """The report's section from validation.py's validation.json: position drift, orientation with the model
+    turning on its own, the 1 s response, command steps, and the plots (PROJECT_STATUS.md #65)."""
+    L = ["## How the simulation compares with the real vehicle\n",
+         f"On the {v['heldout_recordings']} recordings the calibration never saw"
+         + (f" ({', '.join(v['heldout_dates'])})" if v.get("heldout_dates") else "")
+         + f". The numbers are in `{VALIDATION_DIR}/validation.json`.\n"]
+    plots = set(v.get("plots") or [])
+    tr = v["trajectory"]
+    L.append("**Position.** How far the simulated vehicle ends up from where its logged velocity says it went, "
+             "starting each window from the real state. Median over the windows (90% of windows under the second "
+             "number):\n")
+    L += ["| After | Calibrated | Default physics | Assuming it doesn't move |", "|---|---|---|---|"]
+    for i, H in enumerate(tr["horizons_s"]):
+        if H not in (10, 30, 60) or tr["calibrated"][i]["median"] is None:
+            continue
+        c = tr["calibrated"][i]
+        L.append(f"| {H} s | {c['median']:.2f} m ({c['p90']:.2f} m) | {_m(tr['default'][i], ' m')} | "
+                 f"{_m(tr['no_motion'][i], ' m')} |")
+    L.append("")
+    for f, alt in (("drift.png", "Position drift against horizon"), ("trajectory_typical.png", "Path")):
+        if f in plots:
+            L.append(f"![{alt}]({VALIDATION_DIR}/{f})\n")
+    o = v["orientation"]
+    last = len(o["report_s"]) - 1
+    L.append(f"**Orientation, with the model turning and tilting on its own** (the fit itself is scored with the "
+             f"logged orientation fed in). Median error after {' and '.join(f'{s:g} s' for s in o['report_s'])}, "
+             f"restarting from the real state every {o['window_s']:g} s:\n")
+    L += ["| Angle | Calibrated | Default physics | Holding the starting attitude |", "|---|---|---|---|"]
+    worse, better = [], []
+    for name in ("roll", "pitch", "yaw"):
+        cells = [" / ".join(_m(x, "°", 1) for x in o[k][name]) for k in ("calibrated", "default", "hold_start")]
+        L.append(f"| {name.capitalize()} | " + " | ".join(cells) + " |")
+        c, h = o["calibrated"][name][last]["median"], o["hold_start"][name][last]["median"]
+        if c is not None and h is not None:
+            (better if c < h else worse).append(name)
+    L.append("")
+    if better:
+        L.append(f"- **{', '.join(better).capitalize()}:** the simulation tracks the real vehicle better than holding "
+                 f"the starting attitude.")
+    if worse:
+        L.append(f"- **{', '.join(worse).capitalize()}:** worse than simply holding the starting attitude. Don't trust "
+                 f"the simulated {' and '.join(worse)} on their own (LIMITS.md).")
+    L.append("")
+    if "orientation_typical.png" in plots:
+        L.append(f"![Orientation]({VALIDATION_DIR}/orientation_typical.png)\n")
+    re = v["response"]
+    L.append(f"**Response over {re['horizon_s']:g} s.** The velocity change over the next second (that is, the "
+             f"average acceleration), predicted against measured, from {re['windows']} moments. Skill compares "
+             f"with assuming the velocity stays the same (1 = perfect, 0 = no better):\n")
+    L += ["| Motion | Calibrated error | Default physics | Velocity stays the same | Skill |", "|---|---|---|---|---|"]
+    axes = ["u", "v", "w", "p", "q", "r"]
+    for j, ax in enumerate(axes):
+        L.append(f"| {LABELS.get(ax, ax)} | {re['calibrated']['rmse'][j]:.3f} | {re['default']['rmse'][j]:.3f} | "
+                 f"{re['same_velocity_rmse'][j]:.3f} | {re['calibrated']['skill_vs_same_velocity'][j]:+.2f} |")
+    L.append("\nErrors in m/s (surge, sway, heave) and rad/s (roll, pitch, turning).\n")
+    st = {ax: x for ax, x in (v.get("steps") or {}).items() if x.get("steps")}
+    if st:
+        L.append("**Command steps.** When a force or torque jumps and then holds: how long the velocity takes to make "
+                 "63% of its change, and how big the change is, model against real (medians):\n")
+        L += ["| Motion | Steps | Real vehicle | Calibrated | Calibrated size / real |", "|---|---|---|---|---|"]
+        fast = 0
+        for ax, x in st.items():
+            rr, cr, sz = x.get("real_rise_s"), x.get("calibrated_rise_s"), x.get("calibrated_size_ratio")
+            L.append(f"| {LABELS.get(ax, ax)} | {x['steps']} | {'n/a' if rr is None else f'{rr:.1f} s'} | "
+                     f"{'n/a' if cr is None else f'{cr:.1f} s'} | {'n/a' if sz is None else f'{sz:.2f}'} |")
+            if rr and cr is not None and cr <= rr / 1.5:
+                fast += 1
+        L.append("")
+        if 2 * fast > len(st):
+            L.append(f"- **The simulated vehicle responds faster than the real one:** at least 1.5 times as fast on "
+                     f"{fast} of {len(st)} axes. Thruster spin-up and command lag aren't modelled (LIMITS.md); a "
+                     f"controller tuned in simulation may be too aggressive on the real vehicle.\n")
+        if "steps.png" in plots:
+            L.append(f"![Command steps]({VALIDATION_DIR}/steps.png)\n")
+    vel = [f for f in ("velocity_typical.png", "velocity_best.png", "velocity_worst.png") if f in plots]
+    if vel:
+        L.append(f"**Velocity over whole recordings**, as the calibration is scored: "
+                 + ", ".join(f"[{f.split('_')[1].split('.')[0]}]({VALIDATION_DIR}/{f})" for f in vel) + ".\n")
+        L.append(f"![Velocity, typical recording]({VALIDATION_DIR}/{vel[0]})\n")
+    div = {k: x for k, x in (("position", tr.get("diverged", {}).get("calibrated")),
+                             ("orientation", o.get("diverged", {}).get("calibrated")),
+                             ("response", re.get("diverged", {}).get("calibrated")))}
+    if any((sum(x) if isinstance(x, list) else x) for x in div.values() if x):
+        L.append("- **Some windows diverged** (the simulated motion blew up) and are left out: "
+                 + ", ".join(f"{k} {sum(x) if isinstance(x, list) else x}" for k, x in div.items() if x) + ".\n")
+    return L
+
+
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
-                 free_decay=None, diverged=None):
+                 free_decay=None, diverged=None, validation=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
@@ -337,6 +445,8 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                        f"of over-fitting to those particular recordings.")
         L.append(f"{verdict} (Unseen / training error, median over the six axes: {gen_gap:.2f}; about 1 is what "
                  f"you want.)\n")
+    if validation:
+        L += validation_section(validation)
     if water:
         L.append("## Water current\n")
         L.append(water + "\n")
@@ -436,7 +546,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     out = os.path.join(result_dir, "calibration_report.md")
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
-                 diverged_note(metrics))
+                 diverged_note(metrics), load_validation(result_dir))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps}
 

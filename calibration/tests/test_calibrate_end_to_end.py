@@ -39,13 +39,17 @@ def test_calibrate_runs_every_step_on_logs_with_their_own_dates(tmp_path):
     log = r.stdout + r.stderr
     assert r.returncode == 0, log[-3000:]
     assert "Traceback" not in log, log[-3000:]
-    for step in ("[1/4]", "[2/4]", "[3/4]", "[4/4]"):
+    for step in ("[1/5]", "[2/5]", "[3/5]", "[4/5]", "[5/5]"):
         assert step in log
     for f in ("calibrated_parameters.yaml", "metrics.json", "identifiability_report.json", "calibration_report.md"):
         assert (out / f).exists(), f
     metrics = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["dataset"]["heldout_dates"] == ["07-01-2030"]  # the lab's own last session
-    assert "Bottom line" in (out / "calibration_report.md").read_text(encoding="utf-8")
+    report = (out / "calibration_report.md").read_text(encoding="utf-8")
+    assert "Bottom line" in report
+    # the comparison with the real vehicle (validation.py, #65): numbers, plots and the report's section
+    assert (out / "validation" / "validation.json").exists()
+    assert "## How the simulation compares with the real vehicle" in report
 
 
 def test_one_session_is_explained_in_plain_words(tmp_path):

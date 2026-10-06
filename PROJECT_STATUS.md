@@ -1421,6 +1421,57 @@ Tests: 8 new.
 - `--free-decay` is opt-in. With it, the report's roll/pitch verdict points at the thruster-driven part, not the logs, and the next step is deliberate roll/pitch commands with the tether slack (the protocol's optional section), which Strathe doesn't fit yet.
 - Compare with a calibration made without it before simulating attitude-sensitive tasks.
 
+### 65. Validation: position drift, orientation on its own, response and plots, for every calibration (2026-10-06)
+
+**Why.** The calibration report showed one thing: velocity error per axis, with the logged orientation fed in. It didn't show where the simulated vehicle ends up, whether it turns and tilts like the real one when left to itself, how it responds to a command, or any plot. #64's roll/pitch finding only surfaced when the angles were let go by hand.
+
+**What shipped:**
+- **`validation.py`**, run by `strathe calibrate` after the fit (a step that warns rather than stops if it fails), and by `strathe validate --result <folder>` for any existing calibration, which then rewrites its report. It works on the held-out recordings and writes `<result>/validation/`: `validation.json` and 7 plots.
+- **Position drift:**
+  - **How:** predicted velocity is turned into a path with the logged orientation, from the real state at the start of each window (5–60 s). It's compared with the logged velocity integrated the same way. So it is the drift velocity error alone causes.
+  - **Baseline:** "the vehicle doesn't move" (the distance it actually travelled).
+- **Orientation:**
+  - **How:** a free-running replay. The model turns and tilts on its own: the fit's own equations and step (`FastDynamics`, 0.005 s), fed its own attitude, restarted from the real state every 10 s. Roll, pitch and yaw error after 3 and 10 s.
+  - **Baseline:** holding the starting attitude.
+- **Response:**
+  - **The 1 s response:** the velocity change over the next second (the average acceleration), from every moment, against "the velocity stays the same".
+  - **Command steps:** where a force or torque jumps and holds, the time to 63% of the velocity change and its size, model against real.
+- **Plots:**
+  - velocity over whole recordings (best, typical and worst);
+  - the path seen from above, and depth;
+  - drift against horizon;
+  - orientation with the model on its own;
+  - step responses.
+- **In the report:** a section "How the simulation compares with the real vehicle", with tables, plain verdicts ("worse than simply holding the starting attitude"; "responds faster than the real one" when a majority of axes do) and the plots inline. The web page now shows a report's plots.
+
+**Checked against a known answer** (`tests/test_validation.py`). A recording the model produced itself, integrated independently with the rotation-matrix physics, comes out as:
+- **position drift** under 1 cm;
+- **orientation error** about 1e-13°;
+- **the true response** to command steps.
+
+The baselines are not zero, and a model with four times the slow-speed drag shows up as drift and a smaller step response.
+- **A mismatch this caught while building it:** the first free-running replay stepped at 0.02 s while the calibration integrates at 0.005 s, a 4% difference after one sample. It now uses the calibration's own step and acceleration routine.
+- **Test scenario:** with default physics the synthetic vehicle tumbled past 50° and any difference grew chaotically, so the test uses the shipped calibration as the "real vehicle".
+
+**On the two datasets** (committed: `calibration_output_armfix/validation/`, `results/pilot_dfki_tether/calibration/validation/`):
+
+| | Reference (BlueROV2 Heavy, 14 unseen recordings) | DFKI (6-thruster BlueROV2, 8 unseen recordings) |
+|---|---|---|
+| Position drift after 10 / 30 / 60 s, calibrated (median) | 0.84 / 1.33 / 1.88 m | 0.48 / 0.97 / 1.51 m |
+| Default physics | 3.23 / 6.64 / 11.06 m | 1.71 / 3.74 / 5.91 m |
+| Assuming it doesn't move | 3.06 / 3.60 / 3.21 m | 3.91 / 5.27 / 3.83 m |
+| Yaw after 10 s on its own: calibrated / holding the start | 43° / 95° | 26° / 79° |
+| Roll after 10 s: calibrated / holding the start | 8.7° / 3.8° | 34.9° / 1.4° |
+| Pitch after 10 s: calibrated / holding the start | 10.7° / 6.3° | 19.2° / 8.2° |
+| 1 s response skill (surge, sway, heave, roll, pitch, yaw) | +0.18, +0.25, +0.45, +0.21, +0.24, +0.62 | +0.45, +0.45, +0.01, +0.20, +0.36, +0.62 |
+| Step response, time to 63%: real / calibrated | surge 0.6 / 0.3 s, sway 0.5 / 0.3 s, heave 0.6 / 0.4 s, yaw 0.5 / 0.5 s | surge 0.9 / 0.8 s, sway 0.9 / 0.6 s, heave 0.3 / 0.8 s, yaw 0.4 / 0.3 s |
+| Step response, size calibrated / real | 0.97–1.08 | 0.92–1.01; heave 1.58 |
+
+- **Position and heading:** calibration clearly earns its keep. Drift is a quarter to a third of default physics', and the simulated heading on its own beats holding the start.
+- **Roll and pitch on their own are worse than holding the starting attitude on both vehicles.** That is #64, now in every report. Don't trust simulated roll and pitch on their own.
+- **On the reference vehicle the model responds about twice as fast as the real one** (0.3 against 0.6 s on surge), at the right size. Thruster spin-up and command lag aren't modelled (LIMITS.md). DFKI is closer, except heave.
+- **What drift is measured against:** the logs' own velocity, integrated. It isn't an independent position fix (the reference dataset has none; DFKI's motion capture would be one, not used yet).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

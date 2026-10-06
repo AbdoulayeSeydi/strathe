@@ -199,6 +199,7 @@ assumed 10 Hz (PROJECT_STATUS.md #56).
 - values stuck at limits
 - values the data can't separate, in plain words
 - next steps
+- how the simulation compares with the real vehicle on unseen recordings (#65): position drift, orientation with the model on its own, the 1 s response, command steps, and plots, shown inline on the web page too
 
 **C6. My logs were recorded in open water.** PASS.
 - A known current: `--current-world-mps`, or the web form.

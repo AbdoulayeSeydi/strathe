@@ -19,7 +19,8 @@ def test_calibrate_runs_check_fit_report_in_order_with_recommended_settings(tmp_
     rc = cli.main(["calibrate", "--data", str(tmp_path), "--name", "rov 1!", "--workers", "3",
                    "--heldout-dates", "16-02-2024"], runner=lambda cmd: calls.append(cmd) or 0)
     assert rc == 0 and [c[1] for c in calls] == ["preflight_check.py", "run_calibration.py",
-                                                 "automated_identifiability_report.py", "calibration_report.py"]
+                                                 "automated_identifiability_report.py", "validation.py",
+                                                 "calibration_report.py"]
     assert all(c[0] == sys.executable for c in calls)
     fit = calls[1]
     out = os.path.join(cli.REPO_DIR, "calibration_output_rov_1")
@@ -52,7 +53,7 @@ def test_calibrate_straight_from_raw_logs_uses_the_ingestion_settings(tmp_path, 
     rc = cli.main(["calibrate", "--ingest-spec", str(spec), "--out", str(out)], runner=runner)
     assert rc == 0
     assert [c[1] for c in calls] == ["data_ingestion.py", "preflight_check.py", "run_calibration.py",
-                                     "automated_identifiability_report.py", "calibration_report.py"]
+                                     "automated_identifiability_report.py", "validation.py", "calibration_report.py"]
     data = str(out / "ingested_logs")
     assert calls[0][calls[0].index("--out") + 1] == data
     pre, fit = calls[1], calls[2]
@@ -65,7 +66,8 @@ def test_calibrate_straight_from_raw_logs_uses_the_ingestion_settings(tmp_path, 
     calls.clear()
     cli.main(["calibrate", "--data", data, "--sampling-rate-hz", "5", "--torque-reference-offset-m", "0", "0",
               "-0.085", "--skip-identifiability"], runner=runner)
-    assert [c[1] for c in calls] == ["preflight_check.py", "run_calibration.py", "calibration_report.py"]
+    assert [c[1] for c in calls] == ["preflight_check.py", "run_calibration.py", "validation.py",
+                                     "calibration_report.py"]
     fit = calls[1]
     assert fit[fit.index("--sampling-rate-hz") + 1] == "5"
     i = fit.index("--torque-reference-offset-m")
@@ -527,7 +529,7 @@ def test_calibrate_keeps_the_best_result_when_the_budget_runs_out(tmp_path, caps
                    "--current-world-mps", "0.1", "0", "0", "--max-nfev", "7"], runner=runner)
     assert rc == 0
     assert [c[1] for c in calls] == ["preflight_check.py", "run_calibration.py", "finalize_checkpoint.py",
-                                     "automated_identifiability_report.py", "calibration_report.py"]
+                                     "automated_identifiability_report.py", "validation.py", "calibration_report.py"]
     fin = calls[2]
     assert fin[fin.index("--checkpoint") + 1] == str(out / "checkpoint.yaml")
     assert fin[fin.index("--axis-scaling") + 1] == "zero_rms" and "--exclude-axes" in fin
@@ -557,7 +559,7 @@ def test_calibrate_finish_turns_an_interrupted_fit_into_a_result(tmp_path, capsy
     (out / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
     assert cli.main(["calibrate", "--ingest-spec", str(spec), "--out", str(out), "--finish"], runner=run) == 0
     assert [c[1] for c in calls] == ["finalize_checkpoint.py", "automated_identifiability_report.py",
-                                     "calibration_report.py"]
+                                     "validation.py", "calibration_report.py"]
     fin = calls[0]
     assert fin[fin.index("--sampling-rate-hz") + 1] == "9.4" and fin[fin.index("--axis-scaling") + 1] == "zero_rms"
     assert fin[fin.index("--torque-reference-offset-m") + 1:fin.index("--torque-reference-offset-m") + 4] == \
@@ -685,3 +687,21 @@ def test_web_noise_buoyancy_and_algorithms_reach_every_command(server):
         n = len(started)
         status, body, _ = request("POST", path, {"token": token, "task": "waypoint", **bad})
         assert status == 400 and msg in body and len(started) == n, (bad, body[:300])
+
+
+def test_web_report_shows_its_plots(server):
+    """The report's validation plots show inside the page (validation.py, #65); only a job's own .png files."""
+    request, token, started, manager, tmp_path = server
+    out = tmp_path / "jobs" / "cal"
+    (out / "validation").mkdir(parents=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+    (out / "validation" / "drift.png").write_bytes(png)
+    (out / "calibration_report.md").write_text("## Position\n\n![Position drift](validation/drift.png)\n\n"
+                                               "See the [typical](validation/drift.png) recording.\n")
+    status, body, _ = request("GET", f"/view?path={quote(str(out / 'calibration_report.md'))}")
+    src = f"/image?path={quote(str(out / 'validation' / 'drift.png'))}"
+    assert status == 200 and f"<img src='{src}'" in body and f"<a href='{src}'>typical</a>" in body
+    status, body, headers = request("GET", src)
+    assert status == 200 and headers["Content-Type"] == "image/png"
+    assert request("GET", f"/image?path={quote(str(out / 'calibration_report.md'))}")[0] == 404
+    assert request("GET", f"/image?path={quote('/etc/hosts')}")[0] == 404

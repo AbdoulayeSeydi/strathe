@@ -38,6 +38,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Use logs with only thruster PWM, no forces | BlueROV2 Heavy preset, or any vehicle's thruster `layout:` |
 | Calibrate logs recorded in a known current | `calibrate --current-world-mps VX VY VZ` |
 | Calibrate logs recorded in an unknown current | `calibrate --estimate-current`: each recording's current is estimated from the logs |
+| See how the simulation compares with the real vehicle | every `calibrate` writes `validation/`: position drift, orientation with the model on its own, the 1 s response, command steps, and plots; `validate --result <folder>` for an existing calibration |
 | Measure roll and pitch in a tank | `free-decay --ingest-spec my_tank_tests.yaml`, then `calibrate ... --free-decay free_decay.yaml` (opt-in; `calibration/FREE_DECAY_PROTOCOL.md`) |
 
 **2. Run experiments with your vehicle**
@@ -93,6 +94,7 @@ Roll and pitch (#64):
 - **`strathe free-decay`** measures roll and pitch from free-decay tank tests: tilt the vehicle, let go with the thrusters stopped, record the swing. The protocol for labs is `calibration/FREE_DECAY_PROTOCOL.md`, with an ArduSub template. `calibrate --free-decay` holds what it measured (opt-in).
 - **The reference logs contain their own free decays.** Measured on the training days, they predict the unseen days' free swings well (angle R² +0.84 roll, +0.96 pitch). The shipped calibration's roll/pitch damping, at its limits, does worse than "no motion" on them: it isn't the vehicle's.
 - **Holding the measured values makes whole-mission roll/pitch prediction worse (−3.7),** and a full refit around them makes every axis worse and the simulation unstable. With the vehicle's real, light damping, the model's thruster-driven roll/pitch is far too large; heavy damping is how every fit hides that. Fixing it needs deliberate roll/pitch commands from a lab.
+- **Every calibration now compares the simulation with the real vehicle** on unseen recordings (`validation/`, #65): position drift, orientation with the model turning and tilting on its own, the 1 s response, command steps, and plots in the report and on the web page. On the reference BlueROV2 the calibrated model drifts 0.84 m in 10 s (default physics 3.2 m), and its heading on its own beats holding the start. Roll and pitch on their own are worse than holding the start, and the model responds about twice as fast as the vehicle (thruster lag isn't modelled).
 - **A calibration that blows up on unseen recordings** is now reported ("Unstable ... don't simulate with this calibration") instead of crashing the finishing step.
 
 ## Recent fixes (September 2026)
@@ -219,7 +221,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 547 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 556 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -878,7 +880,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (547 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (556 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
