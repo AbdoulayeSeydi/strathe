@@ -1,0 +1,108 @@
+{
+  "dataset": {
+    "train_dates": [
+      "01-01-2025"
+    ],
+    "heldout_dates": [
+      "02-01-2025"
+    ],
+    "n_train_files": 14,
+    "n_heldout_files": 8
+  },
+  "optimizer": {
+    "converged": false,
+    "cost": 28.351607968828972,
+    "nfev": 600,
+    "message": "finalized from checkpoint, not formally converged: interrupted; finished from its checkpoint with strathe calibrate --finish"
+  },
+  "rmse": {
+    "default_train": 0.73904425016729,
+    "default_heldout": 0.6706642187700161,
+    "calibrated_train": 0.21352570189993098,
+    "calibrated_heldout": 0.13929189006657966
+  },
+  "per_dof": {
+    "default_train": [
+      0.32516204504581003,
+      0.29229440655581046,
+      0.2808601183458181,
+      0.8951124578983682,
+      1.3076282302395354,
+      0.6437962803939004
+    ],
+    "default_heldout": [
+      0.14803143061939716,
+      0.2216205386493359,
+      0.20518072124166598,
+      1.0947182365261356,
+      1.082924998532501,
+      0.44231874834245244
+    ],
+    "calibrated_train": [
+      0.2280999458601755,
+      0.12598405569329013,
+      0.07997478595965944,
+      0.1812896082495438,
+      0.24817436133218257,
+      0.3169367898180234
+    ],
+    "calibrated_heldout": [
+      0.1548466951984487,
+      0.03263913263482968,
+      0.07755256169747467,
+      0.13637657747365942,
+      0.16621311467439315,
+      0.1957164979769701
+    ]
+  },
+  "skill_vs_zero": {
+    "zero_heldout": [
+      0.3916282734442105,
+      0.08580095951018439,
+      0.12803052807999968,
+      0.10857519524644034,
+      0.1642705697488247,
+      0.3430090135087297
+    ],
+    "calibrated_heldout_full_replay": [
+      0.6046079772621231,
+      0.6195947828420789,
+      0.39426507989550685,
+      -0.2560564792364999,
+      -0.01182527660638577,
+      0.42941295922537304
+    ],
+    "calibrated_heldout_short_windows": [
+      0.6286920671515623,
+      0.6494179343400313,
+      0.4507041659489168,
+      -0.2519634663500996,
+      -0.00518747474129766,
+      0.44022827031516487
+    ],
+    "short_window_s": 3.0,
+    "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than predicting no motion"
+  },
+  "objective": {
+    "axis_scaling": "zero_rms",
+    "prediction_horizon_samples": null,
+    "excluded_axes": [],
+    "torque_reference_offset_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "current_world_mps": null,
+    "held_parameters": null,
+    "sampling_rate_hz": 10.0,
+    "current_by_file": null
+  },
+  "reproducibility": {
+    "git_commit": "a054deb581d029ee28b4df73b6539c89d700363e",
+    "spec_path": "vehicle_spec.yaml",
+    "data_dir": "<calibration output>/ingested_logs",
+    "checkpoint": "<calibration output>/checkpoint.yaml",
+    "timestamp_utc": "2026-10-03T18:20:50.571047+00:00"
+  },
+  "success": false
+}

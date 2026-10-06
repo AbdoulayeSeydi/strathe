@@ -113,3 +113,28 @@ def test_exclude_samples_splits_recordings_at_the_dropped_stretches(tmp_path):
         ingest(strict, str(tmp_path / "out2"))
     with pytest.raises(ValueError, match="above: and/or below:"):
         load_ingest_spec(_logged_force_spec(tmp_path, exclude_samples=[{"column": "tension"}]))
+
+
+@pytest.mark.skipif(not glob.glob(os.path.join(os.path.dirname(CAL), "data", "raw", "dfki_rov_tether", "strathe_csv",
+                                               "*.csv")), reason="DFKI dataset not prepared")
+def test_dfki_with_a_mirrored_heading_is_flagged(tmp_path):
+    """ArduSub's own yaw on DFKI is mirrored and ~175 deg off the basin's frame. With world-frame velocity that
+    takes surge from +0.79 to about 0 instead of below -0.2, so it isn't refused; it must be flagged
+    (PROJECT_STATUS.md #63)."""
+    src = os.path.join(os.path.dirname(CAL), "data", "raw", "dfki_rov_tether", "strathe_csv")
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for f in glob.glob(os.path.join(src, "*.csv")):
+        d = pd.read_csv(f)
+        d["yaw_rad"] = np.angle(np.exp(1j * (-d["yaw_rad"] + np.radians(175))))
+        d.to_csv(raw / os.path.basename(f), index=False)
+    spec = yaml.safe_load(open(os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml")))
+    spec["source"]["files"] = str(raw / "*.csv")
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec))
+    s = ingest(load_ingest_spec(str(tmp_path / "s.yaml")), str(tmp_path / "out"))
+    assert set(s["force_direction"]["weak_axes"]) >= {"surge"}
+    assert any("heading used to turn it is probably wrong" in w for w in s["warnings"])
+    spec["source"]["files"] = os.path.join(src, "*.csv")  # the correct heading: no such warning
+    (tmp_path / "ok.yaml").write_text(yaml.safe_dump(spec))
+    ok = ingest(load_ingest_spec(str(tmp_path / "ok.yaml")), str(tmp_path / "ok"))
+    assert ok["force_direction"]["weak_axes"] == []

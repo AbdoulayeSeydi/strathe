@@ -1221,7 +1221,7 @@ Tests: 10 new (`tests/test_open_water_noise.py`), one of which refits real SOLAQ
 - **Sessions:** with no dates, the limited-tether runs and the free runs are labelled as two sessions.
 - **Check:** after ingestion, every force moves with its velocity (surge 0.80, sway 0.57, heave 0.74, yaw 0.65). With a mirrored layout, sway, heave and yaw would be negative.
 
-**The calibration** (`results/pilot_dfki_tether/`; 14 limited-tether training recordings, 8 free-piloting held-out ones; the reference BlueROV2 Heavy `vehicle_spec.yaml`, as a new lab would start):
+**The calibration** (`results/pilot_dfki_tether/first_run_62/`; superseded by the rerun in #63; 14 limited-tether training recordings, 8 free-piloting held-out ones; the reference BlueROV2 Heavy `vehicle_spec.yaml`, as a new lab would start):
 
 | Axis | Held-out skill vs "no motion" | vs default physics | Verdict in the report |
 |---|---|---|---|
@@ -1272,7 +1272,7 @@ Tests: 8 new.
   - The #62 sleep wasn't `keep_awake` failing. macOS logged "Low Power Sleep ... Using Batt (Charge:1%)": the battery ran out, which no `caffeinate` flag prevents.
   - "Oracle below last-beacon means the policies don't fit the vehicle" would fire on Strathe's own shipped experiment (3 of 4 cells, e.g. 92.7% vs 100% at L2@1s, with policies trained on that vehicle). The training-vehicle caution from #62 is the reliable signal.
   - Roll and pitch inertia are already pinned within ±0.005 of published BlueROV2 values (#30); "at their limits" there means "at the published value".
-- **For emails:** "In simulation, on a second BlueROV2 calibrated from another lab's public data, a teammate model matching the vehicle beat generic physics by 12 points at 3 of 4 comm levels." That's simulation, one policy seed, and the vehicle as calibrated by us. Quote per-axis skill (sway +0.62, surge +0.60, yaw +0.43, heave +0.39), never an average.
+- **For emails** (from the rerun below, which supersedes #62's numbers): "In simulation, on a second BlueROV2 calibrated from another lab's public data, a teammate model matching the vehicle beat generic physics by 10 to 22 points at 3 of 4 comm levels, and tied at the fourth." That's simulation, one policy seed, and the vehicle as calibrated by us. Quote per-axis skill (surge +0.80, sway +0.61, yaw +0.56, heave +0.45 on held-out free runs), never an average.
 
 **Is the tether being learned as drag? Yes.**
 - **Method:** fits on DFKI with per-sample battery voltage. Every fit is scored on the same held-out set (the 4 free "random" recordings), with the same budget (`--max-nfev 30`), so only the training data changes.
@@ -1306,9 +1306,32 @@ Tests: 8 new.
 - **The reference values:** Wu (2018), Flinders University, Table 5.3, standard BlueROV2. They are derived from the literature (Sandoy 2016), not measured, and roll and pitch are taken equal to yaw.
 - **Bounds:** three of Wu's rotational linear terms (−0.07) are below the spec's bounds and are clamped to them, with a note in the log.
 - **The prior** helps a little and moves two quadratic terms off their limits. It ships as an opt-in.
+- **On the reference dataset it changes nothing.** That dataset is a BlueROV2 Heavy, and Wu's values are for the standard vehicle.
+  - **Method:** free drag against `--drag prior` with the shipped calibration's settings and equal budgets. Both runs were stopped by a time limit at about 440 evaluations and finished with `--finish`.
+  - **The prior fit ends at the shipped free-drag solution.** Its held-out skill matches to two decimals: surge +0.72, sway +0.51, heave +0.59, roll −0.03, pitch −0.10, yaw +0.58. The same drag terms sit at their limits. Each recording's residuals are normalised, so this isn't the dataset's size: these logs pull drag to the limits harder than a weight-0.1 prior pulls back.
+  - **The free run at the same budget** hadn't reached that point yet (surge +0.50, sway −0.43). That is its optimizer path, not the prior: the shipped calibration is a free-drag fit that did reach it.
+  - **So `--drag prior` stays opt-in:** a small gain on DFKI, none on the reference dataset.
 - **Holding all six linear terms at Wu's values** makes slow-speed damping too weak, and the open-loop replay diverges. So does holding only Xu, Yv and Zw (fit D2): surge +0.62, sway −1.20, heave −0.59, roll −4.82. Published linear drag is too small for real logged motion, so `--drag linear-fixed` was removed rather than offered.
 
 **Roll and pitch.** Excluding them (`--exclude-axes p q`, fit F, data as B) makes the other axes worse: surge +0.59, sway +0.57, heave +0.39, yaw +0.46, against B's +0.64 / +0.69 / +0.47 / +0.46. The roll and pitch replay is far worse too (−9.0, −2.8), because the held values don't damp them. So it is not made a default for tethered data, and the report doesn't recommend it. The free-decay advice stands.
+
+**The pilot rerun** (`results/pilot_dfki_tether/`; the first run moved to `first_run_62/`). The whole lab flow was run again:
+- **What changed:** `ingest_dfki_tether_slack.yaml` (taut stretches dropped) and per-sample battery voltage.
+- **What stayed the same:** the split (tethered sessions train, free ones held out), so it's a fair before/after.
+
+| | First run (#62) | Rerun (#63) |
+|---|---|---|
+| Calibration | stopped by a dead battery, finished with `--finish` | converged in 4.5 min |
+| Held-out skill: surge / sway / heave / yaw | +0.60 / +0.62 / +0.39 / +0.43 | **+0.80** / +0.61 / +0.45 / **+0.56** |
+| Held-out skill: roll / pitch | −0.26 / −0.01 | −0.25 / +0.01 |
+| Surge vs default model | −4.6% | +46.5% |
+| Axes the report calls trustworthy | 1 (yaw) | 0 (each better-predicted axis now relies on a drag value at its limit) |
+| Arena, station-keeping (calibration / default / hand-written) | 78% / 100% / 96% at 150k; 100% / 100% at 450k | 100% / 100% / 85% at the 450k default |
+| Fleet, shipped policies: calibrated − generic (L2@1s, L2@3s, L3a@1s, L3a@3s) | +2, −6, 0, +5 | 0, +8, +7, +6 |
+| Fleet, a policy trained on this vehicle | +2, +12, +12, +12 | 0 (100% vs 100%), **+12, +10, +22** |
+
+- **The conclusion holds,** and it is stronger on the better calibration.
+- **The "0 of 6 trustworthy" verdict** follows the report's rule (an axis that relies on a value at its limit gets "use with care"). The rule was left as it is.
 
 **Battery voltage.**
 - **Effect:** from 15.3 to 13.1 V the T200 loses 17% of its maximum thrust (Blue Robotics' published data).
@@ -1320,8 +1343,12 @@ Tests: 8 new.
   - **The check:** on surge, sway, heave and yaw, force against velocity is pooled over every file. A correlation below −0.2 on an axis the thrusters drive means the forces are reversed: a mirrored layout, wrong `reversed:` flags, the wrong frame, or (with world-frame velocity) a mirrored heading. Every axis's correlation is printed.
   - **Roll and pitch:** reported, not judged. Restoring moments dominate them, and synthetic logs gave −0.22 with correct forces.
   - **On DFKI:** the old ROS-axes layout is refused on sway, heave and yaw.
-- **Orientation against position** (with the optional `position:` and body-frame velocity): the body velocity, turned by the orientation, must follow the position track. A mirrored heading and a steady offset are named, with their size; tested on a synthetic circle with DFKI's 175° mirror and a 90° compass offset.
+- **Orientation against position** (with the optional `position:` and body-frame velocity): the body velocity, turned by the orientation, must follow the position track. A mirrored heading and a steady offset are named, with their size; tested on a synthetic circle with a 175° mirror like DFKI's and a 90° compass offset.
+  - **What it could not have caught on DFKI:** there, velocity is world-frame motion capture, rotated into the body frame with the very orientation under test, so turning it back reproduces the positions whatever the heading is. The check only works with body-frame velocity (a DVL, or body-frame odometry).
+  - **What flags DFKI's mirror:** a test with ArduSub's mirrored yaw showed the force-direction check as first built did *not* catch it. Surge fell from +0.79 to −0.05 and sway from +0.57 to +0.08: near zero, not below the −0.2 refusal threshold.
+  - **The fix:** a warning when a driven axis sits between −0.2 and +0.2, which names a wrong heading as the likely cause with world-frame velocity. It is a warning, not a refusal: the data passes, and the lab has to act on it. Correct DFKI data stays clear (lowest driven axis +0.57), and `tests/test_ingest_checks.py` checks both cases.
 - **Gaps and velocity source:** gap warnings give total time and share of the recording, and ingestion prints which columns the velocity came from.
+  - **Limit:** these are gaps in the timeline ingestion receives. DFKI's live velocity stream was missing up to a third of each run, but inside a raw per-sensor file, before the lab's own merge step, where Strathe never sees it. Labs that merge sensor files themselves have to check each stream's gaps in that step (`examples/dfki_tether/prepare_dfki_tether.py` sidesteps them by taking velocity from the marker track).
 
 **Also in this round:**
 - **The arena** trains 450k steps by default (150k was too short on both vehicles).

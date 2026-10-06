@@ -74,4 +74,5 @@ python strathe.py calibrate --ingest-spec calibration/examples/dfki_tether/inges
   - **A stray "Next:" hint:** printed in the middle of `calibrate`.
   - **One recording session:** a lab with only one got a message in jargon.
 
-The calibration result is in `calibration/results/pilot_dfki_tether/`.
+The results are in `calibration/results/pilot_dfki_tether/`: the slack-tether calibration with per-sample voltage
+(#63), the arena and the fleet on it, and the first run (#62) for comparison.

@@ -608,6 +608,7 @@ def split_excluded(out: pd.DataFrame, rate_hz: float, min_segment_s: float) -> l
 AXIS_PAIRS = (("Fx", "Bu", "surge"), ("Fy", "Bv", "sway"), ("Fz", "Bw", "heave"), ("Tx", "Bp", "roll"),
               ("Ty", "Bq", "pitch"), ("Tz", "Br", "yaw"))
 REVERSED_CORRELATION = -0.2
+WEAK_CORRELATION = 0.2
 DIRECTION_CHECKED_AXES = ("surge", "sway", "heave", "yaw")
 
 
@@ -629,7 +630,12 @@ def force_direction_check(frames: list, unreachable: list) -> dict:
     # torque and rate can anti-correlate with the forces the right way round (-0.22 on synthetic test logs)
     reversed_axes = [a for a, c in out.items() if c is not None and c < REVERSED_CORRELATION and a not in skip
                      and a in DIRECTION_CHECKED_AXES]
-    return {"correlation_force_vs_velocity": out, "reversed_axes": reversed_axes}
+    # near zero: not reversed, but force and motion don't move together. A mirrored heading with world-frame
+    # velocity does this: on DFKI, ArduSub's mirrored yaw took surge from +0.79 to -0.05 and sway from +0.57 to
+    # +0.08 (PROJECT_STATUS.md #63); refusing at -0.2 alone would have let it through
+    weak_axes = [a for a, c in out.items() if c is not None and REVERSED_CORRELATION <= c < WEAK_CORRELATION
+                 and a not in skip and a in DIRECTION_CHECKED_AXES]
+    return {"correlation_force_vs_velocity": out, "reversed_axes": reversed_axes, "weak_axes": weak_axes}
 
 
 def orientation_vs_position(t, pos, R, lin_body) -> dict:
@@ -731,6 +737,13 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
                 json.dump(summary, f, indent=2)
             raise IngestError(msg + " If you're sure the forces are right, add `skip_checks: [force_direction]` "
                                     "to the spec.")
+    if fd["weak_axes"]:
+        summary.setdefault("warnings", []).append(
+            f"force and velocity barely move together on {', '.join(fd['weak_axes'])} ("
+            + ", ".join(f"{a} {fd['correlation_force_vs_velocity'][a]:+.2f}" for a in fd["weak_axes"])
+            + "; on an axis the thrusters drive they should be clearly positive). If the velocity is world-frame "
+              "(linear_frame: world), the heading used to turn it is probably wrong (mirrored or offset); "
+              "otherwise check the thruster layout and frame")
     if len(counters) == 1:
         summary.setdefault("warnings", []).append(
             f"every recording is from one session ({next(iter(counters))}); calibration needs at least two, "
