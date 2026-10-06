@@ -1355,6 +1355,72 @@ Tests: 8 new.
 - **`keep_awake`** warns when a run starts on battery, and again at 20%.
 - **Windows output:** UTF-8 everywhere, so `calibrate` doesn't crash when its output goes to a file. The new end-to-end test caught this on the Windows runner; it now runs under an ASCII-only locale on every platform.
 
+### 64. Roll and pitch from free-decay tank tests, and what the reference logs' own decays say (2026-10-04)
+
+**Why.** Mission logs can't calibrate roll and pitch (#50). A BlueROV2 rights itself, pilots rarely command roll or pitch, and most of the logged roll/pitch comes from the tether and the water. The standard method is a free-decay test: tilt the vehicle, let go with the thrusters stopped, record the swing.
+
+**What shipped:**
+- **`calibration/FREE_DECAY_PROTOCOL.md`:** the tank test for labs. 8 releases per axis at about 10° and 25°, MANUAL mode with the sticks centred, the tether slack, fully submerged.
+- **`templates/ingest_free_decay_ardupilot.yaml`:** converts ArduSub `.bin` tank-test logs.
+- **`strathe free-decay`** (`free_decay.py`):
+  - **Finds the releases:** thrusters stopped, 8–35° from rest, swinging back. A hold before letting go and a catch mid-swing are cut off.
+  - **Fits each axis on its own:** the calibration's own roll/pitch physics, with the inertia held at the spec's value. It fits linear and quadratic damping, the righting arm (`cg_cb_offset_z`) and the rest angle.
+  - **Writes:** `free_decay.yaml` and a short report.
+- **`strathe calibrate --free-decay free_decay.yaml`** (and the web form): holds those values fixed. The report says they were measured and drops them from "stuck at a limit".
+- **An axis is not held** with fewer than 3 releases, a fit explaining under 80% of the swing, or a value at the edge of the fit's range.
+
+**Checked on synthetic tank tests with known answers** (`tests/test_free_decay.py`; the truth is integrated by scipy's adaptive solver, not the fitter's own steps):
+- **Recovery:** damping within about 2–8%, righting arm 1.77 against 1.80 cm, rest angle exact, at 10 and 50 Hz, through a real ArduSub `.bin` round trip.
+- **Tether tugs of 1–3 N·m and a steady wobble near the swing frequency are refused.** Fitted anyway, they turn a damping term off while the fit can still explain 90–98% of the motion, so fit quality alone is not the gate; the edge check is what catches them.
+- **Roll and pitch disagreeing** on the righting arm flags the spec's inertia ratio (a true pitch inertia of 0.40 against the spec's 0.23 is reported as 1.54).
+- **A bug found on the way:** a vehicle held tilted for long stretches pulled the rest-angle estimate towards the held angle, and a hand tilting it looked like a release. Rest is now estimated near level only.
+
+**The reference dataset's own free decays.** Its mission logs contain natural releases: moments the thrusters stopped while the vehicle was tilted. Fitted on the training days only (12-01 and 14-02):
+
+| | Roll | Pitch |
+|---|---|---|
+| Releases | 31 | 35 |
+| Period (small swings) | 3.3 s | 3.0 s |
+| Damping ratio | 0.24 | 0.10 |
+| Fit explains | 83% | 89% |
+| Damping, measured: linear / quadratic | −0.24 / −0.50 | −0.10 (at the spec's bound) / −0.50 |
+| Damping, shipped calibration | −10 / −10 (at its limits) | −5 / −10 (at its limits) |
+| Righting arm, measured (shipped 1.18 cm) | 0.89 cm | 0.96 cm |
+| Rests at | +4.1° | +1.9° |
+
+- **Roll and pitch agree** on the righting arm, as one vehicle should.
+- **The measured values predict the held-out days' free swings** (16-02 and 19-02: 12 roll, 16 pitch releases): angle R² +0.84 and +0.96, rate skill +0.52 and +0.83. The shipped values do worse than "no motion" on the same swings (angle R² −2.3 and −2.1). So the shipped roll/pitch damping is not a property of the vehicle.
+
+**But holding them makes whole-recording roll/pitch prediction worse.** Held-out skill with the shipped calibration and the measured roll/pitch values swapped in:
+
+| | Surge | Sway | Heave | Roll | Pitch | Yaw |
+|---|---|---|---|---|---|---|
+| Shipped | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
+| Measured roll/pitch values swapped in | +0.69 | +0.47 | +0.34 | −3.73 | −3.73 | +0.57 |
+
+- **What it isn't:**
+  - the rest angle: re-levelling the logged attitude by +4.1° and +1.9° changes nothing;
+  - the surge-pitch and heave-pitch couplings: setting `Xq_dot` and `Zq_dot` to 0 gives −3.92 / −4.11;
+  - logged roll/pitch torque that's too big: removing it makes it worse (−9.4 / −10.5).
+- **What it is:** both parameter sets predict roll rate with the same timing (correlation 0.43 on a held-out run), but the shipped values predict 5× too little motion and the measured ones 2× too much, mostly below 0.25 Hz. Letting roll and pitch evolve from their own angles, driven by the logged torques, the measured values tip the model far past anything the vehicle did (angle skill −63 and −326). With the vehicle's real, light damping, the roll/pitch the model gets from the thrusters is far too large.
+- **So the damping was never the real problem.** The thruster-driven roll/pitch model is. Heavy damping pinned at its limit is how every fit hides it, which is why every fit pins it.
+- **A full refit doesn't rescue it.** The measured values were held and everything else refitted, with the shipped calibration's settings (540 evaluations, budget used up, not converged):
+
+  | | Surge | Sway | Heave | Roll | Pitch | Yaw |
+  |---|---|---|---|---|---|---|
+  | Shipped | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
+  | Refit, decay values held | +0.58 | +0.35 | −1.13 | −3.04 | −3.62 | +0.27 |
+
+  - **Every axis is worse.** The fit's cost is 17× the shipped fit's (723 against about 43). To compensate, the optimizer pushed yaw inertia to its lower limit (0.15 against 1.89), yaw damping to its limit, and heave linear damping almost to zero.
+  - **The result is unstable:** replayed 3 s at a time, the simulation blows up on 9 of the 14 held-out recordings.
+  - **So the conclusion stands:** the thruster-driven roll/pitch is what's wrong, and the rest of the model can't make up for it.
+- **A crash this exposed, fixed:** the finishing step of `strathe calibrate` died with a traceback when the calibrated simulation blew up on a held-out recording. A lab using `--free-decay` could hit it. Diverged recordings are now counted (`metrics.json` `skill_vs_zero.diverged_heldout`) and left out of the skill, and the report opens with "Unstable: ... Don't simulate with this calibration".
+
+**What it means for a lab:**
+- `strathe free-decay` measures the vehicle's unforced roll and pitch correctly.
+- `--free-decay` is opt-in. With it, the report's roll/pitch verdict points at the thruster-driven part, not the logs, and the next step is deliberate roll/pitch commands with the tether slack (the protocol's optional section), which Strathe doesn't fit yet.
+- Compare with a calibration made without it before simulating attitude-sensitive tasks.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -1369,7 +1435,7 @@ Tests: 8 new.
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
-- **Roll and pitch have no predictive skill yet** (#50): after the torque-arm correction they are at about zero skill (no longer worse than predicting no motion), not positive. This dataset's roll/pitch motion is mostly not caused by the thrusters, so it can't identify roll/pitch damping. It doesn't matter for formation-holding (#52), but it will for attitude-dependent tasks. It needs free-decay tests and deliberate roll/pitch manoeuvres from a lab.
+- **Roll and pitch have no predictive skill yet** (#50, #64): about zero skill, not positive. Free decays now measure the unforced swing (`strathe free-decay`), and the reference logs' own decays show the shipped roll/pitch damping isn't the vehicle's. What's wrong is the thruster-driven roll/pitch: with the real, light damping the model rolls and pitches far more than the vehicle does. It doesn't matter for formation-holding (#52), but it will for attitude-dependent tasks. It needs deliberate roll/pitch manoeuvres from a lab, and a fit of the thruster-driven part.
 - **Calibrations are bound-limited**: every converged stand-in/MuJoCo fit has 8-15 of 22 parameters at `vehicle_spec.yaml` bounds; the least-limited (holoocean_coriolis) has 3. For roll/pitch damping this is the output-error artifact of #50, not a bounds problem. The translational damping pins still need review by someone who knows the vehicle.
 - ~~**The fleet truth vehicle is still expA**~~ — switched to the torque-arm-corrected fit, with every policy retrained and every fleet study re-run (#54).
 - **`Xq_dot`'s bound-reversal** (finding #33) and **`Zw_dot`'s practical identifiability gap** (#18, #29) are unchanged.
@@ -1382,7 +1448,7 @@ Tests: 8 new.
 
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
-3. **Roll/pitch data from a lab partner**: free-decay tests and deliberate roll/pitch manoeuvres, with the tether slack. That is the only route to real roll/pitch skill (#50, #52).
+3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
 4. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
 5. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
 6. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

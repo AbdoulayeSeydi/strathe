@@ -429,6 +429,21 @@ def test_web_calibration_from_raw_logs_with_every_option(server):
     cli.build_parser().parse_args(cmd)
 
 
+def test_web_calibration_holds_free_decay_values(server, tmp_path):
+    request, token, started, *_ = server
+    fd = tmp_path / "free_decay.yaml"
+    fd.write_text("hold: {Kp: -0.6}\n")
+    status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "fd",
+                                                       "free_decay": str(fd)})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[cmd.index("--free-decay") + 1] == str(fd)
+    cli.build_parser().parse_args(cmd)
+    status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "fd",
+                                                          "free_decay": str(tmp_path / "nope.yaml")})
+    assert status == 400 and "Free-decay result not found" in body
+
+
 @pytest.mark.parametrize("form,msg", [
     ({"name": "x", "data": ""}, "Give your logs"),
     ({"name": "x", "ingest_spec": "/nope.yaml"}, "Ingestion spec not found"),

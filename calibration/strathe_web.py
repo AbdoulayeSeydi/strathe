@@ -509,6 +509,9 @@ estimate each recording's current from the logs (alternates with the fit; about 
 current field above empty.</label>
 <label for=cal-nfev>Optimizer budget, evaluations (default 100; more = slower but may fit better)</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
+<label for=cal-fd>Roll and pitch measured in free-decay tank tests: the <code>free_decay.yaml</code> that
+<code>strathe free-decay</code> wrote, full path (optional; see calibration/FREE_DECAY_PROTOCOL.md)</label>
+<input type=text id=cal-fd name=free_decay value="">
 <label class=inline><input type=checkbox id=cal-excl name=exclude_rp value=1 aria-label="Leave roll and pitch out of the fit"> Leave roll and pitch out of the fit
 (advanced: when your logs' roll/pitch motion isn't caused by the thrusters)</label>
 <label class=inline><input type=checkbox id=cal-finish name=finish value=1 aria-label="Finish an interrupted calibration"> Finish an
@@ -715,6 +718,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--max-nfev", str(int(_number(nfev, "Optimizer budget", 1, 100000)))]
             if form.get("exclude_rp"):
                 args += ["--exclude-axes", "p", "q"]
+            if form.get("free_decay", "").strip():
+                args += ["--free-decay", _existing_file(form["free_decay"], "Free-decay result", (".yaml", ".yml"))]
             if form.get("estimate_current"):
                 if form.get("current_world", "").strip():
                     raise ValueError("Give either the known water current or tick 'estimate the current', not both.")

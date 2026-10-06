@@ -1,0 +1,39 @@
+# Ingest spec: free-decay tank tests on an ArduSub vehicle (.bin from the SD card), for
+#     python strathe.py free-decay --ingest-spec this_file.yaml --out free_decay_out
+# How to record them: calibration/FREE_DECAY_PROTOCOL.md. Keep these logs in their own folder, apart from your
+# mission logs.
+#
+# What the free-decay fit uses: roll and pitch (ATT), the roll and pitch rates (IMU), and the thruster PWM (RCOU),
+# only to tell when the thrusters were stopped. Velocity isn't used, but every Strathe log has it: ArduSub's EKF
+# velocity is fine here even without a DVL.
+#
+# Logging rate: ArduSub logs attitude at 10 Hz by default, enough for a BlueROV2's 2-4 s swing. With
+# LOG_BITMASK's ATTITUDE_FAST bit set, raise resample_hz to 25.
+
+vehicle: my_bluerov2_tank_tests
+source:
+  files: "tank_tests/*.bin"
+  format: ardupilot
+resample_hz: 10
+session_date: {from: constant, value: "2026-01-01"}   # dates don't matter for free-decay tests
+frame: frd                     # ArduPilot is already FRD body / NED world
+body_velocity:
+  columns:
+    u: XKF1[0].VN              # not used by the free-decay fit
+    v: XKF1[0].VE
+    w: XKF1[0].VD
+    p: IMU[0].GyrX             # roll rate, rad/s
+    q: IMU[0].GyrY             # pitch rate, rad/s
+    r: IMU[0].GyrZ
+  linear_frame: world
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: ATT.Roll, pitch: ATT.Pitch, yaw: ATT.Yaw, unit: deg}
+wrench:
+  thrusters:
+    # 1500 us = stopped. Stay armed in MANUAL mode with the sticks centred: if your ESCs get no pulse (0) when
+    # disarmed, ingestion stops at the out-of-range PWM.
+    pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]
+    preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
+    voltage: 15.0

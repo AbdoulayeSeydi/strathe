@@ -53,7 +53,7 @@ from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
 from objective import read_currents_file
 from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, load_run, mean_run_rmse,
-                       rmse_by_dof, skill_vs_zero, zero_baseline_rmse)
+                       rmse_by_dof, skill_vs_zero, stable_mean_run_rmse, stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
     CalibrationConfig, calibrate, calibrate_parallel, parameter_bounds,
@@ -101,6 +101,8 @@ class PipelineConfig:
     drag: str = "free"                     # drag_reference.DRAG_MODES: free | prior
     drag_reference: str = "bluerov2_wu2018"
     drag_prior_weight: float = 0.1
+    free_decay: Optional[str] = None  # free_decay.yaml (free_decay.py): roll/pitch damping and righting arm
+        # measured in free-decay tank tests, held fixed instead of fitted from the mission logs
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +183,8 @@ class PerDofSummary:
     zero_heldout: Optional[np.ndarray] = None
     skill_heldout: Optional[np.ndarray] = None          # whole-run replay
     skill_heldout_short: Optional[np.ndarray] = None    # SKILL_EVAL_HORIZON_S windows
+    diverged_heldout: Optional[dict] = None  # held-out runs where the calibrated simulation blew up:
+        # {"full_replay": n, "short_windows": n, "runs": total}; their skill is over the rest
 
 
 @dataclass
@@ -242,6 +246,7 @@ class CalibrationReport:
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
     objective_drag: Optional[dict] = None
+    objective_free_decay: Optional[dict] = None
     objective_sampling_rate_hz: float = 10.0
     objective_current_by_file: Optional[tuple] = None
 
@@ -295,6 +300,20 @@ def spec_torque_reference_offset(loaded_spec) -> tuple:
 # motion is not driven by the logged thruster torques, and fitting it pushes
 # every roll/pitch damping term to its bound.
 EXCLUDABLE_AXIS_PARAMS = {"p": ["Kp", "Kpp", "Ieff_roll"], "q": ["Mq", "Mqq", "Ieff_pitch"]}
+
+
+def free_decay_setup(path: str, loaded_spec, default_params) -> dict:
+    """The values a free_decay.yaml says to hold (free_decay.py), clamped into vehicle_spec.yaml's bounds with a
+    note: {"file", "held", "measured", "notes"}. They override --exclude-axes' held reference values."""
+    import free_decay as fd
+    names = list(default_params.param_names)
+    lb, ub = parameter_bounds(loaded_spec)
+    measured = fd.hold_values(path)
+    if not measured:
+        raise ValueError(f"{path} holds nothing: the free-decay tests gave no usable roll or pitch fit (its "
+                         f"warnings say why)")
+    held, notes = fd.within_bounds(measured, names, lb, ub)
+    return {"file": str(Path(path).resolve()), "held": held, "measured": measured, "notes": notes}
 
 
 def excluded_axis_setup(exclude_axes, dof_scales, default_params) -> tuple:
@@ -361,6 +380,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "calibrated_heldout_full_replay": report.per_dof.skill_heldout.tolist(),
             "calibrated_heldout_short_windows": report.per_dof.skill_heldout_short.tolist(),
             "short_window_s": SKILL_EVAL_HORIZON_S,
+            "diverged_heldout": report.per_dof.diverged_heldout,
             "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than predicting no motion",
         },
         "objective": {"axis_scaling": report.objective_axis_scaling,
@@ -371,6 +391,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
                                             else list(report.objective_current_world_mps)),
                       "held_parameters": report.objective_held_parameters,
                       "drag": report.objective_drag,
+                      "free_decay": report.objective_free_decay,
                       "sampling_rate_hz": report.objective_sampling_rate_hz,
                       "current_by_file": (None if not report.objective_current_by_file else
                                           [[f, list(c)] for f, c in report.objective_current_by_file])},
@@ -470,6 +491,15 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **held}
         logger.info("Excluded axes %s from the objective; holding %s at vehicle_spec.yaml values",
                     list(config.exclude_axes), held)
+    free_decay_info = None
+    if config.free_decay:
+        free_decay_info = free_decay_setup(config.free_decay, loaded_spec, default_params)
+        config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}),
+                                                  **free_decay_info["held"]}
+        for n in free_decay_info["notes"]:
+            logger.warning("Free decay: %s", n)
+        logger.info("Holding roll/pitch values from free-decay tests (%s): %s", config.free_decay,
+                    free_decay_info["held"])
     drag_info = None
     if config.drag != "free":
         import drag_reference as dr
@@ -508,23 +538,32 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
 
     logger.info("Evaluating default vs. calibrated on train and heldout...")
     t_eval = time.monotonic()
+    cal = cal_result.parameters
+    # a calibrated set can blow up on recordings it wasn't fitted to: counted and reported, not a crash
     rmse = RmseSummary(
         default_train=mean_run_rmse(default_params, train_runs, vehicle),
         default_heldout=mean_run_rmse(default_params, heldout_runs, vehicle),
-        calibrated_train=mean_run_rmse(cal_result.parameters, train_runs, vehicle),
-        calibrated_heldout=mean_run_rmse(cal_result.parameters, heldout_runs, vehicle),
+        calibrated_train=stable_mean_run_rmse(cal, train_runs, vehicle)[0],
+        calibrated_heldout=stable_mean_run_rmse(cal, heldout_runs, vehicle)[0],
     )
+    cal_heldout, diverged_full = stable_rmse_by_dof(cal, heldout_runs, vehicle)
     per_dof = PerDofSummary(
         default_train=_average_rmse_by_dof(default_params, train_runs, vehicle),
         default_heldout=_average_rmse_by_dof(default_params, heldout_runs, vehicle),
-        calibrated_train=_average_rmse_by_dof(cal_result.parameters, train_runs, vehicle),
-        calibrated_heldout=_average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle),
+        calibrated_train=stable_rmse_by_dof(cal, train_runs, vehicle)[0],
+        calibrated_heldout=cal_heldout,
     )
     per_dof.zero_heldout = zero_baseline_rmse(heldout_runs)
     per_dof.skill_heldout = skill_vs_zero(per_dof.calibrated_heldout, per_dof.zero_heldout)
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * config.sampling_rate_hz)))
-    per_dof.skill_heldout_short = skill_vs_zero(
-        _average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle, short), per_dof.zero_heldout)
+    cal_short, diverged_short = stable_rmse_by_dof(cal, heldout_runs, vehicle, short)
+    per_dof.skill_heldout_short = skill_vs_zero(cal_short, per_dof.zero_heldout)
+    per_dof.diverged_heldout = {"full_replay": diverged_full, "short_windows": diverged_short,
+                                "runs": len(heldout_runs)}
+    if diverged_full or diverged_short:
+        logger.warning("With the calibrated values the simulation diverges on %d of %d held-out recordings "
+                       "(whole-run replay) and %d (%.0f s windows); their skill is over the rest",
+                       diverged_full, len(heldout_runs), diverged_short, SKILL_EVAL_HORIZON_S)
     evaluation_s = time.monotonic() - t_eval
     total_s = time.monotonic() - t_start
 
@@ -598,6 +637,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_current_world_mps=dataset_config.current_world_mps,
         objective_held_parameters=config.calibration_config.fixed_params,
         objective_drag=drag_info,
+        objective_free_decay=free_decay_info,
         objective_sampling_rate_hz=config.sampling_rate_hz,
         objective_current_by_file=config.current_by_file,
     )
@@ -730,6 +770,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="published drag values for --drag (drag_reference.REFERENCES)")
     parser.add_argument("--drag-prior-weight", type=float, default=0.1,
                         help="with --drag prior: weight of the pull toward the published values")
+    parser.add_argument("--free-decay", default=None,
+                        help="free_decay.yaml from free_decay.py (`strathe free-decay`): hold the roll/pitch damping "
+                             "and righting arm measured in free-decay tank tests instead of fitting them")
     parser.add_argument("--prediction-horizon-s", type=float, default=None,
                         help="score re-anchored prediction windows of this length instead of replaying "
                              "whole runs open-loop; stops unexplained motion (e.g. roll/pitch) from "
@@ -908,6 +951,7 @@ def main() -> None:
         axis_scaling=args.axis_scaling,
         exclude_axes=tuple(args.exclude_axes),
         drag=args.drag, drag_reference=args.drag_reference, drag_prior_weight=args.drag_prior_weight,
+        free_decay=args.free_decay,
         torque_reference_offset_m=(None if args.torque_reference_offset_m is None
                                    else tuple(args.torque_reference_offset_m)),
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
