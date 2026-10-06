@@ -28,7 +28,8 @@ import yaml
 from data_split import discover_csv_files, split_by_date
 from dynamics_model import CalibrationParameters
 from objective import read_currents_file
-from objective import DatasetConfig, load_run, mean_run_rmse, rmse_by_dof, skill_vs_zero, zero_baseline_rmse
+from objective import (DatasetConfig, load_run, mean_run_rmse, rmse_by_dof, skill_vs_zero, stable_mean_run_rmse,
+                       stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import initial_parameters, load_vehicle_spec
 from run_calibration import (SKILL_EVAL_HORIZON_S, _get_git_commit, excluded_axis_setup, free_decay_setup,
                              spec_torque_reference_offset)
@@ -57,8 +58,9 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     default = initial_parameters(spec)
     v = spec.vehicle
     zero = zero_baseline_rmse(held)
-    cal_held = _per_dof(params, held, v)
+    cal_held, diverged_full = stable_rmse_by_dof(params, held, v)  # a blow-up is reported, not a crash
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * sampling_rate_hz)))
+    cal_short, diverged_short = stable_rmse_by_dof(params, held, v, short)
     n_evals = None
     timing = os.path.join(os.path.dirname(checkpoint), "eval_timing.csv")
     if os.path.exists(timing):
@@ -69,7 +71,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if free_decay_info:  # the fit held these, so the checkpoint has them already; recorded for the report
         held_params = {**(held_params or {}), **free_decay_info["held"]}
     rmse = {"default_train": mean_run_rmse(default, train, v), "default_heldout": mean_run_rmse(default, held, v),
-            "calibrated_train": mean_run_rmse(params, train, v), "calibrated_heldout": mean_run_rmse(params, held, v)}
+            "calibrated_train": stable_mean_run_rmse(params, train, v)[0],
+            "calibrated_heldout": stable_mean_run_rmse(params, held, v)[0]}
     metrics = {
         "dataset": {"train_dates": split.train_groups, "heldout_dates": split.heldout_groups,
                     "n_train_files": len(train), "n_heldout_files": len(held)},
@@ -78,13 +81,14 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         "rmse": rmse,
         "per_dof": {"default_train": _per_dof(default, train, v).tolist(),
                     "default_heldout": _per_dof(default, held, v).tolist(),
-                    "calibrated_train": _per_dof(params, train, v).tolist(),
+                    "calibrated_train": stable_rmse_by_dof(params, train, v)[0].tolist(),
                     "calibrated_heldout": cal_held.tolist()},
         "skill_vs_zero": {"zero_heldout": zero.tolist(),
                           "calibrated_heldout_full_replay": skill_vs_zero(cal_held, zero).tolist(),
-                          "calibrated_heldout_short_windows": skill_vs_zero(_per_dof(params, held, v, short),
-                                                                            zero).tolist(),
+                          "calibrated_heldout_short_windows": skill_vs_zero(cal_short, zero).tolist(),
                           "short_window_s": SKILL_EVAL_HORIZON_S,
+                          "diverged_heldout": {"full_replay": diverged_full, "short_windows": diverged_short,
+                                               "runs": len(held)},
                           "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than "
                                      "predicting no motion"},
         "objective": {"axis_scaling": axis_scaling, "prediction_horizon_samples": horizon_samples,
@@ -140,6 +144,11 @@ def main(argv=None) -> int:
     sk = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
     print(f"Wrote {out}/calibrated_parameters.yaml and metrics.json (NOT converged: {m['optimizer']['message']})")
     print("Held-out skill vs predicting no motion [u v w p q r]: " + " ".join(f"{x:+.2f}" for x in sk))
+    dv = m["skill_vs_zero"]["diverged_heldout"]
+    if dv["full_replay"] or dv["short_windows"]:
+        print(f"⚠️  With these values the simulation diverges on {dv['full_replay']} of {dv['runs']} held-out "
+              f"recordings (whole-run replay) and {dv['short_windows']} ({SKILL_EVAL_HORIZON_S:g} s windows); the "
+              f"skill above is over the rest. Don't simulate with this calibration.")
     return 0
 
 

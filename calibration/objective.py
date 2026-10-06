@@ -624,6 +624,39 @@ def mean_run_rmse(
     return float(np.mean([rmse_for_run(params, run, vehicle, simulate_fn) for run in runs]))
 
 
+def stable_rmse_by_dof(
+    params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants,
+    horizon_samples: Optional[int] = None, simulate_fn: Optional[SimulateFn] = None,
+) -> tuple:
+    """(per-DOF RMSE averaged over the runs the simulation survives, number of runs where it diverged). For
+    evaluating a finished calibration: a parameter set that blows up on some recordings is reported, not a crash
+    (PROJECT_STATUS.md #64: roll/pitch damping held from free-decay tests diverged on 9 of 14 held-out runs' 3 s
+    windows). All runs diverging gives NaN."""
+    params = _coerce_params(params)
+    rows, diverged = [], 0
+    for run in runs:
+        try:
+            rows.append(rmse_by_dof(params, run, vehicle, simulate_fn, horizon_samples))
+        except FloatingPointError:
+            diverged += 1
+    return (np.mean(rows, axis=0) if rows else np.full(6, np.nan)), diverged
+
+
+def stable_mean_run_rmse(
+    params: ParamsLike, runs: Sequence[RunData], vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+) -> tuple:
+    """(mean_run_rmse over the runs the simulation survives, number of runs where it diverged)."""
+    params = _coerce_params(params)
+    vals, diverged = [], 0
+    for run in runs:
+        try:
+            vals.append(rmse_for_run(params, run, vehicle, simulate_fn))
+        except FloatingPointError:
+            diverged += 1
+    return (float(np.mean(vals)) if vals else float("nan")), diverged
+
+
 @dataclass
 class Diagnostics:
     per_run_rmse: dict           # {filepath: rmse}

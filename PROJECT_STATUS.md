@@ -1404,7 +1404,17 @@ Tests: 8 new.
   - logged roll/pitch torque that's too big: removing it makes it worse (−9.4 / −10.5).
 - **What it is:** both parameter sets predict roll rate with the same timing (correlation 0.43 on a held-out run), but the shipped values predict 5× too little motion and the measured ones 2× too much, mostly below 0.25 Hz. Letting roll and pitch evolve from their own angles, driven by the logged torques, the measured values tip the model far past anything the vehicle did (angle skill −63 and −326). With the vehicle's real, light damping, the roll/pitch the model gets from the thrusters is far too large.
 - **So the damping was never the real problem.** The thruster-driven roll/pitch model is. Heavy damping pinned at its limit is how every fit hides it, which is why every fit pins it.
-- **Not run yet:** a full refit with the measured values held, letting the other parameters readjust (about 1.5 h at full CPU; this laptop's charger couldn't keep up with 8 cores).
+- **A full refit doesn't rescue it.** The measured values were held and everything else refitted, with the shipped calibration's settings (540 evaluations, budget used up, not converged):
+
+  | | Surge | Sway | Heave | Roll | Pitch | Yaw |
+  |---|---|---|---|---|---|---|
+  | Shipped | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
+  | Refit, decay values held | +0.58 | +0.35 | −1.13 | −3.04 | −3.62 | +0.27 |
+
+  - **Every axis is worse.** The fit's cost is 17× the shipped fit's (723 against about 43). To compensate, the optimizer pushed yaw inertia to its lower limit (0.15 against 1.89), yaw damping to its limit, and heave linear damping almost to zero.
+  - **The result is unstable:** replayed 3 s at a time, the simulation blows up on 9 of the 14 held-out recordings.
+  - **So the conclusion stands:** the thruster-driven roll/pitch is what's wrong, and the rest of the model can't make up for it.
+- **A crash this exposed, fixed:** the finishing step of `strathe calibrate` died with a traceback when the calibrated simulation blew up on a held-out recording. A lab using `--free-decay` could hit it. Diverged recordings are now counted (`metrics.json` `skill_vs_zero.diverged_heldout`) and left out of the skill, and the report opens with "Unstable: ... Don't simulate with this calibration".
 
 **What it means for a lab:**
 - `strathe free-decay` measures the vehicle's unforced roll and pitch correctly.
@@ -1438,7 +1448,7 @@ Tests: 8 new.
 
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
-3. **Roll/pitch:** the full reference refit with the measured decay values held (#64), on a charger that keeps up. Then, from a lab partner: free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
+3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
 4. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
 5. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
 6. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

@@ -218,3 +218,31 @@ def test_ardusub_tank_test_through_the_template(tmp_path):
     _close(out["hold"]["Kp"], TRUTH["Kp"], 0.1)
     _close(out["hold"]["Mq"], TRUTH["Mq"], 0.1)
     _close(out["hold"]["cg_cb_offset_z"], TRUTH["cg_cb_offset_z"], 0.05)
+
+
+def test_a_calibration_that_blows_up_on_unseen_recordings_is_reported_not_a_crash(monkeypatch):
+    """Roll/pitch values held from the reference logs' free decays made the refit diverge on 9 of 14 held-out
+    recordings' 3 s windows, and the finishing step crashed with a traceback (#64). Diverged recordings are now
+    counted, left out of the skill, and the report opens with a warning."""
+    import objective
+    from calibration_report import diverged_note
+    from optimizer import initial_parameters, load_vehicle_spec
+    params = initial_parameters(load_vehicle_spec(os.path.join(CAL, "vehicle_spec.yaml")))
+    calls = iter([np.ones(6), FloatingPointError("NaN"), np.full(6, 3.0)])
+
+    def fake(*a, **k):
+        x = next(calls)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    monkeypatch.setattr(objective, "rmse_by_dof", fake)
+    mean, diverged = objective.stable_rmse_by_dof(params, [1, 2, 3], None)
+    assert diverged == 1 and np.allclose(mean, 2.0)
+    monkeypatch.setattr(objective, "rmse_by_dof", lambda *a, **k: (_ for _ in ()).throw(FloatingPointError()))
+    mean, diverged = objective.stable_rmse_by_dof(params, [1, 2], None)
+    assert diverged == 2 and np.isnan(mean).all()
+    note = diverged_note({"skill_vs_zero": {"diverged_heldout": {"full_replay": 0, "short_windows": 9, "runs": 14}}})
+    assert "9 of 14" in note and "Don't simulate with this calibration" in note
+    assert diverged_note({"skill_vs_zero": {"diverged_heldout": {"full_replay": 0, "short_windows": 0,
+                                                                 "runs": 14}}}) is None
+    assert diverged_note({}) is None

@@ -81,7 +81,7 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
             z = np.array(metrics["skill_vs_zero"]["zero_heldout"])
     if z is None and data_dir is not None:
         from data_split import discover_csv_files, split_by_date
-        from objective import DatasetConfig, load_run, rmse_by_dof, zero_baseline_rmse
+        from objective import DatasetConfig, load_run, rmse_by_dof, stable_rmse_by_dof, zero_baseline_rmse
         files = discover_csv_files(data_dir)[0]
         split = split_by_date(files, heldout_dates=heldout_dates)
         # same torque convention the calibration used (metrics.json), else the spec's
@@ -98,7 +98,7 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
         z = zero_baseline_rmse(runs)
         if c is None:
             d = np.mean([rmse_by_dof(initial_parameters(spec), r, spec.vehicle) for r in runs], axis=0)
-            c = np.mean([rmse_by_dof(params, r, spec.vehicle) for r in runs], axis=0)
+            c = stable_rmse_by_dof(params, runs, spec.vehicle)[0]  # diverged recordings left out
     if c is None:
         return None
     return d, c, z
@@ -282,9 +282,28 @@ def free_decay_note(metrics: Optional[dict]) -> Optional[str]:
     return text
 
 
+def diverged_note(metrics: Optional[dict]) -> Optional[str]:
+    """A warning when the calibrated simulation blew up on some held-out recordings, or None."""
+    dv = ((metrics or {}).get("skill_vs_zero") or {}).get("diverged_heldout") or {}
+    full, short, runs = dv.get("full_replay", 0), dv.get("short_windows", 0), dv.get("runs")
+    if not (full or short):
+        return None
+    where = []
+    if full:
+        where.append(f"{full} of {runs} unseen recordings replayed whole")
+    if short:
+        where.append(f"{short} of {runs} unseen recordings replayed in a few seconds at a time")
+    return ("**Unstable:** with these values the simulated vehicle diverges (its motion blows up) on "
+            + " and on ".join(where) + ". The skill numbers below cover only the recordings where it stayed "
+            "stable. Don't simulate with this calibration: re-run it, and if values were held fixed "
+            "(`--free-decay`, `--exclude-axes`), compare with a calibration that doesn't hold them.")
+
+
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
-                 free_decay=None):
+                 free_decay=None, diverged=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
+    if diverged:
+        L.append("> ⚠️ " + diverged + "\n")
     if verdicts:
         good = [v for v in verdicts if v["verdict"] == GOOD]
         L.append("## Bottom line\n")
@@ -416,7 +435,8 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     steps = next_steps(verdicts, pinned, implausible, ident)
     out = os.path.join(result_dir, "calibration_report.md")
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
-                 ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics))
+                 ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
+                 diverged_note(metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps}
 

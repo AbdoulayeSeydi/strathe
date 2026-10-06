@@ -53,7 +53,7 @@ from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
 from objective import read_currents_file
 from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, load_run, mean_run_rmse,
-                       rmse_by_dof, skill_vs_zero, zero_baseline_rmse)
+                       rmse_by_dof, skill_vs_zero, stable_mean_run_rmse, stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
     CalibrationConfig, calibrate, calibrate_parallel, parameter_bounds,
@@ -183,6 +183,8 @@ class PerDofSummary:
     zero_heldout: Optional[np.ndarray] = None
     skill_heldout: Optional[np.ndarray] = None          # whole-run replay
     skill_heldout_short: Optional[np.ndarray] = None    # SKILL_EVAL_HORIZON_S windows
+    diverged_heldout: Optional[dict] = None  # held-out runs where the calibrated simulation blew up:
+        # {"full_replay": n, "short_windows": n, "runs": total}; their skill is over the rest
 
 
 @dataclass
@@ -378,6 +380,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "calibrated_heldout_full_replay": report.per_dof.skill_heldout.tolist(),
             "calibrated_heldout_short_windows": report.per_dof.skill_heldout_short.tolist(),
             "short_window_s": SKILL_EVAL_HORIZON_S,
+            "diverged_heldout": report.per_dof.diverged_heldout,
             "meaning": "1 - RMSE/RMSE_zero per axis [u,v,w,p,q,r]; <= 0 = no better than predicting no motion",
         },
         "objective": {"axis_scaling": report.objective_axis_scaling,
@@ -535,23 +538,32 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
 
     logger.info("Evaluating default vs. calibrated on train and heldout...")
     t_eval = time.monotonic()
+    cal = cal_result.parameters
+    # a calibrated set can blow up on recordings it wasn't fitted to: counted and reported, not a crash
     rmse = RmseSummary(
         default_train=mean_run_rmse(default_params, train_runs, vehicle),
         default_heldout=mean_run_rmse(default_params, heldout_runs, vehicle),
-        calibrated_train=mean_run_rmse(cal_result.parameters, train_runs, vehicle),
-        calibrated_heldout=mean_run_rmse(cal_result.parameters, heldout_runs, vehicle),
+        calibrated_train=stable_mean_run_rmse(cal, train_runs, vehicle)[0],
+        calibrated_heldout=stable_mean_run_rmse(cal, heldout_runs, vehicle)[0],
     )
+    cal_heldout, diverged_full = stable_rmse_by_dof(cal, heldout_runs, vehicle)
     per_dof = PerDofSummary(
         default_train=_average_rmse_by_dof(default_params, train_runs, vehicle),
         default_heldout=_average_rmse_by_dof(default_params, heldout_runs, vehicle),
-        calibrated_train=_average_rmse_by_dof(cal_result.parameters, train_runs, vehicle),
-        calibrated_heldout=_average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle),
+        calibrated_train=stable_rmse_by_dof(cal, train_runs, vehicle)[0],
+        calibrated_heldout=cal_heldout,
     )
     per_dof.zero_heldout = zero_baseline_rmse(heldout_runs)
     per_dof.skill_heldout = skill_vs_zero(per_dof.calibrated_heldout, per_dof.zero_heldout)
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * config.sampling_rate_hz)))
-    per_dof.skill_heldout_short = skill_vs_zero(
-        _average_rmse_by_dof(cal_result.parameters, heldout_runs, vehicle, short), per_dof.zero_heldout)
+    cal_short, diverged_short = stable_rmse_by_dof(cal, heldout_runs, vehicle, short)
+    per_dof.skill_heldout_short = skill_vs_zero(cal_short, per_dof.zero_heldout)
+    per_dof.diverged_heldout = {"full_replay": diverged_full, "short_windows": diverged_short,
+                                "runs": len(heldout_runs)}
+    if diverged_full or diverged_short:
+        logger.warning("With the calibrated values the simulation diverges on %d of %d held-out recordings "
+                       "(whole-run replay) and %d (%.0f s windows); their skill is over the rest",
+                       diverged_full, len(heldout_runs), diverged_short, SKILL_EVAL_HORIZON_S)
     evaluation_s = time.monotonic() - t_eval
     total_s = time.monotonic() - t_start
 
