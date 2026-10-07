@@ -134,6 +134,9 @@ class ThrustCurve:
     thrust_n: np.ndarray
     label: str = "custom"
     unit: str = "pwm_us"
+    # the battery voltage a lab's own T200 table was measured at (thruster block's curve_voltage:), which lets it be
+    # rescaled to other voltages; None for the built-in dataset curve, which is rescaled from its own maxima
+    reference_voltage: Optional[float] = None
 
     def __post_init__(self):
         if len(self.pwm_us) < 2 or np.any(np.diff(self.pwm_us) <= 0):
@@ -166,13 +169,24 @@ class ThrustCurve:
     def max_reverse_n(self) -> float:
         return float(-self.thrust_n.min())
 
+    def voltage_scales(self, volts):
+        """(forward, reverse) thrust scale factors at these supply voltages, from Blue Robotics' published T200
+        maxima (12-20 V). A lab's own T200 table (reference_voltage set): published(V) / published(reference), so
+        the table keeps its shape and its own level at the voltage it was measured at (#69). The built-in dataset
+        curve (no reference_voltage): published(V) / its own maxima, as before."""
+        fwd, rev = np.vectorize(_published_max_n)(np.asarray(volts, dtype=float))
+        if self.reference_voltage is None:
+            return fwd / self.max_forward_n, rev / self.max_reverse_n
+        f0, r0 = _published_max_n(self.reference_voltage)
+        return fwd / f0, rev / r0
+
     def at_voltage(self, voltage: float) -> "ThrustCurve":
-        """Rescale positive and negative thrust separately so the maxima match
-        the published T200 maxima at `voltage` (shape assumed unchanged)."""
-        fwd, rev = _published_max_n(voltage)
-        t = np.where(self.thrust_n >= 0, self.thrust_n * fwd / self.max_forward_n,
-                     self.thrust_n * rev / self.max_reverse_n)
-        return ThrustCurve(self.pwm_us.copy(), t, f"{self.label} rescaled to {voltage:g} V", self.unit)
+        """Rescale positive and negative thrust separately to `voltage` (shape assumed unchanged): to the
+        published T200 maxima for the built-in curve, by the published ratio for a lab's own table."""
+        fs, rs = self.voltage_scales(voltage)
+        t = np.where(self.thrust_n >= 0, self.thrust_n * fs, self.thrust_n * rs)
+        return ThrustCurve(self.pwm_us.copy(), t, f"{self.label} rescaled to {voltage:g} V", self.unit,
+                           None if self.reference_voltage is None else float(voltage))
 
     def for_normalized_commands(self, lo: float, hi: float) -> "ThrustCurve":
         """This PWM curve for commands logged on [lo, hi] instead: lo..hi maps linearly onto the ESC's
@@ -181,7 +195,7 @@ class ThrustCurve:
             return self
         x = lo + (self.pwm_us - 1100.0) / 800.0 * (hi - lo)
         return ThrustCurve(x, self.thrust_n.copy(), f"{self.label}, commands {lo:g}..{hi:g} mapped to 1100-1900 us",
-                           "command")
+                           "command", self.reference_voltage)
 
 
 @dataclass(frozen=True)
@@ -232,14 +246,14 @@ class ThrusterConfig:
         return self.thrusts(pwm) @ np.asarray(self.allocation).T
 
     def wrench_at_voltage(self, pwm, volts) -> np.ndarray:
-        """(N, n) PWM and (N,) supply voltage per sample -> (N, 6). Each sample's thrust is rescaled as
-        ThrustCurve.at_voltage does for one voltage: forward and reverse thrust separately, to Blue Robotics'
-        published T200 maxima at that voltage (12-20 V; callers clip). The base curve must be the T200
-        dataset curve, not one already rescaled (PROJECT_STATUS.md #63)."""
+        """(N, n) commands and (N,) supply voltage per sample -> (N, 6). Each sample's thrust is rescaled as
+        ThrustCurve.at_voltage does for one voltage, forward and reverse separately (ThrustCurve.voltage_scales;
+        12-20 V, callers clip). The base curve must not be one already rescaled: the built-in T200 dataset curve
+        (PROJECT_STATUS.md #63), or a lab's own T200 table with its curve_voltage (#69)."""
         volts = np.asarray(volts, dtype=float)
         t = self.thrusts(pwm)
-        fwd, rev = np.vectorize(_published_max_n)(volts)
-        t = np.where(t >= 0, t * (fwd / self.curve.max_forward_n)[:, None], t * (rev / self.curve.max_reverse_n)[:, None])
+        fs, rs = self.curve.voltage_scales(volts)
+        t = np.where(t >= 0, t * np.asarray(fs)[:, None], t * np.asarray(rs)[:, None])
         return t @ np.asarray(self.allocation).T
 
     def for_simulation(self) -> "ThrusterConfig":
@@ -319,8 +333,8 @@ def thruster_config_from_layout(layout: Sequence[dict], curve: ThrustCurve, labe
 
 # ----------------------------------------------------------------- YAML block
 
-THRUSTER_BLOCK_KEYS = {"preset", "layout", "allocation_csv", "directions", "curve", "curve_csv", "voltage",
-                       "command", "command_range"}
+THRUSTER_BLOCK_KEYS = {"preset", "layout", "allocation_csv", "directions", "curve", "curve_csv", "curve_voltage",
+                       "voltage", "command", "command_range"}
 COMMAND_UNITS = ("pwm_us", "normalized")
 
 
@@ -398,19 +412,31 @@ def _thruster_block_body(block: dict, base_dir: str) -> ThrusterConfig:
         if block["preset"] != "bluerov2_heavy":
             raise ValueError(f"unknown thrusters preset {block['preset']!r}; the only preset is bluerov2_heavy "
                              "(use layout: for any other vehicle)")
-        extra = {"layout", "allocation_csv", "directions", "curve", "curve_csv"} & {k for k, v in block.items()
-                                                                                    if v is not None}
+        extra = {"layout", "allocation_csv", "directions", "curve", "curve_csv", "curve_voltage"} & {
+            k for k, v in block.items() if v is not None}
         if extra:
             raise ValueError(f"a thrusters preset fixes the layout and curve; remove {sorted(extra)}")
         return bluerov2_heavy(voltage)
 
     if block.get("curve_csv") is not None and block.get("curve") not in (None, "custom"):
         raise ValueError("give curve: t200 or curve_csv, not both")
+    curve_voltage = block.get("curve_voltage")
+    if curve_voltage is not None and block.get("curve_csv") is None:
+        raise ValueError("curve_voltage is the battery voltage your own curve_csv was measured at; the built-in T200 "
+                         "curve knows its own")
     if block.get("curve_csv") is not None:
-        if voltage is not None:
-            raise ValueError("voltage rescaling uses Blue Robotics' published T200 data, so it only applies to "
-                             "curve: t200; put your own curve at the right voltage in curve_csv instead")
+        from dataclasses import replace
         curve = ThrustCurve.from_csv(_path(block["curve_csv"]))
+        if curve_voltage is not None:
+            cv = float(curve_voltage)
+            _published_max_n(cv)  # raises outside the published 12-20 V
+            curve = replace(curve, reference_voltage=cv, label=f"{curve.label} (measured at {cv:g} V)")
+        if voltage is not None:
+            if curve_voltage is None:
+                raise ValueError("voltage rescaling uses Blue Robotics' published T200 data: for your own curve_csv "
+                                 "of T200 thrusters, give curve_voltage (the battery voltage it was measured at); "
+                                 "for other thrusters, put the curve at the right voltage in curve_csv instead")
+            curve = curve.at_voltage(voltage)
     else:
         if block.get("curve", "t200") != "t200":
             raise ValueError(f"unknown curve {block.get('curve')!r}: use t200 or curve_csv")

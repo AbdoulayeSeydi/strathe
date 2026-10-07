@@ -2,7 +2,8 @@
 # vehicle logs its commands (here -1..1, stopped at 0). One row per point, commands strictly increasing; values
 # between points are interpolated, and commands outside the table are held at its end values. Positive thrust =
 # the direction you gave the thruster in the layout. Fill it from the vehicle's own command -> thrust mapping at its
-# battery voltage, then point curve_csv: at it, with command: normalized in the thrusters block.
+# battery voltage, then point curve_csv: at it, with command: normalized in the thrusters block. For T200 thrusters,
+# also give curve_voltage: (the battery voltage it was measured at), so voltage_column: or voltage: can rescale it.
 command,thrust_n
 -1.0,-30.0
 -0.75,-19.5

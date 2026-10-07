@@ -119,7 +119,7 @@ def test_simulation_view_moves_torques_to_the_thruster_plane():
     ({"preset": "bluerov2"}, "only preset is bluerov2_heavy"),
     ({"preset": "bluerov2_heavy", "curve_csv": "x.csv"}, "fixes the layout and curve"),
     ({"layout": [{"position_m": [0, 0, 0], "direction": [1, 0, 0]}], "curve_csv": "thrust_curve_template.csv",
-      "voltage": 15}, "only applies to curve: t200"),
+      "voltage": 15}, "give curve_voltage"),
     ({"layout": [{"position_m": [0, 0], "direction": [1, 0, 0]}]}, "3 numbers"),
     ({"layout": [{"position_m": [0, 0, 0], "direction": [0, 0, 0]}]}, "all zeros"),
     ({"layout": [{"position_m": [0, 0, 0], "dir": [1, 0, 0]}]}, "needs position_m and direction"),

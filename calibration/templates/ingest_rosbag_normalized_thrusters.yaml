@@ -47,6 +47,9 @@ wrench:
     curve_csv: thrust_curve_normalized_template.csv   # your command -> thrust (N) table in the same units (copy
                                # the template next to this file and fill it in). Without curve_csv, the built-in
                                # T200 curve is used with command_range mapped onto 1100..1900 us.
+    # curve_voltage: 16        # T200 thrusters: the battery voltage your table was measured at; then
+    # voltage_column: battery_v  # scales each sample's thrust to its logged battery voltage (or voltage: for
+                               # one voltage), with Blue Robotics' published T200 data
     layout:                    # each thruster, ALWAYS in forward-right-down axes (x forward, y right, z down),
                                # whatever frame: says above:
                                #   position_m  x, y from the vehicle's centre; z from the plane of the horizontal

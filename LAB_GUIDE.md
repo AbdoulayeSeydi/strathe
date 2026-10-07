@@ -24,7 +24,7 @@ python strathe.py check
 - **The tether slack.** Taut stretches get learned as drag. If you log tension, Strathe can drop them.
 
 **Better:**
-- **Battery voltage:** thrust drops as the battery sags.
+- **Battery voltage:** thrust drops as the battery sags (17% from 15.3 to 13.1 V on a T200). With your own command-to-thrust table, say the battery voltage it was measured at (`curve_voltage:`).
 - **An independent position track** (USBL, motion capture), to check position accuracy.
 - **A note per log:** conditions, current, tether, what was run.
 

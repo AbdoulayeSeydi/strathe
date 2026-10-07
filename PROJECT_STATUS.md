@@ -1577,6 +1577,27 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 - **Not fitted:** optical pointing (angle). The acoustic model has no multipath, collisions or message priorities.
 - **Extrapolation:** beyond the logged ranges, the fits extrapolate.
 
+### 69. Battery voltage with a lab's own thrust table; the direction check on normalized commands (2026-10-07)
+
+**Why.** Both labs lined up for pilots (MIT, URI) use T200 thrusters, and MIT will send its own command-to-thrust mapping. `voltage_column:` (#63) only rescaled Strathe's built-in T200 curve and refused a lab's `curve_csv`, so with their own table the battery sag (17% of thrust from 15.3 to 13.1 V) would have been ignored.
+
+**What shipped:**
+- **`curve_voltage:`** in a thrusters block: the battery voltage the lab's `curve_csv` was measured at.
+- **What it enables:** `voltage_column:` (per sample) and `voltage:` (one value, for the simulators) rescale that table by Blue Robotics' published T200 ratio, forward and reverse separately. At the table's own voltage it is the table itself.
+- **The built-in curve's path is unchanged**, bit for bit.
+- **Plain messages:**
+  - `voltage_column:` or `voltage:` with a table and no `curve_voltage:` asks for it, saying it's for T200s;
+  - `curve_voltage:` without a table, or outside the published 12–20 V, is explained.
+- **Templates:** the normalized and custom templates show `curve_voltage:` with `voltage_column:`.
+
+**Checked** (`tests/test_voltage_custom_curve.py`):
+- **The ratio:** a table measured at 16 V gives exactly the published ratios at 12 V.
+- **Consistency:** the built-in curve given as a lab table, at its matching voltage, scales within 2% of the built-in path.
+- **The MIT case end to end** (normalized commands, the lab's table, per-sample voltage): ingestion gives exactly the table's forces at each sample's voltage.
+- **The force-direction check (#63) on normalized commands:** a synthetic 6-thruster vehicle's logs, read with its layout mirrored left-right, are refused on sway and yaw; with the right layout, they pass.
+
+**Not addressed:** separating linear from quadratic drag. `--drag prior` (#63) stays opt-in and didn't help on the reference dataset. What separates them is data: runs held at two or three different steady speeds on each axis; ask labs for them.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
