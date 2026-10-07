@@ -372,8 +372,12 @@ def link_fields(prefix: str, sweep: bool = False) -> str:
                f"omnidirectional terminals on the same episodes, to see what pointing costs</label>" if sweep else "")
     return f"""<fieldset class=current><legend>Communication link: acoustic, optical or hybrid</legend>
 {link_ui}
-<p class=muted>The optical model is <b>uncalibrated</b>: rough textbook water values and a placeholder delivery curve.
-Check a vendor's specs and fit it to your own link logs before quoting numbers (LIMITS.md).</p>
+<label for={prefix}-lcal>Link calibration from your message logs: the <code>link_calibration.yaml</code> that
+<code>strathe fit-link</code> (or the card below) wrote, full path (optional). It sets the acoustic losses and latency,
+and the optical water, delivery curve and latency, to what your logs measured.</label>
+<input type=text id={prefix}-lcal name=link_calibration value="">
+<p class=muted>Without a link calibration the optical model is <b>uncalibrated</b>: rough textbook water values and a
+placeholder delivery curve; check a vendor's specs, or calibrate it from your link logs (LIMITS.md).</p>
 <label for={prefix}-att>Custom water attenuation c, per metre (only for Custom)</label>
 <input type=text id={prefix}-att name=optical_attenuation value="">
 <label for={prefix}-terms>Optical terminals on each vehicle</label><select id={prefix}-terms name=optical_terminals>{terms}</select>
@@ -406,6 +410,8 @@ def link_cli_args(form: dict, sweep: bool = False) -> list:
     args = []
     if links and links != ["acoustic"]:
         args += ["--link", *links]
+    if form.get("link_calibration", "").strip():
+        args += ["--link-calibration", _existing_file(form["link_calibration"], "Link calibration", (".yaml", ".yml"))]
     if not optical:
         return args
     if waters:
@@ -586,6 +592,31 @@ experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
 direction)</label><input type=text id=tf-cur name=current_speed value="">
 <label for=tf-out>Save the policy as (full path, without .zip)</label><input type=text id=tf-out name=out required>
 <button>Start training</button></form></div>
+<div class=card><h2>Roll and pitch from tank tests</h2>
+<p class=muted>Free-decay tests: tilt the vehicle, let go with the thrusters stopped, record the swing
+(<code>calibration/FREE_DECAY_PROTOCOL.md</code>). The result, <code>free_decay.yaml</code>, goes in the calibration
+form's free-decay field.</p>
+<form method=post action=/jobs/free_decay>{tok}
+<label for=fd-spec>Ingestion spec for the tank-test logs (full path; e.g. a copy of
+<code>templates/ingest_free_decay_ardupilot.yaml</code>)</label><input type=text id=fd-spec name=ingest_spec value="">
+<label for=fd-data>…or a folder of tank-test logs already in Strathe's CSV layout</label>
+<input type=text id=fd-data name=data value="">
+<label for=fd-name>Name for this result</label><input type=text id=fd-name name=name value="my_tank_tests" required>
+<button>Fit roll and pitch</button></form></div>
+<div class=card><h2>Calibrate the communication link</h2>
+<p class=muted>From your modems' message logs (acoustic, optical or both): delivery against distance and latency,
+for fleet experiments and training. Format: <code>calibration/templates/link_log_template.csv</code>.</p>
+<form method=post action=/jobs/fit_link>{tok}
+<label for=lk-log>Message log CSV(s), full paths (several: one per line or separated by spaces)</label>
+<input type=text id=lk-log name=logs required>
+<label for=lk-name>Name for this calibration</label><input type=text id=lk-name name=name value="my_link" required>
+<label for=lk-link>Link of rows with no <code>link</code> column</label><select id=lk-link name=link>
+<option value=acoustic>acoustic</option><option value=optical>optical</option></select>
+<label for=lk-water>Optical: the water's clarity (messages can't measure it; it only matters beyond the ranges
+you logged)</label>
+<select id=lk-water name=optical_water><option value="">coastal (default)</option><option value=clear>clear</option>
+<option value=coastal>coastal</option><option value=harbor>harbour</option></select>
+<button>Calibrate the link</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
 <label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
@@ -812,6 +843,36 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += current_cli_args(form)
                 title += " + water current"
             return self.manager.start("fleet", title, args, [])
+        if path == "/jobs/free_decay":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_tank_tests"
+            out = os.path.join(JOBS_DIR, f"free_decay_{name}")
+            if form.get("ingest_spec", "").strip():
+                src = ["--ingest-spec", _existing_file(form["ingest_spec"], "Ingestion spec", (".yaml", ".yml"))]
+            elif form.get("data", "").strip():
+                data = os.path.abspath(os.path.expanduser(form["data"].strip()))
+                if not os.path.isdir(data):
+                    raise ValueError(f"Folder not found: {data}")
+                src = ["--data", data]
+            else:
+                raise ValueError("Give the tank-test logs: an ingestion spec, or a folder of Strathe CSVs.")
+            return self.manager.start("free_decay", f"Free decay: {name}", ["free-decay", *src, "--out", out], [out])
+        if path == "/jobs/fit_link":
+            logs = [os.path.abspath(os.path.expanduser(x)) for x in form.get("logs", "").split()]
+            if not logs:
+                raise ValueError("Give at least one message log CSV.")
+            for f in logs:
+                if not os.path.isfile(f):
+                    raise ValueError(f"Message log not found: {f}")
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_link"
+            link = form.get("link", "acoustic")
+            if link not in ("acoustic", "optical"):
+                raise ValueError("Pick acoustic or optical.")
+            water = form.get("optical_water", "")
+            if water not in ("", "clear", "coastal", "harbor"):
+                raise ValueError("Pick a water type.")
+            out = os.path.join(JOBS_DIR, f"link_{name}")
+            args = ["fit-link", "--log", *logs, "--out", out, "--link", link] + (["--optical-water", water] if water else [])
+            return self.manager.start("fit_link", f"Link calibration: {name}", args, [out])
         if path == "/jobs/ingest":
             spec = os.path.abspath(os.path.expanduser(form.get("spec", "").strip()))
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))

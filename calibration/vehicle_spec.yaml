@@ -235,6 +235,13 @@ calibration_targets:
                       bounds_rationale: "±10cm exceeds any plausible BlueROV2 hull offset — deliberately generous",
                       source: "assumed small positive (CG below CB, passively stable)", confidence: assumed}
 
+  # thruster_dynamics:            # OPT-IN (PROJECT_STATUS.md #66): uncomment to fit how fast the thrusters respond.
+  #   thruster_time_constant_s: {unit: s, initial_guess: 0.1, bounds: [0.0, 1.0],
+  #     bounds_rationale: "first-order spin-up of the applied wrench; 0 = instant thrust (the model without it)",
+  #     source: "fitted from command steps in the logs", confidence: estimated}
+  # Left out, it is held at 0: no lag. On the reference BlueROV2 the shipped calibration plus 0.18 s matches the
+  # vehicle's step timing on surge, sway and heave (validation/); on DFKI's vehicle a fit finds none.
+
 # ---------------------------------------------------------------------------
 # OPTIMIZATION CONFIG — currently informational; optimizer.py still
 # hardcodes the actual least_squares() call. Worth wiring this section up

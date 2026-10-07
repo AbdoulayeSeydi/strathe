@@ -1,0 +1,46 @@
+# Ingest spec: CSV logs whose thruster commands are NORMALIZED values (e.g. -1..1 or 0..1) rather than ESC PWM in
+# microseconds, from any vehicle and any logging system: CSV exports from MOOS (.alog -> CSV), LCM, DUNE/Neptus,
+# vendor software, MATLAB or your own logger. One CSV per recording, every column in it (merge per-sensor files
+# first; see ../examples/dfki_tether/).
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_auv
+#
+# ROS bags: ingest_rosbag_normalized_thrusters.yaml. ArduPilot / ArduSub (.bin, .tlog, MAVROS rc/out) log ESC PWM in
+# microseconds: use their own templates, no command setting needed.
+
+vehicle: my_auv
+source: {files: "raw_logs/*.csv"}
+time: {column: timestamp, unit: s}          # or ms / us / ns; or drop this line and give resample_hz only
+resample_hz: 10
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+                                            # or {from: constant, value: "2025-06-01"}
+frame: frd                                  # frd: x forward, y right, z down, NED world; flu: ROS-style FLU / ENU
+body_velocity:
+  columns: {u: vel_x, v: vel_y, w: vel_z, p: rate_x, q: rate_y, r: rate_z}   # DVL / EKF velocity, IMU rates
+  linear_frame: body                        # or world, if your velocity is north/east/down (it's then rotated)
+  linear_unit: m/s
+  angular_unit: rad/s                       # or deg/s
+orientation:
+  quaternion: {x: qx, y: qy, z: qz, w: qw}  # or euler: {roll: roll, pitch: pitch, yaw: yaw, unit: deg}
+wrench:
+  thrusters:
+    # one logged command column per thruster, in the order of the layout below
+    pwm_columns: [thr1, thr2, thr3, thr4, thr5, thr6]
+    command: normalized        # the commands are normalized values, not ESC microseconds
+    command_range: [-1, 1]     # the range your commands span; stopped is the middle (0 here; [0, 1] -> 0.5)
+    curve_csv: thrust_curve_normalized_template.csv   # your command -> thrust (N) table in the same units (copy
+                               # the template next to this file and fill it in). Without curve_csv, the built-in
+                               # T200 curve is used with command_range mapped onto 1100..1900 us.
+    # voltage_column: battery_v  # T200 curve only (no curve_csv): scale each sample's thrust to its battery voltage
+    layout:                    # each thruster, ALWAYS in forward-right-down axes (x forward, y right, z down),
+                               # whatever frame: says above:
+                               #   position_m  x, y from the vehicle's centre; z from the plane of the horizontal
+                               #               thrusters (torques are best taken about the height drag acts
+                               #               through; PROJECT_STATUS.md #50)
+                               #   direction   the way it pushes the vehicle for a positive command (up = [0,0,-1])
+                               #   reversed    true if its command's sign is flipped (mirrored about stopped)
+      - {position_m: [-0.40,  0.15, 0.0], direction: [1, 0, 0]}                    # stern, starboard
+      - {position_m: [-0.40, -0.15, 0.0], direction: [1, 0, 0]}                    # stern, port
+      - {position_m: [ 0.30,  0.00, 0.0], direction: [0, 1, 0]}                    # bow, lateral
+      - {position_m: [-0.30,  0.00, 0.0], direction: [0, 1, 0], reversed: true}    # stern, lateral
+      - {position_m: [ 0.30,  0.00, 0.0], direction: [0, 0, 1]}                    # bow, vertical
+      - {position_m: [-0.30,  0.00, 0.0], direction: [0, 0, 1]}                    # stern, vertical

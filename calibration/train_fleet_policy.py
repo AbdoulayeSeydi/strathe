@@ -123,13 +123,19 @@ def make_belief_sampler(truth, generic):
     return sample
 
 
-def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVALS_S, link=None):
+def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVALS_S, link=None, acoustic=None):
     """link: comm_channel.LinkConfig applied to every condition (None = acoustic only). An optical-only link has
-    no acoustic channel, so the severities and intervals collapse to one condition."""
+    no acoustic channel, so the severities and intervals collapse to one condition. acoustic: a link calibration's
+    acoustic fit (link_fit.load_link_calibration): the measured link replaces the assumed loss levels."""
     if link is not None and link.link == "optical":
         return [CommCondition(link.label, COMM_CONFIGS["L0"]["packet_loss_config"],
                               COMM_CONFIGS["L0"]["bandwidth_config"], link=link)]
     suffix = "" if link is None or link.link == "acoustic" else f" {link.label}"
+    if acoustic is not None:
+        return [CommCondition(f"measured@{b:g}s{suffix}", acoustic["packet_loss_config"],
+                              COMM_CONFIGS["L0"]["bandwidth_config"], acoustic["speed_of_sound_mps"],
+                              beacon_interval_s=b, link=link, acoustic_fixed_latency_s=acoustic["fixed_latency_s"])
+                for b in intervals]
     return [CommCondition(f"{s}@{b:g}s{suffix}", COMM_CONFIGS[s]["packet_loss_config"],
                           COMM_CONFIGS[s]["bandwidth_config"], beacon_interval_s=b, link=link)
             for s in severities for b in intervals]
@@ -137,14 +143,18 @@ def comm_conditions(severities=TRAIN_SEVERITIES, intervals=TRAIN_BEACON_INTERVAL
 
 def build_training_env(n_sims: int, seed: int, truth_path: str = TRUTH_PARAMS_PATH,
                        fleet_config: FleetConfig = None, belief: str = "mix",
-                       spec_path: str = VEHICLE_SPEC_PATH, link=None) -> FleetVecEnv:
+                       spec_path: str = VEHICLE_SPEC_PATH, link=None, link_calibration=None) -> FleetVecEnv:
     spec = load_vehicle_spec(spec_path)
     vehicle = spec.vehicle
     truth = load_calibrated_parameters(truth_path)
     generic = initial_parameters(spec)
     belief_sampler = (make_belief_sampler(truth, generic) if belief == "mix"
                       else make_fixed_belief_sampler(belief, truth, generic))
-    sampler = EpisodeSampler(comm_conditions(link=link), belief_sampler)
+    acoustic = None
+    if link_calibration:
+        from link_fit import load_link_calibration
+        acoustic = load_link_calibration(link_calibration).get("acoustic")
+    sampler = EpisodeSampler(comm_conditions(link=link, acoustic=acoustic), belief_sampler)
     sims = [FleetSim(truth, vehicle, fleet_config or FleetConfig()) for _ in range(n_sims)]
     return FleetVecEnv(sims, sampler, seed=seed)
 
@@ -238,7 +248,8 @@ def main():
     torch.set_num_threads(1)  # several trainings run side by side; don't oversubscribe cores
 
     env = VecMonitor(build_training_env(args.n_sims, args.seed, args.truth_params, fleet_config=fleet_config,
-                                        belief=args.belief, spec_path=args.spec, link=link))
+                                        belief=args.belief, spec_path=args.spec, link=link,
+                                        link_calibration=args.link_calibration))
     model = make_model(args.algorithm, env, args.seed)
     t0 = time.time()
     model.learn(total_timesteps=timesteps, log_interval=(1 if args.algorithm == "ppo" else 50))

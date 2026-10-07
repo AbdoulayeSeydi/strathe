@@ -1,0 +1,17 @@
+# Thrust curve for normalized thruster commands: thrust in newtons for each command value, in the units the
+# vehicle logs its commands (here -1..1, stopped at 0). One row per point, commands strictly increasing; values
+# between points are interpolated, and commands outside the table are held at its end values. Positive thrust =
+# the direction you gave the thruster in the layout. Fill it from the vehicle's own command -> thrust mapping at its
+# battery voltage, then point curve_csv: at it, with command: normalized in the thrusters block.
+command,thrust_n
+-1.0,-30.0
+-0.75,-19.5
+-0.5,-9.8
+-0.25,-2.6
+-0.05,0.0
+0.0,0.0
+0.05,0.0
+0.25,3.2
+0.5,12.1
+0.75,24.0
+1.0,38.0

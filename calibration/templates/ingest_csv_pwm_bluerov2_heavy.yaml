@@ -20,5 +20,7 @@ wrench:
   thrusters:
     pwm_columns: [pwm1, pwm2, pwm3, pwm4, pwm5, pwm6, pwm7, pwm8]   # motor 1..8, ArduSub numbering
     preset: bluerov2_heavy
+    # commands logged normalized (e.g. -1..1) instead of microseconds: add command: normalized and
+    # command_range: [-1, 1]; the T200 curve then maps the range onto 1100..1900 us
     voltage: 15.0        # battery voltage (12-20 V): the T200's thrust grows with it. Omit for the
                          # reference dataset's own curve (~15 V, a 4S battery)

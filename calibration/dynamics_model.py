@@ -107,6 +107,8 @@ shape: (params, vehicle, sim_config, trajectory) -> SimulationResult.
 """
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -125,6 +127,7 @@ _PARAM_ORDER = (
     "Xu_dot", "Yv_dot", "Zw_dot",
     "net_buoyancy_z", "cg_cb_offset_z",
     "Xq_dot", "Zq_dot",
+    "thruster_time_constant_s",
 )
 
 TEACHER_FORCED_ORIENTATION = True  # see module docstring — comparison code
@@ -185,6 +188,11 @@ class CalibrationParameters:
     Xq_dot: float = 0.0
     Zq_dot: float = 0.0
 
+    # Thruster spin-up (PROJECT_STATUS.md #66): the wrench the thrusters actually apply follows the commanded one
+    # with this first-order time constant, in seconds (see apply_thruster_lag). 0.0 = no lag, the model before
+    # #66: older calibrated_parameters.yaml files load with it, and a vehicle_spec.yaml without it holds it at 0.
+    thruster_time_constant_s: float = 0.0
+
     def validate(self) -> None:
         """Cheap sanity checks — called once per construction, not per
         integration step, so this doesn't cost anything in the hot loop."""
@@ -192,6 +200,8 @@ class CalibrationParameters:
             v = getattr(self, name)
             if v <= 0:
                 raise ValueError(f"{name} must be positive, got {v}")
+        if self.thruster_time_constant_s < 0:
+            raise ValueError(f"thruster_time_constant_s must be >= 0, got {self.thruster_time_constant_s}")
         for name in _PARAM_ORDER:
             v = getattr(self, name)
             if not np.isfinite(v):
@@ -334,6 +344,63 @@ class SimulationResult:
     debug_info: Optional[dict] = None        # populated only if SimulationConfig.debug=True
                                               # -> {"damping_force", "restoring_force", "acceleration"},
                                               # each shape (N,6), for inspecting the fit term-by-term
+
+
+# ---------------------------------------------------------------------------
+# Thruster lag (PROJECT_STATUS.md #66)
+# ---------------------------------------------------------------------------
+# The thrusters reach a new command over a fraction of a second (propeller spin-up), modelled as a first-order lag
+# on the whole body wrench (identical thrusters, and the wrench is linear in their thrusts):
+#     d(applied)/dt = (commanded - applied) / T
+# Commands are held for each sample (dt). Over one sample the applied wrench moves from y to u + (y - u) * a,
+# a = exp(-dt / T), and its exact average over the sample is u + (y - u) * k, k = T/dt * (1 - a). Every simulator
+# applies that average for the sample: calibration replays (on whole logged series, objective.py), validation, and
+# the arena/fleet cores (ThrusterLag, one step at a time), so all of them see the same discretisation. Velocity
+# responds to the wrench linearly within a sample, so the average is what matters. T = 0 returns the command
+# itself, bit-for-bit: no lag, the model before #66.
+
+def _lag_coefficients(T: float, dt: float) -> tuple:
+    a = math.exp(-dt / T)
+    return a, T / dt * (1.0 - a)
+
+
+def apply_thruster_lag(forces_torques: np.ndarray, T: float, dt: float, initial=None) -> np.ndarray:
+    """The wrench applied over each sample, (N,6), for commands held over each sample. initial: the applied wrench
+    at the first sample (default: the first command, i.e. steady). T <= 0: the commands, unchanged."""
+    if T <= 0:
+        return forces_torques
+    u = np.asarray(forces_torques, dtype=float)
+    a, k = _lag_coefficients(T, dt)
+    y = np.empty_like(u)  # applied wrench at the start of each sample
+    y[0] = u[0] if initial is None else np.asarray(initial, dtype=float)
+    if len(u) > 1:
+        from scipy.signal import lfilter
+        # y[n+1] = a*y[n] + (1-a)*u[n], started from y[0]
+        zi = (a * y[0])[None, :]
+        y[1:] = lfilter([1.0 - a], [1.0, -a], u[:-1], axis=0, zi=zi)[0]
+    return u + (y - u) * k
+
+
+class ThrusterLag:
+    """apply_thruster_lag one sample at a time, for simulators stepped with one command per dt."""
+
+    def __init__(self):
+        self.applied = None
+
+    def reset(self, applied=None):
+        """applied: the wrench the thrusters are producing now (default: none, they're stopped)."""
+        self.applied = None if applied is None else np.array(applied, dtype=float)
+
+    def step(self, tau, T: float, dt: float):
+        """The wrench to apply over this step for command tau. T <= 0: tau itself."""
+        if T <= 0:
+            self.applied = None
+            return tau
+        u = np.asarray(tau, dtype=float)
+        y = np.zeros_like(u) if self.applied is None else self.applied
+        a, k = _lag_coefficients(T, dt)
+        self.applied = u + (y - u) * a
+        return u + (y - u) * k
 
 
 def quaternion_to_roll_pitch(qx, qy, qz, qw):

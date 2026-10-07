@@ -9,7 +9,7 @@ Usage:
     spec = load_and_validate("vehicle_spec.yaml")
     spec.fixed_parameters.mass_kg.value   # -> 11.2, type-checked
 """
-from typing import Literal
+from typing import Optional, Literal
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
@@ -99,12 +99,18 @@ class Buoyancy(BaseModel):
     cg_cb_offset_z: CalibrationParam
 
 
+class ThrusterDynamics(BaseModel):
+    """Optional (PROJECT_STATUS.md #66): without it the thruster lag is held at 0."""
+    thruster_time_constant_s: CalibrationParam
+
+
 class CalibrationTargets(BaseModel):
     effective_inertia: EffectiveInertia
     linear_damping: LinearDamping
     quadratic_damping: QuadraticDamping
     added_mass_diag: AddedMassDiag
     buoyancy: Buoyancy
+    thruster_dynamics: Optional[ThrusterDynamics] = None
 
 
 class Vehicle(BaseModel):

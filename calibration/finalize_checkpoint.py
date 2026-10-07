@@ -66,7 +66,10 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if os.path.exists(timing):
         with open(timing, encoding="utf-8") as f:
             n_evals = sum(1 for _ in f) - 1
-    held_params = excluded_axis_setup(exclude_axes, None, default)[1] if exclude_axes else None
+    from optimizer import held_by_bounds, parameter_bounds
+    held_params = held_by_bounds(*parameter_bounds(spec), list(default.param_names)) or None
+    if exclude_axes:
+        held_params = {**(held_params or {}), **excluded_axis_setup(exclude_axes, None, default)[1]}
     free_decay_info = free_decay_setup(free_decay, spec, default) if free_decay else None
     if free_decay_info:  # the fit held these, so the checkpoint has them already; recorded for the report
         held_params = {**(held_params or {}), **free_decay_info["held"]}

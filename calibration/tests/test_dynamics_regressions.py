@@ -120,7 +120,8 @@ class TestCalibrationParametersBackwardCompatibility:
         params = CalibrationParameters(**old_saved_dict)
         assert params.Xq_dot == 0.0
         assert params.Zq_dot == 0.0
-        assert len(params.to_vector()) == 22
+        assert params.thruster_time_constant_s == 0.0  # #66: no thruster lag
+        assert len(params.to_vector()) == 23
 
 
 class TestSplitByGroupAutomaticDefault:

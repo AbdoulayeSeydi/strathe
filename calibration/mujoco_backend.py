@@ -117,7 +117,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from dynamics_model import (
-    CalibrationParameters, VehicleConstants, SimulationConfig, TrajectoryInputs,
+    CalibrationParameters, VehicleConstants, SimulationConfig, ThrusterLag, TrajectoryInputs,
     SimulationResult, compute_acceleration, compute_acceleration_from_rotation_matrix,
 )
 from arena_core import ArenaState  # C0.3 addition -- one-directional (arena_core.py does
@@ -674,6 +674,7 @@ class MuJoCoArenaCore:
         self._data = mujoco.MjData(self._model)
         self._qpos_adr, self._dof_adr = _body_qpos_dof_addr(self._model, _BODY_ID)
         self.state = ArenaState.initial()
+        self._lag = ThrusterLag()  # thruster spin-up (params.thruster_time_constant_s; none at 0)
         # Water current in WORLD axes (m/s), or None for still water; the
         # calibrated forces act on the velocity relative to it
         # (dynamics_model._relative_to_water). Set before each step().
@@ -692,6 +693,7 @@ class MuJoCoArenaCore:
         position = np.zeros(3) if position is None else np.array(position, dtype=float)
         nu = np.zeros(6) if nu is None else np.array(nu, dtype=float)
         orientation = Rotation.identity()
+        self._lag.reset()
 
         set_body_pose(self._model, self._data, _BODY_ID, position, orientation)
         self._data.qvel[self._dof_adr:self._dof_adr + 3] = orientation.apply(nu[:3])
@@ -703,8 +705,9 @@ class MuJoCoArenaCore:
     def step(self, tau: np.ndarray) -> ArenaState:
         """Advances by one external dt (sim_config.n_substeps internal
         sub-steps, matching ArenaCore.step()'s own convention exactly).
-        tau is body-frame [Fx,Fy,Fz,Tx,Ty,Tz], same as ArenaCore.step()."""
-        tau = np.asarray(tau, dtype=float)
+        tau is body-frame [Fx,Fy,Fz,Tx,Ty,Tz], same as ArenaCore.step(), lagged the same way."""
+        tau = np.asarray(self._lag.step(np.asarray(tau, dtype=float), self.params.thruster_time_constant_s,
+                                        self.sim_config.dt), dtype=float)
         original_timestep = self._model.opt.timestep
         self._model.opt.timestep = self.sim_config.sub_dt
         try:

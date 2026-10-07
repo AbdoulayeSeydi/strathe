@@ -92,6 +92,9 @@ def add_link_args(ap, sweep: bool = False) -> None:
     ap.add_argument("--optical-data-rate", type=float, default=None, metavar="BPS", help="default 1e6 bit/s")
     ap.add_argument("--optical-interval", type=float, default=None, metavar="S",
                     help="seconds between optical beacons (default 0.1: every tick)")
+    ap.add_argument("--link-calibration", default=None, metavar="YAML",
+                    help="link_calibration.yaml from `strathe fit-link`: the acoustic losses and latency, and the "
+                         "optical water, delivery curve and latency, measured from your message logs")
     ap.add_argument("--hybrid-policy", choices=["optical_first", "redundant"], default=None,
                     help="optical_first (default): skip the acoustic beacon while the optical link is up; "
                          "redundant: send every beacon on both links")
@@ -105,5 +108,11 @@ def optical_kwargs(args) -> dict:
 
 
 def link_from_args(args):
-    """The link from single-valued --link/--optical-* flags (None = acoustic). Raises ValueError."""
-    return link_from_flags(args.link, args.hybrid_policy, water=args.optical_water, **optical_kwargs(args))
+    """The link from single-valued --link/--optical-* flags (None = acoustic), with --link-calibration's optical
+    fit applied. Raises ValueError."""
+    lc = link_from_flags(args.link, args.hybrid_policy, water=args.optical_water, **optical_kwargs(args))
+    cal = getattr(args, "link_calibration", None)
+    if lc is not None and cal:
+        from link_fit import load_link_calibration, with_optical_calibration
+        lc = with_optical_calibration(lc, load_link_calibration(cal))
+    return lc

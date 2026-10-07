@@ -1472,6 +1472,97 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 - **On the reference vehicle the model responds about twice as fast as the real one** (0.3 against 0.6 s on surge), at the right size. Thruster spin-up and command lag aren't modelled (LIMITS.md). DFKI is closer, except heave.
 - **What drift is measured against:** the logs' own velocity, integrated. It isn't an independent position fix (the reference dataset has none; DFKI's motion capture would be one, not used yet).
 
+### 66. Thruster lag (2026-10-06)
+
+**Why.** Validation (#65) showed the simulated vehicle responding about twice as fast as the real one to a command step: on the reference BlueROV2, 0.3 s to 63% of the velocity change on surge against the real 0.6 s, at the right size. Thrust followed the logged command instantly; real propellers take a fraction of a second to spin up.
+
+**What shipped:**
+- **`thruster_time_constant_s`**, a first-order lag on the applied wrench: d(applied)/dt = (commanded - applied) / T. One time constant for every thruster: identical thrusters, and the wrench is linear in their thrusts. Each 0.1 s sample applies the exact average of the lagged wrench over that sample.
+- **One discretisation everywhere:**
+  - the calibration replay lags a whole recording before cutting it into prediction windows, so each window starts from the thrusters' real state;
+  - validation does the same;
+  - the arena and fleet cores (`ArenaCore`, `FastCore`, `MuJoCoArenaCore`) step it, starting each episode with the thrusters stopped;
+  - the fleet's physics teammate models start at the command in the last beacon.
+- **Opt-in, and nothing changes without it:**
+  - **In the spec:** a `thruster_dynamics` section in `vehicle_spec.yaml` makes it a calibration target (an example is in the file, commented out).
+  - **Without that section** it is held at 0, which is the model before. The same goes for older calibrations and labs' own specs. Zero-width bounds now mean "held", and are recorded as held.
+  - **Checked:** every existing result and the bit-identical regression checks are unchanged.
+
+**Checked** (`tests/test_thruster_lag.py`):
+- **Exact discretisation:** the sample averages match the analytic step response to 1e-12.
+- **Same lag everywhere:** the series form and the step-by-step form agree, and all three cores lag identically (MuJoCo within 3e-6 m/s, its own integration).
+- **A known lag is recovered:** a calibration finds 0.25 s from commands and velocities alone.
+- **Validation sees it:** a model with the right lag gets the step rise time right, and one without lag responds too fast.
+
+**On real data:**
+- **DFKI:** a full calibration with the lag free fits 0.004 s: no lag. Every score is unchanged to two decimals. DFKI's step responses were already close (#65).
+- **Reference BlueROV2:** the shipped calibration held, only the lag fitted on the training days: **0.18 s**. On the held-out days:
+
+| | Surge | Sway | Heave | Roll | Pitch | Yaw |
+|---|---|---|---|---|---|---|
+| Held-out skill, shipped | +0.72 | +0.51 | +0.59 | −0.03 | −0.10 | +0.58 |
+| Held-out skill, shipped + 0.18 s lag | +0.73 | +0.52 | +0.60 | **+0.04** | −0.05 | +0.51 |
+| Step, time to 63%: real | 0.6 s | 0.5 s | 0.6 s | | | 0.5 s |
+| Step, time to 63%: shipped / with lag | 0.3 / **0.6** s | 0.3 / **0.5** s | 0.4 / **0.6** s | | | 0.5 / 0.7 s |
+| 1 s response skill, shipped / with lag | +0.18 / +0.19 | +0.25 / +0.25 | +0.45 / +0.47 | +0.21 / +0.25 | +0.24 / +0.27 | +0.62 / +0.55 |
+
+- **What improved:** the step timing on surge, sway and heave now matches the vehicle. Roll skill turns positive for the first time.
+- **What got worse:** yaw, because every other parameter was fitted assuming no lag.
+- **Not run yet:** the fair test, a full refit with the lag free. Until it runs, the lag stays opt-in.
+
+### 67. Normalized thruster commands (2026-10-06)
+
+**Why.** A lab's ROS bags (MIT, CORL-AUV outreach) log thruster commands normalized to a range, with a lab-supplied command-to-thrust mapping. Ingestion only accepted ESC PWM in microseconds and refused anything outside 900–2100.
+
+**What shipped:**
+- **Spec settings:** `command: normalized` and `command_range: [low, high]` in an ingest spec's `thrusters:` block. The default range is [-1, 1]; stopped is the middle of the range, so [0, 1] stops at 0.5.
+- **With the lab's mapping:** a `curve_csv` in the logged units (`command,thrust_n`).
+- **Without one:** the built-in T200 curve, with the range mapped onto 1100–1900 µs.
+- **Reversed thrusters** are mirrored about the stopped value; for PWM that is the same 3000 − pwm as before.
+- **Battery-voltage scaling** works as before.
+- **Plain messages for mistakes:**
+  - normalized data read as PWM says to add `command: normalized`;
+  - commands outside the declared range are refused;
+  - a curve in the wrong units says so.
+- **New templates:** `templates/ingest_rosbag_normalized_thrusters.yaml` (ROS bags with an EKF's `nav_msgs/Odometry`, normalized commands, a custom layout) and `templates/thrust_curve_normalized_template.csv`.
+- **Checked** (`tests/test_normalized_commands.py`): commands normalized from PWM give exactly the PWM forces, for [-1, 1] and [0, 1], with and without per-sample voltage, through the whole ingestion.
+
+### 68. Link calibration from message logs (2026-10-06)
+
+**Why.** The acoustic link was a set of assumed loss levels (L0–L3b) with no modem delay, and the optical link was an uncalibrated placeholder. Labs running multi-vehicle acoustic messaging (URI's mvp_acomm) have the logs to measure their own link.
+
+**What shipped:**
+- **`strathe fit-link --log <messages.csv> --out <folder>`** (`link_fit.py`; also a card on the web page). The input is one row per message sent: send time, receive time (empty if lost), range when sent, link (`templates/link_log_template.csv` says how to build it from modem logs).
+- **The acoustic fit:**
+  - **Delivery:** the distance ramp of drop probability, by maximum likelihood. It is kept only if it beats one constant loss by AIC.
+  - **Latency:** a fixed modem delay plus range ÷ sound speed, by robust least squares. The sound speed is held at 1500 m/s when the ranges span under 100 m or the fit is implausible.
+  - **Clocks:** messages arriving before they were sent flag unsynchronised clocks.
+- **The optical fit:**
+  - **Delivery:** the rated range and curve width of the delivery S-curve.
+  - **The water's clarity is held, not fitted:** coastal by default, a named water, or a transmissometer's measured attenuation.
+  - **Why it's held:** delivery against range is one S-curve, pinned by its midpoint and steepness, and the water's attenuation trades off against the modem's rated range and curve width. In six synthetic scenarios over 0.2–80 m in clear, coastal and harbour water, every water type fit within one log-likelihood unit.
+  - **What that means:** inside the logged ranges the fitted curve is the same whatever water is held; the water only shapes delivery beyond them. The report and the warning say so.
+- **The modem delay in the simulation:** a new `fixed_latency_s` on the acoustic channel (0 by default: identical runs).
+- **Using a calibration:** `--link-calibration` on `strathe fleet` and `train-fleet`, `communication.link_calibration` in the experiment YAML, and a web field.
+  - **Acoustic:** the measured ramp, sound speed and delay replace the assumed levels, as one level labelled `measured`.
+  - **Optical:** the optical link uses the measured curve and latency, and says "Calibrated from your link logs".
+  - **The fleet report** says the acoustic losses and latency were measured.
+
+**Checked** (`tests/test_link_fit.py`; logs drawn from Strathe's own channel models with known settings):
+- **Acoustic recovery:**
+  - loss ramp 59–384 m against the true 50–400 m;
+  - drop probabilities 0.04 / 0.57 against 0.05 / 0.60;
+  - sound speed 1491 against 1480 m/s;
+  - modem delay 2.5 s, exact.
+- **Optical recovery:** the 50% range within 5%. Held at the wrong water, the fitted delivery still matches every logged range bin within 8 points.
+- **Fallbacks:** a constant loss is chosen when loss doesn't depend on range; narrow ranges hold the sound speed.
+- **Wiring:** the measured link reaches the experiment schema (and survives a save and reload), the fleet simulation's channel, training's conditions, the CLI and the web page. A fleet smoke run with a calibration produces the `measured` level and the calibrated optical description.
+
+**Limits:**
+- **Clocks:** both vehicles' clocks must be synchronised for latency.
+- **Not fitted:** optical pointing (angle). The acoustic model has no multipath, collisions or message priorities.
+- **Extrapolation:** beyond the logged ranges, the fits extrapolate.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -1482,7 +1573,7 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 - **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
 - **Lab data, not built yet (#56, #57):**
   - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
-  - thruster response lag and battery sag within a run
+  - ~~thruster response lag~~ (opt-in since #66; the full reference refit with it is still to run) and battery sag within a run (handled when voltage is logged, #63)
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
@@ -1500,6 +1591,7 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
-4. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
-5. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
-6. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.
+4. **The full reference refit with the thruster lag free** (#66), on mains power: does yaw recover once the other parameters adjust? If so, make `thruster_dynamics` part of the default spec.
+5. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
+6. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
+7. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

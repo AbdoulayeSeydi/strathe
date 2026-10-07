@@ -1,0 +1,59 @@
+# Ingest spec: ROS bags with NORMALIZED thruster commands (e.g. -1..1) and an EKF or DVL for the vehicle's state,
+# read directly (no ROS install needed): ROS 1 .bag files, or ROS 2 bag folders (.mcap or .db3).
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_auv
+#
+# Columns are <topic>.<field path>: check yours with `rosbag info` / `ros2 bag info`. Commands may come as
+#   one array topic         /thrusters/command.data[0], .data[1], ...          (std_msgs/Float64MultiArray etc.)
+#   one topic per thruster  /thruster_0/input.data, /thruster_1/input.data, ...  (std_msgs/Float64)
+#   a custom message        /my_driver/cmd.thrusters[0].effort, ...
+# Older ROS 2 .db3 bags (before Iron) with custom messages also need source.message_types (templates README).
+# CSV logs: ingest_csv_normalized_thrusters.yaml. ArduSub + MAVROS (/mavros/rc/out, PWM in microseconds):
+# ingest_rosbag_mavros.yaml.
+
+vehicle: my_auv
+source:
+  files: "bags/*.bag"          # ROS 2: "bags/*" (each bag is a folder with metadata.yaml)
+  format: rosbag
+  stamp: header                # header: the message's own timestamp | receive: when the bag recorded it
+resample_hz: 10
+session_date: {from: recording}
+frame: flu                     # ROS convention (REP-103): FLU body, ENU world; frd if your EKF publishes NED/FRD
+body_velocity:
+  columns:
+    # an EKF's nav_msgs/Odometry (robot_localization etc.): twist is in the body frame (child_frame_id)
+    u: /odometry/filtered.twist.twist.linear.x
+    v: /odometry/filtered.twist.twist.linear.y
+    w: /odometry/filtered.twist.twist.linear.z
+    p: /imu/data.angular_velocity.x          # the raw IMU's rates if recorded, else the EKF's twist.twist.angular
+    q: /imu/data.angular_velocity.y
+    r: /imu/data.angular_velocity.z
+  linear_unit: m/s
+  angular_unit: rad/s
+  # a DVL's own message instead of an EKF: e.g. /dvl/twist.twist.twist.linear.x (body frame), or a world-frame
+  # velocity with linear_frame: world
+orientation:
+  quaternion:
+    x: /odometry/filtered.pose.pose.orientation.x
+    y: /odometry/filtered.pose.pose.orientation.y
+    z: /odometry/filtered.pose.pose.orientation.z
+    w: /odometry/filtered.pose.pose.orientation.w
+wrench:
+  thrusters:
+    # one logged command per thruster, in the order of the layout below
+    pwm_columns: ["/thrusters/command.data[0]", "/thrusters/command.data[1]", "/thrusters/command.data[2]",
+                  "/thrusters/command.data[3]"]
+    command: normalized        # the commands are normalized values, not ESC microseconds
+    command_range: [-1, 1]     # the range your commands span; stopped is the middle (0 here; [0, 1] -> 0.5)
+    curve_csv: thrust_curve_normalized_template.csv   # your command -> thrust (N) table in the same units (copy
+                               # the template next to this file and fill it in). Without curve_csv, the built-in
+                               # T200 curve is used with command_range mapped onto 1100..1900 us.
+    layout:                    # each thruster, ALWAYS in forward-right-down axes (x forward, y right, z down),
+                               # whatever frame: says above:
+                               #   position_m  x, y from the vehicle's centre; z from the plane of the horizontal
+                               #               thrusters (PROJECT_STATUS.md #50)
+                               #   direction   the way it pushes the vehicle for a positive command (up = [0,0,-1])
+                               #   reversed    true if its command's sign is flipped (mirrored about stopped)
+      - {position_m: [-0.30,  0.10, 0.0], direction: [1, 0, 0]}                   # stern, starboard
+      - {position_m: [-0.30, -0.10, 0.0], direction: [1, 0, 0]}                   # stern, port
+      - {position_m: [ 0.20,  0.00, 0.0], direction: [0, 0, 1]}                   # vertical, pushes down
+      - {position_m: [ 0.00,  0.00, 0.0], direction: [0, 1, 0], reversed: true}   # lateral

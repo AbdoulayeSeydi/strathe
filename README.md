@@ -8,7 +8,7 @@ A simulation and RL-training platform for studying how real-world communication 
 
 The published results are for the reference BlueROV2. Larger fleets are a planned next step.
 
-**Every known limit is listed in one place: [LIMITS.md](LIMITS.md).**
+**Every known limit is listed in one place: [LIMITS.md](LIMITS.md).** **Labs: start with [LAB_GUIDE.md](LAB_GUIDE.md)**: what to record, which template, which commands, what you get back.
 
 **What this answers:** when two underwater vehicles coordinate over a sparse, lossy acoustic link, each has to predict where its teammate is between messages. Does it matter whether that prediction uses a physics model calibrated against real vehicle logs, or generic textbook physics?
 
@@ -39,6 +39,8 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Calibrate logs recorded in a known current | `calibrate --current-world-mps VX VY VZ` |
 | Calibrate logs recorded in an unknown current | `calibrate --estimate-current`: each recording's current is estimated from the logs |
 | See how the simulation compares with the real vehicle | every `calibrate` writes `validation/`: position drift, orientation with the model on its own, the 1 s response, command steps, and plots; `validate --result <folder>` for an existing calibration |
+| Use logs with normalized thruster commands (e.g. −1..1) | `command: normalized` in the thrusters block, with your command-to-thrust table: `templates/ingest_rosbag_normalized_thrusters.yaml` |
+| Fit how fast your thrusters respond | a `thruster_dynamics` section in `vehicle_spec.yaml` (opt-in; see the commented example) |
 | Measure roll and pitch in a tank | `free-decay --ingest-spec my_tank_tests.yaml`, then `calibrate ... --free-decay free_decay.yaml` (opt-in; `calibration/FREE_DECAY_PROTOCOL.md`) |
 
 **2. Run experiments with your vehicle**
@@ -57,7 +59,8 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | See whether calibration matters | `--compare-generic` | the default `calibrated` vs `generic` headline |
 | Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`) | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` |
 | Set comm and sample size | none (a single vehicle has no link) | `--comm L2 L3a --beacon-interval 1 3 --seeds 5` |
-| Use an optical or hybrid link (uncalibrated) | none | `--link acoustic hybrid --optical-water coastal harbor`, `--optical-terminals fore_aft_cones --optical-compare-omni` |
+| Use an optical or hybrid link | none | `--link acoustic hybrid --optical-water coastal harbor`, `--optical-terminals fore_aft_cones --optical-compare-omni` |
+| Calibrate the link from your modems' message logs | none | `fit-link --log messages.csv --out link_cal`, then `--link-calibration link_cal/link_calibration.yaml` (also train-fleet, the web page and the experiment YAML) |
 | Train policies for your vehicle | built in; `--algorithm ppo \| sac \| td3` | `train-fleet --params ... --algorithm ppo \| sac \| td3` |
 | Does training with the noise help? | `--mode noisy --compare-clean-training` | list clean- and noise-trained policies with labels |
 | Compare algorithms or policies | one run per algorithm, same test episodes | `--policies ppo=... sac=...`: compared episode by episode |
@@ -95,6 +98,9 @@ Roll and pitch (#64):
 - **The reference logs contain their own free decays.** Measured on the training days, they predict the unseen days' free swings well (angle R² +0.84 roll, +0.96 pitch). The shipped calibration's roll/pitch damping, at its limits, does worse than "no motion" on them: it isn't the vehicle's.
 - **Holding the measured values makes whole-mission roll/pitch prediction worse (−3.7),** and a full refit around them makes every axis worse and the simulation unstable. With the vehicle's real, light damping, the model's thruster-driven roll/pitch is far too large; heavy damping is how every fit hides that. Fixing it needs deliberate roll/pitch commands from a lab.
 - **Every calibration now compares the simulation with the real vehicle** on unseen recordings (`validation/`, #65): position drift, orientation with the model turning and tilting on its own, the 1 s response, command steps, and plots in the report and on the web page. On the reference BlueROV2 the calibrated model drifts 0.84 m in 10 s (default physics 3.2 m), and its heading on its own beats holding the start. Roll and pitch on their own are worse than holding the start, and the model responds about twice as fast as the vehicle (thruster lag isn't modelled).
+- **Thruster lag** (#66, opt-in): `thruster_time_constant_s`, one spin-up time constant, in calibration, validation and every simulator; none unless the spec asks for it. On the reference BlueROV2, 0.18 s fixes the surge/sway/heave step timing that #65 found too fast; a full refit with it is still to run.
+- **Normalized thruster commands** (#67): `command: normalized` reads commands logged as e.g. −1..1 with your own command-to-thrust table.
+- **Link calibration** (#68): `strathe fit-link` fits the acoustic link's loss against distance, modem delay and sound speed, and the optical link's delivery curve and latency, from your modems' message logs; `--link-calibration` uses them in fleet experiments and training. Water clarity can't be measured from messages and is held.
 - **A calibration that blows up on unseen recordings** is now reported ("Unstable ... don't simulate with this calibration") instead of crashing the finishing step.
 
 ## Recent fixes (September 2026)
@@ -221,7 +227,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
 - CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
-- 556 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
+- 596 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
 ## Quick start
 
@@ -236,17 +242,20 @@ python strathe.py check
 | Command | What it does |
 |---|---|
 | `python strathe.py web` | Opens a local web page in your browser. From it you can calibrate, run single-vehicle and fleet experiments, train fleet policies, watch jobs run, and read the reports. |
-| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces or thruster PWM): converts, checks, calibrates, checks which values the data can pin down, and writes the plain-language report. Add `--estimate-current` for open-water logs in an unknown current. Templates: `calibration/templates/`. |
+| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces, thruster PWM or normalized thruster commands): converts, checks, calibrates, checks which values the data can pin down, compares the simulation with the real vehicle on unseen recordings (`validation/`: position, orientation, response, plots), and writes the plain-language report. Add `--estimate-current` for open-water logs in an unknown current, `--free-decay free_decay.yaml` to use tank-measured roll and pitch. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
 | `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--algorithm sac` (or `td3`), `--mode noisy` (with `--compare-clean-training`), `--buoyancy -3`, `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
 | `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance`, `--mode clean\|noisy\|both`, `--noise`, `--buoyancy` and `--policies ppo=... sac=...` (and more; `--help`) change the experiment without editing YAML. |
 | `python strathe.py estimate-current --data <logs>` | Open water: estimates the current in each recording. Calibration then uses each recording's own current. |
 | `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). `--algorithm sac\|td3`, `--mode noisy` and `--buoyancy MIN MAX` train with other algorithms or conditions. |
 | `python strathe.py fit-noise --data <logs> --out my_noise.yaml` | Measures how noisy your vehicle's sensors are from its logs, for `--noise my_noise.yaml` (and the web page's "From my own file" option). Command line only; there's no web form for it yet. |
+| `python strathe.py validate --result <output folder>` | Compares an existing calibration with the real vehicle on unseen recordings (`calibrate` does it automatically) and rewrites its report. |
+| `python strathe.py free-decay --ingest-spec my_tank_tests.yaml --out <folder>` | Roll and pitch from free-decay tank tests (`calibration/FREE_DECAY_PROTOCOL.md`), for `calibrate --free-decay`. |
+| `python strathe.py fit-link --log messages.csv --out <folder>` | Calibrates the acoustic and/or optical link from your modems' message logs, for `fleet` / `train-fleet --link-calibration`. |
 | `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Only converts your own logs into Strathe's layout. |
 | `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
 
-The web page has a form for `calibrate` (with a checkbox for estimating unknown currents), `arena`, `fleet`, `train-fleet` and `ingest`. `check`, `report`, a standalone `estimate-current` and `fit-noise` are command line only for now (LIMITS.md). The web page runs on this computer only: it can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
+The web page has a form for `calibrate` (with a checkbox for estimating unknown currents and a field for tank-measured roll and pitch), `arena`, `fleet`, `train-fleet`, `free-decay`, `fit-link` and `ingest`, and shows each report with its plots. `check`, `report`, `validate`, a standalone `estimate-current` and `fit-noise` are command line only for now (LIMITS.md). The web page runs on this computer only: it can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
 
 ## Setup
 
@@ -431,12 +440,13 @@ from a lab's own logs is one command:
 cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a CSV template; edit the names
 python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 ```
-It runs five steps and stops at the first that fails, saying what to fix:
+It runs six steps and stops at the first that fails, saying what to fix (steps 4 and 5 only warn):
 1. converts the logs
 2. checks them
 3. calibrates
 4. checks which values the data can pin down
-5. writes the report
+5. compares the simulation with the real vehicle on unseen recordings (`validation/`)
+6. writes the report
 
 If the fit runs out of its evaluation budget (`--max-nfev`) before converging, the best result so far is kept, marked "not converged", and the remaining steps still run. The report says so.
 
@@ -880,7 +890,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (556 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (596 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
@@ -905,7 +915,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Open-water sensor noise measured (`--noise open_water`, SOLAQUA): white noise, DVL dropouts and the USBL fix error; biases still assumed (#60)
 - 🔄 Sensor noise costs formation-holding about 10 points, and almost all of it is the starting position fix, not the sensors (#60, correcting #58); relative positioning between the vehicles is the lever
 - ✅ Optical and hybrid links (`--link`), with water clarity and terminal pointing, in the fleet simulation, training, the CLI and the web page; acoustic runs bit-identical (#59)
-- ⏳ The optical model is uncalibrated: textbook water values and a placeholder delivery curve until a lab's link logs fit it
+- ✅ Link calibration from message logs (`strathe fit-link`, #68): acoustic loss against distance, modem delay and sound speed; optical delivery curve and latency. ⏳ Water clarity and optical pointing can't be fitted from messages
 - 🔄 With 30° cones the shipped policies lose the optical link as they roll, and an early fix that goes stale raises collisions; does a policy trained with `--link hybrid` learn to keep it up? (#59)
 - ✅ Single-vehicle env physics step fixed (0.02 → 0.005 s): the old default diverged under random commands (#55)
 - ✅ Fleet truth switched to the torque-arm-corrected calibration, all 13 policies retrained and every fleet study rerun: calibrated beats generic by +13 to +25; better information worth up to +28 pts

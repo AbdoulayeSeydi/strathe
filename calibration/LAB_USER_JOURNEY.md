@@ -59,7 +59,8 @@ conditions.
 
 **Q2. What do the comm levels mean numerically?** PASS. There's a table in the
 README and in CUSTOM_EXPERIMENT.md, and the resolved values of any run are in
-`metadata.json`.
+`metadata.json`. To use your own modems instead of the named levels, `strathe fit-link`
+measures them from message logs, and `--link-calibration` uses the result (#68).
 
 **Q3. What can I configure, and what's hardcoded?** PASS. CUSTOM_EXPERIMENT.md
 covers every field, and its closing table lists what still needs source edits:
@@ -174,6 +175,9 @@ python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
 - the BlueROV2 Heavy preset
 - a per-thruster `layout` for any vehicle, including ones that can't push every axis
 - your own allocation matrix and thrust curve
+
+Commands logged normalized (e.g. −1..1) instead of PWM: `command: normalized` and your command-to-thrust table
+(`templates/ingest_rosbag_normalized_thrusters.yaml`, #67).
 
 **C3. One command, not six.** PASS. `strathe calibrate --ingest-spec` runs, in order:
 1. conversion

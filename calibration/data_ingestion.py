@@ -60,6 +60,8 @@ Example spec (every key shown; most have defaults):
       #                                            reversed: false}, ...], curve: t200, voltage: 16}
       #          or {pwm_columns: [...], allocation_csv: B.csv, directions: [1, -1, ...],
       #              curve_csv: my_curve.csv}
+      #   normalized commands instead of PWM: add command: normalized, command_range: [-1, 1], and a
+      #   curve_csv in those units (command,thrust_n), or the built-in T200 curve (range -> 1100..1900 us)
 
 ROS bag variant (only the differences):
 
@@ -201,7 +203,9 @@ class OrientationSpec(BaseModel):
 
 
 class ThrusterSpec(BaseModel):
-    """pwm_columns plus a thruster_model.thruster_block() block (checked when the spec is loaded).
+    """pwm_columns (one logged command column per thruster: ESC PWM in microseconds, or normalized commands with
+    command: normalized and command_range, PROJECT_STATUS.md #67) plus a thruster_model.thruster_block() block
+    (checked when the spec is loaded).
     voltage_column: the battery voltage logged with each sample; ingestion scales each sample's thrust to its own
     voltage (T200 curve only; PROJECT_STATUS.md #63). voltage:, if also given, is then only the nominal voltage the
     simulators use when this spec is passed as --thrusters (they have no logged voltage)."""
@@ -484,9 +488,17 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         th = spec.wrench.thrusters
         cfg = _thruster_config(spec)
         pwm = np.stack([_col(df, c, path) for c in th.pwm_columns], 1)
-        if np.nanmin(pwm) < 900 or np.nanmax(pwm) > 2100:
+        lo_hi = cfg.command_range
+        what = "PWM" if lo_hi is None else "normalized commands"
+        if lo_hi is None and (np.nanmin(pwm) < 900 or np.nanmax(pwm) > 2100):
             raise IngestError(f"{path}: PWM values span {np.nanmin(pwm):.0f}-{np.nanmax(pwm):.0f}; expected ESC "
-                              f"microseconds (~1100-1900)")
+                              f"microseconds (~1100-1900). If your commands are normalized (e.g. -1..1), add "
+                              f"command: normalized (and command_range) to the thrusters block")
+        if lo_hi is not None:
+            slack = 0.05 * (lo_hi[1] - lo_hi[0])
+            if np.nanmin(pwm) < lo_hi[0] - slack or np.nanmax(pwm) > lo_hi[1] + slack:
+                raise IngestError(f"{path}: thruster commands span {np.nanmin(pwm):g} to {np.nanmax(pwm):g}, outside "
+                                  f"command_range {list(lo_hi)}; set command_range to the range your commands use")
         if th.voltage_column:
             volts = _col(df, th.voltage_column, path)
             if not np.all(np.isfinite(volts)):
@@ -498,11 +510,11 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
             wrench = cfg.wrench_at_voltage(pwm, np.clip(volts, 12.0, 20.0))
             report["voltage_v"] = {"min": round(float(volts.min()), 2), "median": round(float(np.median(volts)), 2),
                                    "max": round(float(volts.max()), 2)}
-            report["wrench_source"] = (f"computed from PWM ({cfg.label}, curve: {cfg.curve.label}, rescaled to each "
-                                       f"sample's logged voltage)")
+            report["wrench_source"] = (f"computed from {what} ({cfg.label}, curve: {cfg.curve.label}, rescaled to "
+                                       f"each sample's logged voltage)")
         else:
             wrench = cfg.wrench(pwm)
-            report["wrench_source"] = f"computed from PWM ({cfg.label}, curve: {cfg.curve.label})"
+            report["wrench_source"] = f"computed from {what} ({cfg.label}, curve: {cfg.curve.label})"
 
     # frame conversion to FRD body / NED world
     if spec.frame == "flu":

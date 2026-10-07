@@ -12,6 +12,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py train-fleet --params <calibration> train a fleet policy (PPO, SAC or TD3) for your vehicle
     python strathe.py fit-noise --data <logs> --out n.yaml  how noisy your vehicle's sensors are, for --noise
     python strathe.py free-decay --data <tank tests> --out <folder>  roll and pitch from free-decay tank tests
+    python strathe.py fit-link --log <messages.csv> --out <folder>  the acoustic/optical link from message logs
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -607,6 +608,8 @@ def link_block(args) -> dict:
         out["optical"] = optical
     if args.hybrid_policy:
         out["hybrid_policy"] = args.hybrid_policy
+    if getattr(args, "link_calibration", None):
+        out["link_calibration"] = _file_arg(args.link_calibration, "link calibration")
     return out
 
 
@@ -761,7 +764,8 @@ def link_argv(args) -> list:
                     ("--optical-attenuation", args.optical_attenuation), ("--optical-terminals", args.optical_terminals),
                     ("--optical-beam", args.optical_beam), ("--optical-fov", args.optical_fov),
                     ("--optical-rated-range", args.optical_rated_range), ("--optical-data-rate", args.optical_data_rate),
-                    ("--optical-interval", args.optical_interval), ("--hybrid-policy", args.hybrid_policy)):
+                    ("--optical-interval", args.optical_interval), ("--hybrid-policy", args.hybrid_policy),
+                    ("--link-calibration", args.link_calibration and _abs(args.link_calibration))):
         if v is not None:
             argv += [flag, str(v)]
     return argv
@@ -797,6 +801,20 @@ def cmd_fit_noise(args, runner=None) -> int:
         argv += ["--position", args.position]
     if args.sampling_rate_hz:
         argv += ["--sampling-rate-hz", str(args.sampling_rate_hz)]
+    return run_step(argv, runner)
+
+
+def cmd_fit_link(args, runner=None) -> int:
+    logs = [_abs(p) for p in args.log]
+    missing = [p for p in logs if not os.path.exists(p)]
+    if missing:
+        print(f"❌ link log(s) not found: {', '.join(missing)}")
+        return 2
+    argv = ["link_fit.py", "--log", *logs, "--out", _abs(args.out), "--link", args.link]
+    if args.optical_water:
+        argv += ["--optical-water", args.optical_water]
+    if args.optical_attenuation is not None:
+        argv += ["--optical-attenuation", str(args.optical_attenuation)]
     return run_step(argv, runner)
 
 
@@ -1036,6 +1054,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="how the vehicle knows its position (default: external if the logs have x/y)")
     n.add_argument("--sampling-rate-hz", type=float)
     n.set_defaults(fn=cmd_fit_noise)
+
+    lk = sub.add_parser("fit-link", help="calibrate the acoustic / optical link from your message logs "
+                                         "(templates/link_log_template.csv)")
+    lk.add_argument("--log", nargs="+", required=True, help="message log CSV(s): send time, receive time (empty if "
+                                                            "lost), range, link")
+    lk.add_argument("--out", required=True, help="output folder: link_calibration.yaml, a report and plots")
+    lk.add_argument("--link", choices=["acoustic", "optical"], default="acoustic",
+                    help="the link of rows with no link column (default acoustic)")
+    lk.add_argument("--optical-water", choices=["clear", "coastal", "harbor"],
+                    help="the water's clarity, held: messages can't measure it (default coastal; it only matters "
+                         "beyond the logged ranges)")
+    lk.add_argument("--optical-attenuation", type=float, metavar="C",
+                    help="or the water's measured attenuation coefficient per metre (e.g. a transmissometer)")
+    lk.set_defaults(fn=cmd_fit_link)
 
     d = sub.add_parser("free-decay", help="roll and pitch from free-decay tank tests (calibration/FREE_DECAY_PROTOCOL.md)")
     d.add_argument("--data", help="the tank-test logs in Strathe's CSV layout")

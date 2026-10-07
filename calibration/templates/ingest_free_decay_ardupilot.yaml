@@ -35,5 +35,6 @@ wrench:
     # 1500 us = stopped. Stay armed in MANUAL mode with the sticks centred: if your ESCs get no pulse (0) when
     # disarmed, ingestion stops at the out-of-range PWM.
     pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]
+    # ArduPilot logs ESC PWM in microseconds already: no command: setting needed
     preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
     voltage: 15.0
