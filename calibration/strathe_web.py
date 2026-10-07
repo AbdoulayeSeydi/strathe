@@ -592,6 +592,17 @@ experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
 direction)</label><input type=text id=tf-cur name=current_speed value="">
 <label for=tf-out>Save the policy as (full path, without .zip)</label><input type=text id=tf-out name=out required>
 <button>Start training</button></form></div>
+<div class=card><h2>Roll and pitch from tank tests</h2>
+<p class=muted>Free-decay tests: tilt the vehicle, let go with the thrusters stopped, record the swing
+(<code>calibration/FREE_DECAY_PROTOCOL.md</code>). The result, <code>free_decay.yaml</code>, goes in the calibration
+form's free-decay field.</p>
+<form method=post action=/jobs/free_decay>{tok}
+<label for=fd-spec>Ingestion spec for the tank-test logs (full path; e.g. a copy of
+<code>templates/ingest_free_decay_ardupilot.yaml</code>)</label><input type=text id=fd-spec name=ingest_spec value="">
+<label for=fd-data>…or a folder of tank-test logs already in Strathe's CSV layout</label>
+<input type=text id=fd-data name=data value="">
+<label for=fd-name>Name for this result</label><input type=text id=fd-name name=name value="my_tank_tests" required>
+<button>Fit roll and pitch</button></form></div>
 <div class=card><h2>Calibrate the communication link</h2>
 <p class=muted>From your modems' message logs (acoustic, optical or both): delivery against distance and latency,
 for fleet experiments and training. Format: <code>calibration/templates/link_log_template.csv</code>.</p>
@@ -832,6 +843,19 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += current_cli_args(form)
                 title += " + water current"
             return self.manager.start("fleet", title, args, [])
+        if path == "/jobs/free_decay":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_tank_tests"
+            out = os.path.join(JOBS_DIR, f"free_decay_{name}")
+            if form.get("ingest_spec", "").strip():
+                src = ["--ingest-spec", _existing_file(form["ingest_spec"], "Ingestion spec", (".yaml", ".yml"))]
+            elif form.get("data", "").strip():
+                data = os.path.abspath(os.path.expanduser(form["data"].strip()))
+                if not os.path.isdir(data):
+                    raise ValueError(f"Folder not found: {data}")
+                src = ["--data", data]
+            else:
+                raise ValueError("Give the tank-test logs: an ingestion spec, or a folder of Strathe CSVs.")
+            return self.manager.start("free_decay", f"Free decay: {name}", ["free-decay", *src, "--out", out], [out])
         if path == "/jobs/fit_link":
             logs = [os.path.abspath(os.path.expanduser(x)) for x in form.get("logs", "").split()]
             if not logs:

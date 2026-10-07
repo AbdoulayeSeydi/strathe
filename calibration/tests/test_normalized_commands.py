@@ -120,3 +120,97 @@ def test_the_template_builds_its_thrusters():
     assert cfg.command_range == (-1.0, 1.0) and cfg.curve.unit == "command"
     w = cfg.wrench(np.array([[0.5, 0.5, 0.0, 0.0]]))[0]
     assert w[0] == pytest.approx(24.2) and abs(w[1]) < 1e-12
+
+
+def _template(name, files, tmp_path):
+    """A template exactly as shipped, with only its files: and curve_csv: paths pointed at the test's data."""
+    spec = yaml.safe_load(open(os.path.join(CAL, "templates", name), encoding="utf-8"))
+    spec["source"]["files"] = files
+    spec["wrench"]["thrusters"]["curve_csv"] = os.path.join(CAL, "templates", "thrust_curve_normalized_template.csv")
+    p = tmp_path / name
+    p.write_text(yaml.safe_dump(spec))
+    return str(p)
+
+
+def test_the_csv_template_converts_normalized_logs(tmp_path):
+    from data_ingestion import ingest, load_ingest_spec
+    (tmp_path / "raw_logs").mkdir()
+    rng = np.random.default_rng(2)
+    n = 120
+    cmds = np.repeat(rng.uniform(-1, 1, size=(n // 10, 6)), 10, axis=0)
+    d = pd.DataFrame({"timestamp": np.arange(n) * 0.1, **{c: rng.normal(0, 0.05, n) for c in
+                      ("vel_x", "vel_y", "vel_z", "rate_x", "rate_y", "rate_z")},
+                      "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0, **{f"thr{i + 1}": cmds[:, i] for i in range(6)}})
+    d.to_csv(tmp_path / "raw_logs" / "dive-2030-01-05.csv", index=False)
+    d.to_csv(tmp_path / "raw_logs" / "dive-2030-01-06.csv", index=False)
+    spec = load_ingest_spec(_template("ingest_csv_normalized_thrusters.yaml", str(tmp_path / "raw_logs" / "*.csv"),
+                                      tmp_path))
+    s = ingest(spec, str(tmp_path / "out"))
+    assert s["sessions"] == {"05-01-2030": 1, "06-01-2030": 1}
+    got = pd.read_csv(tmp_path / "out" / s["files"][0]["output"])[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].to_numpy()
+    want = spec._thruster_cfg.wrench(cmds)
+    m = min(len(got), len(want))
+    assert m >= n - 2 and np.allclose(got[5:m - 5], want[5:m - 5], atol=1e-6)  # away from the resampling edges
+
+
+@pytest.mark.parametrize("kind", ["ros1", "mcap", "sqlite3"])
+def test_the_ros_template_reads_normalized_commands_from_bags(tmp_path, kind):
+    """ROS 1 .bag and ROS 2 (.mcap, .db3) bags with an EKF's Odometry, the IMU and a Float64MultiArray of normalized
+    commands, read with the shipped template: the forces are the template's thrusters applied to the commands."""
+    pytest.importorskip("rosbags")
+    from rosbags.rosbag1 import Writer as Writer1
+    from rosbags.rosbag2 import StoragePlugin, Writer as Writer2
+    from rosbags.typesys import Stores, get_typestore
+    from data_ingestion import ingest, load_ingest_spec
+    ts = get_typestore(Stores.ROS1_NOETIC if kind == "ros1" else Stores.ROS2_HUMBLE)
+    g = ts.types
+    t0, n = 1_707_000_000.0, 100
+    rng = np.random.default_rng(3)
+    cmds = np.repeat(rng.uniform(-1, 1, size=(n // 10, 4)), 10, axis=0)
+
+    def header(t):
+        st = g["builtin_interfaces/msg/Time"](sec=int(t), nanosec=int(round((t - int(t)) * 1e9)))
+        H = g["std_msgs/msg/Header"]
+        return H(seq=0, stamp=st, frame_id="") if "seq" in H.__dataclass_fields__ else H(stamp=st, frame_id="")
+    V3, Q = g["geometry_msgs/msg/Vector3"], g["geometry_msgs/msg/Quaternion"]
+    msgs = []
+    for k in range(n):
+        t = t0 + 0.1 * k
+        pose = g["geometry_msgs/msg/PoseWithCovariance"](pose=g["geometry_msgs/msg/Pose"](
+            position=g["geometry_msgs/msg/Point"](x=0.0, y=0.0, z=0.0), orientation=Q(x=0.0, y=0.0, z=0.0, w=1.0)),
+            covariance=np.zeros(36))
+        tw = g["geometry_msgs/msg/TwistWithCovariance"](twist=g["geometry_msgs/msg/Twist"](
+            linear=V3(x=0.2, y=0.0, z=0.0), angular=V3(x=0.0, y=0.0, z=0.0)), covariance=np.zeros(36))
+        msgs.append((t, "/odometry/filtered", "nav_msgs/msg/Odometry",
+                     g["nav_msgs/msg/Odometry"](header=header(t), child_frame_id="base_link", pose=pose, twist=tw)))
+        msgs.append((t, "/imu/data", "sensor_msgs/msg/Imu", g["sensor_msgs/msg/Imu"](
+            header=header(t), orientation=Q(x=0.0, y=0.0, z=0.0, w=1.0), orientation_covariance=np.zeros(9),
+            angular_velocity=V3(x=0.0, y=0.0, z=0.05), angular_velocity_covariance=np.zeros(9),
+            linear_acceleration=V3(x=0.0, y=0.0, z=9.8), linear_acceleration_covariance=np.zeros(9))))
+        msgs.append((t, "/thrusters/command", "std_msgs/msg/Float64MultiArray", g["std_msgs/msg/Float64MultiArray"](
+            layout=g["std_msgs/msg/MultiArrayLayout"](dim=[], data_offset=0), data=np.ascontiguousarray(cmds[k]))))
+    topics = (("/odometry/filtered", "nav_msgs/msg/Odometry"), ("/imu/data", "sensor_msgs/msg/Imu"),
+              ("/thrusters/command", "std_msgs/msg/Float64MultiArray"))
+    (tmp_path / "bags").mkdir()
+    if kind == "ros1":
+        path, files = tmp_path / "bags" / "dive.bag", str(tmp_path / "bags" / "*.bag")
+        with Writer1(path) as w:
+            conns = {tp: w.add_connection(tp, mt, typestore=ts) for tp, mt in topics}
+            for t, tp, mt, m in msgs:
+                w.write(conns[tp], int(t * 1e9), ts.serialize_ros1(m, mt))
+    else:
+        path, files = tmp_path / "bags" / "dive", str(tmp_path / "bags" / "*")
+        plugin = StoragePlugin.MCAP if kind == "mcap" else StoragePlugin.SQLITE3
+        with Writer2(path, version=9, storage_plugin=plugin) as w:
+            conns = {tp: w.add_connection(tp, mt, typestore=ts) for tp, mt in topics}
+            for t, tp, mt, m in msgs:
+                w.write(conns[tp], int(t * 1e9), ts.serialize_cdr(m, mt))
+    spec = load_ingest_spec(_template("ingest_rosbag_normalized_thrusters.yaml", files, tmp_path))
+    s = ingest(spec, str(tmp_path / "out"))
+    out = pd.read_csv(tmp_path / "out" / s["files"][0]["output"])
+    want = spec._thruster_cfg.wrench(cmds)
+    got = out[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].to_numpy()
+    m = min(len(got), len(want))
+    assert np.allclose(got[5:m - 5], want[5:m - 5], atol=1e-6)
+    assert np.allclose(out["Bu"], 0.2, atol=1e-9)  # FLU -> FRD: forward stays forward
+    assert "normalized commands" in s["files"][0]["wrench_source"]

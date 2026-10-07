@@ -180,8 +180,8 @@ def test_home_page_has_every_form(server):
     status, body, _ = request("GET", "/")
     assert status == 200 and "Calibrate a vehicle" in body and "Run a fleet experiment" in body
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
-    assert "Calibrate the communication link" in body
-    assert body.count(f"value='{token}'") == 6
+    assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
+    assert body.count(f"value='{token}'") == 7
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -706,3 +706,23 @@ def test_web_report_shows_its_plots(server):
     assert status == 200 and headers["Content-Type"] == "image/png"
     assert request("GET", f"/image?path={quote(str(out / 'calibration_report.md'))}")[0] == 404
     assert request("GET", f"/image?path={quote('/etc/hosts')}")[0] == 404
+
+
+def test_web_free_decay_and_fit_link_start_the_cli_commands(server):
+    request, token, started, manager, tmp_path = server
+    (tmp_path / "tank").mkdir()
+    status, _, _ = request("POST", "/jobs/free_decay", {"token": token, "data": str(tmp_path / "tank"), "name": "t 1"})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[:3] == ["free-decay", "--data", str(tmp_path / "tank")] and cmd[-1].endswith("free_decay_t_1")
+    cli.build_parser().parse_args(cmd)
+    status, body, _ = request("POST", "/jobs/free_decay", {"token": token, "name": "x"})
+    assert status == 400 and "Give the tank-test logs" in body
+    log = tmp_path / "msgs.csv"
+    log.write_text("send_time_s,receive_time_s,range_m\n0,1,10\n")
+    status, _, _ = request("POST", "/jobs/fit_link", {"token": token, "logs": str(log), "name": "lnk",
+                                                      "link": "acoustic", "optical_water": "harbor"})
+    assert status == 303
+    cmd = started[-1][3:]
+    assert cmd[:3] == ["fit-link", "--log", str(log)] and cmd[-2:] == ["--optical-water", "harbor"]
+    cli.build_parser().parse_args(cmd)

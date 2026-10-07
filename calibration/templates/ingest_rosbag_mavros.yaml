@@ -40,4 +40,6 @@ wrench:
                   "/mavros/rc/out.channels[3]", "/mavros/rc/out.channels[4]", "/mavros/rc/out.channels[5]",
                   "/mavros/rc/out.channels[6]", "/mavros/rc/out.channels[7]"]
     preset: bluerov2_heavy
+    # /mavros/rc/out is ESC PWM in microseconds. A driver that publishes normalized commands instead: see
+    # ingest_rosbag_normalized_thrusters.yaml (command: normalized)
     voltage: 15.0

@@ -37,7 +37,7 @@ T0 = 1_707_000_000.0  # 2024-02-03 22:40 UTC
 
 def test_every_template_loads_and_builds_its_thrusters(tmp_path):
     names = sorted(glob.glob(os.path.join(TEMPLATES, "ingest_*.yaml")))
-    assert len(names) == 8
+    assert len(names) == 9
     for path in names:
         spec = load_ingest_spec(path)
         if spec.wrench.thrusters is not None:

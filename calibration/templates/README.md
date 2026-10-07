@@ -20,7 +20,8 @@ can pin down, and writes a plain-language report. To only convert:
 | ArduSub / ArduPilot DataFlash logs from the SD card (`.bin`, `.log`) | `ingest_ardupilot_bin.yaml` |
 | MAVLink telemetry logs from a ground station (`.tlog`, e.g. QGroundControl) | `ingest_mavlink_tlog.yaml` |
 | Free-decay tank tests on an ArduSub vehicle, for roll and pitch (`strathe free-decay`; `../FREE_DECAY_PROTOCOL.md`) | `ingest_free_decay_ardupilot.yaml` |
-| ROS bags with an EKF (`nav_msgs/Odometry`) and **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
+| CSV logs (any logger: MOOS, LCM, DUNE, vendor software, MATLAB) with **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_csv_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
+| ROS 1 / ROS 2 bags with an EKF (`nav_msgs/Odometry`) or DVL and **normalized** thruster commands (array topic, one topic per thruster, or a custom message) | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
 | Your modems' message logs, to calibrate the acoustic/optical link (`strathe fit-link`) | `link_log_template.csv` |
 
 Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
@@ -35,8 +36,8 @@ that for a public dataset (motion capture + ArduSub telemetry) and is a worked e
   odometry. Body frame by default; `linear_frame: world` takes world-frame
   (NED/ENU) velocity, as ArduPilot logs it, and rotates it into the body frame.
 - **Orientation**: a quaternion or roll/pitch/yaw.
-- **What pushed the vehicle**: logged forces and torques, or the PWM sent to each
-  thruster's ESC plus a description of the thrusters.
+- **What pushed the vehicle**: logged forces and torques, or the command sent to each
+  thruster (ESC PWM in µs, or normalized) plus a description of the thrusters.
 - **Time**: a timestamp column (any unit), or the sampling rate. Bags carry their
   own. The rate is recorded, and calibration uses it automatically.
 - **A date per recording**: calibration holds out whole days to check itself on
@@ -67,6 +68,13 @@ that for a public dataset (motion capture + ArduSub telemetry) and is a worked e
   (`allocation_template.csv`).
 - `curve: t200` (default), optionally with `voltage:` (12–20 V). Or give your own
   `curve_csv:` (`thrust_curve_template.csv`: PWM in µs → thrust in N).
+- **Normalized commands** (logged as e.g. −1..1 or 0..1 rather than µs): add
+  `command: normalized` and `command_range: [low, high]`; stopped is the middle of
+  the range. Give your command → thrust table in the same units as `curve_csv:`
+  (`thrust_curve_normalized_template.csv`, header `command,thrust_n`); without it the
+  T200 curve is used with the range mapped onto 1100–1900 µs. A reversed thruster's
+  command is mirrored about stopped. Works with every source format (CSV, ROS bags);
+  ArduPilot logs are already in µs.
 
 Vehicles whose thrusters can't push every axis are fine; ingestion names the
 axes. For example, a 6-thruster BlueROV2 has no pitch control. The same

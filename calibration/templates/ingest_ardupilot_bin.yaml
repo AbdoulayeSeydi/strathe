@@ -37,5 +37,6 @@ orientation:
 wrench:
   thrusters:
     pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]   # servo outputs 1-8
+    # ArduPilot logs ESC PWM in microseconds already: no command: setting needed
     preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
     voltage: 15.0
