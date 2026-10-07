@@ -239,8 +239,9 @@ calibration_targets:
   #   thruster_time_constant_s: {unit: s, initial_guess: 0.1, bounds: [0.0, 1.0],
   #     bounds_rationale: "first-order spin-up of the applied wrench; 0 = instant thrust (the model without it)",
   #     source: "fitted from command steps in the logs", confidence: estimated}
-  # Left out, it is held at 0: no lag. On the reference BlueROV2 the shipped calibration plus 0.18 s matches the
-  # vehicle's step timing on surge, sway and heave (validation/); on DFKI's vehicle a fit finds none.
+  # Left out, it is held at 0: no lag. On the reference BlueROV2 a full refit fits 0.34 s and matches the vehicle's
+  # step timing, but trades the lag against yaw inertia and added mass (they hit their bounds) and yaw is slightly
+  # worse, so it isn't the default; on DFKI's vehicle a fit finds none.
 
 # ---------------------------------------------------------------------------
 # OPTIMIZATION CONFIG — currently informational; optimizer.py still

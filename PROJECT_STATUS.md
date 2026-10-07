@@ -1508,7 +1508,21 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 
 - **What improved:** the step timing on surge, sway and heave now matches the vehicle. Roll skill turns positive for the first time.
 - **What got worse:** yaw, because every other parameter was fitted assuming no lag.
-- **Not run yet:** the fair test, a full refit with the lag free. Until it runs, the lag stays opt-in.
+- **The full refit with the lag free** (2026-10-06): warm-started from the shipped calibration plus 0.18 s, same settings and days; it converged in 12 evaluations at **0.34 s**.
+
+| | Surge | Sway | Heave | Roll | Pitch | Yaw |
+|---|---|---|---|---|---|---|
+| Held-out skill, full refit with lag | +0.73 | +0.51 | +0.62 | +0.06 | −0.03 | +0.56 |
+| Change from shipped | +0.01 | −0.00 | +0.03 | +0.09 | +0.07 | **−0.025** |
+| Step, time to 63% (real / refit) | 0.6 / 0.7 s | 0.5 / 0.6 s | 0.6 / 0.7 s | | 0.4 / 0.4 s | 0.5 / 0.5 s |
+
+  - **What improves:**
+    - **Position drift:** 0.77 / 1.24 / 1.74 m after 10 / 30 / 60 s, against the shipped 0.84 / 1.33 / 1.88 m.
+    - **Orientation, the model on its own:** roll error 7.5° against 8.7° and pitch 9.9° against 10.7° after 10 s.
+    - **Step timing:** close to the vehicle on every axis.
+    - **No divergence** on any held-out recording.
+  - **Yaw recovers from the lag-only +0.51, but stays 0.025 below the shipped +0.58.** The rule agreed in advance was to make the lag the default only if it helped yaw (no worse than 0.02 below shipped, nothing else worse by more than 0.02). It doesn't, so the lag **stays opt-in**.
+  - **The fit isn't physical where it trades lag for inertia.** Yaw inertia went to its lower bound (0.05 against 1.89 shipped), and surge and sway added mass went to zero; a BlueROV2 carries several kilograms of added mass. Lag and inertia both slow the response, and these logs don't separate them. Separating them needs inertia or added mass measured independently (CAD, a pendulum test), or thrusters whose response is measured on a bench.
 
 ### 67. Normalized thruster commands (2026-10-06)
 
@@ -1573,7 +1587,7 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 - **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
 - **Lab data, not built yet (#56, #57):**
   - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
-  - ~~thruster response lag~~ (opt-in since #66; the full reference refit with it is still to run) and battery sag within a run (handled when voltage is logged, #63)
+  - ~~thruster response lag~~ (opt-in since #66: the full refit trades it against yaw inertia and added mass, #66) and battery sag within a run (handled when voltage is logged, #63)
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
 - **HoloOcean results are provisional** (finding #40): the frame fix and tick-rate guard are unconfirmed in HoloOcean itself. Run `verify_holoocean_frame_conventions.py` on a HoloOcean machine, then re-run Claim A.
@@ -1591,7 +1605,7 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
-4. **The full reference refit with the thruster lag free** (#66), on mains power: does yaw recover once the other parameters adjust? If so, make `thruster_dynamics` part of the default spec.
+4. **Thruster lag against inertia** (#66): the full refit with the lag free trades it against yaw inertia and added mass, which go to their bounds. Pin one of them (a bench measurement of thruster spin-up, or CAD/pendulum inertia), then refit; only then decide on making `thruster_dynamics` part of the default spec.
 5. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
 6. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
 7. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.
