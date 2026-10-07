@@ -213,7 +213,8 @@ class FleetSim:
                  speed_of_sound_mps: float = 1500.0,
                  belief: Optional[BeliefSpec] = None,
                  beacon_interval_s: Optional[float] = None,
-                 link: Optional[LinkConfig] = None):
+                 link: Optional[LinkConfig] = None,
+                 acoustic_fixed_latency_s: float = 0.0):
         self.cfg = copy.deepcopy(config) if config is not None else FleetConfig()
         self.cfg.validate()
         self.vehicle = vehicle
@@ -222,7 +223,8 @@ class FleetSim:
         truth_cls = _FastTruth if self.cfg.dynamics_backend == "stand_in" else _MuJoCoTruth
         self.cores = [truth_cls(truth_params, vehicle, sim_config) for _ in range(N_AGENTS)]
         self.task = FormationHoldTask(self.cfg.task)
-        self.set_comm(packet_loss_config, bandwidth_config, speed_of_sound_mps, beacon_interval_s, link)
+        self.set_comm(packet_loss_config, bandwidth_config, speed_of_sound_mps, beacon_interval_s, link,
+                      acoustic_fixed_latency_s)
         self.set_belief(belief or BeliefSpec("last_beacon", "last_beacon"))
         self._tick = 0
         self._last_tau = [np.zeros(ACT_DIM) for _ in range(N_AGENTS)]
@@ -233,11 +235,14 @@ class FleetSim:
 
     # --- configuration that may change between episodes -------------------
     def set_comm(self, packet_loss_config=None, bandwidth_config=None, speed_of_sound_mps=1500.0,
-                 beacon_interval_s: Optional[float] = None, link: Optional[LinkConfig] = None):
-        """link: None or LinkConfig('acoustic') = the acoustic channel only (the original behaviour)."""
+                 beacon_interval_s: Optional[float] = None, link: Optional[LinkConfig] = None,
+                 acoustic_fixed_latency_s: float = 0.0):
+        """link: None or LinkConfig('acoustic') = the acoustic channel only (the original behaviour).
+        acoustic_fixed_latency_s: the acoustic modem's own delay on top of travel time (a link calibration, #68)."""
         self.packet_loss_config = packet_loss_config or PacketLossConfig(0.0, 1000.0, 0.0, 0.0)
         self.bandwidth_config = bandwidth_config or BandwidthConfig(bytes_per_tick=1e9)
         self.speed_of_sound_mps = speed_of_sound_mps
+        self.acoustic_fixed_latency_s = float(acoustic_fixed_latency_s)
         if beacon_interval_s is not None:
             self.cfg.beacon_interval_s = beacon_interval_s
             self.cfg.validate()
@@ -270,7 +275,8 @@ class FleetSim:
         self.cores[0].reset(position=np.zeros(3), nu=np.array([-v0 / 2, 0, 0, 0, 0, 0]))
         self.cores[1].reset(position=np.array([d0, 0.0, 0.0]), nu=np.array([v0 / 2, 0, 0, 0, 0, 0]))
         self.channel = CommChannel(self.packet_loss_config, self.bandwidth_config,
-                                   speed_of_sound_mps=self.speed_of_sound_mps, seed=comm_seed)
+                                   speed_of_sound_mps=self.speed_of_sound_mps, seed=comm_seed,
+                                   fixed_latency_s=self.acoustic_fixed_latency_s)
         # the optical link draws from its own stream, so the acoustic drop
         # pattern is the same with or without it (paired link comparisons)
         self.optical_channel = (OpticalChannel(self.link.optical, self.cfg.dt,

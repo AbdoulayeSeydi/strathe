@@ -40,6 +40,7 @@ class CommCondition:
     speed_of_sound_mps: float = 1500.0
     beacon_interval_s: Optional[float] = None  # None = keep the sim's configured interval
     link: Optional[LinkConfig] = None           # None = acoustic only
+    acoustic_fixed_latency_s: float = 0.0       # the acoustic modem's own delay (a link calibration, #68)
 
 
 @dataclass
@@ -69,7 +70,7 @@ class FleetVecEnv(VecEnv):
         sim = self.sims[k]
         comm = self.sampler.sample_comm(rng)
         sim.set_comm(comm.packet_loss_config, comm.bandwidth_config, comm.speed_of_sound_mps,
-                     comm.beacon_interval_s, comm.link)
+                     comm.beacon_interval_s, comm.link, comm.acoustic_fixed_latency_s)
         sim.set_belief(self.sampler.belief_sampler(rng))
         return sim.reset(comm_seed=int(rng.integers(2**31)), rng=rng)
 

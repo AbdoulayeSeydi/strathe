@@ -34,6 +34,7 @@ class CommSpec:
     speed_of_sound_mps: float = 1500.0
     beacon_interval_s: float = 1.0
     link: Optional[LinkConfig] = None   # None = acoustic only (the original behaviour)
+    acoustic_fixed_latency_s: float = 0.0   # the acoustic modem's own delay (a link calibration, #68)
 
 
 @dataclass
@@ -150,7 +151,8 @@ def run_cell(cell: CellSpec) -> list:
     sim = FleetSim(cell.truth_params, cell.vehicle, cell.fleet_config,
                    cell.comm.packet_loss_config, cell.comm.bandwidth_config,
                    cell.comm.speed_of_sound_mps, belief=cell.belief,
-                   beacon_interval_s=cell.comm.beacon_interval_s, link=cell.comm.link)
+                   beacon_interval_s=cell.comm.beacon_interval_s, link=cell.comm.link,
+                   acoustic_fixed_latency_s=cell.comm.acoustic_fixed_latency_s)
     rows = []
     for comm_seed in cell.comm_seeds:
         for i_d, d0 in enumerate(cell.separations):

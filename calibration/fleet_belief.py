@@ -154,8 +154,9 @@ class PhysicsBelief(TeammateBelief):
         self._core.current_world = None if current_world is None else [float(x) for x in current_world]
 
     def _on_new_beacon(self, beacon, now_tick):
+        # the teammate's thrusters are taken to be at the command it sent (only matters with a thruster lag)
         self._core.reset(position=beacon.position, nu=beacon.nu,
-                         orientation=Rotation.from_matrix(beacon.orientation))
+                         orientation=Rotation.from_matrix(beacon.orientation), applied_wrench=beacon.tau)
         for _ in range(max(0, now_tick - beacon.send_tick)):
             self._step()
 

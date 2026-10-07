@@ -51,9 +51,27 @@ MODELS = ("calibrated", "default")
 
 # ------------------------------------------------------------------ simulation pieces
 
+_LAGGED = {}
+
+
+def _lagged(run, params):
+    """The run with the model's thruster lag applied to its whole recording (objective.with_thruster_lag), cached:
+    every window of a recording then starts from the thrusters' real state, as in the calibration."""
+    T = float(params.thruster_time_constant_s)
+    if T <= 0:
+        return run
+    key = (id(run), T)
+    hit = _LAGGED.get(key)
+    if hit is None or hit[0] is not run:
+        from objective import with_thruster_lag
+        hit = _LAGGED[key] = (run, with_thruster_lag(run, params))
+    return hit[1]
+
+
 def window_replay(params, vehicle, run, a: int, b: int):
     """Velocity over samples a..b-1, from the real velocity at a, the way the calibration replays it (logged
-    orientation fed in). None if the simulation diverges."""
+    orientation fed in), with the model's thruster lag. None if the simulation diverges."""
+    run = _lagged(run, params)
     traj = TrajectoryInputs(nu0=run.real_nu[a].copy(), forces_torques=run.forces_torques[a:b],
                             roll_pitch_series=run.roll_pitch[a:b],
                             current_body_series=None if run.current_body is None else run.current_body[a:b])
@@ -77,6 +95,7 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
     SimulationConfig.physics_dt. The attitude is a quaternion, advanced by the body rates each step. None if it
     diverges."""
     from fast_dynamics import FastDynamics
+    run = _lagged(run, params)
     acc = FastDynamics(params, vehicle).acceleration_trig
     cfg = SimulationConfig(dt=run.dt) if step_s is None else SimulationConfig(dt=run.dt, physics_dt=step_s)
     sub, h = cfg.n_substeps, cfg.sub_dt

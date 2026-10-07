@@ -77,6 +77,22 @@ from objective import joint_residuals, mean_run_rmse, ParallelJointResiduals, Ru
 # Loading + validating vehicle_spec.yaml
 # ---------------------------------------------------------------------------
 
+# Calibration targets a vehicle_spec.yaml may leave out: held at this value (zero-width bounds), which is the model
+# before they existed. Lab specs written before #66 keep working unchanged.
+OPTIONAL_CALIBRATION_TARGETS = {
+    "thruster_time_constant_s": {
+        "unit": "s", "initial_guess": 0.0, "bounds": [0.0, 0.0],
+        "bounds_rationale": "not in this vehicle_spec.yaml: no thruster lag (add a thruster_dynamics section to fit it)",
+        "source": "default", "confidence": "assumed"},
+}
+
+
+def held_by_bounds(lb, ub, param_names) -> dict:
+    """{name: value} for parameters whose bounds have zero width: held there, never fitted (a zero-width range
+    can't be scaled or stepped). OPTIONAL_CALIBRATION_TARGETS a spec leaves out are such parameters."""
+    return {n: float(lb[i]) for i, n in enumerate(param_names) if ub[i] == lb[i]}
+
+
 def _flatten_calibration_targets(raw_spec: dict) -> dict:
     """
     Flattens the YAML's nested calibration_targets (grouped into
@@ -157,6 +173,8 @@ def load_vehicle_spec(yaml_path: str) -> LoadedVehicleSpec:
         raw = yaml.safe_load(f)
 
     flat = _flatten_calibration_targets(raw)
+    for name, entry in OPTIONAL_CALIBRATION_TARGETS.items():
+        flat.setdefault(name, dict(entry))
     _validate_flat_targets(flat)
 
     vehicle = VehicleConstants(mass_kg=raw["fixed_parameters"]["mass_kg"]["value"])
@@ -470,7 +488,7 @@ def calibrate_parallel(
     else:
         x_scale = np.ones_like(x0_base)
 
-    fixed_params = config.fixed_params or {}
+    fixed_params = {**held_by_bounds(lb, ub, param_names), **(config.fixed_params or {})}
     unknown = set(fixed_params) - set(param_names)
     if unknown:
         raise ValueError(f"fixed_params has unknown parameter name(s): {sorted(unknown)}")
@@ -602,7 +620,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
     # --- fixed_params: build the free/fixed split, subset everything the
     # optimizer actually sees to free dimensions only. Fully inert (every
     # array below is unchanged, mask is all-True) when fixed_params is None.
-    fixed_params = config.fixed_params or {}
+    fixed_params = {**held_by_bounds(lb, ub, param_names), **(config.fixed_params or {})}
     unknown = set(fixed_params) - set(param_names)
     if unknown:
         raise ValueError(f"fixed_params has unknown parameter name(s): {sorted(unknown)}")

@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from dynamics_model import CalibrationParameters, VehicleConstants, SimulationConfig, compute_acceleration
+from dynamics_model import CalibrationParameters, VehicleConstants, SimulationConfig, ThrusterLag, compute_acceleration
 
 
 @dataclass
@@ -71,6 +71,7 @@ class ArenaCore:
         self.vehicle = vehicle
         self.sim_config = sim_config
         self.state = ArenaState.initial()
+        self._lag = ThrusterLag()  # thruster spin-up (params.thruster_time_constant_s; none at 0)
         # Water current in WORLD axes (m/s), or None for still water
         # (dynamics_model._relative_to_water). Set before each step().
         self.current_world = None
@@ -81,6 +82,7 @@ class ArenaCore:
         self.params = params
 
     def reset(self, position: np.ndarray = None, nu: np.ndarray = None) -> ArenaState:
+        self._lag.reset()
         self.state = ArenaState(
             nu=np.zeros(6) if nu is None else np.array(nu, dtype=float),
             position=np.zeros(3) if position is None else np.array(position, dtype=float),
@@ -98,8 +100,12 @@ class ArenaCore:
         step using the ALREADY-UPDATED velocity, which silently
         double-counted each step's acceleration (caught by a direct test:
         3 steps of constant thrust gave position=6.0 instead of the
-        correct 3.0 — fixed and reverified before this was ever handed off)."""
-        tau = np.asarray(tau, dtype=float)
+        correct 3.0 — fixed and reverified before this was ever handed off).
+
+        tau is the commanded wrench; with a thruster lag (params.thruster_time_constant_s) the wrench applied over
+        this step lags it (dynamics_model.ThrusterLag)."""
+        tau = np.asarray(self._lag.step(np.asarray(tau, dtype=float), self.params.thruster_time_constant_s,
+                                        self.sim_config.dt), dtype=float)
         v = self.state.nu.copy()
         position = self.state.position.copy()
         orientation = self.state.orientation

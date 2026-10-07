@@ -1,0 +1,49 @@
+# Ingest spec: ROS bags with normalized thruster commands and an EKF for the vehicle's state, read directly
+# (no ROS install needed; ROS 1 .bag files or ROS 2 bag folders). For vehicles whose thruster commands are logged
+# as normalized values (e.g. -1..1) rather than ESC PWM, with a lab-supplied command -> thrust table.
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_auv
+#
+# Change the topic names to match `rosbag info` / `ros2 bag info`. Columns are <topic>.<field path>.
+
+vehicle: my_auv
+source:
+  files: "bags/*.bag"          # ROS 2: "bags/*" (each bag is a folder with metadata.yaml)
+  format: rosbag
+  stamp: header                # header: the message's own timestamp | receive: when the bag recorded it
+resample_hz: 10
+session_date: {from: recording}
+frame: flu                     # ROS convention (REP-103): FLU body, ENU world; use frd if your EKF is NED/FRD
+body_velocity:
+  columns:
+    # an EKF's nav_msgs/Odometry: twist is in the body frame (child_frame_id), pose is in the world frame
+    u: /odometry/filtered.twist.twist.linear.x
+    v: /odometry/filtered.twist.twist.linear.y
+    w: /odometry/filtered.twist.twist.linear.z
+    p: /imu/data.angular_velocity.x          # the raw IMU's rates if recorded, else the EKF's twist.twist.angular
+    q: /imu/data.angular_velocity.y
+    r: /imu/data.angular_velocity.z
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion:
+    x: /odometry/filtered.pose.pose.orientation.x
+    y: /odometry/filtered.pose.pose.orientation.y
+    z: /odometry/filtered.pose.pose.orientation.z
+    w: /odometry/filtered.pose.pose.orientation.w
+wrench:
+  thrusters:
+    # one logged command per thruster, in the order of the layout below
+    pwm_columns: ["/thrusters/command.data[0]", "/thrusters/command.data[1]", "/thrusters/command.data[2]",
+                  "/thrusters/command.data[3]"]
+    command: normalized        # the commands are normalized values, not ESC microseconds
+    command_range: [-1, 1]     # what your commands span; stopped is the middle (0 here; [0, 1] -> 0.5)
+    curve_csv: thrust_curve_normalized_template.csv   # your command -> thrust (N) table, in the same units
+                               # (copy the template next to this file and fill it in). Without curve_csv, the
+                               # built-in T200 curve is used with command_range mapped onto 1100..1900 us.
+    layout:                    # each thruster: position (m, from the centre of gravity) and the direction it
+                               # pushes for positive thrust, ALWAYS in forward-right-down axes (x forward, y right,
+                               # z down) whatever frame: says above; reversed if its command's sign is flipped
+      - {position_m: [-0.30,  0.10, 0.0], direction: [1, 0, 0]}                   # stern, starboard
+      - {position_m: [-0.30, -0.10, 0.0], direction: [1, 0, 0]}                   # stern, port
+      - {position_m: [ 0.20,  0.00, 0.0], direction: [0, 0, 1]}                   # vertical, pushes down
+      - {position_m: [ 0.00,  0.00, 0.0], direction: [0, 1, 0], reversed: true}   # lateral

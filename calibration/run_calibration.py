@@ -56,7 +56,7 @@ from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, loa
                        rmse_by_dof, skill_vs_zero, stable_mean_run_rmse, stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
-    CalibrationConfig, calibrate, calibrate_parallel, parameter_bounds,
+    CalibrationConfig, calibrate, calibrate_parallel, held_by_bounds, parameter_bounds,
 )
 from mlflow_logging import log_calibration_run
 from mlflow_schema import STATUS_SUCCESS, STATUS_FAILED
@@ -475,6 +475,12 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                 len(train_runs), len(heldout_runs), total_samples, loading_s)
 
     default_params = initial_parameters(loaded_spec)
+    # parameters vehicle_spec.yaml holds by giving them zero-width bounds (e.g. no thruster_dynamics section: no
+    # thruster lag). The optimizer holds them anyway; listing them here records them in metrics.json, so the
+    # identifiability step and the report treat them as held too
+    by_bounds = held_by_bounds(*parameter_bounds(loaded_spec), list(default_params.param_names))
+    if by_bounds:
+        config.calibration_config.fixed_params = {**by_bounds, **(config.calibration_config.fixed_params or {})}
 
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
     config.calibration_config.log_path = str(Path(config.output_dir) / "optimizer_result.json")

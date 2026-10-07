@@ -1,0 +1,18 @@
+# Message log for `strathe fit-link`: one row per message one vehicle SENT to another, whether or not it arrived.
+#   send_time_s     when it was sent (s). Both vehicles' clocks must be synchronized (GPS/PPS or NTP before diving),
+#                   or latency can't be measured; delivery is still fitted.
+#   receive_time_s  when the other vehicle received it (s, same clock); leave EMPTY if it never arrived.
+#                   (Or give a column delivered with 1/0 instead, if you don't have receive times.)
+#   range_m         distance between the two vehicles when it was sent (m): from their navigation (USBL, LBL, DVL
+#                   dead reckoning) or the modems' own two-way-travel-time ranges.
+#   link            acoustic or optical (optional: --link sets it for every row).
+#   pointed         optical only (optional): 1 if the terminals faced each other, 0 if not; 0 rows are left out.
+# Build it from both vehicles' modem logs (e.g. mvp_acomm, WHOI micromodem, Evologics, Subnero): match each sent
+# message to its reception by sequence number or payload, and take the range at the send time. Messages a vehicle
+# sent while the other wasn't listening (e.g. half-duplex collisions) still count as lost: that's the real link.
+send_time_s,receive_time_s,range_m,link
+0.0,2.71,182.4,acoustic
+10.0,,415.0,acoustic
+20.0,22.66,96.1,acoustic
+30.0,30.003,12.5,optical
+30.1,,31.0,optical

@@ -66,7 +66,7 @@ import os
 from typing import Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 from comm_channel import BandwidthConfig, PacketLossConfig
 from evaluate_comm_degradation_curve import COMM_CONFIGS
@@ -173,6 +173,7 @@ class OpticalBlock(BaseModel):
     curve_width: float = 1.0
     beacon_interval_s: float = 0.1
     compare_omni: bool = False
+    calibrated_from: Optional[str] = None   # set by communication.link_calibration (#68)
 
     @model_validator(mode="after")
     def _valid(self):
@@ -203,7 +204,7 @@ class OpticalBlock(BaseModel):
                                   receiver_half_fov_deg=None if omni else self.receiver_half_fov_deg,
                                   data_rate_bps=self.data_rate_bps, latency_s=self.latency_s,
                                   rated_range_m=self.rated_range_m, curve_width=self.curve_width,
-                                  beacon_interval_s=self.beacon_interval_s)
+                                  beacon_interval_s=self.beacon_interval_s, calibrated_from=self.calibrated_from)
             c.validate()
             out.append(c)
         return out
@@ -220,6 +221,40 @@ class CommunicationConfig(BaseModel):
     optical: Optional[OpticalBlock] = None
     hybrid_policy: Literal["optical_first", "redundant"] = "optical_first"
     link_up_ticks: int = Field(default=1, ge=1, le=600)   # optical_first: "up" = heard within this many ticks
+    # a link_calibration.yaml from `strathe fit-link` (#68): its acoustic fit sets the loss ramp (overrides),
+    # speed_of_sound_mps and acoustic_fixed_latency_s; its optical fit sets the optical water, curve and latency
+    link_calibration: Optional[str] = None
+    acoustic_fixed_latency_s: float = Field(default=0.0, ge=0.0, le=60.0)
+    _acoustic_calibrated: bool = PrivateAttr(default=False)
+
+    def acoustic_calibrated(self) -> bool:
+        return self._acoustic_calibrated
+
+    def _apply_link_calibration(self) -> None:
+        from link_fit import load_link_calibration
+        cal = load_link_calibration(self.link_calibration)
+        self.link_calibration = cal["file"]
+        links = self.links()
+        if "acoustic" in cal and any(l in ("acoustic", "hybrid") for l in links):
+            if self.severities and len(self.severities) > 1:
+                raise ValueError("link_calibration replaces the assumed loss levels: give at most one severity "
+                                 "(only its bandwidth is kept), or none")
+            plc = cal["acoustic"]["packet_loss_config"]
+            for k in ("near_distance_m", "far_distance_m", "near_field_prob", "far_field_prob"):
+                setattr(self.overrides, k, getattr(plc, k))
+            self.speed_of_sound_mps = cal["acoustic"]["speed_of_sound_mps"]
+            self.acoustic_fixed_latency_s = cal["acoustic"]["fixed_latency_s"]
+            self._acoustic_calibrated = True
+        if "optical" in cal and any(l in ("optical", "hybrid") for l in links):
+            o = cal["optical"]
+            if self.optical is None:
+                self.optical = OpticalBlock()
+            self.optical.water = "custom"
+            self.optical.attenuation_per_m = o["attenuation_per_m"]
+            self.optical.rated_range_m = o["rated_range_m"]
+            self.optical.curve_width = o["curve_width"]
+            self.optical.latency_s = o["latency_s"]
+            self.optical.calibrated_from = cal["file"]
 
     def links(self) -> list:
         return list(dict.fromkeys(self.link)) if isinstance(self.link, list) else [self.link]
@@ -250,6 +285,8 @@ class CommunicationConfig(BaseModel):
         links = self.links()
         if not links:
             raise ValueError("communication.link must not be empty")
+        if self.link_calibration:
+            self._apply_link_calibration()
         uses_optical = any(l in ("optical", "hybrid") for l in links)
         if uses_optical and self.optical is None:
             # written into the config itself so the saved experiment.yaml reruns the same thing
@@ -292,7 +329,8 @@ class CommunicationConfig(BaseModel):
         plc = PacketLossConfig(pick(ov.near_distance_m, bp.near_distance_m), pick(ov.far_distance_m, bp.far_distance_m),
                                pick(ov.near_field_prob, bp.near_field_prob), pick(ov.far_field_prob, bp.far_field_prob))
         bwc = BandwidthConfig(ov.bytes_per_tick) if ov.bytes_per_tick is not None else base["bandwidth_config"]
-        return [(f"{base_sev}_custom" if base_sev else "custom", plc, bwc)]
+        label = "measured" if self._acoustic_calibrated else (f"{base_sev}_custom" if base_sev else "custom")
+        return [(label, plc, bwc)]
 
 
 class TaskConfig(BaseModel):

@@ -125,11 +125,15 @@ def voltage_matching(max_forward_n: float) -> float:
 
 @dataclass(frozen=True)
 class ThrustCurve:
-    """PWM (us) -> thrust (N), piecewise-linear through a table. Commands
-    outside the table are clipped to its ends (the ESC saturates)."""
+    """Command -> thrust (N), piecewise-linear through a table. Commands
+    outside the table are clipped to its ends (the ESC saturates).
+    unit: "pwm_us" (ESC microseconds; the column is called pwm_us for that
+    reason) or "command" (a normalized command, in the units the vehicle logs
+    it: thruster_block's command: normalized)."""
     pwm_us: np.ndarray
     thrust_n: np.ndarray
     label: str = "custom"
+    unit: str = "pwm_us"
 
     def __post_init__(self):
         if len(self.pwm_us) < 2 or np.any(np.diff(self.pwm_us) <= 0):
@@ -137,10 +141,15 @@ class ThrustCurve:
 
     @classmethod
     def from_csv(cls, path: str, label: Optional[str] = None) -> "ThrustCurve":
-        data = np.loadtxt(path, delimiter=",", comments="#", skiprows=0, dtype=str)
-        rows = [r for r in data if r[0] != "pwm_us"]
-        arr = np.array(rows, dtype=float)
-        return cls(arr[:, 0], arr[:, 1], label or os.path.basename(path))
+        """Two columns: pwm_us,thrust_n (ESC microseconds) or command,thrust_n (a normalized command, in the
+        units it is logged in)."""
+        data = np.loadtxt(path, delimiter=",", comments="#", skiprows=0, dtype=str, ndmin=2)
+        unit = "pwm_us"
+        if data[0][0].strip() in ("pwm_us", "command"):
+            unit = "pwm_us" if data[0][0].strip() == "pwm_us" else "command"
+            data = data[1:]
+        arr = np.array(data, dtype=float)
+        return cls(arr[:, 0], arr[:, 1], label or os.path.basename(path), unit)
 
     @classmethod
     def t200_bluerov2_dataset(cls) -> "ThrustCurve":
@@ -163,7 +172,16 @@ class ThrustCurve:
         fwd, rev = _published_max_n(voltage)
         t = np.where(self.thrust_n >= 0, self.thrust_n * fwd / self.max_forward_n,
                      self.thrust_n * rev / self.max_reverse_n)
-        return ThrustCurve(self.pwm_us.copy(), t, f"{self.label} rescaled to {voltage:g} V")
+        return ThrustCurve(self.pwm_us.copy(), t, f"{self.label} rescaled to {voltage:g} V", self.unit)
+
+    def for_normalized_commands(self, lo: float, hi: float) -> "ThrustCurve":
+        """This PWM curve for commands logged on [lo, hi] instead: lo..hi maps linearly onto the ESC's
+        1100..1900 us, so the middle of the range is stopped (1500 us)."""
+        if self.unit != "pwm_us":
+            return self
+        x = lo + (self.pwm_us - 1100.0) / 800.0 * (hi - lo)
+        return ThrustCurve(x, self.thrust_n.copy(), f"{self.label}, commands {lo:g}..{hi:g} mapped to 1100-1900 us",
+                           "command")
 
 
 @dataclass(frozen=True)
@@ -176,6 +194,11 @@ class ThrusterConfig:
     # data_conventions.torque_reference_offset_m); nonzero only for the BlueROV2 preset, which
     # reproduces the dataset's own torque reference point (PROJECT_STATUS.md #50)
     torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
+    # what the logged commands are: ESC PWM in microseconds (command_range None, stopped at 1500), or normalized
+    # commands on command_range (stopped in its middle). A reversed thruster's command is mirrored about the
+    # stopped value (PROJECT_STATUS.md #67)
+    command_range: Optional[tuple] = None
+    command_neutral: float = 1500.0
 
     def __post_init__(self):
         B = np.asarray(self.allocation, dtype=float)
@@ -193,8 +216,9 @@ class ThrusterConfig:
         return self.allocation.shape[1]
 
     def effective_pwm(self, pwm) -> np.ndarray:
+        """Commands with reversed thrusters mirrored about the stopped value (3000 - pwm for PWM)."""
         pwm = np.asarray(pwm, dtype=float)
-        return np.where(self.directions > 0, pwm, 3000.0 - pwm)
+        return np.where(self.directions > 0, pwm, 2.0 * self.command_neutral - pwm)
 
     def thrusts(self, pwm) -> np.ndarray:
         """(..., n) PWM -> (..., n) thrust in newtons."""
@@ -226,7 +250,8 @@ class ThrusterConfig:
             return self
         B = np.array(self.allocation, dtype=float, copy=True)
         B[3:6] = B[3:6] - np.cross(r, B[0:3].T).T
-        return ThrusterConfig(B, self.directions, self.curve, self.label, (0.0, 0.0, 0.0))
+        return ThrusterConfig(B, self.directions, self.curve, self.label, (0.0, 0.0, 0.0), self.command_range,
+                              self.command_neutral)
 
     def unreachable_axes(self, tol: float = 1e-6) -> list:
         """Names of the body axes no combination of thrusts can push on its own."""
@@ -294,7 +319,36 @@ def thruster_config_from_layout(layout: Sequence[dict], curve: ThrustCurve, labe
 
 # ----------------------------------------------------------------- YAML block
 
-THRUSTER_BLOCK_KEYS = {"preset", "layout", "allocation_csv", "directions", "curve", "curve_csv", "voltage"}
+THRUSTER_BLOCK_KEYS = {"preset", "layout", "allocation_csv", "directions", "curve", "curve_csv", "voltage",
+                       "command", "command_range"}
+COMMAND_UNITS = ("pwm_us", "normalized")
+
+
+def with_command_units(cfg: ThrusterConfig, command: str = "pwm_us", command_range=None) -> ThrusterConfig:
+    """The thrusters for logged commands in these units (PROJECT_STATUS.md #67).
+    pwm_us: ESC microseconds, the default. normalized: commands on command_range (default [-1, 1]), stopped in
+    its middle; a curve_csv must then be in those units (command,thrust_n), and the built-in T200 curve maps the
+    range onto 1100..1900 us."""
+    from dataclasses import replace
+    if command not in COMMAND_UNITS:
+        raise ValueError(f"thrusters command must be one of {COMMAND_UNITS}, got {command!r}")
+    if command == "pwm_us":
+        if command_range is not None:
+            raise ValueError("command_range is for command: normalized")
+        if cfg.curve.unit != "pwm_us":
+            raise ValueError("this curve_csv is in normalized command units (command,thrust_n); add "
+                             "command: normalized")
+        return cfg
+    lo, hi = (-1.0, 1.0) if command_range is None else (float(command_range[0]), float(command_range[1]))
+    if not lo < hi:
+        raise ValueError(f"command_range must be [low, high] with low < high, got {command_range}")
+    curve = cfg.curve
+    if curve.unit == "pwm_us" and curve.label.startswith("T200"):
+        curve = curve.for_normalized_commands(lo, hi)
+    elif curve.unit == "pwm_us":
+        raise ValueError("with command: normalized, give curve_csv in your command's units (header "
+                         "command,thrust_n) or use the built-in T200 curve")
+    return replace(cfg, curve=curve, command_range=(lo, hi), command_neutral=0.5 * (lo + hi))
 
 
 def thruster_block(block, base_dir: str = ".") -> ThrusterConfig:
@@ -326,6 +380,11 @@ def thruster_block(block, base_dir: str = ".") -> ThrusterConfig:
     unknown = set(block) - THRUSTER_BLOCK_KEYS
     if unknown:
         raise ValueError(f"unknown thrusters key(s) {sorted(unknown)}; allowed: {sorted(THRUSTER_BLOCK_KEYS)}")
+    command, command_range = block.pop("command", None) or "pwm_us", block.pop("command_range", None)
+    return with_command_units(_thruster_block_body(block, base_dir), command, command_range)
+
+
+def _thruster_block_body(block: dict, base_dir: str) -> ThrusterConfig:
 
     def _path(p):
         return p if os.path.isabs(p) else os.path.join(base_dir, p)

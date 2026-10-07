@@ -124,7 +124,8 @@ def build_cells(cfg, truth, generic, vehicle) -> tuple:
                             # with mode: both, clean and noisy are separate conditions in every table
                             cs = CommSpec(base + (f" {mode}" if len(modes) > 1 else ""), plc, bwc,
                                           comm.speed_of_sound_mps, interval,
-                                          link=None if lc.link == "acoustic" else lc)
+                                          link=None if lc.link == "acoustic" else lc,
+                                          acoustic_fixed_latency_s=comm.acoustic_fixed_latency_s)
                             tags = {"mode": mode, "comm_base": base, "policy_group": pol.group,
                                     "link_kind": lc.link, "acoustic_base": "none" if lc.link == "optical"
                                     else acoustic_base, "water": lc.optical.water if lc.uses_optical else "none",
@@ -402,6 +403,11 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
              f"{cfg.task.collision_radius_m} m. They share their state over "
              + ("an acoustic link that loses packets. " if not uses_optical(cfg) else
                 f"a link that loses packets ({', '.join(cfg.communication.links())}; see *Optical link* below). ")
+             + (f"The acoustic link's losses and latency were measured from your link logs "
+                f"(`{os.path.basename(cfg.communication.link_calibration)}`, `strathe fit-link`): delivery against "
+                f"distance as fitted, and {cfg.communication.acoustic_fixed_latency_s:g} s of modem delay plus travel "
+                f"time at {cfg.communication.speed_of_sound_mps:g} m/s. "
+                if cfg.communication.acoustic_calibrated() else "")
              + "Between beacons, each vehicle predicts where its teammate is with a **belief model**; that model is the "
              "only thing that changes between the conditions below. Both vehicles' true physics is "
              f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "

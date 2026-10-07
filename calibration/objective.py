@@ -334,7 +334,31 @@ def horizon_windows(n_samples: int, horizon_samples: Optional[int]) -> list:
             if min(a + horizon_samples, n_samples) - a >= 2]
 
 
+def with_thruster_lag(run: RunData, params: CalibrationParameters) -> RunData:
+    """The run with its logged (commanded) wrench replaced by what lagging thrusters apply over each sample
+    (dynamics_model.apply_thruster_lag, params.thruster_time_constant_s). The run itself when there is no lag.
+    Applied to a whole recording before it's cut into prediction windows, so each window starts from the
+    thrusters' real state."""
+    T = float(getattr(params, "thruster_time_constant_s", 0.0) or 0.0)
+    if T <= 0:
+        return run
+    from dynamics_model import apply_thruster_lag
+    return replace(run, forces_torques=apply_thruster_lag(run.forces_torques, T, run.dt))
+
+
 def _raw_residuals(
+    params: CalibrationParameters,
+    run: RunData,
+    vehicle: VehicleConstants,
+    simulate_fn: Optional[SimulateFn] = None,
+    horizon_samples: Optional[int] = None,
+) -> np.ndarray:
+    """(simulated - real) velocity residuals, with the thruster lag applied once to the whole recording (see
+    with_thruster_lag, and _lagged_raw_residuals for the rest)."""
+    return _lagged_raw_residuals(params, with_thruster_lag(run, params), vehicle, simulate_fn, horizon_samples)
+
+
+def _lagged_raw_residuals(
     params: CalibrationParameters,
     run: RunData,
     vehicle: VehicleConstants,
@@ -361,7 +385,7 @@ def _raw_residuals(
                           real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(),
                           current_body=None if run.current_body is None else run.current_body[a:b],
                           orientation_quat=None if run.orientation_quat is None else run.orientation_quat[a:b])
-            parts.append(_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
+            parts.append(_lagged_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
         return np.concatenate(parts, axis=0)
 
     simulate = simulate_fn if simulate_fn is not None else simulate_trajectory

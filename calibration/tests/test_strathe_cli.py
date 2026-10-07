@@ -180,7 +180,8 @@ def test_home_page_has_every_form(server):
     status, body, _ = request("GET", "/")
     assert status == 200 and "Calibrate a vehicle" in body and "Run a fleet experiment" in body
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
-    assert body.count(f"value='{token}'") == 5
+    assert "Calibrate the communication link" in body
+    assert body.count(f"value='{token}'") == 6
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 

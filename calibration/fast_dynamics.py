@@ -158,6 +158,9 @@ class FastCore:
         self.dyn = FastDynamics(params, vehicle)
         self._n_sub = sim_config.n_substeps
         self._sub_dt = sim_config.sub_dt
+        self._dt = sim_config.dt
+        from dynamics_model import ThrusterLag
+        self._lag = ThrusterLag()  # thruster spin-up (params.thruster_time_constant_s; none at 0)
         # Water current in WORLD axes (m/s), or None for still water. Set it
         # before each step() (fleet_env / current.py update it per tick).
         self.current_world = None
@@ -169,7 +172,10 @@ class FastCore:
             self.dyn = FastDynamics(params, self.vehicle)
             self.params = params
 
-    def reset(self, position=None, nu=None, orientation: Optional[Rotation] = None):
+    def reset(self, position=None, nu=None, orientation: Optional[Rotation] = None, applied_wrench=None):
+        """applied_wrench: what the thrusters are producing at the start (default: stopped). Only matters with a
+        thruster lag."""
+        self._lag.reset(applied_wrench)
         self.nu = [0.0] * 6 if nu is None else [float(x) for x in nu]
         self.pos = [0.0] * 3 if position is None else [float(x) for x in position]
         if orientation is None:
@@ -179,7 +185,7 @@ class FastCore:
         return self.state
 
     def step(self, tau):
-        tau = [float(x) for x in tau]
+        tau = [float(x) for x in self._lag.step(tau, self.params.thruster_time_constant_s, self._dt)]
         v = self.nu
         pos = self.pos
         R = self.R

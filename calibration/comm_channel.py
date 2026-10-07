@@ -241,11 +241,17 @@ class CommChannel(_QueuedChannel):
     def __init__(self, packet_loss_config: PacketLossConfig,
                  bandwidth_config: BandwidthConfig,
                  speed_of_sound_mps: float = SPEED_OF_SOUND_MPS,
-                 seed: Optional[int] = None):
+                 seed: Optional[int] = None,
+                 fixed_latency_s: float = 0.0):
+        """fixed_latency_s: the modem's own delay on top of travel time (processing and packet airtime; often
+        seconds for acoustic modems). 0 = travel time only, the model before link calibration (#68)."""
         packet_loss_config.validate()
+        if not (0.0 <= fixed_latency_s <= 60.0):
+            raise ValueError(f"fixed_latency_s must be in [0, 60] s, got {fixed_latency_s}")
         super().__init__(bandwidth_config)
         self.packet_loss_config = packet_loss_config
         self.speed_of_sound_mps = speed_of_sound_mps
+        self.fixed_latency_s = float(fixed_latency_s)
         self._rng = np.random.default_rng(seed)
 
     def send(self, sender_id: str, receiver_id: str, send_time: float,
@@ -266,7 +272,7 @@ class CommChannel(_QueuedChannel):
         if self._rng.random() < drop_prob:
             return None
 
-        latency = distance / self.speed_of_sound_mps
+        latency = self.fixed_latency_s + distance / self.speed_of_sound_mps
         return self._enqueue(Message(
             sender_id=sender_id, receiver_id=receiver_id, message_type=message_type,
             send_time=send_time, arrival_time=send_time + latency,
@@ -410,6 +416,7 @@ class OpticalLinkConfig:
     rated_range_m: float = 30.0
     curve_width: float = 1.0
     beacon_interval_s: float = 0.1                # every tick at the fleet's 0.1 s tick
+    calibrated_from: Optional[str] = None         # link_calibration.yaml the water, curve and latency came from
 
     @property
     def attenuation(self) -> float:
@@ -508,10 +515,15 @@ class OpticalLinkConfig:
             aim = (f"{self.pointing_label} terminals (half-angles: beam "
                    f"{', '.join(f'{t.beam_half_angle_deg:g}' for t in terms)} deg, receiver "
                    f"{', '.join(f'{t.receiver_half_fov_deg:g}' for t in terms)} deg)")
-        return (f"optical link, {water}, {aim}; 50% delivery at {self.range_at(0.5):.1f} m when pointed, "
+        base = (f"optical link, {water}, {aim}; 50% delivery at {self.range_at(0.5):.1f} m when pointed, "
                 f"{self.data_rate_bps:g} bit/s, {1000 * self.latency_s:g} ms latency, a beacon every "
-                f"{self.beacon_interval_s:g} s. Uncalibrated: the water values and the delivery curve are "
-                f"rough placeholders; check a vendor's specs and fit to your own link logs before quoting")
+                f"{self.beacon_interval_s:g} s.")
+        if self.calibrated_from:
+            return (f"{base} Calibrated from your link logs ({self.calibrated_from.replace(chr(92), '/').rsplit('/', 1)[-1]}): the water's "
+                    f"attenuation, the delivery curve and the latency were fitted to logged messages; the "
+                    f"terminals' pointing is still the model's")
+        return (f"{base} Uncalibrated: the water values and the delivery curve are rough placeholders; check a "
+                f"vendor's specs and fit to your own link logs (strathe fit-link) before quoting")
 
     def to_dict(self) -> dict:
         d = {"water": self.water, "terminals": self.terminals if isinstance(self.terminals, str)
@@ -519,7 +531,7 @@ class OpticalLinkConfig:
                     "receiver_half_fov_deg": t.receiver_half_fov_deg} for t in self.terminal_list],
              "data_rate_bps": self.data_rate_bps, "latency_s": self.latency_s, "rated_range_m": self.rated_range_m,
              "curve_width": self.curve_width, "beacon_interval_s": self.beacon_interval_s}
-        for k in ("attenuation_per_m", "beam_half_angle_deg", "receiver_half_fov_deg"):
+        for k in ("attenuation_per_m", "beam_half_angle_deg", "receiver_half_fov_deg", "calibrated_from"):
             if getattr(self, k) is not None:
                 d[k] = getattr(self, k)
         return d
