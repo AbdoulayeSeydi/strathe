@@ -144,7 +144,7 @@ def render_markdown(md: str, base_dir: Optional[str] = None) -> str:
     out, in_table, in_list = [], False, False
 
     def local(rel):
-        return f"/image?path={quote(os.path.join(base_dir, rel))}"
+        return f"/image?path={quote(os.path.normpath(os.path.join(base_dir, rel)))}"  # one separator style (Windows)
 
     def inline(s):
         s = html.escape(s)
