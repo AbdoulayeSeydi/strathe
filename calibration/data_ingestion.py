@@ -207,7 +207,8 @@ class ThrusterSpec(BaseModel):
     command: normalized and command_range, PROJECT_STATUS.md #67) plus a thruster_model.thruster_block() block
     (checked when the spec is loaded).
     voltage_column: the battery voltage logged with each sample; ingestion scales each sample's thrust to its own
-    voltage (T200 curve only; PROJECT_STATUS.md #63). voltage:, if also given, is then only the nominal voltage the
+    voltage (the built-in T200 curve, or your own T200 table given with curve_voltage; PROJECT_STATUS.md #63, #69).
+    voltage:, if also given, is then only the nominal voltage the
     simulators use when this spec is passed as --thrusters (they have no logged voltage)."""
     pwm_columns: list[str] = Field(min_length=1)
     voltage_column: Optional[str] = None
@@ -217,9 +218,12 @@ class ThrusterSpec(BaseModel):
     def _voltage(self):
         extra = self.model_extra or {}
         if self.voltage_column is not None:
-            if extra.get("curve_csv") is not None or extra.get("curve") not in (None, "t200"):
-                raise ValueError("voltage_column rescales Blue Robotics' published T200 curve; it can't rescale "
-                                 "your own curve_csv")
+            if extra.get("curve") not in (None, "t200"):
+                raise ValueError(f"unknown curve {extra.get('curve')!r}: use t200 or curve_csv")
+            if extra.get("curve_csv") is not None and extra.get("curve_voltage") is None:
+                raise ValueError("voltage_column with your own curve_csv needs curve_voltage: the battery voltage "
+                                 "your table was measured at. The scaling uses Blue Robotics' published T200 data, "
+                                 "so it's for T200 thrusters")
         return self
 
     def block(self) -> dict:

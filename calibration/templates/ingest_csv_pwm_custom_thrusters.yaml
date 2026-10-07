@@ -47,4 +47,6 @@ wrench:
     curve: t200            # Blue Robotics T200; or curve_csv: my_curve.csv (see thrust_curve_template.csv)
     # commands logged normalized (e.g. -1..1) instead of microseconds: add command: normalized and
     # command_range: [-1, 1] (see ingest_csv_normalized_thrusters.yaml)
-    voltage: 15.0          # T200 only: rescales the curve to your battery voltage (12-20 V)
+    voltage: 15.0          # T200 only: rescales the curve to your battery voltage (12-20 V); with your own
+                           # curve_csv of T200s, add curve_voltage: (the voltage it was measured at). Logged battery
+                           # voltage: voltage_column: battery_v scales each sample instead

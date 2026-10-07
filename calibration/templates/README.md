@@ -87,7 +87,9 @@ vehicle's commands in `strathe arena`, `strathe fleet` and `strathe train-fleet`
 - `voltage_column:` (under `wrench: thrusters:`): the battery voltage logged with each sample. Each sample's
   thrust is then scaled to its own voltage instead of one `voltage:` for the whole spec. A battery that sags
   from 15.3 to 13.1 V loses 17% of its maximum thrust (Blue Robotics' published T200 data), so this matters
-  for long sessions. T200 curve only.
+  for long sessions. T200 thrusters: the built-in curve, or your own `curve_csv` table with `curve_voltage:`
+  (the battery voltage it was measured at): it keeps its shape and is rescaled from that voltage by the
+  published T200 ratio, forward and reverse separately (#69).
 - `position: {x: ..., y: ..., z: ..., unit: m}`: world positions (motion capture, USBL, odometry), in the
   spec's world frame. Used only to check the orientation (below); calibration doesn't need them.
 

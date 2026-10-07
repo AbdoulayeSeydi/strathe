@@ -3,7 +3,8 @@
 # interpolated, and commands outside the table are held at its end values.
 # Positive thrust = the direction you gave the thruster in the layout.
 # Fill it from your thruster's datasheet or a bollard-pull test at your
-# battery voltage, then point curve_csv: at it. This example is the built-in T200
+# battery voltage, then point curve_csv: at it (T200s: add curve_voltage:, the voltage it
+# was measured at, so voltage_column: or voltage: can rescale it). This example is the built-in T200
 # curve (~15 V) sampled every 100 us; curve: t200 uses every microsecond.
 pwm_us,thrust_n
 1100,-37.2
