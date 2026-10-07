@@ -95,6 +95,20 @@ communication:
 
 Custom levels are labelled `L2_custom` (or `custom` without a base level).
 
+**Your own link, measured** (#68). `strathe fit-link --log messages.csv --out link_cal` fits your modems' message
+logs (`templates/link_log_template.csv`): loss against distance, the modem's delay and the sound speed for acoustic;
+the delivery curve and latency for optical. Then:
+
+```yaml
+communication:
+  link_calibration: link_cal/link_calibration.yaml
+  beacon_interval_s: 1.0
+```
+
+or `strathe fleet --link-calibration link_cal/link_calibration.yaml` (and `train-fleet`, and the web page). The
+measured acoustic link replaces the named levels as one level labelled `measured` (keep at most one `severity`: only
+its bandwidth is used); with `link: optical` or `hybrid`, the optical link uses the measured curve and latency.
+
 ## 2. Belief models: what's being compared
 
 Between beacons each vehicle predicts where its teammate is. That prediction
@@ -450,7 +464,7 @@ python strathe.py train-fleet --params <calibration> --link hybrid --optical-wat
 - **Delivery probability.** A smooth S-curve turns the result into a delivery probability. At the defaults, a pointed link delivers half its messages at 30 m in clear water, about 15 m in coastal water and about 4 m in harbour water.
 - **Judged on the truth.** Delivery uses the true positions and attitudes, because the light follows the real vehicle. The beacon carries what the sender measured.
 
-**Uncalibrated.** The water values are rough textbook figures and the S-curve is a placeholder. Every report says so. A lab's link logs, with success against range and angle, are what would calibrate it; there's no `fit` command for it yet. Check a vendor's specs before quoting a number.
+**Uncalibrated unless you calibrate it.** The water values are rough textbook figures and the S-curve is a placeholder, and every report says so. `strathe fit-link` on your optical modems' message logs fits the delivery curve and latency (section 1, #68); the water's clarity can't be measured from messages and is held (coastal by default), which only matters beyond the ranges you logged. Pointing (angle) isn't fitted.
 
 **Terminals:**
 - **`omni`** (the default) covers every direction, like LED arrays. The link then depends only on range and water, which is the fair baseline.

@@ -20,6 +20,8 @@ can pin down, and writes a plain-language report. To only convert:
 | ArduSub / ArduPilot DataFlash logs from the SD card (`.bin`, `.log`) | `ingest_ardupilot_bin.yaml` |
 | MAVLink telemetry logs from a ground station (`.tlog`, e.g. QGroundControl) | `ingest_mavlink_tlog.yaml` |
 | Free-decay tank tests on an ArduSub vehicle, for roll and pitch (`strathe free-decay`; `../FREE_DECAY_PROTOCOL.md`) | `ingest_free_decay_ardupilot.yaml` |
+| ROS bags with an EKF (`nav_msgs/Odometry`) and **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
+| Your modems' message logs, to calibrate the acoustic/optical link (`strathe fit-link`) | `link_log_template.csv` |
 
 Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
 
