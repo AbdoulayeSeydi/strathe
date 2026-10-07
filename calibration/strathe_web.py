@@ -139,16 +139,28 @@ def discover_outputs(job: Job) -> list:
 
 # ----------------------------------------------------------------- markdown (just enough for our reports)
 
-def render_markdown(md: str) -> str:
+def render_markdown(md: str, base_dir: Optional[str] = None) -> str:
+    """base_dir: the report's folder, so its plots show (`![alt](validation/x.png)`) and links to them open."""
     out, in_table, in_list = [], False, False
+
+    def local(rel):
+        return f"/image?path={quote(os.path.normpath(os.path.join(base_dir, rel)))}"  # one separator style (Windows)
 
     def inline(s):
         s = html.escape(s)
         s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
         s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
+        if base_dir:
+            s = re.sub(r"\[([^\]]+)\]\(([^)\s]+\.png)\)", lambda m: f"<a href='{local(m.group(2))}'>{m.group(1)}</a>", s)
         return s
 
     for line in md.splitlines():
+        img = re.fullmatch(r"!\[([^\]]*)\]\(([^)\s]+\.png)\)", line.strip())
+        if img:
+            if base_dir:
+                out.append(f"<p><img src='{local(img.group(2))}' alt='{html.escape(img.group(1))}' "
+                           f"style='max-width:100%;height:auto'></p>")
+            continue
         if line.startswith("|"):
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
             if all(re.fullmatch(r":?-{3,}:?", c) for c in cells):
@@ -652,6 +664,12 @@ class StratheHandler(BaseHTTPRequestHandler):
             if not job:
                 return self._error(404, "No such job.")
             return self._send(200, json.dumps({"status": job.status}).encode(), "application/json")
+        if url.path == "/image":  # a report's plots, shown in the page
+            real = self.manager.allowed_file((q.get("path") or [""])[0])
+            if real is None or not real.endswith(".png"):
+                return self._error(404, "That image isn't part of a job's output.")
+            with open(real, "rb") as f:
+                return self._send(200, f.read(), "image/png")
         if url.path in ("/file", "/view"):
             real = self.manager.allowed_file((q.get("path") or [""])[0])
             if real is None:
@@ -660,7 +678,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 data = f.read()
             if url.path == "/view":
                 text = data.decode("utf-8", errors="replace")
-                return self._send(200, page(os.path.basename(real), "<p><a href='/'>← Strathe home</a></p>" + render_markdown(text)))
+                return self._send(200, page(os.path.basename(real), "<p><a href='/'>← Strathe home</a></p>"
+                                            + render_markdown(text, os.path.dirname(real))))
             return self._send(200, data, "application/octet-stream",
                               {"Content-Disposition": f"attachment; filename=\"{os.path.basename(real)}\""})
         return self._error(404, "Not found.")

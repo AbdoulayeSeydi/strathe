@@ -5,6 +5,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py calibrate --data <logs folder>     calibrate a vehicle, end to end
     python strathe.py calibrate --ingest-spec my.yaml    ... straight from your own logs (CSV or ROS bags)
     python strathe.py report --result <output folder>    plain-language report for a result
+    python strathe.py validate --result <output folder>  simulation vs the real vehicle: position, orientation, plots
     python strathe.py estimate-current --data <logs>     the water current in each open-water recording
     python strathe.py arena --params <calibration>       one vehicle: train and test a controller on a task
     python strathe.py fleet [--config my_experiment.yaml]  two vehicles: run a fleet experiment
@@ -22,9 +23,10 @@ be run from any folder.)
   1. pre-flight data checks            (preflight_check.py)
   2. calibration with the recommended settings (run_calibration.py)
   3. which parameters the data can pin down (automated_identifiability_report.py)
-  4. the plain-language report         (calibration_report.py)
-and stops with a clear message at the first step that fails (step 3 only
-warns). The logs' sampling rate and torque convention come from the
+  4. the simulation against the real vehicle on unseen recordings (validation.py)
+  5. the plain-language report         (calibration_report.py)
+and stops with a clear message at the first step that fails (steps 3 and 4
+only warn). The logs' sampling rate and torque convention come from the
 ingestion report when there is one. Every step is still a normal script that
 specialists can run on its own.
 """
@@ -157,6 +159,10 @@ def report_argv(result: str, data: Optional[str], spec: str, heldout_dates: Opti
     if heldout_dates:
         argv += ["--heldout-dates", *heldout_dates]
     return argv
+
+
+def validation_argv(result: str, data: str, spec: str) -> list:
+    return ["validation.py", "--result", _abs(result), "--data-dir", _abs(data), "--spec", spec]
 
 
 def fleet_argv(config: Optional[str]) -> list:
@@ -402,6 +408,9 @@ def cmd_calibrate(args, runner=None) -> int:
                       lambda: identifiability_argv(out, data, spec, args.workers),
                       "The check of which values the data can pin down failed; the report is written without "
                       "that section.", False))
+    steps.append(("Comparing the simulation with the real vehicle on unseen recordings: position, orientation, "
+                  "response, plots (a few minutes)", lambda: validation_argv(out, data, spec),
+                  "The comparison with the real vehicle failed; the report is written without that section.", False))
     steps.append(("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
                   "The report couldn't be written; the calibration itself is saved in the output folder.", True))
     for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
@@ -457,6 +466,18 @@ def cmd_estimate_current(args, runner=None) -> int:
 
 def cmd_report(args, runner=None) -> int:
     return run_step(report_argv(args.result, args.data, spec_path(args.spec), args.heldout_dates), runner)
+
+
+def cmd_validate(args, runner=None) -> int:
+    """The comparison with the real vehicle for an existing calibration, then its report again."""
+    spec = spec_path(args.spec)
+    argv = ["validation.py", "--result", _abs(args.result), "--spec", spec]
+    if args.data:
+        argv += ["--data-dir", _abs(args.data)]
+    rc = run_step(argv, runner)
+    if rc != 0:
+        return rc
+    return run_step(report_argv(args.result, args.data, spec, None), runner)
 
 
 def _range_arg(xs, name):
@@ -877,6 +898,13 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--spec", default=DEFAULT_SPEC)
     r.add_argument("--heldout-dates", nargs="+")
     r.set_defaults(fn=cmd_report)
+
+    v = sub.add_parser("validate", help="compare a calibration with the real vehicle on unseen recordings: position, "
+                                        "orientation, response and plots; then rewrite its report")
+    v.add_argument("--result", required=True, help="calibration output folder")
+    v.add_argument("--data", help="the logs it was calibrated on (default: the folder the calibration recorded)")
+    v.add_argument("--spec", default=DEFAULT_SPEC)
+    v.set_defaults(fn=cmd_validate)
 
     f = sub.add_parser("fleet", help="run a fleet coordination experiment")
     f.add_argument("--config", help="experiment YAML (default: the shipped default_experiment.yaml)")

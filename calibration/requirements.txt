@@ -12,3 +12,7 @@ etils==1.14.0
 glfw==2.10.2
 pyopengl==3.1.10
 zipp==4.1.0
+
+# Validation plots (validation.py). Already installed as an mlflow dependency; pinned here because
+# validation.py uses it directly.
+matplotlib==3.11.1

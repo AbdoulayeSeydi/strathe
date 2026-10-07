@@ -1,6 +1,6 @@
 # Calibration report: calibration_output_armfix
 
-2026-10-03
+2026-10-06
 
 ## Bottom line
 
@@ -22,6 +22,66 @@ It is trustworthy for **1 of 6** motion axes: turning rate (yaw). On recording s
 ## Did it learn the vehicle, or just memorise the training runs?
 
 No sign of memorising: the error on unseen sessions is about the same as on the training runs. (Unseen / training error, median over the six axes: 0.98; about 1 is what you want.)
+
+## How the simulation compares with the real vehicle
+
+On the 14 recordings the calibration never saw (16-02-2024, 19-02-2024). The numbers are in `validation/validation.json`.
+
+**Position.** How far the simulated vehicle ends up from where its logged velocity says it went, starting each window from the real state. Median over the windows (90% of windows under the second number):
+
+| After | Calibrated | Default physics | Assuming it doesn't move |
+|---|---|---|---|
+| 10 s | 0.84 m (1.39 m) | 3.23 m | 3.06 m |
+| 30 s | 1.33 m (2.33 m) | 6.64 m | 3.60 m |
+| 60 s | 1.88 m (3.22 m) | 11.06 m | 3.21 m |
+
+![Position drift against horizon](validation/drift.png)
+
+![Path](validation/trajectory_typical.png)
+
+**Orientation, with the model turning and tilting on its own** (the fit itself is scored with the logged orientation fed in). Median error after 3 s and 10 s, restarting from the real state every 10 s:
+
+| Angle | Calibrated | Default physics | Holding the starting attitude |
+|---|---|---|---|
+| Roll | 5.3° / 8.7° | 18.1° / 20.1° | 2.8° / 3.8° |
+| Pitch | 8.9° / 10.7° | 19.2° / 17.4° | 4.7° / 6.3° |
+| Yaw | 17.3° / 42.9° | 53.9° / 81.6° | 37.5° / 95.4° |
+
+- **Yaw:** the simulation tracks the real vehicle better than holding the starting attitude.
+- **Roll, pitch:** worse than simply holding the starting attitude. Don't trust the simulated roll and pitch on their own (LIMITS.md).
+
+![Orientation](validation/orientation_typical.png)
+
+**Response over 1 s.** The velocity change over the next second (that is, the average acceleration), predicted against measured, from 7943 moments. Skill compares with assuming the velocity stays the same (1 = perfect, 0 = no better):
+
+| Motion | Calibrated error | Default physics | Velocity stays the same | Skill |
+|---|---|---|---|---|
+| forward speed (surge) | 0.131 | 0.275 | 0.161 | +0.18 |
+| sideways speed (sway) | 0.097 | 0.382 | 0.129 | +0.25 |
+| up/down speed (heave) | 0.076 | 0.451 | 0.138 | +0.45 |
+| roll rate | 0.147 | 0.688 | 0.186 | +0.21 |
+| pitch rate | 0.220 | 1.798 | 0.290 | +0.24 |
+| turning rate (yaw) | 0.235 | 0.547 | 0.625 | +0.62 |
+
+Errors in m/s (surge, sway, heave) and rad/s (roll, pitch, turning).
+
+**Command steps.** When a force or torque jumps and then holds: how long the velocity takes to make 63% of its change, and how big the change is, model against real (medians):
+
+| Motion | Steps | Real vehicle | Calibrated | Calibrated size / real |
+|---|---|---|---|---|
+| forward speed (surge) | 92 | 0.6 s | 0.3 s | 1.03 |
+| sideways speed (sway) | 125 | 0.5 s | 0.3 s | 0.98 |
+| up/down speed (heave) | 182 | 0.6 s | 0.4 s | 0.97 |
+| pitch rate | 5 | 0.4 s | 0.1 s | 1.06 |
+| turning rate (yaw) | 39 | 0.5 s | 0.5 s | 1.08 |
+
+- **The simulated vehicle responds faster than the real one:** at least 1.5 times as fast on 3 of 5 axes. Thruster spin-up and command lag aren't modelled (LIMITS.md); a controller tuned in simulation may be too aggressive on the real vehicle.
+
+![Command steps](validation/steps.png)
+
+**Velocity over whole recordings**, as the calibration is scored: [typical](validation/velocity_typical.png), [best](validation/velocity_best.png), [worst](validation/velocity_worst.png).
+
+![Velocity, typical recording](validation/velocity_typical.png)
 
 ## Be careful with
 

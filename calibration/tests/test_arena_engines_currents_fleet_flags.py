@@ -238,7 +238,7 @@ def test_estimate_current_rounds_in_calibrate(tmp_path):
     assert rc == 0
     assert [c[1] for c in calls] == ["preflight_check.py", "run_calibration.py", "estimate_current.py",
                                      "run_calibration.py", "estimate_current.py", "run_calibration.py",
-                                     "calibration_report.py"]
+                                     "validation.py", "calibration_report.py"]
     r1, e1, r2, e2, final = calls[1], calls[2], calls[3], calls[4], calls[5]
     assert "--currents-file" not in r1  # round 1: still water
     assert e1[e1.index("--params") + 1].endswith(os.path.join("current_round1", "calibrated_parameters.yaml"))
