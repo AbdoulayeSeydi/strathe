@@ -1665,6 +1665,64 @@ mount rotation in ingest specs; `--finish` for `--estimate-current` runs; `train
 (formation spacing, target distance) for vehicles bigger than a BlueROV2; `fleet --workers`; mixed header and
 receive timestamps in re-recorded bags; and session dates from header stamps.
 
+### 71. Torpedo-hull physics, and Strathe against Stonefish on URI's own vehicle model (2026-10-10)
+
+**Why.** The URI run (#70) showed roll/pitch failing on a torpedo hull, and the strategic question: can Strathe beat,
+or improve, the simulator a lab already uses? URI simulates ALPHA RISE in Stonefish
+(GSO-soslab/world_of_stonefish, vehicles/alpha_rise.scn).
+
+**What shipped (opt-in, like the thruster lag #66):**
+- **New terms for slender hulls, one set for both planes (an axisymmetric hull):**
+  - hull lift, Zuw (Z += Zuw·u·w, Y += Zuw·u·v);
+  - its moment, Muw (M += Muw·u·w, N −= Muw·u·v);
+  - speed-dependent pitch/yaw damping, Muq (M += Muq·u·q, N += Muq·u·r);
+  - a fore-aft centre-of-gravity offset, `cg_cb_offset_x` (Fossen 2011, eq. 4.6).
+
+  The destabilizing Munk moment was already in the model, through the added-mass Coriolis term.
+- **Every physics path:** the reference model, the fast core (calibration, fleet), the rotation-matrix form (arena,
+  MuJoCo) and HoloOcean. They agree to 1e-14; off, results are bit-identical to before.
+- **Turning them on:** a `hull_lift:` section and `cg_cb_offset_x` in a vehicle spec. They're in the template, with
+  slender-body first guesses. Without them they are held at 0.
+- **Tests:** `tests/test_torpedo_hull.py` (equivalence, bit-identity when off, physical signs, spec handling, old
+  calibrations still load).
+
+**What the URI data said about them: not identifiable from two ordinary missions.**
+
+| Direction | Training error, round 1 | Held-out skill | Notes |
+|---|---|---|---|
+| bay → pond | 2.16, against 2.41 without the terms | +0.20, against +0.23 | 60 s drift 5.5 m, against 3.5 |
+| pond → bay | | −0.10, against +0.18 | yaw breaks |
+
+- **The fitted values contradict each other between directions:** Muw is +40 in one and −60 in the other, Muq −14
+  vs −71.
+- **Pitch isn't fixed.**
+- **What they need:** logs with pitch and heave steps at 2–3 steady speeds. The template now says to calibrate with
+  and without them and keep them only if held-out skill improves.
+
+**Strathe against Stonefish.**
+- **The set-up:** URI's Stonefish fork, built and run headless, with URI's model unchanged. Same logged wrench,
+  logged start state, free-running attitude, still water; 60 s windows every 10 s on the held-out recording.
+- **URI's model as it stands:** 27 kg (the real vehicle is 33), a rigid pitch inertia of 64 kg·m², and drag from the
+  mesh.
+
+Median drift after 10 / 30 / 60 s:
+
+| | Pond | Bay |
+|---|---|---|
+| Stonefish, as is | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
+| Strathe's calibrated model | **1.74 / 10.3 / 26.4 m** | **1.47 / 9.1** / 30.9 m |
+| Stonefish with Strathe's values translated in (mass, net buoyancy, drag through the hull mesh's areas) | 2.85 / 13.3 / 40.0 m | 1.85 / 9.1 / 28.2 m |
+| **Stonefish calibrated directly** (Stonefish's own drag, buoyancy and CG fitted to the training log, 30 s windows, drift in the objective) | 2.99 / 12.3 / 34.9 m | 2.34 / 9.7 / **24.4** m |
+
+- **Strathe's own model wins** in both directions.
+- **Strathe also improves URI's own simulator:** up to 35% less drift after 60 s when it calibrates Stonefish directly.
+  But 10 s drift gets worse, because Stonefish's added mass can't be set from a scenario.
+- **Neither simulator beats "keep the starting velocity"** over a closed-loop cruise (0.4–0.9 m after 10 s). Open-loop
+  replay compounds error while the logged forces react to the real vehicle. The scores rank simulators; they don't
+  claim minute-ahead prediction.
+- **The tools** (the Stonefish replay driver, the comparison and the Stonefish calibration) are outside the product for
+  now: `~/strathe_uri_lab/stonefish/replay/`.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

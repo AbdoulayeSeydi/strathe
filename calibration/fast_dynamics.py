@@ -60,6 +60,8 @@ class FastDynamics:
         self._W = W
         self._diff = W - (W + params.net_buoyancy_z)  # = -net_buoyancy_z, same expression as reference
         self._zg = params.cg_cb_offset_z
+        self._xg = params.cg_cb_offset_x  # hull terms (#71); all 0 for vehicles without them
+        self._lift = (params.Zuw, params.Muw, params.Muq) if (params.Zuw or params.Muw or params.Muq) else None
 
     def acceleration(self, v, tau, roll: float, pitch: float) -> list:
         """Body-frame v_dot (list of 6 floats). Equivalent to
@@ -103,14 +105,24 @@ class FastDynamics:
         g2 = -diff * cp * cr
         g3 = zg * W * cp * sr
         g4 = zg * W * sp
+        g5 = 0.0
+        if self._xg:  # x offset of the centre of gravity (dynamics_model._restoring_forces)
+            g4 += self._xg * W * cp * cr
+            g5 = -self._xg * W * cp * sr
         rhs = [
             tau[0] + (lin[0] + quad[0] * abs(u)) * u - g0 - cv0,
             tau[1] + (lin[1] + quad[1] * abs(vv)) * vv - g1 - cv1,
             tau[2] + (lin[2] + quad[2] * abs(w)) * w - g2 - cv2,
             tau[3] + (lin[3] + quad[3] * abs(a)) * a - g3 - cv3,
             tau[4] + (lin[4] + quad[4] * abs(b)) * b - g4 - cv4,
-            tau[5] + (lin[5] + quad[5] * abs(c)) * c - cv5,
+            tau[5] + (lin[5] + quad[5] * abs(c)) * c - g5 - cv5,
         ]
+        if self._lift is not None:  # hull lift and speed-dependent damping (dynamics_model._hull_lift_force)
+            zuw, muw, muq = self._lift
+            rhs[1] += zuw * u * vv
+            rhs[2] += zuw * u * w
+            rhs[4] += muw * u * w + muq * u * b
+            rhs[5] += -muw * u * vv + muq * u * c
         return [Minv[i][0] * rhs[0] + Minv[i][1] * rhs[1] + Minv[i][2] * rhs[2]
                 + Minv[i][3] * rhs[3] + Minv[i][4] * rhs[4] + Minv[i][5] * rhs[5]
                 for i in range(6)]

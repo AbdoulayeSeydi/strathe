@@ -81,6 +81,7 @@ the rest:
 | added mass | box frame: 0.5–1.5 × mass; cylinder: 0.1 × mass in surge, ρπr²L sideways and vertically | 0 to about 4× |
 | drag at speed | ½ρ·Cd·area facing the motion (Cd ≈ 1 broadside, ≈ 0.2 streamlined), or steady thrust ÷ speed² from your logs | about 5× either way |
 | net buoyancy | 0 (positive floats) | about ±10% of the weight |
+| hull lift, its moment, speed-dependent damping, fore-aft CG offset | **torpedo-shaped hulls only:** keep the template's `hull_lift:` section and `cg_cb_offset_x`; delete them for a box frame | as in the template |
 
 - **From CAD or a pendulum test?** Use the value as the guess, and add it as `reference:`; the report then flags a
   fitted value far from it.

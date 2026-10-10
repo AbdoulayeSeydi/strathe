@@ -85,6 +85,15 @@ OPTIONAL_CALIBRATION_TARGETS = {
         "bounds_rationale": "not in this vehicle_spec.yaml: no thruster lag (add a thruster_dynamics section to fit it)",
         "source": "default", "confidence": "assumed"},
 }
+# torpedo-shaped hulls (#71): lift, lift moment, speed-dependent rotational damping and the x offset of the centre of
+# gravity. Held at 0 unless the spec lists them (a hull_lift section; cg_cb_offset_x under buoyancy).
+for _name, _unit, _what in (("cg_cb_offset_x", "m", "centre of gravity ahead of buoyancy"),
+                            ("Zuw", "N/(m/s)^2", "hull lift"), ("Muw", "N*m/(m/s)^2", "hull lift moment"),
+                            ("Muq", "N*m/((m/s)*(rad/s))", "speed-dependent pitch/yaw damping")):
+    OPTIONAL_CALIBRATION_TARGETS[_name] = {
+        "unit": _unit, "initial_guess": 0.0, "bounds": [0.0, 0.0],
+        "bounds_rationale": f"not in this vehicle_spec.yaml: no {_what} (torpedo hulls: templates/vehicle_spec_template.yaml)",
+        "source": "default", "confidence": "assumed"}
 
 
 def held_by_bounds(lb, ub, param_names) -> dict:
