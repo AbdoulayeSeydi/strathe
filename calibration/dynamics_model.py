@@ -128,6 +128,7 @@ _PARAM_ORDER = (
     "net_buoyancy_z", "cg_cb_offset_z",
     "Xq_dot", "Zq_dot",
     "thruster_time_constant_s",
+    "cg_cb_offset_x", "Zuw", "Muw", "Muq",
 )
 
 TEACHER_FORCED_ORIENTATION = True  # see module docstring — comparison code
@@ -192,6 +193,20 @@ class CalibrationParameters:
     # with this first-order time constant, in seconds (see apply_thruster_lag). 0.0 = no lag, the model before
     # #66: older calibrated_parameters.yaml files load with it, and a vehicle_spec.yaml without it holds it at 0.
     thruster_time_constant_s: float = 0.0
+
+    # Torpedo-shaped hulls (PROJECT_STATUS.md #71). A slender hull moving forward at u makes lift and a lift moment
+    # proportional to u*w (and u*v), and its rotational damping grows with u. The destabilizing Munk moment is
+    # already in the model (the added-mass Coriolis term, (Zw_dot - Xu_dot)*u*w); these are what balance it on a
+    # real hull. Axisymmetric hull: one set of coefficients for both planes (Prestero 2001, REMUS):
+    #   heave/pitch:  Z += Zuw*u*w,   M += Muw*u*w + Muq*u*q
+    #   sway/yaw:     Y += Zuw*u*v,   N += -Muw*u*v + Muq*u*r
+    # cg_cb_offset_x: centre of gravity ahead of the centre of buoyancy, m (positive pitches the nose down).
+    # All default to 0.0: the model before #71, for older calibrated_parameters.yaml files and for vehicle specs
+    # that don't list them (held at 0, like the thruster lag).
+    cg_cb_offset_x: float = 0.0
+    Zuw: float = 0.0
+    Muw: float = 0.0
+    Muq: float = 0.0
 
     def validate(self) -> None:
         """Cheap sanity checks — called once per construction, not per
@@ -416,7 +431,7 @@ def quaternion_to_roll_pitch(qx, qy, qz, qw):
     return euler[..., 0], euler[..., 1]
 
 
-def _restoring_forces(roll, pitch, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.81):
+def _restoring_forces(roll, pitch, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.81, cg_cb_offset_x=0.0):
     """
     Simplified restoring force/moment vector g(eta) — see module docstring
     for the Fossen reference. Assumes CG/CB laterally aligned (only a
@@ -432,7 +447,20 @@ def _restoring_forces(roll, pitch, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.
     Tx = cg_cb_offset_z * W * np.cos(pitch) * np.sin(roll)
     Ty = cg_cb_offset_z * W * np.sin(pitch)
     Tz = 0.0
+    if cg_cb_offset_x:  # Fossen (2011) eq. 4.6, x_g - x_b
+        Ty = Ty + cg_cb_offset_x * W * np.cos(pitch) * np.cos(roll)
+        Tz = -cg_cb_offset_x * W * np.cos(pitch) * np.sin(roll)
     return np.array([Fx, Fy, Fz, Tx, Ty, Tz])
+
+
+def _hull_lift_force(params: CalibrationParameters, v: np.ndarray) -> Optional[np.ndarray]:
+    """Lift, lift moment and speed-dependent rotational damping of a slender hull (CalibrationParameters, #71),
+    as a force on the vehicle; None when the vehicle has none, so other vehicles compute exactly as before."""
+    if not (params.Zuw or params.Muw or params.Muq):
+        return None
+    u, vv, w, _p, q, r = v
+    return np.array([0.0, params.Zuw * u * vv, params.Zuw * u * w, 0.0,
+                     params.Muw * u * w + params.Muq * u * q, -params.Muw * u * vv + params.Muq * u * r])
 
 
 def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
@@ -579,7 +607,11 @@ def compute_acceleration(
     v, transport = _relative_to_water(v, current_body)
     M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
     damping_force = linear_damping * v + quad_damping * np.abs(v) * v
-    g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
+    lift = _hull_lift_force(params, v)
+    if lift is not None:
+        damping_force = damping_force + lift
+    g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z,
+                              cg_cb_offset_x=params.cg_cb_offset_x)
     coriolis_force = _coriolis_centripetal_force(M, v)
     # M is no longer guaranteed diagonal (Xq_dot/Zq_dot introduce two
     # off-diagonal entries) — a proper linear solve, not elementwise
@@ -592,7 +624,7 @@ def compute_acceleration(
     return v_dot, damping_force, g_eta
 
 
-def _restoring_forces_from_rotation_matrix(R, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.81):
+def _restoring_forces_from_rotation_matrix(R, mass_kg, net_buoyancy_z, cg_cb_offset_z, g=9.81, cg_cb_offset_x=0.0):
     """The same restoring-force physics as _restoring_forces(), expressed
     directly via the body->world rotation matrix R instead of scalar
     roll/pitch. VERIFIED (not assumed) mathematically identical to
@@ -620,6 +652,9 @@ def _restoring_forces_from_rotation_matrix(R, mass_kg, net_buoyancy_z, cg_cb_off
     Tx = -cg_cb_offset_z * W * down_in_body[1]
     Ty = cg_cb_offset_z * W * down_in_body[0]
     Tz = 0.0
+    if cg_cb_offset_x:  # down_in_body = [sin(pitch), -cos(pitch)sin(roll), -cos(pitch)cos(roll)]
+        Ty = Ty - cg_cb_offset_x * W * down_in_body[2]
+        Tz = cg_cb_offset_x * W * down_in_body[1]
     return np.array([Fx, Fy, Fz, Tx, Ty, Tz])
 
 
@@ -652,7 +687,11 @@ def compute_acceleration_from_rotation_matrix(
     v, transport = _relative_to_water(v, current_body)
     M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
     damping_force = linear_damping * v + quad_damping * np.abs(v) * v
-    g_eta = _restoring_forces_from_rotation_matrix(R, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z)
+    lift = _hull_lift_force(params, v)
+    if lift is not None:
+        damping_force = damping_force + lift
+    g_eta = _restoring_forces_from_rotation_matrix(R, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z,
+                                                   cg_cb_offset_x=params.cg_cb_offset_x)
     coriolis_force = _coriolis_centripetal_force(M, v)
     v_dot = np.linalg.solve(M, tau + damping_force - g_eta - coriolis_force)
     if transport is not None:

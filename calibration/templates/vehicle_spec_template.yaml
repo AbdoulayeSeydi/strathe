@@ -148,6 +148,28 @@ calibration_targets:
                      bounds_rationale: "+-12% of the 324 N weight; trimmed slightly positive", source: "assumed", confidence: assumed}
     cg_cb_offset_z: {unit: m, initial_guess: 0.02, bounds: [-0.1, 0.1],
                      bounds_rationale: "a few cm, CG below CB", source: "assumed", confidence: assumed}
+    # torpedo / slender hulls only (delete for a box frame): how far the centre of gravity sits AHEAD of the centre
+    # of buoyancy (m), positive = nose-down trim. A vehicle that needs steady bow/stern thrust to stay level has one.
+    cg_cb_offset_x: {unit: m, initial_guess: 0.0, bounds: [-0.05, 0.05],
+                     bounds_rationale: "a few cm of fore-aft trim", source: "assumed", confidence: assumed}
+
+  # TORPEDO / SLENDER HULLS ONLY (PROJECT_STATUS.md #71): delete this section for a box-frame vehicle (a BlueROV2-style
+  # ROV), and they are held at 0. Moving forward at u, a slender hull makes lift against heave and sway, a moment from
+  # that lift, and rotational damping that grows with speed. Strathe already has the destabilizing Munk moment (from
+  # the added masses); these balance it. One set for both planes (an axisymmetric hull).
+  #   Zuw ~ -0.5 * rho * D^2 * 1.2   (slender-body lift slope; example -0.5*1025*0.0625*1.2 = -38)
+  #   Muw: the lift's moment about the centre; its sign depends on where the lift acts, so guess 0, allow +-|Zuw| * L
+  #   Muq: pitch/yaw damping per unit forward speed; fins make it large, a bare hull small
+  # They need logs that excite them: pitch and heave steps at 2-3 different steady speeds. On ordinary missions
+  # they can fit the training logs better and the unseen ones worse (URI's two missions, PROJECT_STATUS.md #71):
+  # calibrate with and without this section, and keep it only if held-out skill improves.
+  hull_lift:
+    Zuw: {unit: "N/(m/s)^2", initial_guess: -38.0, bounds: [-300.0, 0.0],
+          bounds_rationale: "slender-body lift, up to ~8x", source: "estimated from diameter", confidence: estimated}
+    Muw: {unit: "N*m/(m/s)^2", initial_guess: 0.0, bounds: [-100.0, 100.0],
+          bounds_rationale: "+-|Zuw| x length, generous", source: "estimated", confidence: estimated}
+    Muq: {unit: "N*m/((m/s)*(rad/s))", initial_guess: -5.0, bounds: [-150.0, 0.0],
+          bounds_rationale: "bare hull: small; fins: large", source: "estimated", confidence: estimated}
 
   # thruster_dynamics:            # optional (PROJECT_STATUS.md #66): fit how fast the thrusters spin up
   #   thruster_time_constant_s: {unit: s, initial_guess: 0.1, bounds: [0.0, 1.0],

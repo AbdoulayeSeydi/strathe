@@ -111,6 +111,15 @@ class AddedMassDiag(BaseModel):
 class Buoyancy(BaseModel):
     net_buoyancy_z: CalibrationParam
     cg_cb_offset_z: CalibrationParam
+    cg_cb_offset_x: Optional[CalibrationParam] = None  # torpedo hulls (#71); held at 0 without it
+
+
+class HullLift(BaseModel):
+    """Optional (PROJECT_STATUS.md #71): a slender hull's lift, lift moment and speed-dependent rotational damping,
+    one set for both planes (axisymmetric). Without it they are held at 0, the model for box-frame vehicles."""
+    Zuw: CalibrationParam
+    Muw: CalibrationParam
+    Muq: CalibrationParam
 
 
 class ThrusterDynamics(BaseModel):
@@ -125,6 +134,7 @@ class CalibrationTargets(BaseModel):
     added_mass_diag: AddedMassDiag
     buoyancy: Buoyancy
     thruster_dynamics: Optional[ThrusterDynamics] = None
+    hull_lift: Optional[HullLift] = None
 
 
 class Vehicle(BaseModel):
