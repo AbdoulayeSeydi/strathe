@@ -43,6 +43,7 @@ matplotlib.use("Agg")  # no display available on a headless/remote run
 import matplotlib.pyplot as plt
 import yaml
 
+from checkpoint_io import write_checkpoint
 from data_split import discover_csv_files, split_by_date
 from objective import DatasetConfig, load_run, rmse_by_dof, rmse_for_run, compute_dof_scales
 from optimizer import load_vehicle_spec, initial_parameters
@@ -181,8 +182,7 @@ def main():
                 "label": label, "completed_runs": i + 1, "total_runs": len(heldout_runs),
                 "per_run_overall_so_far": [float(x) for x in per_run_overall],
             }
-            with open(checkpoint_path, "w", encoding="utf-8") as f:
-                json.dump(checkpoint, f, indent=2)
+            write_checkpoint(checkpoint_path, checkpoint, fmt="json")
         return np.array(per_run_dof), per_run_overall
 
     print("\nEvaluating DEFAULT parameters on held-out runs...")

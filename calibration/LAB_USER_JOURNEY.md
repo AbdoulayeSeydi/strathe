@@ -155,7 +155,8 @@ honest plain-language report, without asking us.
 
 ```bash
 cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a CSV template; edit names
-python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
+cp calibration/templates/vehicle_spec_template.yaml my_logs/my_vehicle_spec.yaml   # any vehicle but a BlueROV2 Heavy
+python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --spec my_logs/my_vehicle_spec.yaml --name my_rov
 ```
 
 **C1. My logs are ROS bags, ArduPilot logs, or CSVs with my own column names, units and frame.** PASS.

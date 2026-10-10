@@ -48,6 +48,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
+from checkpoint_io import CheckpointError, read_checkpoint, write_checkpoint
 from data_split import split_by_date, discover_csv_files, DEFAULT_HELDOUT_FRACTION
 from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
@@ -864,8 +865,7 @@ def make_checkpoint_callback(checkpoint_path):
             "best_parameters_so_far": {n: float(getattr(best_params, n))
                                         for n in best_params.param_names},
         }
-        with open(checkpoint_path, "w", encoding="utf-8") as f:
-            yaml.dump(checkpoint, f, sort_keys=False)
+        write_checkpoint(checkpoint_path, checkpoint)  # atomic: never left empty by an interruption
 
         # Timing log for the still-unexplained performance mystery
         # (PROJECT_STATUS.md) - appends ONE line per real evaluation with
@@ -884,8 +884,7 @@ def make_checkpoint_callback(checkpoint_path):
 
 
 def load_checkpoint_warm_start(checkpoint_path: str) -> np.ndarray:
-    with open(checkpoint_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = read_checkpoint(checkpoint_path)
     params = CalibrationParameters(**data["best_parameters_so_far"])
     print(f"Resuming from checkpoint: call_count={data['call_count']}, "
           f"best_cost_so_far={data['best_cost_so_far']:.6f}")
@@ -921,7 +920,11 @@ def main() -> None:
     x0_override = None
     if args.resume_from_checkpoint:
         print(f"Resuming from checkpoint {args.resume_from_checkpoint}...")
-        x0_override = load_checkpoint_warm_start(args.resume_from_checkpoint)
+        try:
+            x0_override = load_checkpoint_warm_start(args.resume_from_checkpoint)
+        except CheckpointError as e:
+            print(f"❌ can't resume: {e}")
+            sys.exit(2)
 
     if args.parallel:
         print("--parallel is set: checkpointing DISABLED for this run - "

@@ -126,10 +126,12 @@ calibration_targets:
     # reach.
     Ieff_roll:  {unit: "kg*m^2", initial_guess: 0.26, bounds: [0.255, 0.265],
                  bounds_rationale: "FIXED near the real, independently-sourced BlueROV2 heavy-config value (0.26 kg*m^2, clydemcqueen/bluerov2_gz public Gazebo model) after two convergent findings (PROJECT_STATUS.md): (1) a sensitivity sweep showed near-ZERO RMSE sensitivity to this parameter's exact value, (2) a real re-fit with it fixed at this value lost none of the fit quality (cost still dropped ~97% with the other 20 parameters doing the work). Previous wide bounds let it drift to a non-physical 9-10 kg*m^2 with no real fit-quality justification - likely compensating for something else rather than reflecting genuine inertia. Bounds kept narrow-but-nonzero (not exactly equal) to avoid a real x_scale=ub-lb=0 division risk, confirmed directly before this change.",
-                 source: "independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)", confidence: literature}
+                 source: "independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)", confidence: literature,
+                 reference: {value: 0.26, source: "BlueROV2 Heavy rigid-body Ixx, public Gazebo model"}}
     Ieff_pitch: {unit: "kg*m^2", initial_guess: 0.23, bounds: [0.225, 0.235],
                  bounds_rationale: "FIXED near the real, independently-sourced BlueROV2 heavy-config value (0.23 kg*m^2, clydemcqueen/bluerov2_gz public Gazebo model) - same reasoning as Ieff_roll above (near-zero RMSE sensitivity confirmed two ways; the earlier 9-10 kg*m^2 drift was not fit-quality-justified).",
-                 source: "independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)", confidence: literature}
+                 source: "independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)", confidence: literature,
+                 reference: {value: 0.23, source: "BlueROV2 Heavy rigid-body Iyy, public Gazebo model"}}
     Ieff_yaw:   {unit: "kg*m^2", initial_guess: 0.32, bounds: [0.05, 10.0],
                  bounds_rationale: "deliberately wider than the old Izz+Nr_dot combined bound (2.4), which is where the ORIGINAL calibration run pinned this exact quantity — see note above",
                  source: "sum of box-approximation inertia + literature added-mass estimate", confidence: estimated}

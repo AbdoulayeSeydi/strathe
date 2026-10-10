@@ -13,7 +13,20 @@ from typing import Optional, Literal
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-Confidence = Literal["published", "literature", "estimated", "assumed"]
+Confidence = Literal["measured", "published", "literature", "estimated", "assumed"]
+
+
+class Reference(BaseModel):
+    """An independent measurement of THIS vehicle's value (CAD, a pendulum or tank test, a published model of the same
+    vehicle). The calibration report flags a fitted value far from it as physically implausible."""
+    value: float
+    source: str
+
+    @model_validator(mode="after")
+    def nonzero(self):
+        if self.value == 0:
+            raise ValueError("reference value can't be 0 (the report compares fitted / reference)")
+        return self
 
 
 class CalibrationParam(BaseModel):
@@ -23,6 +36,7 @@ class CalibrationParam(BaseModel):
     bounds_rationale: str
     source: str
     confidence: Confidence
+    reference: Optional[Reference] = None
 
     @model_validator(mode="after")
     def check_bounds_and_guess(self):

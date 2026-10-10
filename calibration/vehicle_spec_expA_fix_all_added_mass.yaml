@@ -128,6 +128,7 @@ calibration_targets:
       initial_guess: 0.23
       source: independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)
       unit: kg*m^2
+      reference: {value: 0.23, source: "BlueROV2 Heavy rigid-body Iyy, public Gazebo model"}
     Ieff_roll:
       bounds:
       - 0.255
@@ -144,6 +145,7 @@ calibration_targets:
       initial_guess: 0.26
       source: independently-sourced real BlueROV2 heavy-config value (clydemcqueen/bluerov2_gz)
       unit: kg*m^2
+      reference: {value: 0.26, source: "BlueROV2 Heavy rigid-body Ixx, public Gazebo model"}
     Ieff_yaw:
       bounds:
       - 0.05

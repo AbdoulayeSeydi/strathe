@@ -59,6 +59,7 @@ from stall_watchdog import StallWatchdog
 import numpy as np
 import yaml
 
+from checkpoint_io import read_checkpoint, write_checkpoint
 from data_split import discover_csv_files, split_by_date
 from objective import DatasetConfig, load_run, mean_run_rmse, rmse_by_dof
 from optimizer import load_vehicle_spec, parameter_bounds, calibrate, CalibrationConfig
@@ -113,15 +114,13 @@ def make_checkpoint_callback(checkpoint_path):
                                   "see this function's docstring for why they legitimately differ.",
         }
         # Overwrite, not append — one file always reflecting latest state.
-        with open(checkpoint_path, "w", encoding="utf-8") as f:
-            yaml.dump(checkpoint, f, sort_keys=False)
+        write_checkpoint(checkpoint_path, checkpoint)  # atomic: never left empty by an interruption
 
     return callback
 
 
 def load_checkpoint_warm_start(checkpoint_path: str) -> np.ndarray:
-    with open(checkpoint_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = read_checkpoint(checkpoint_path)
     params = CalibrationParameters(**data["best_parameters_so_far"])
     print(f"Resuming from checkpoint: call_count={data['call_count']}, "
           f"best_cost_so_far={data['best_cost_so_far']:.6f}")

@@ -63,31 +63,62 @@ column or topic names, units and frame. Each template's comments say what every 
 - **Any other vehicle:** a `layout:` with each thruster's position, the direction it pushes, and whether it's reversed, always in forward-right-down axes.
 - **Thrust curve:** give your own command-to-thrust table, or the T200 curve is used.
 
-## 4. Run it
+## 4. Describe your vehicle
+
+The calibration fits your logs starting from a description of the vehicle: its mass, and a first guess and an
+allowed range for its inertia, drag, added mass and buoyancy. **Without `--spec`, Strathe uses a BlueROV2 Heavy
+(11.2 kg).** That's right only for a BlueROV2 Heavy. Any other vehicle needs its own description, or the fit is poor
+and the simulation can blow up (a 33 kg AUV calibrated as a BlueROV2: no axis trustworthy, PROJECT_STATUS.md #70).
+
+Copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next to your
+logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
+the rest:
+
+| Value | First guess | Allowed range |
+|---|---|---|
+| mass | weigh it, in the configuration you logged | fixed |
+| inertia (roll, pitch, yaw) | box: m(W²+H²)/12 etc.; cylinder: m·r²/2 (roll), m(3r²+L²)/12 (pitch, yaw); plus the water carried along | about 5× either way |
+| added mass | box frame: 0.5–1.5 × mass; cylinder: 0.1 × mass in surge, ρπr²L sideways and vertically | 0 to about 4× |
+| drag at speed | ½ρ·Cd·area facing the motion (Cd ≈ 1 broadside, ≈ 0.2 streamlined), or steady thrust ÷ speed² from your logs | about 5× either way |
+| net buoyancy | 0 (positive floats) | about ±10% of the weight |
+
+- **From CAD or a pendulum test?** Use the value as the guess, and add it as `reference:`; the report then flags a
+  fitted value far from it.
+- **The report says a value is stuck at a limit?** Widen that limit once if the physics allows. If it hits the new
+  limit too, the model is missing something for your vehicle ([LIMITS.md](LIMITS.md)); don't keep widening.
+- **The same file goes to every command:** `calibrate --spec`, `arena --spec`, `train-fleet --spec`,
+  `fleet --vehicle-spec`. On the web page, it's the "Vehicle description" field of each card.
+
+`calibrate` warns before it starts when your logs' thrusters aren't a BlueROV2 Heavy's and no `--spec` was given.
+
+## 5. Run it
 
 ```bash
 # 1. calibrate: convert, check, fit, identifiability, compare with the real vehicle, report
-python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov
+python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yaml --name my_rov
 
 # 2. (optional) roll and pitch from tank tests, then calibrate holding them
 python strathe.py free-decay --ingest-spec my_tank_tests.yaml --out my_tank
-python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov_fd --free-decay my_tank/free_decay.yaml
+python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yaml --name my_rov_fd --free-decay my_tank/free_decay.yaml
 
 # 3. (optional) your communication link from message logs
 python strathe.py fit-link --log messages.csv --out my_link
 
 # 4. use the calibration
-python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml --task station_keeping --compare-generic
-python strathe.py fleet --params calibration_output_my_rov/calibrated_parameters.yaml --link-calibration my_link/link_calibration.yaml
-python strathe.py train-fleet --params calibration_output_my_rov/calibrated_parameters.yaml --out my_policy
+python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --task station_keeping --compare-generic
+python strathe.py train-fleet --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --out my_policy
+python strathe.py fleet --params calibration_output_my_rov/calibrated_parameters.yaml --vehicle-spec my_vehicle_spec.yaml --thrusters my_rov.yaml --policies my_policy.zip --link-calibration my_link/link_calibration.yaml
 ```
+
+The BlueROV2 Heavy needs no `--spec` (it's the default) and can use `--thrusters bluerov2_heavy`. Train your own
+fleet policy before running `fleet` on another vehicle: the shipped policies were trained on the BlueROV2.
 
 **Timing:**
 - **Calibration:** a few minutes on a small log set, about an hour on large ones.
 - **Keep it awake:** the machine is kept awake, but closing a laptop lid still sleeps it, so keep it on mains power.
 - **If it was interrupted:** run the same command again with `--finish` to keep the best result so far.
 
-## 5. What you get back
+## 6. What you get back
 
 **`calibration_output_<name>/`**
 - **`calibration_report.md`:**
@@ -104,7 +135,7 @@ python strathe.py train-fleet --params calibration_output_my_rov/calibrated_para
 - **`fit-link`:** `link_calibration.yaml`, a report and plots: delivery against range and latency for each link.
 - **`arena` / `fleet`:** a report each, with confidence intervals, comparing your calibrated model against generic physics.
 
-## 6. When something isn't right
+## 7. When something isn't right
 
 - **Every step stops with a plain message saying what to fix**, for example:
   - a column that isn't there;
@@ -112,10 +143,13 @@ python strathe.py train-fleet --params calibration_output_my_rov/calibrated_para
   - commands outside their range;
   - only one recording day.
 - **Read the report's "Be careful with" and next steps.** It says which axes not to trust and what data would fix them.
+- **Many values stuck at their limits, or no axis trustworthy?** Check the vehicle description first (step 4): the
+  report says so at the top of "Be careful with" when a BlueROV2's description was used for other thrusters.
 - **"Unstable" at the top of a report** means the calibrated simulation blew up on some unseen recordings. Don't simulate with it.
 - **What Strathe can't do yet:** [LIMITS.md](LIMITS.md) lists every known limit with what to do about it. Roll and pitch prediction and the thruster lag are the main open ones.
 
-## 7. What to send us, if you'd like help
+## 8. What to send us, if you'd like help
 
 - **The report folder** (`calibration_output_<name>/`): no raw logs needed.
 - **Your ingest spec and `ingest_report.json`,** for conversion problems.
+- **Your vehicle description** (`my_vehicle_spec.yaml`).

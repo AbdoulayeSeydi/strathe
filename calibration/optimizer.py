@@ -146,6 +146,12 @@ def _validate_flat_targets(flat: dict) -> None:
             raise ValueError(
                 f"{name}: initial_guess {guess} falls outside bounds [{lo}, {hi}]"
             )
+        ref = entry.get("reference")
+        if ref is not None:  # an independent measurement of this vehicle's value (calibration_report.py)
+            if (not isinstance(ref, dict) or not isinstance(ref.get("value"), (int, float))
+                    or isinstance(ref.get("value"), bool) or not ref["value"] or not ref.get("source")):
+                raise ValueError(f"{name}: reference needs a nonzero value and a source, e.g. "
+                                 f"reference: {{value: 6.3, source: \"CAD model\"}}")
 
 
 @dataclass

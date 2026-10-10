@@ -96,6 +96,35 @@ def ingest_summary(data: str) -> dict:
         return {}
 
 
+def default_spec_warning(spec_arg: str, ingest_spec: Optional[str], data: Optional[str]) -> Optional[str]:
+    """The shipped vehicle description (a BlueROV2 Heavy) used with logs from other thrusters: a warning before the
+    fit, else None (PROJECT_STATUS.md #70). Logged forces can't tell which vehicle it is, so they get no warning."""
+    if spec_arg != DEFAULT_SPEC:
+        return None
+    other = None
+    if ingest_spec:
+        import yaml
+        try:
+            with open(ingest_spec, encoding="utf-8") as f:
+                thr = ((yaml.safe_load(f) or {}).get("wrench") or {}).get("thrusters")
+        except (OSError, ValueError, AttributeError):
+            thr = None
+        if isinstance(thr, dict) and thr.get("preset") != "bluerov2_heavy":
+            n = len(thr.get("layout") or thr.get("pwm_columns") or [])
+            other = f"a custom layout of {n} thrusters" if n else "a custom thruster layout"
+    elif data:
+        thrusters = ingest_summary(data).get("thrusters")
+        if thrusters and not thrusters.startswith("BlueROV2 Heavy"):
+            other = thrusters.split(":")[0]
+    if not other:
+        return None
+    return (f"⚠️  No --spec given, so this uses the shipped vehicle description: a BlueROV2 Heavy (11.2 kg, with its "
+            f"inertia, drag and limits). Your logs come from {other}. If your vehicle isn't a BlueROV2, describe it "
+            f"first: copy calibration/templates/vehicle_spec_template.yaml, fill in its mass and size, and add "
+            f"--spec my_vehicle_spec.yaml (LAB_GUIDE.md step 4). A mismatched description fits poorly and can make "
+            f"the simulation blow up.")
+
+
 def default_workers() -> int:
     return max(1, (os.cpu_count() or 2) - 1)
 
@@ -300,6 +329,10 @@ def cmd_calibrate(args, runner=None) -> int:
         if not os.path.isdir(data):
             print(f"❌ data folder not found: {data}")
             return 2
+    warn = default_spec_warning(args.spec, _abs(args.ingest_spec) if args.ingest_spec else None,
+                                None if args.ingest_spec else data)
+    if warn:
+        print(warn, flush=True)
 
     memo = {}
 

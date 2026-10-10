@@ -1598,6 +1598,73 @@ The baselines are not zero, and a model with four times the slow-speed drag show
 
 **Not addressed:** separating linear from quadratic drag. `--drag prior` (#63) stays opt-in and didn't help on the reference dataset. What separates them is data: runs held at two or three different steady speeds on each axis; ask labs for them.
 
+### 70. URI's AUV run as a lab would run it: atomic checkpoints, a plausibility check from the vehicle's own description, and "describe your vehicle" (2026-10-10)
+
+**Why.** URI sent two ROS 2 bags from its ALPHA RISE AUV (1.5 m torpedo hull, 33 kg, 4 T200 thrusters, untethered):
+a Narragansett Bay mission (2025-12-05) and a freshwater pond mission (2026-03-27). We ran them end to end as a lab
+would: a fresh clone, only LAB_GUIDE.md, the templates and `strathe` commands, no code changes. The run was 28
+calibrations, 14 single-vehicle experiments, 6 trained fleet policies and 11 fleet experiments. It found two bugs and
+one gap that made the documented path fail for any vehicle but a BlueROV2.
+
+**What the run showed:**
+- **The documented path, literally:** LAB_GUIDE never asked for a vehicle description, so `calibrate` used the
+  BlueROV2 Heavy's (11.2 kg). Result: 0 of 6 axes trustworthy, surge worse than default physics, 17 of 22 values at
+  their limits, a NaN crash in the first fit, and 70 m of drift after 60 s. The report blamed a tether the AUV doesn't
+  have.
+- **With an ALPHA description (mass, hull-sized inertia, drag and added-mass guesses and limits):**
+  - held-out surge skill +0.83 to +0.89 in both directions (bay to pond, pond to bay);
+  - sway and yaw partly predicted;
+  - drift 3.5–4.0 m after 60 s, against 26 m for default physics.
+- **Roll and pitch stay near zero skill.** Widening the limits the fit hit only moves it to the new limits (pitch
+  inertia 200 kg·m², quadratic drag −2000): a torpedo hull's lift and pitching moment at speed aren't modelled.
+- **Downstream, against training on default physics** (same episodes, the calibrated vehicle):
+  - docking +25 points clean, +36 noisy;
+  - station keeping +7.5 clean, +14.5 noisy;
+  - two-vehicle formation with ALPHA's own policies: +7 to +9 points at 3 s beacons.
+- **Obstacle avoidance trains worse on the calibrated model** (−17.5 points, 4 seeds at 2× budget).
+- **The shipped BlueROV2 fleet policies on ALPHA make calibration look harmful** (−20 points).
+
+**What shipped:**
+- **Checkpoints are written atomically** (`checkpoint_io.py`).
+  - **The bug:** every calibration rewrote `checkpoint.yaml` with `open(path, "w")` after each evaluation, so a run
+    stopped at the wrong moment left it empty. One of URI's runs lost its best result that way, and
+    `finalize_checkpoint.py` crashed on the empty file. A flat battery or a crash does the same.
+  - **The fix:** a temporary file in the same folder, flushed to disk, then `os.replace`, retried briefly on Windows.
+    Used by `run_calibration.py`, the MuJoCo and HoloOcean calibrations and `replay_comparison.py`.
+  - **Damaged checkpoints:** an empty or unreadable one now gets a plain message in `--finish`,
+    `finalize_checkpoint.py` and `--resume-from-checkpoint`.
+- **The plausibility check uses the vehicle's own description.** The report compared every vehicle's fitted inertia
+  with hardcoded BlueROV2 Gazebo values, calling ALPHA's physically right pitch inertia (29 kg·m²) "127× too big";
+  the per-axis verdicts lean on that check. Now any calibration target can carry `reference: {value, source}`, an
+  independent measurement of that vehicle (CAD, a pendulum test), and only those are checked. The shipped BlueROV2
+  specs carry the Gazebo values, so the reference dataset's reports are unchanged.
+- **"Describe your vehicle":**
+  - **The guide:** LAB_GUIDE step 4, with a table of first guesses and ranges from mass and size, and `--spec` in
+    every command.
+  - **The template:** `templates/vehicle_spec_template.yaml`, every value's formula in its comments, worked for a
+    torpedo AUV.
+  - **Warnings:** `calibrate` warns before fitting when no `--spec` is given and the logs' thrusters aren't a BlueROV2
+    Heavy's. The report then says so at the top of "Be careful with", and its first next step is to describe the
+    vehicle.
+  - **Other docs:** README, LIMITS, the templates README and the lab journey are updated.
+  - **Schema:** `measured` is now an allowed confidence label (a weighed mass).
+
+**Checked** (`tests/test_checkpoint_io.py`, `tests/test_vehicle_description.py`):
+- **Atomic writes:** a write interrupted mid-dump leaves the previous checkpoint intact and no temporary file. An empty
+  or damaged checkpoint gives the plain message in `finalize_checkpoint.py` and in a resumed calibration.
+- **The plausibility check:**
+  - the BlueROV2 spec still flags a 10 kg·m² roll inertia;
+  - a spec without references flags nothing;
+  - a spec with its own reference flags against that.
+- **The template:** it passes both spec validators.
+- **The warning:** it fires for a custom layout with the default spec, and not for the BlueROV2 preset, a given
+  `--spec` or logged forces. The report section and next step appear only then.
+
+**Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; a sensor
+mount rotation in ingest specs; `--finish` for `--estimate-current` runs; `train-fleet` and arena task geometry
+(formation spacing, target distance) for vehicles bigger than a BlueROV2; `fleet --workers`; mixed header and
+receive timestamps in re-recorded bags; and session dates from header stamps.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
