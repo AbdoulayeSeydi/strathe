@@ -256,7 +256,7 @@ def vehicle_fields(prefix: str, params_required: bool = False) -> str:
     return f"""<fieldset class=current><legend>Your vehicle</legend>
 <label for={prefix}-params>Calibration file: <code>calibrated_parameters.yaml</code> from your calibration folder,
 full path{hint}</label><input type=text id={prefix}-params name=params value=""{req}>
-<label for={prefix}-spec>Vehicle description YAML, full path (optional; default: the BlueROV2 Heavy)</label>
+<label for={prefix}-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: copy calibration/templates/vehicle_spec_template.yaml and fill in its mass and size, LAB_GUIDE.md step 4)</label>
 <input type=text id={prefix}-spec name=vehicle_spec value="">
 <label for={prefix}-thr>Thruster limits</label><select id={prefix}-thr name=thrusters>
 <option value="">None (any command up to ±30 N / N·m per axis)</option>
@@ -516,7 +516,7 @@ thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <label for=cal-heldout>Recording dates to hold out for validation (optional, e.g. <code>16-02-2024 19-02-2024</code>;
 default: the latest 30% of dates, at least one)</label>
 <input type=text id=cal-heldout name=heldout value="">
-<label for=cal-spec>Vehicle description YAML, full path (optional; default: the BlueROV2 Heavy)</label>
+<label for=cal-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: copy calibration/templates/vehicle_spec_template.yaml and fill in its mass and size, LAB_GUIDE.md step 4)</label>
 <input type=text id=cal-spec name=vehicle_spec value="">
 <label for=cal-rate>Sampling rate of the logs in Hz (optional; read from the conversion when there is one, else 10)</label>
 <input type=text id=cal-rate name=rate value="">

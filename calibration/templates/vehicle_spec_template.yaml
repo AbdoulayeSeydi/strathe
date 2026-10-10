@@ -1,0 +1,163 @@
+# Vehicle description for YOUR vehicle: copy this file next to your logs, fill it in, and give it to every command:
+#     python strathe.py calibrate --ingest-spec my_ingest.yaml --spec my_vehicle_spec.yaml --name my_vehicle
+#     python strathe.py arena --params ... --spec my_vehicle_spec.yaml        (fleet: --vehicle-spec, train-fleet: --spec)
+# Without --spec, Strathe uses calibration/vehicle_spec.yaml: a BlueROV2 Heavy (11.2 kg). Calibrating another vehicle
+# with it fits poorly and can make the simulation blow up (LAB_GUIDE.md step 4, PROJECT_STATUS.md #70).
+#
+# What you need: the vehicle's MASS and its SIZE (length, width, height, or length and diameter). Everything else is
+# an initial guess and a range the calibration searches; the logs decide the value. The example numbers are a
+# 1.5 m x 0.25 m, 33 kg torpedo-shaped AUV: replace them with yours, using the formulas in the comments.
+#   m = mass (kg); L = length, W = width, H = height, D = diameter, r = D / 2 (m); rho = 1025 seawater, 1000 fresh
+#
+# Guess and limits, for every value below:
+#   - initial_guess: the formula's value (or your CAD / simulator model's, if you have one).
+#   - bounds: wide enough for the formula to be off by about 5x either way (a guess of 20 -> [4, 100]). Drag and
+#     damping are negative: keep the upper bound slightly below 0 (e.g. -0.05), never exactly 0.
+#   - A value that ends AT a limit in your calibration report: widen that limit once if physics allows. If it hits
+#     the new limit too, the model is missing something for your vehicle (LIMITS.md); don't keep widening.
+#   - reference: (optional) an independent measurement of THIS vehicle's value: CAD, a pendulum or tank test. The
+#     report then flags a fitted value more than 5x away from it as physically implausible.
+#   - source / confidence: where the number came from (published, literature, estimated, assumed).
+
+schema_version: "0.3.0"
+
+metadata:
+  description: >
+    my_vehicle: what it is, its size and mass, its thrusters, and anything unusual (payload, tether, fins).
+
+assumptions:
+  - "Added mass is diagonal; the centre of gravity / buoyancy offset is modelled in z only (Strathe's model)."
+  - "Thruster forces come from the ingestion spec's thrusters block (or logged forces); the thruster model isn't calibrated."
+
+vehicle:
+  name: my_vehicle
+
+# Torques are taken about this point, in metres from the point your ingest spec's thruster positions are measured
+# from. [0, 0, 0] unless your logs give torques about another point (the reference BlueROV2 dataset does).
+data_conventions:
+  torque_reference_offset_m: [0.0, 0.0, 0.0]
+  torque_reference_rationale: "thruster positions are measured from the vehicle's centre"
+  source: "ingestion spec layout"
+  confidence: measured
+
+environment:
+  # still water during the calibration logs; open water with a current: `calibrate --estimate-current`
+  current_velocity_mps: 0.0
+  current_direction_deg: 0.0
+  current_vertical_mps: 0.0
+  source: "assumed still water"
+  confidence: assumed
+  note: "Set a known current here or with --current-world-mps; an unknown one with --estimate-current."
+
+payload:
+  description: "Baseline configuration."
+  additional_mass_kg: 0.0
+  note: "Recalibrate after a large payload change (mass, buoyancy and centre of gravity all move)."
+
+thruster_model:
+  calibrated: false
+  count: 4                                    # your number of thrusters
+  hardware: "Blue Robotics T200"              # your thrusters
+  source: "manufacturer"
+  confidence: published
+  note: "Layout and thrust curve are in the ingestion spec's thrusters block."
+  future_calibration_targets: {}
+
+fixed_parameters:
+  mass_kg:
+    value: 33.0                               # weigh it, in the configuration you logged
+    unit: kg
+    source: "weighed"
+    confidence: measured
+
+calibration_targets:
+
+  effective_inertia:
+    # rigid-body inertia + the water it carries when it rotates (added inertia), about each axis.
+    #   box (L x W x H):          roll m(W^2+H^2)/12   pitch m(L^2+H^2)/12   yaw m(L^2+W^2)/12;  added ~0.5-1x that
+    #   cylinder along x (L, r):  roll m r^2/2         pitch = yaw m(3r^2+L^2)/12;  pitch/yaw add rho*pi*r^2*L^3/12
+    # example: roll 0.5*33*0.125^2 = 0.26; pitch/yaw 33*(3*0.0156+2.25)/12 = 6.3, + added 1025*3.14*0.0156*3.4/12 = 14
+    Ieff_roll:  {unit: "kg*m^2", initial_guess: 0.4, bounds: [0.08, 3.0],
+                 bounds_rationale: "solid-cylinder estimate 0.26 plus internal layout, about 5x either way",
+                 source: "estimated from mass and diameter", confidence: estimated}
+                 # reference: {value: 0.31, source: "CAD model"}      <- if you have one
+    Ieff_pitch: {unit: "kg*m^2", initial_guess: 20.0, bounds: [4.0, 100.0],
+                 bounds_rationale: "rigid 6.3 + slender-body added inertia 14, about 5x either way",
+                 source: "estimated from mass and size", confidence: estimated}
+    Ieff_yaw:   {unit: "kg*m^2", initial_guess: 20.0, bounds: [4.0, 100.0],
+                 bounds_rationale: "as pitch for an axisymmetric hull",
+                 source: "estimated from mass and size", confidence: estimated}
+
+  linear_damping:
+    # drag proportional to speed; dominates at low speed. A first guess: the quadratic value below x 0.3 m/s.
+    Xu:  {unit: "N/(m/s)", initial_guess: -10.0, bounds: [-60.0, -0.5],
+          bounds_rationale: "~0.3 m/s x Xuu, wide", source: "estimated", confidence: estimated}
+    Yv:  {unit: "N/(m/s)", initial_guess: -40.0, bounds: [-300.0, -1.0],
+          bounds_rationale: "~0.3 m/s x Yvv, wide", source: "estimated", confidence: estimated}
+    Zw:  {unit: "N/(m/s)", initial_guess: -40.0, bounds: [-300.0, -1.0],
+          bounds_rationale: "~0.3 m/s x Zww, wide", source: "estimated", confidence: estimated}
+    Kp:  {unit: "N*m/(rad/s)", initial_guess: -1.0, bounds: [-10.0, -0.05],
+          bounds_rationale: "small for a round hull; larger for a box frame", source: "estimated", confidence: estimated}
+    Mq:  {unit: "N*m/(rad/s)", initial_guess: -10.0, bounds: [-60.0, -0.2],
+          bounds_rationale: "~0.3 rad/s x Mqq, wide", source: "estimated", confidence: estimated}
+    Nr:  {unit: "N*m/(rad/s)", initial_guess: -10.0, bounds: [-60.0, -0.2],
+          bounds_rationale: "~0.3 rad/s x Nrr, wide", source: "estimated", confidence: estimated}
+
+  quadratic_damping:
+    # 0.5 * rho * Cd * A, with A the area facing the motion and Cd ~1 for a flat or broadside face, ~0.2 for a
+    # streamlined nose. Rotation (slender hull): 0.5 * rho * Cd * D * L^4 / 32.
+    # Or from your logs: steady thrust / speed^2 at your cruise speed (example: ~36 N at 0.7 m/s -> ~70).
+    # example: surge 0.5*1025*0.3*0.049 = 8 (streamlined) to ~70 (from the logs); sway/heave 0.5*1025*1*(1.5*0.25) = 190;
+    #          pitch/yaw 0.5*1025*1*0.25*1.5^4/32 = 20
+    Xuu: {unit: "N/(m/s)^2", initial_guess: -40.0, bounds: [-200.0, -2.0],
+          bounds_rationale: "from steady surge thrust and speed, about 5x either way", source: "estimated", confidence: estimated}
+    Yvv: {unit: "N/(m/s)^2", initial_guess: -190.0, bounds: [-1000.0, -5.0],
+          bounds_rationale: "0.5*rho*Cd*A broadside, about 5x either way", source: "estimated", confidence: estimated}
+    Zww: {unit: "N/(m/s)^2", initial_guess: -190.0, bounds: [-1000.0, -5.0],
+          bounds_rationale: "as sway", source: "estimated", confidence: estimated}
+    Kpp: {unit: "N*m/(rad/s)^2", initial_guess: -1.0, bounds: [-10.0, -0.05],
+          bounds_rationale: "small for a round hull", source: "estimated", confidence: estimated}
+    Mqq: {unit: "N*m/(rad/s)^2", initial_guess: -20.0, bounds: [-100.0, -0.5],
+          bounds_rationale: "slender-body strip estimate, about 5x either way", source: "estimated", confidence: estimated}
+    Nrr: {unit: "N*m/(rad/s)^2", initial_guess: -20.0, bounds: [-100.0, -0.5],
+          bounds_rationale: "as pitch", source: "estimated", confidence: estimated}
+
+  added_mass_diag:
+    # the water a vehicle carries along when it accelerates.
+    #   cylinder: surge ~0.05-0.1 x m; sway and heave rho*pi*r^2*L
+    #   box frame: ~0.5-1.5 x m on each axis (the reference BlueROV2: 5.5 / 12.7 / 14.6 kg for 11.2 kg)
+    # example: surge 0.1*33 = 3.3; sway/heave 1025*3.14*0.0156*1.5 = 75
+    Xu_dot: {unit: kg, initial_guess: 3.0, bounds: [0.0, 20.0],
+             bounds_rationale: "~10% of mass for a slender hull", source: "estimated", confidence: estimated}
+    Yv_dot: {unit: kg, initial_guess: 75.0, bounds: [0.0, 300.0],
+             bounds_rationale: "strip theory rho*pi*r^2*L, up to 4x", source: "estimated", confidence: estimated}
+    Zw_dot: {unit: kg, initial_guess: 75.0, bounds: [0.0, 300.0],
+             bounds_rationale: "as sway", source: "estimated", confidence: estimated}
+
+  added_mass_coupling:
+    # surge-pitch and heave-pitch coupling; keep these small (they must keep the mass matrix positive-definite)
+    Xq_dot: {unit: kg, initial_guess: 0.0, bounds: [-0.5, 0.5],
+             bounds_rationale: "exploratory, small", source: "assumed near-zero", confidence: assumed}
+    Zq_dot: {unit: kg, initial_guess: 0.0, bounds: [-0.5, 0.5],
+             bounds_rationale: "exploratory, small", source: "assumed near-zero", confidence: assumed}
+
+  buoyancy:
+    # net_buoyancy_z: buoyancy minus weight in N, positive = it floats. Limits: about +-10% of its weight (m * 9.81)
+    # cg_cb_offset_z: how far the centre of gravity sits below the centre of buoyancy (m), positive = self-righting
+    net_buoyancy_z: {unit: N, initial_guess: 0.0, bounds: [-40.0, 40.0],
+                     bounds_rationale: "+-12% of the 324 N weight; trimmed slightly positive", source: "assumed", confidence: assumed}
+    cg_cb_offset_z: {unit: m, initial_guess: 0.02, bounds: [-0.1, 0.1],
+                     bounds_rationale: "a few cm, CG below CB", source: "assumed", confidence: assumed}
+
+  # thruster_dynamics:            # optional (PROJECT_STATUS.md #66): fit how fast the thrusters spin up
+  #   thruster_time_constant_s: {unit: s, initial_guess: 0.1, bounds: [0.0, 1.0],
+  #     bounds_rationale: "first-order spin-up; 0 = instant thrust", source: "fitted from command steps", confidence: estimated}
+
+optimization:
+  algorithm: "scipy.optimize.least_squares (trust region reflective)"
+  loss: "linear (standard least-squares residuals)"
+  ftol: 1.0e-8
+
+validation:
+  primary_metric: "mean per-run RMSE across all 6 velocity DOFs (Bu,Bv,Bw,Bp,Bq,Br)"
+  identifiability_note: "See the calibration report's identifiability section for what these logs can and can't separate."

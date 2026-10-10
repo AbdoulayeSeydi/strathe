@@ -243,7 +243,7 @@ python strathe.py check
 | Command | What it does |
 |---|---|
 | `python strathe.py web` | Opens a local web page in your browser. From it you can calibrate, run single-vehicle and fleet experiments, train fleet policies, watch jobs run, and read the reports. |
-| `python strathe.py calibrate --ingest-spec my_rov.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces, thruster PWM or normalized thruster commands): converts, checks, calibrates, checks which values the data can pin down, compares the simulation with the real vehicle on unseen recordings (`validation/`: position, orientation, response, plots), and writes the plain-language report. Add `--estimate-current` for open-water logs in an unknown current, `--free-decay free_decay.yaml` to use tank-measured roll and pitch. Templates: `calibration/templates/`. |
+| `python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces, thruster PWM or normalized thruster commands): converts, checks, calibrates, checks which values the data can pin down, compares the simulation with the real vehicle on unseen recordings (`validation/`: position, orientation, response, plots), and writes the plain-language report. `--spec` is your vehicle's description (mass, inertia, drag; `calibration/templates/vehicle_spec_template.yaml`; without it, a BlueROV2 Heavy). Add `--estimate-current` for open-water logs in an unknown current, `--free-decay free_decay.yaml` to use tank-measured roll and pitch. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
 | `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--algorithm sac` (or `td3`), `--mode noisy` (with `--compare-clean-training`), `--buoyancy -3`, `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
 | `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance`, `--mode clean\|noisy\|both`, `--noise`, `--buoyancy` and `--policies ppo=... sac=...` (and more; `--help`) change the experiment without editing YAML. |
@@ -439,7 +439,8 @@ The calibration pipeline reads one canonical CSV layout. The shortest route
 from a lab's own logs is one command:
 ```bash
 cp calibration/templates/ingest_rosbag_mavros.yaml my_logs/my_rov.yaml   # or a CSV template; edit the names
-python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --name my_rov
+cp calibration/templates/vehicle_spec_template.yaml my_logs/my_vehicle_spec.yaml   # your mass and size; not for a BlueROV2 Heavy
+python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --spec my_logs/my_vehicle_spec.yaml --name my_rov
 ```
 It runs six steps and stops at the first that fails, saying what to fix (steps 4 and 5 only warn):
 1. converts the logs

@@ -1,10 +1,11 @@
 # Templates: getting your own vehicle's logs into Strathe
 
 Copy the template closest to your logs next to them, change the right-hand
-sides (your column or topic names, units, frame), and run one command:
+sides (your column or topic names, units, frame), describe your vehicle (below),
+and run one command:
 
 ```bash
-python strathe.py calibrate --ingest-spec my_vehicle_ingest.yaml --name my_vehicle
+python strathe.py calibrate --ingest-spec my_vehicle_ingest.yaml --spec my_vehicle_spec.yaml --name my_vehicle
 ```
 
 That converts the logs, checks them, calibrates, checks which values the data
@@ -29,6 +30,14 @@ Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start fr
 CSV ingestion reads **one table per recording**. If your logs are one CSV per sensor at different
 rates (a common export), merge them onto one time base first; `../examples/dfki_tether/` does exactly
 that for a public dataset (motion capture + ArduSub telemetry) and is a worked example to copy.
+
+## Your vehicle's description
+
+`vehicle_spec_template.yaml` describes the vehicle itself: its mass, and a first
+guess and an allowed range for its inertia, drag, added mass and buoyancy, with
+the formulas to work them out from its mass and size. Copy it, fill it in, and
+pass it with `--spec`. Without it Strathe uses a BlueROV2 Heavy (11.2 kg), which
+is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
 
 ## What every spec needs
 

@@ -61,9 +61,8 @@ PLAIN = {
 AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot"], "v": ["Yv", "Yvv", "Yv_dot"], "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z"],
                "p": ["Ieff_roll", "Kp", "Kpp", "cg_cb_offset_z"], "q": ["Ieff_pitch", "Mq", "Mqq", "cg_cb_offset_z"],
                "r": ["Ieff_yaw", "Nr", "Nrr"]}
-# independent physical reference values where we have them (see PROJECT_STATUS.md #28)
-PHYSICAL_REFERENCE = {"Ieff_roll": (0.26, "BlueROV2 Heavy rigid-body Ixx, public Gazebo model"),
-                      "Ieff_pitch": (0.23, "BlueROV2 Heavy rigid-body Iyy, public Gazebo model")}
+# a fitted value more than this far from the vehicle's own independent measurement (a calibration target's
+# `reference:` in its vehicle_spec.yaml; PROJECT_STATUS.md #28, #70) is flagged as physically implausible
 MAX_PLAUSIBLE_RATIO = 5.0
 GOOD_SKILL = 0.3   # explains at least ~half the motion's variance: 1 - (1 - 0.3)^2 = 0.51
 
@@ -120,9 +119,16 @@ def pinned_parameters(params, spec) -> list:
     return out
 
 
-def implausible_parameters(params) -> list:
+def physical_references(spec) -> dict:
+    """{parameter: (value, source)} from the vehicle description's own `reference:` entries: independent measurements
+    of THIS vehicle. A vehicle without them gets no plausibility check, not another vehicle's numbers."""
+    return {n: (float(e["reference"]["value"]), str(e["reference"]["source"]))
+            for n, e in spec.flat_calibration_targets.items() if e.get("reference")}
+
+
+def implausible_parameters(params, spec) -> list:
     out = []
-    for n, (ref, src) in PHYSICAL_REFERENCE.items():
+    for n, (ref, src) in physical_references(spec).items():
         val = getattr(params, n)
         ratio = val / ref
         if ratio > MAX_PLAUSIBLE_RATIO or ratio < 1 / MAX_PLAUSIBLE_RATIO:
@@ -188,8 +194,33 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
     return verdicts
 
 
-def next_steps(verdicts, pinned, implausible, ident) -> list:
+def vehicle_description_note(spec, data_dir: Optional[str]) -> Optional[str]:
+    """When the calibration used the shipped BlueROV2 Heavy description but the logs' thrusters aren't that vehicle's
+    (ingest_report.json): the plain warning, else None. Fitting a different vehicle with a BlueROV2's mass, inertia
+    and limits pushes values to their limits and can blow the simulation up (a 33 kg AUV: PROJECT_STATUS.md #70)."""
+    if (spec.raw.get("vehicle") or {}).get("name") != "bluerov2_heavy" or not data_dir:
+        return None
+    path = os.path.join(data_dir, "ingest_report.json")
+    try:
+        thrusters = json.load(open(path, encoding="utf-8")).get("thrusters") if os.path.exists(path) else None
+    except (OSError, ValueError):
+        return None
+    if not thrusters or thrusters.startswith("BlueROV2 Heavy"):
+        return None
+    return (f"This calibration used the shipped vehicle description, a BlueROV2 Heavy "
+            f"({spec.vehicle.mass_kg:g} kg, with its inertia and limits), but your logs' thrusters are "
+            f"{thrusters.split(';')[0]}. If your vehicle isn't a BlueROV2, describe it first and calibrate again "
+            f"with --spec: copy calibration/templates/vehicle_spec_template.yaml (LAB_GUIDE.md step 4). Values "
+            f"stuck at their limits and poor skill below are what a mismatched description produces.")
+
+
+def next_steps(verdicts, pinned, implausible, ident, vehicle_note: Optional[str] = None) -> list:
     steps = []
+    if vehicle_note:
+        steps.append("Describe your own vehicle (mass, inertia, drag and their limits) in a copy of "
+                     "calibration/templates/vehicle_spec_template.yaml and calibrate again with --spec: this "
+                     "calibration used a BlueROV2 Heavy's description (see \"Be careful with\"). Do this before "
+                     "acting on the steps below.")
     # more data helps axes the model predicts poorly; axes flagged only because a
     # parameter hit a limit need the limits reviewed instead (next step)
     unexplained = [v for v in verdicts if v.get("excluded") or (v.get("skill") is not None and v["skill"] <= 0)]
@@ -408,7 +439,7 @@ def validation_section(v: dict) -> list:
 
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
-                 free_decay=None, diverged=None, validation=None):
+                 free_decay=None, diverged=None, validation=None, vehicle_note=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
@@ -454,7 +485,9 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
         L.append("## Roll and pitch from tank tests\n")
         L.append(free_decay + "\n")
     L.append("## Be careful with\n")
-    if not (pinned or implausible or (ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")))):
+    if vehicle_note:
+        L.append("**The vehicle description isn't your vehicle's.** " + vehicle_note + "\n")
+    if not (vehicle_note or pinned or implausible or (ident and (ident.get("correlated_pairs") or ident.get("weak_combinations")))):
         L.append("Nothing flagged.\n")
     if pinned:
         L.append(f"**Values stuck at a limit ({len(pinned)}).** The fit pushed these as far as allowed and stopped, "
@@ -524,7 +557,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     axes = per_axis_heldout(metrics, params, spec, data_dir, list(heldout_dates) if heldout_dates else None)
     fd_held = set(((metrics or {}).get("objective", {}).get("free_decay") or {}).get("held") or {})
     pinned = [p for p in pinned_parameters(params, spec) if p["name"] not in fd_held]  # measured, not fitted
-    implausible = implausible_parameters(params)
+    implausible = implausible_parameters(params, spec)
     measured_axes = tuple(ax for ax, ps in (("p", ("Kp", "Kpp")), ("q", ("Mq", "Mqq"))) if fd_held & set(ps))
     names_flagged = {p["name"] for p in pinned}, {p["name"] for p in implausible}
     excluded = tuple((metrics or {}).get("objective", {}).get("excluded_axes", ()))
@@ -542,13 +575,14 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     converged = None
     if metrics:
         converged = metrics.get("optimizer", {}).get("converged", metrics.get("converged"))
-    steps = next_steps(verdicts, pinned, implausible, ident)
+    vehicle_note = vehicle_description_note(spec, data_dir)
+    steps = next_steps(verdicts, pinned, implausible, ident, vehicle_note)
     out = os.path.join(result_dir, "calibration_report.md")
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
-                 diverged_note(metrics), load_validation(result_dir))
+                 diverged_note(metrics), load_validation(result_dir), vehicle_note)
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
-            "generalization_ratio": gen_gap, "next_steps": steps}
+            "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 
 
 def main(argv=None) -> int:

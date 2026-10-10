@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 import numpy as np
 import yaml
 
+from checkpoint_io import CheckpointError, read_checkpoint
 from data_split import discover_csv_files, split_by_date
 from dynamics_model import CalibrationParameters
 from objective import read_currents_file
@@ -42,8 +43,7 @@ def _per_dof(params, runs, vehicle, horizon=None):
 def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_dir: str, sampling_rate_hz: float,
              torque_offset=None, axis_scaling: str = "none", exclude_axes=(), horizon_samples=None,
              reason: str = "", current_world=None, current_by_file=None, free_decay=None) -> dict:
-    with open(checkpoint, encoding="utf-8") as f:
-        ck = yaml.safe_load(f)
+    ck = read_checkpoint(checkpoint)
     params = CalibrationParameters(**ck["best_parameters_so_far"])
     spec = load_vehicle_spec(spec_path)
     offset = tuple(torque_offset) if torque_offset is not None else spec_torque_reference_offset(spec)
@@ -140,10 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     out = args.output_dir or os.path.dirname(os.path.abspath(args.checkpoint))
-    m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
-                 args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
-                 args.prediction_horizon_samples, args.reason, args.current_world_mps,
-                 None if not args.currents_file else read_currents_file(args.currents_file), args.free_decay)
+    try:
+        m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
+                     args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
+                     args.prediction_horizon_samples, args.reason, args.current_world_mps,
+                     None if not args.currents_file else read_currents_file(args.currents_file), args.free_decay)
+    except CheckpointError as e:
+        print(f"❌ {e}")
+        return 2
     sk = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
     print(f"Wrote {out}/calibrated_parameters.yaml and metrics.json (NOT converged: {m['optimizer']['message']})")
     print("Held-out skill vs predicting no motion [u v w p q r]: " + " ".join(f"{x:+.2f}" for x in sk))
