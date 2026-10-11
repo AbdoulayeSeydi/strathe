@@ -114,7 +114,7 @@ def test_settings_merge_on_top_of_the_export():
 
 
 def test_export_stonefish_writes_the_vehicle_and_scores_it(tmp_path):
-    data = _logs(tmp_path, seconds=40)
+    data = _logs(tmp_path, seconds=90)
     _lab(tmp_path / "lab", r="0.1")
     cal = _calibration(tmp_path, data)
     out = tmp_path / "out"
@@ -130,6 +130,8 @@ def test_export_stonefish_writes_the_vehicle_and_scores_it(tmp_path):
     assert {"Stonefish, original", "Stonefish with Strathe's values", "Strathe's own model"} <= set(y["heldout"])
     report = (out / "stonefish_export_report.md").read_text()
     assert "Not carried, and why" in report and "| mass | 32 kg |" in report
+    assert "After 10 s, by axis" in report and "strathe fit-stonefish" in report
+    assert "fit-stonefish" in y["recommendation"] and set(y["axis_verdict_10s"]) == {"better", "worse", "same"}
     assert '<mass value="' in (out / "vehicle_strathe.scn").read_text()
 
 
@@ -192,3 +194,14 @@ def test_an_axisymmetric_fit_starts_between_the_side_and_vertical_values():
                              "added_mass": [1, 1, 1], "added_inertia": [0, 0, 0]}, axisymmetric=True)
     v = k.values(k.x0())
     assert v["quadratic_drag_yz"] == pytest.approx(np.sqrt(0.4)) and v["viscous_drag_yz"] == pytest.approx(0.3)
+
+
+def test_the_report_says_which_axes_got_worse_and_to_calibrate_directly():
+    def r(vel, att):
+        return {"10s": {"velocity_rmse": vel, "attitude_error_median_deg": att}}
+    # URI's ALPHA RISE, bay held out (#74)
+    v = EX.axis_verdict(r([0.150, 0.070, 0.239, 0, 0, 0], [2.41, 8.91, 19.74]),
+                        r([0.424, 0.073, 0.093, 0, 0, 0], [5.14, 11.26, 14.46]))
+    assert v["better"] == ["up/down speed (heave)", "heading (yaw)"]
+    assert v["worse"] == ["forward speed (surge)", "roll", "pitch"] and v["same"] == ["sideways speed (sway)"]
+    assert "fit-stonefish" in EX.RECOMMENDATION and EX.axis_verdict({}, {}) == {"better": [], "worse": [], "same": []}

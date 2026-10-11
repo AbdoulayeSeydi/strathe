@@ -306,7 +306,10 @@ def run_export(a) -> int:
                                                                         if v is not None},
                    "drag_by_axis": e.drag, "comparison": [dict(zip(("quantity", "strathe", "stonefish_before",
                                                                     "stonefish_after", "unit"), r)) for r in e.rows],
-                   "notes": e.notes, "exported_vehicle_file": vehicle_out, "heldout": results}
+                   "notes": e.notes, "exported_vehicle_file": vehicle_out, "heldout": results,
+                   "axis_verdict_10s": axis_verdict(results["Stonefish, original"],
+                                                    results["Stonefish with Strathe's values"]) if results else None,
+                   "recommendation": RECOMMENDATION}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, "stonefish_export.yaml"), "w"),
                        sort_keys=False)
         open(os.path.join(out, "stonefish_export_report.md"), "w", encoding="utf-8").write(
@@ -315,11 +318,40 @@ def run_export(a) -> int:
         for name, r in results.items():
             hs = [f"{r[f'{h}s']['drift_median_m']:.2f}" for h in HORIZONS_S if f"{h}s" in r]
             print(f"  {name:36s} drift {' / '.join(hs)} m")
+        o, x = results.get("Stonefish, original"), results.get("Stonefish with Strathe's values")
+        if o and x:
+            v = axis_verdict(o, x)
+            print("  after 10 s, by axis: " + "; ".join(f"{k}: {', '.join(n)}" for k, n in v.items() if n))
+        print("  " + RECOMMENDATION)
         for n in e.notes:
             print("  note: " + n)
         return 0
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+AXIS_CHECKS = (("forward speed (surge)", "velocity_rmse", 0), ("sideways speed (sway)", "velocity_rmse", 1),
+               ("up/down speed (heave)", "velocity_rmse", 2), ("roll", "attitude_error_median_deg", 0),
+               ("pitch", "attitude_error_median_deg", 1), ("heading (yaw)", "attitude_error_median_deg", 2))
+RECOMMENDATION = ("Strathe's values are not a calibrated Stonefish model: they balance against Strathe's own drag and "
+                  "righting, not Stonefish's. Its mesh drag grows with speed cubed and couples the axes (surge), and "
+                  "its roll and pitch damping come from the same mesh coefficients, so a transplanted centre of "
+                  "gravity no longer balances them (roll, pitch). To calibrate your Stonefish model, run "
+                  "`strathe fit-stonefish`, which fits it through Stonefish itself (on URI's ALPHA RISE: 53-66% less "
+                  "error after 60 s, against 17-28% for this conversion; PROJECT_STATUS.md #73-#75).")
+
+
+def axis_verdict(original: dict, exported: dict, horizon: str = "10s", margin: float = 0.05) -> dict:
+    """{'better': [...], 'worse': [...], 'same': [...]}: the exported model against the original, per axis, by velocity
+    error (linear axes) and attitude error (roll, pitch, heading) after `horizon`; within `margin` is 'same'."""
+    out = {"better": [], "worse": [], "same": []}
+    o, x = original.get(horizon), exported.get(horizon)
+    if not (o and x):
+        return out
+    for name, key, i in AXIS_CHECKS:
+        a, b = o[key][i], x[key][i]
+        out["better" if b < (1 - margin) * a else "worse" if b > (1 + margin) * a else "same"].append(name)
+    return out
 
 
 def _num(x, unit):
@@ -336,6 +368,13 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
                  f"values has **{x[h]['drift_median_m']:.2f} m** of position error after {h[:-1]} s, against "
                  f"**{o[h]['drift_median_m']:.2f} m** for your original model ({ch:+.0f}%). Check every horizon below: "
                  f"a change can help over a minute and cost over seconds.\n")
+        v = axis_verdict(o, x)
+        if any(v.values()):
+            L.append("After 10 s, by axis: " + "; ".join(f"**{k}**: {', '.join(n)}" for k, n in v.items() if n) + ".\n")
+    else:
+        L.append("Not scored: no held-out recording is long enough for a 60 s window (or none was held out).\n")
+    L.append(f"**{RECOMMENDATION}**\n")
+    if h:
         L += ["## How the models compare on unseen recordings\n",
               f"Windows of {EVAL_WINDOW_S:g} s every {EVAL_STRIDE_S:g} s; each starts from the logged state and is "
               f"driven by the logged forces, the model turning and tilting on its own, in still water. Medians.\n"]
