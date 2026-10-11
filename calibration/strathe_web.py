@@ -394,6 +394,55 @@ placeholder delivery curve; check a vendor's specs, or calibrate it from your li
 </fieldset>"""
 
 
+def stonefish_cli_args(form: dict) -> list:
+    """`strathe fit-stonefish` arguments from the web form (PROJECT_STATUS.md #72)."""
+    scn = _existing_file(form.get("scenario", ""), "Stonefish scenario", (".scn", ".xml"))
+    robot, part = form.get("robot", "").strip(), form.get("part", "").strip()
+    if not robot or not part:
+        raise ValueError("Give the robot's name and the part to tune.")
+    ref = form.get("reference_point", "").split()
+    try:
+        ref = [str(float(x)) for x in ref]
+    except ValueError:
+        ref = []
+    if len(ref) != 3:
+        raise ValueError("The reference point is three numbers: x y z in metres.")
+    args = ["--scenario", scn, "--robot", robot, "--part", part, "--reference-point", *ref]
+    if form.get("ingest_spec", "").strip():
+        args += ["--ingest-spec", _existing_file(form["ingest_spec"], "Ingestion spec", (".yaml", ".yml"))]
+    elif form.get("data", "").strip():
+        data = os.path.abspath(os.path.expanduser(form["data"].strip()))
+        if not os.path.isdir(data):
+            raise ValueError(f"Folder not found: {data}")
+        args += ["--data", data]
+    else:
+        raise ValueError("Give the logs: an ingestion spec, or a folder of Strathe CSVs.")
+    if form.get("heldout", "").strip():
+        args += ["--heldout-dates", *form["heldout"].split()]
+    if form.get("buoyancy_part", "").strip():
+        args += ["--buoyancy-part", form["buoyancy_part"].strip()]
+    finds = form.get("find", "").split()
+    if finds:
+        if not all("=" in f for f in finds):
+            raise ValueError("$(find) folders are PKG=/path.")
+        args += ["--find", *finds]
+    if form.get("stonefish_data", "").strip():
+        d = os.path.abspath(os.path.expanduser(form["stonefish_data"].strip()))
+        if not os.path.isdir(d):
+            raise ValueError(f"Stonefish data folder not found: {d}")
+        args += ["--stonefish-data", d]
+    dens = form.get("density_by_date", "").split()
+    if dens:
+        if not all(re.fullmatch(r"[\d-]+=[\d.]+", d) for d in dens):
+            raise ValueError("Water densities are DATE=RHO, e.g. 27-03-2026=1000.")
+        args += ["--density-by-date", *dens]
+    if form.get("compare_params", "").strip():
+        args += ["--compare-params", _existing_file(form["compare_params"], "Calibration file", (".yaml", ".yml"))]
+    if form.get("axisymmetric"):
+        args += ["--axisymmetric"]
+    return args
+
+
 def link_cli_args(form: dict, sweep: bool = False) -> list:
     """--link / --optical-* / --hybrid-policy from the form, validated; blanks add nothing."""
     multi = form.get("_multi") or {}
@@ -617,6 +666,34 @@ you logged)</label>
 <select id=lk-water name=optical_water><option value="">coastal (default)</option><option value=clear>clear</option>
 <option value=coastal>coastal</option><option value=harbor>harbour</option></select>
 <button>Calibrate the link</button></form></div>
+<div class=card><h2>Calibrate your Stonefish model</h2>
+<p class=muted>Fits your own Stonefish vehicle's drag, added mass, buoyancy and centre of gravity (one part) to your logs,
+and scores it against the original on recordings it never saw. Writes your vehicle file back with only that part
+changed. Needs the replay tool built against your Stonefish (<code>calibration/stonefish/README.md</code>); an hour
+or more.</p>
+<form method=post action=/jobs/fit_stonefish>{tok}
+<label for=sf-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=sf-scn name=scenario required>
+<label for=sf-robot>Robot name in the scenario</label><input type=text id=sf-robot name=robot required>
+<label for=sf-part>Part to tune (e.g. the hull's external_part name)</label><input type=text id=sf-part name=part required>
+<label for=sf-ref>Where the logs' velocity and forces are measured, in the robot's frame: x y z, m (forward-right-down,
+e.g. your URDF's base_link)</label><input type=text id=sf-ref name=reference_point value="0 0 0" required>
+<label for=sf-spec>Your logs: ingestion spec YAML (full path)</label><input type=text id=sf-spec name=ingest_spec value="">
+<label for=sf-data>…or a folder of logs already in Strathe's CSV layout</label><input type=text id=sf-data name=data value="">
+<label for=sf-heldout>Recording dates to hold out (optional; default the latest 30%)</label>
+<input type=text id=sf-heldout name=heldout value="">
+<label for=sf-buoy>Buoyant part to resize for the net buoyancy (a box, cylinder or sphere; optional)</label>
+<input type=text id=sf-buoy name=buoyancy_part value="">
+<label for=sf-find>ROS-style scenarios: $(find PKG) folders, PKG=/path (one or more, space-separated; optional)</label>
+<input type=text id=sf-find name=find value="">
+<label for=sf-sfdata>Stonefish data folder for meshes (optional; default the scenario's folder)</label>
+<input type=text id=sf-sfdata name=stonefish_data value="">
+<label for=sf-density>Water density per recording date, DATE=RHO (optional; e.g. 27-03-2026=1000)</label>
+<input type=text id=sf-density name=density_by_date value="">
+<label for=sf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label>
+<input type=text id=sf-cmp name=compare_params value="">
+<label><input type=checkbox id=sf-axi name=axisymmetric> Torpedo-shaped vehicle: one value across the hull</label>
+<label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
+<button>Calibrate the Stonefish model</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
 <label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
@@ -873,6 +950,11 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"link_{name}")
             args = ["fit-link", "--log", *logs, "--out", out, "--link", link] + (["--optical-water", water] if water else [])
             return self.manager.start("fit_link", f"Link calibration: {name}", args, [out])
+        if path == "/jobs/fit_stonefish":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_stonefish"
+            out = os.path.join(JOBS_DIR, f"stonefish_{name}")
+            args = ["fit-stonefish", *stonefish_cli_args(form), "--out", out]
+            return self.manager.start("fit_stonefish", f"Stonefish calibration: {name}", args, [out])
         if path == "/jobs/ingest":
             spec = os.path.abspath(os.path.expanduser(form.get("spec", "").strip()))
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))

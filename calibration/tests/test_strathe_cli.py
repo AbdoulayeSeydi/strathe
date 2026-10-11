@@ -181,7 +181,8 @@ def test_home_page_has_every_form(server):
     assert status == 200 and "Calibrate a vehicle" in body and "Run a fleet experiment" in body
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
-    assert body.count(f"value='{token}'") == 7
+    assert "Calibrate your Stonefish model" in body
+    assert body.count(f"value='{token}'") == 8
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -726,3 +727,20 @@ def test_web_free_decay_and_fit_link_start_the_cli_commands(server):
     cmd = started[-1][3:]
     assert cmd[:3] == ["fit-link", "--log", str(log)] and cmd[-2:] == ["--optical-water", "harbor"]
     cli.build_parser().parse_args(cmd)
+
+
+def test_stonefish_form_starts_exactly_the_cli_command(server):
+    request, token, started, manager, tmp_path = server
+    (tmp_path / "w.scn").write_text("<scenario/>")
+    status, _, headers = request("POST", "/jobs/fit_stonefish", {
+        "token": token, "scenario": str(tmp_path / "w.scn"), "robot": "alpha_rise", "part": "Hull",
+        "reference_point": "-0.76 0 0", "data": str(tmp_path), "buoyancy_part": "Foam", "axisymmetric": "on",
+        "name": "alpha rise"})
+    assert status == 303
+    cmd = started[0]
+    assert cmd[3:11] == ["fit-stonefish", "--scenario", str(tmp_path / "w.scn"), "--robot", "alpha_rise", "--part",
+                         "Hull", "--reference-point"]
+    assert "--axisymmetric" in cmd and cmd[-2:] == ["--out", os.path.join(web.JOBS_DIR, "stonefish_alpha_rise")]
+    # and the command line accepts exactly what the form built
+    args = cli.build_parser().parse_args(cmd[3:])
+    assert args.fn is cli.cmd_fit_stonefish and args.reference_point == [-0.76, 0.0, 0.0]

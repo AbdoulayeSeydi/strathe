@@ -1723,6 +1723,72 @@ Median drift after 10 / 30 / 60 s:
 - **The tools** (the Stonefish replay driver, the comparison and the Stonefish calibration) are outside the product for
   now: `~/strathe_uri_lab/stonefish/replay/`.
 
+### 72. `strathe fit-stonefish`: calibrate a lab's own Stonefish model from its logs, with an added-mass patch (2026-10-10)
+
+**Why.** #71 showed Strathe can improve URI's own simulator: calibrating Stonefish's settings from the logs cut its
+held-out drift. That's the "calibration layer under your simulator" product, so it's now a command any Stonefish lab
+can run, wired in like the rest. A Stonefish limitation surfaced on the way:
+- **Averaged added mass:** Stonefish gives a body one added mass, the mean of its three axes. For ALPHA's hull that's
+  about 153 kg in every direction; physically about 10 kg moving forward and over 100 kg sideways.
+- **Not settable:** it can't be set from a scenario at all.
+
+**What shipped:**
+- **`strathe fit-stonefish`** (`stonefish_fit.py`, CLI, a web card). It takes:
+  - the lab's own world scenario, as they run it: ROS-style `$(find PKG)` via `--find`, and `<include>` with `<arg>`;
+    sensors are stripped for the headless replay; their files are never changed;
+  - the robot, the part to tune, and the logs (`--data` or `--ingest-spec`);
+  - the logs' reference point in the robot frame, and the held-out dates.
+
+  It fits Stonefish's own settings on that part:
+  - quadratic and viscous drag per axis (or `--axisymmetric`);
+  - added mass per axis;
+  - net buoyancy, by resizing a named buoyant primitive part;
+  - the CG's position.
+
+  The fit is least squares; each Jacobian's Stonefish runs go in parallel (`--workers`). The objective is 30 s
+  free-running windows, with velocity error scaled per axis plus end-of-window drift. It then scores the original and
+  the calibrated model, and optionally a Strathe calibration (`--compare-params`), on the held-out recordings: 60 s
+  windows every 10 s, with the baselines.
+- **Outputs:**
+  - the lab's vehicle file with only that part (and the buoyancy part) changed;
+  - `stonefish_fit.yaml` and a report with a drift plot.
+- **`calibration/stonefish/`:**
+  - the replay tool: C++, built with CMake against any Stonefish install, with an `--info` mode;
+  - `stonefish_added_mass.patch`, about 100 lines. It adds `<hydrodynamics added_mass= added_inertia=
+    anisotropic_added_mass=>`, applies the per-axis difference from the mean (and the Munk moment) as forces each step,
+    and adds `Compound::getNumOfParts()`. It's off unless asked for, so other scenarios behave exactly as before.
+  - **Without the patch,** the command fits drag, buoyancy and the CG only, and says so.
+  - **A README** covering the build (including macOS's OpenMP flags) and use.
+- **Docs:** LAB_GUIDE (optional extras, a step 4 command, outputs), README, LIMITS (a new section on your own simulator).
+- **Tests** (`tests/test_stonefish_fit.py`, plus CLI/web tests): a Python stand-in for the replay tool
+  (`tests/fake_stonefish_replay.py`) runs the whole path on CI without Stonefish:
+  - scenario preparation ($(find), includes, sensors stripped, density);
+  - the calibrated copy keeps comments and sensors;
+  - a fit from wrong values cuts held-out drift by over 40% and moves drag toward the truth;
+  - an unpatched Stonefish narrows the fit;
+  - a missing tool says how to build it;
+  - the CLI runs ingestion then the fit;
+  - the web form starts exactly the CLI command.
+
+**Re-run of the comparison through the command** (URI's ALPHA RISE: patched Stonefish, all four knobs, axisymmetric,
+15 iterations; held-out drift after 10 / 30 / 60 s):
+
+| | Pond (trained on bay) | Bay (trained on pond) |
+|---|---|---|
+| Stonefish, URI's model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
+| **Stonefish calibrated by `fit-stonefish`** | 2.49 / **12.5 / 36.7 m** | 2.75 / **10.9 / 23.3 m** |
+| Strathe's own model (B0) | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.9 m |
+
+- **Training cost** fell 90% and 82%.
+- **Attitude after 10 s improved most:**
+  - pitch 10.9° → 4.5° (pond) and 8.9° → 2.9° (bay), better than Strathe's own model (10.9°, 9.9°);
+  - yaw 32.7° → 16.5° and 19.7° → 8.1°.
+- **Known issue: surge.** Its 10 s velocity error worsened (0.17 → 0.28 and 0.15 → 0.32 m/s), and the fitted
+  surge added mass went to a nonphysical 172 and 274 kg (Strathe fits about 10). The per-axis scaling (each axis's
+  RMS velocity) makes surge errors cheap during a cruise, so the fit trades them for pitch and yaw.
+
+  **Next:** scale by each axis's variation instead, and let labs hold a measured value (e.g. surge added mass).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
