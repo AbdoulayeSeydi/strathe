@@ -1904,19 +1904,20 @@ directions contradicted each other. Here they're held at slender-body estimates 
 - Muw = −8.4 (centre of pressure 0.225 m aft of base_link);
 - Muq = Zuw·x_cp² = −1.9.
 
-cg_cb_offset_x is still fitted. Pond held out (trained on the bay):
+cg_cb_offset_x is still fitted. Drift after 10 / 60 s, pitch error after 3 / 10 s, and pitch-rate skill:
 
-| | Drift 10 / 60 s | Pitch error after 3 / 10 s | Pitch-rate skill |
-|---|---|---|---|
-| B0, no hull terms | 0.64 / 3.48 m | 3.2° / 10.2° | −0.03 |
-| T0, hull terms fitted (#71) | 0.86 / 5.50 m | 2.9° / 11.9° | −0.04 |
-| T1, hull terms held | 0.66 / 3.56 m | 3.0° / 12.0° | −0.04 |
+| | Pond held out | Bay held out |
+|---|---|---|
+| B0, no hull terms | 0.64 / 3.48 m; 3.2° / 10.2°; −0.03 | 0.72 / 3.98 m; 3.2° / 8.3°; −0.26 |
+| T0, hull terms fitted (#71) | 0.86 / 5.50 m; 2.9° / 11.9°; −0.04 | 0.66 / 3.15 m; 2.2° / 7.3°; −0.24 (not converged) |
+| T1, hull terms held | 0.66 / 3.56 m; 3.0° / 12.0°; −0.04 | 0.69 / 3.78 m; 3.0° / 11.5°; −0.28 |
 
-- **Pitch still doesn't calibrate.** Pitch inertia (60), Mq (−100) and Mqq (−150) sit at their bounds in T1.
+- **Pitch still doesn't calibrate, in either direction.** Mq (−100) and Mqq (−150) sit at their bounds in both
+  T1 runs, and pitch inertia does in one (60 in the pond run; 42 in the bay run).
 - **What it rules out:** the missing lift terms aren't what's wrong. Two missions that hold pitch steady don't
   excite it. The lever stays pitch and heave steps at 2–3 speeds, or free decays (#64).
-- **Holding the terms is harmless where fitting them hurt:** drift is level with B0, and better than T0's.
-- **The bay direction** (trained on the pond) was still running at the time of writing.
+- **Holding the terms is harmless where fitting them hurt:** drift is level with B0 (5% better at 60 s in the bay),
+  and the mean held-out skill is unchanged (+0.18), where T0's fell to −0.10.
 
 ## Honest open items
 
