@@ -1831,6 +1831,94 @@ surge velocity error over 10 s:
 
 **Recommended for labs:** the default weighting, plus `--hold` for added mass you've measured, surge especially.
 
+### 74. `strathe export-stonefish`: Strathe's values in a lab's Stonefish, and why converting isn't enough (2026-10-11)
+
+**Why.** The strategic test: put Strathe's calibrated values into URI's own Stonefish model and compare it with the
+uncalibrated original on URI's logs. If that doesn't improve their simulator, the thesis is in trouble. #71 did it
+with lab scripts (no added mass, no inertia); it wasn't in the product.
+
+**What shipped:**
+- **`strathe export-stonefish --calibration <folder> --scenario ... --robot ... --part Hull`** (`stonefish_export.py`,
+  CLI, a web card). It converts a calibration into the lab's vehicle file, on one part:
+  - mass;
+  - net buoyancy, by resizing a buoyant part, in the training water;
+  - CG − CB;
+  - roll/pitch/yaw inertia, rigid plus added: added inertia first, then the part's rigid `<inertia>`, floored at 5%;
+  - per-axis added mass (patched Stonefish);
+  - per-axis drag.
+
+  Every value is checked by reloading the vehicle in Stonefish, and the original and converted models are scored on
+  the calibration's held-out recordings. What Stonefish can't carry is listed: rotational drag, hull lift, thruster
+  lag, off-diagonal added mass.
+- **`fit-stonefish --from-strathe <folder>`:** fits through Stonefish starting from the converted values; the report
+  then scores three Stonefish models.
+- **The replay tool's `--info`** now reports, per part:
+  - the mesh areas Stonefish's drag uses (projected and tangential, in the part's axes);
+  - the rigid inertia;
+
+  and, for the vehicle:
+  - the CG and CB;
+  - the inertia along the body axes;
+  - the water density.
+- **Calibrations record `vehicle_mass_kg`** in `calibrated_parameters.yaml`.
+- **Fixes:**
+  - XML comments are skipped when editing a part, so a commented-out `<inertia>` isn't taken as the real one;
+  - an axisymmetric fit starts from the geometric mean of the side and vertical values.
+- **Tests:** `tests/test_stonefish_export.py` (11), with the fake replay reporting the new fields.
+
+**Measured: Stonefish's mesh drag is cubic in speed and couples the axes.**
+- **From the code:** each face facing the flow adds `v·|v|·(−v_n)·A`.
+- **In the replay:** differential probes (two Cd values, same start) give 0.5·ρ·Cd·S·U³ within 1% at 0.25–1 m/s, and
+  a linear skin term ρ·Cf·T·U.
+- **The coupling:** the force is along the whole flow, so a pitched hull's large side faces add surge drag. One
+  held-out window: the converted model pitched about 5° within a second and its surge speed fell from 0.61 to 0.46
+  m/s under the logged thrust; Strathe's model held 0.67 and the vehicle 0.64.
+- **Also seen:** Stonefish's hydrodynamic forces lag the state by about 0.01 s (2 ticks at 200 Hz). Under 0.01 m/s at
+  a window start; not corrected.
+
+**URI's ALPHA RISE** (B0 calibrations, patched Stonefish). Held-out drift after 10 / 30 / 60 s:
+
+| | Pond | Bay |
+|---|---|---|
+| Stonefish, URI's model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
+| **Stonefish with Strathe's values (export)** | 4.16 / 14.8 / **34.3** m | 4.48 / 13.9 / **30.9** m |
+| fit-stonefish `--from-strathe` (+ hold added_mass_x=3.3) | 4.35 / 14.2 / 32.9 m | 4.14 / 12.8 / 29.0 m |
+| fit-stonefish from URI's model (+ hold, #73) | 2.94 / **9.8 / 22.2** m | 2.17 / **7.8 / 12.6** m |
+| Strathe's own model | **1.74** / 10.3 / 26.4 m | **1.47** / 9.1 / 30.9 m |
+
+- **Exporting helps over a minute (−28%, −17%) and hurts over seconds (+73%, +133%).** Surge velocity error over
+  10 s is 0.42–0.44 m/s against 0.15–0.17 for URI's model: the cross-flow coupling above.
+- **Every converted value is exact** (mass, buoyancy, CG − CB, inertia, added mass, and drag at the logged speeds),
+  so the gap is Stonefish's drag model, not the conversion.
+- **Starting the fit from the converted values ended worse than starting from URI's model.**
+  - Bay: the fit barely moved (cost 444.6 → 443.4). The axisymmetric start took the side drag (0.049) for the
+    vertical (10.9), now fixed.
+  - Pond: it moved the CG straight back to URI's model's (+0.104 m).
+  - Not recommended until re-run with the fix.
+- **The thesis holds through `fit-stonefish`:** calibrating Stonefish *through* Stonefish cuts URI's 60 s error by
+  53–66%. Values from Strathe's model can't simply be pasted in.
+
+**Pitch with the torpedo-hull terms held at physics values.** #71 fitted Zuw, Muw and Muq freely, and the two
+directions contradicted each other. Here they're held at slender-body estimates for a 1.5 m × 0.25 m bare hull:
+- Zuw = −0.5·ρ·D²·1.2 = −37.5;
+- Muw = −8.4 (centre of pressure 0.225 m aft of base_link);
+- Muq = Zuw·x_cp² = −1.9.
+
+cg_cb_offset_x is still fitted. Drift after 10 / 60 s, pitch error after 3 / 10 s, and pitch-rate skill:
+
+| | Pond held out | Bay held out |
+|---|---|---|
+| B0, no hull terms | 0.64 / 3.48 m; 3.2° / 10.2°; −0.03 | 0.72 / 3.98 m; 3.2° / 8.3°; −0.26 |
+| T0, hull terms fitted (#71) | 0.86 / 5.50 m; 2.9° / 11.9°; −0.04 | 0.66 / 3.15 m; 2.2° / 7.3°; −0.24 (not converged) |
+| T1, hull terms held | 0.66 / 3.56 m; 3.0° / 12.0°; −0.04 | 0.69 / 3.78 m; 3.0° / 11.5°; −0.28 |
+
+- **Pitch still doesn't calibrate, in either direction.** Mq (−100) and Mqq (−150) sit at their bounds in both
+  T1 runs, and pitch inertia does in one (60 in the pond run; 42 in the bay run).
+- **What it rules out:** the missing lift terms aren't what's wrong. Two missions that hold pitch steady don't
+  excite it. The lever stays pitch and heave steps at 2–3 speeds, or free decays (#64).
+- **Holding the terms is harmless where fitting them hurt:** drift is level with B0 (5% better at 60 s in the bay),
+  and the mean held-out skill is unchanged (+0.18), where T0's fell to −0.10.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

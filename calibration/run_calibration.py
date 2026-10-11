@@ -227,6 +227,7 @@ class ReproducibilitySummary:
     spec_path: str
     data_dir: str
     timestamp_utc: str
+    vehicle_mass_kg: Optional[float] = None  # the spec's mass, so tools reading the calibration (export-stonefish) have it
 
 
 @dataclass
@@ -353,6 +354,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "generated_at_utc": report.reproducibility.timestamp_utc,
             "spec_version": report.reproducibility.spec_version,
             "git_commit": report.reproducibility.git_commit,
+            "vehicle_mass_kg": report.reproducibility.vehicle_mass_kg,
             "parameters": params_dict,
         }, f, sort_keys=False)
 
@@ -620,6 +622,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         spec_path=config.spec_path,
         data_dir=config.data_dir,
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
+        vehicle_mass_kg=float(loaded_spec.vehicle.mass_kg),
     )
 
     report = CalibrationReport(

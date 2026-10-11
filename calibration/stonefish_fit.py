@@ -98,7 +98,7 @@ def _set_attr(elem: str, name: str, value: str) -> str:
 
 @dataclass
 class PartSettings:
-    """What fit-stonefish writes into the tuned part (None = leave the scenario's own)."""
+    """What fit-stonefish (or export-stonefish) writes into the tuned part (None = leave the scenario's own)."""
     quadratic_drag: Optional[list] = None
     viscous_drag: Optional[list] = None
     added_mass: Optional[list] = None
@@ -106,6 +106,49 @@ class PartSettings:
     anisotropic: bool = False
     cg_shift: Optional[list] = None          # metres added to the part's <cg xyz> (x, y, z)
     buoyancy_scale: Optional[float] = None   # volume factor for the buoyancy part
+    mass: Optional[float] = None             # the part's <mass value>, kg
+    inertia: Optional[list] = None           # the part's <inertia xyz>, kg m2 (rigid, about its CG)
+
+
+def _search(pattern: str, text: str):
+    """re.search that skips XML comments (a commented-out <inertia .../> isn't the part's inertia)."""
+    masked = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), text, flags=re.S)
+    return re.search(pattern, masked)
+
+
+def _replace_or_add(body: str, tag: str, attr: str, value: str, part: str) -> str:
+    """Set <tag attr=value/> in the part's element, adding the element after <mass .../> (or at the end) if absent."""
+    m = _search(r"<%s\b[^>]*/>" % tag, body)
+    if m:
+        return body[:m.start()] + _set_attr(body[m.start():m.end()], attr, value) + body[m.end():]
+    anchor = _search(r"<mass\b[^>]*/>", body)
+    el = f'<{tag} {attr}="{value}"/>'
+    if anchor:
+        line = body.rfind("\n", 0, anchor.start())
+        ind = body[line + 1:anchor.start()] if line >= 0 else "    "
+        return body[:anchor.end()] + f"\n{ind}{el}" + body[anchor.end():]
+    close = body.rfind("</")
+    if close <= 0:
+        raise StonefishFitError(f"part '{part}' is a single empty element: can't add <{tag}>")
+    return body[:close] + f"    {el}\n" + body[close:]
+
+
+def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) -> Optional[PartSettings]:
+    """`top` applied on top of `base` (fit-stonefish --from-strathe: the fit's changes on top of the exported values):
+    drag, added mass and mass/inertia from `top` where it sets them, CG shifts added, buoyant-volume factors multiplied."""
+    if base is None or top is None:
+        return top if base is None else base
+    out = PartSettings(**base.__dict__)
+    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia"):
+        if getattr(top, k) is not None:
+            setattr(out, k, getattr(top, k))
+    if top.added_mass is not None:
+        out.anisotropic = top.anisotropic
+    if top.cg_shift is not None:
+        out.cg_shift = [a + b for a, b in zip(base.cg_shift or [0.0, 0.0, 0.0], top.cg_shift)]
+    if top.buoyancy_scale is not None:
+        out.buoyancy_scale = (base.buoyancy_scale or 1.0) * top.buoyancy_scale
+    return out
 
 
 def _fmt(v) -> str:
@@ -128,7 +171,7 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
             hydro["added_inertia"] = _fmt(s.added_inertia if s.added_inertia is not None else [0, 0, 0])
             hydro["anisotropic_added_mass"] = "true" if s.anisotropic else "false"
         if hydro:
-            m = re.search(r"<hydrodynamics\b[^>]*/>", body)
+            m = _search(r"<hydrodynamics\b[^>]*/>", body)
             if m:
                 el = m.group(0)
                 for k, v in hydro.items():
@@ -140,8 +183,12 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
                 indent = re.search(r"\n(\s*)<[^/]", body)
                 ind = indent.group(1) if indent else "    "
                 body = body[:close] + f"{ind}{el}\n" + body[close:] if close > 0 else body
+        if s.mass is not None:
+            body = _replace_or_add(body, "mass", "value", f"{float(s.mass):.6g}", part)
+        if s.inertia is not None:
+            body = _replace_or_add(body, "inertia", "xyz", _fmt(s.inertia), part)
         if s.cg_shift is not None and any(s.cg_shift):
-            m = re.search(r'<cg\b[^>]*\bxyz="([^"]*)"', body)
+            m = _search(r'<cg\b[^>]*\bxyz="([^"]*)"', body)
             if not m:
                 raise StonefishFitError(f"part '{part}' has no <cg xyz=...> to shift; add one (its current centre of "
                                         f"gravity) or leave cg out of --fit")
@@ -153,7 +200,7 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
         if span:
             a, b = span
             body = text[a:b]
-            m = re.search(r"<dimensions\b[^>]*/>", body)
+            m = _search(r"<dimensions\b[^>]*/>", body)
             if not m:
                 raise StonefishFitError(f"buoyancy part '{buoyancy_part}' needs <dimensions> (a box, cylinder or "
                                         f"sphere): a mesh part can't be resized without changing its shape")
@@ -180,6 +227,7 @@ class Scenario:
     part: str = ""
     buoyancy_part: Optional[str] = None
     vehicle_file: Optional[str] = None  # the file that defines the tuned part (set by discover())
+    base: Optional[PartSettings] = None  # applied under every change (fit-stonefish --from-strathe: the exported values)
 
     def files(self) -> dict:
         """{original path: text with $(find) resolved}, for the root and everything it includes."""
@@ -223,8 +271,9 @@ class Scenario:
             text = re.sub(r'<include\b[^>]*\bfile="([^"]*)"', inc, text)
             if density is not None:
                 text = re.sub(r'(<water\b[^>]*\bdensity=")[^"]*(")', rf"\g<1>{density:g}\g<2>", text)
-            if settings is not None:
-                text = apply_part_settings(text, self.part, settings, self.buoyancy_part)
+            merged = merge_settings(self.base, settings)
+            if merged is not None:
+                text = apply_part_settings(text, self.part, merged, self.buoyancy_part)
             with open(names[p], "w", encoding="utf-8") as f:
                 f.write(text)
         return names[os.path.abspath(self.root)]
@@ -233,7 +282,7 @@ class Scenario:
         """The lab's own vehicle file (comments, sensors, everything) with only the tuned parts changed."""
         original = open(self.vehicle_file, encoding="utf-8").read()
         with open(path, "w", encoding="utf-8") as f:
-            f.write(apply_part_settings(original, self.part, settings, self.buoyancy_part))
+            f.write(apply_part_settings(original, self.part, merge_settings(self.base, settings), self.buoyancy_part))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -434,6 +483,8 @@ class Knobs:
         kind, _, axis = name.rpartition("_")
         i = {"x": 0, "y": 1, "yz": 1, "z": 2}[axis]
         floor = {"quadratic_drag": 1e-4, "viscous_drag": 1e-5, "added_mass": 1e-2}[kind]
+        if axis == "yz":  # one value across the hull: start between the two (an exported vehicle can differ, #74)
+            return math.sqrt(max(float(self.start[kind][1]), floor) * max(float(self.start[kind][2]), floor))
         return max(float(self.start[kind][i]), floor)
 
     def _param(self, name: str, value: float) -> float:
@@ -643,6 +694,21 @@ def run_fit_stonefish(a) -> int:
             raise StonefishFitError("no held-out recordings: give --heldout-dates, or logs from at least two sessions")
         replay.dt = train[0].dt
         densities = dict((d, float(r)) for d, r in (kv.split("=", 1) for kv in (a.density_by_date or [])))
+        from_strathe = None
+        if a.from_strathe:  # start from the Strathe calibration's values, converted (export-stonefish)
+            from stonefish_export import axis_speeds, export_settings, load_calibration, training_density
+            sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)
+            counter = {"n": 0}
+
+            def measure(settings):
+                counter["n"] += 1
+                return replay.info(scenario.write_runnable(os.path.join(work, f"export{counter['n']}"), settings))
+            rho = training_density(split.train_groups, densities, measure(None).get("water_density") or 1025.0)
+            from_strathe = export_settings(sp, smass, measure, a.part, a.buoyancy_part, rho,
+                                           [axis_speeds(train, i) for i in range(3)])
+            scenario.base = from_strathe.settings
+            a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
+            print(f"Starting from {pfile}'s values, converted into Stonefish's settings (mass {smass:g} kg).", flush=True)
         info = replay.info(scenario.write_runnable(os.path.join(work, "info")))
         parts = {p["name"].split("/")[-1]: p for p in info["parts"]}
         if a.part not in parts:
@@ -681,16 +747,24 @@ def run_fit_stonefish(a) -> int:
         print("Scoring the original and calibrated models on the held-out recordings...", flush=True)
         runs_wins = [(run, windows(run, EVAL_WINDOW_S, EVAL_STRIDE_S)) for run in held]
         results = {}
-        for m, (label, settings) in enumerate((("Stonefish, original", None), ("Stonefish, calibrated by Strathe", s))):
+        base = scenario.base
+        models = [("Stonefish, original", None, None)]
+        if base is not None:
+            models.append(("Stonefish with Strathe's values", base, None))
+        models.append(("Stonefish, calibrated by Strathe", base, s))
+        for m, (label, under, settings) in enumerate(models):
+            scenario.base = under
             preds = []
             for i, (run, wins) in enumerate(runs_wins):
                 scn = scenario.write_runnable(os.path.join(work, f"eval{m}_scn{i}"), settings, densities.get(run.date))
                 preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
             results[label] = score(runs_wins, preds)
+        scenario.base = base
         if a.compare_params:
             from dynamics_model import CalibrationParameters, VehicleConstants
-            p = CalibrationParameters(**yaml.safe_load(open(a.compare_params, encoding="utf-8"))["parameters"])
-            mass = a.compare_mass or info["base"]["mass"]
+            doc = yaml.safe_load(open(a.compare_params, encoding="utf-8"))
+            p = CalibrationParameters(**doc["parameters"])
+            mass = a.compare_mass or doc.get("vehicle_mass_kg") or info["base"]["mass"]
             results["Strathe's own model"] = score(runs_wins, [[strathe_free_run(p, VehicleConstants(mass), run, a_, n)
                                                                 for a_, n in wins] for run, wins in runs_wins])
         results.update(baselines(runs_wins))
@@ -698,7 +772,10 @@ def run_fit_stonefish(a) -> int:
         summary = {"scenario": os.path.abspath(a.scenario), "robot": a.robot, "part": a.part,
                    "buoyancy_part": a.buoyancy_part, "reference_point_m": list(a.reference_point),
                    "fitted": list(fit_knobs), "axisymmetric": bool(a.axisymmetric), "notes": notes,
-                   "held": holds, "weighting": a.weighting, "axis_scales": f["axis_scales"], "values": f["values"],
+                   "held": holds, "weighting": a.weighting,
+                   "from_strathe": {"calibration": a.compare_params, "exported": {k: v for k, v in
+                                    from_strathe.settings.__dict__.items() if v is not None},
+                                    "notes": from_strathe.notes} if from_strathe else None, "axis_scales": f["axis_scales"], "values": f["values"],
                    "train_dates": split.train_groups, "heldout_dates": split.heldout_groups,
                    "fit": {k: f[k] for k in ("start_cost", "cost", "evaluations", "status")},
                    "before": {k: parts[a.part][k] for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia")},
@@ -741,6 +818,12 @@ def run_fit_stonefish(a) -> int:
                      "settings and averages it over the three axes)")
         if holds:
             L.append("- held at your values: " + ", ".join(f"{n} = {v:g}" for n, v in holds.items()))
+        if from_strathe:
+            fs = from_strathe.settings
+            L.append(f"- started from your Strathe calibration (`{os.path.basename(os.path.dirname(a.compare_params))}`), "
+                     f"converted: mass {fs.mass:.4g} kg, rigid inertia {_fmt(fs.inertia)} kg·m², added inertia "
+                     f"{_fmt(fs.added_inertia or [])} kg·m², CG moved by {fs.cg_shift[0]:+.3f} m (x), {fs.cg_shift[2]:+.3f} m "
+                     f"(z); the fit then tuned the rest from there (export-stonefish's report lists what can't be carried)")
         L += ["", "## How the fit went\n",
               f"Fitted: {', '.join(fit_knobs)} ({len(knobs.names())} values) on {', '.join(split.train_groups)}. Cost "
               f"{f['start_cost']:.3f} -> {f['cost']:.3f} after {f['evaluations']} evaluations ({f['status']})."]
@@ -788,8 +871,13 @@ def add_arguments(ap) -> None:
     ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
     ap.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
+    ap.add_argument("--from-strathe", metavar="CALIBRATION",
+                    help="start from your Strathe calibration's values converted into Stonefish's (as export-stonefish: "
+                         "mass, inertia, CG, buoyancy, drag, added mass), then fit; its output folder or "
+                         "calibrated_parameters.yaml")
     ap.add_argument("--compare-params", help="also score your Strathe calibration (calibrated_parameters.yaml)")
-    ap.add_argument("--compare-mass", type=float, help="its vehicle mass, kg (default: Stonefish's)")
+    ap.add_argument("--compare-mass", type=float, help="its vehicle mass, kg (default: the calibration's, else "
+                                                       "Stonefish's)")
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
     ap.add_argument("--physics-hz", type=float, default=200.0, help="Stonefish's physics rate (default 200 Hz)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")

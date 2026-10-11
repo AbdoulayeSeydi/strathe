@@ -213,7 +213,7 @@ def test_held_settings_stay_at_the_measured_value():
     assert "added_mass_x" not in k.names() and len(k.names()) == len(k.all_names()) - 2
     s = k.settings(np.full(len(k.names()), 0.5))
     assert s.added_mass[0] == 10.6 and s.quadratic_drag[1:] == [3.0, 3.0]
-    assert s.added_mass[1] == pytest.approx(223 * np.exp(0.5))  # the fitted ones move
+    assert s.added_mass[1] == pytest.approx(np.sqrt(223 * 224) * np.exp(0.5))  # the fitted ones move
     with pytest.raises(SF.StonefishFitError, match="can't hold buoyancy_scale"):
         SF.Knobs(("drag",), start, True, {"buoyancy_scale": 1.1})
 

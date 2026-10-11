@@ -1,6 +1,14 @@
 # Calibrate your Stonefish vehicle model from your logs
 
-`strathe fit-stonefish` makes the simulator you already use match your real vehicle.
+Two commands put Strathe's calibration into the simulator you already use:
+- **`strathe fit-stonefish`** fits your Stonefish model's own settings by replaying your logs in Stonefish (an hour or
+  more). This is the one that improves Stonefish (53–66% less error after a minute on ALPHA RISE, #73).
+- **`strathe export-stonefish`** converts your Strathe calibration's values into your Stonefish model's settings
+  (minutes), checks each one, and scores the result. It helps over a minute and hurts over seconds (see
+  [Why converting isn't enough](#why-converting-isnt-enough)): use it to see how far your model is from your
+  calibration, not as the calibrated model.
+
+`fit-stonefish` makes the simulator you already use match your real vehicle.
 - **What it fits:** your own Stonefish model's settings on one part of the vehicle (usually the hull):
   - quadratic and viscous drag per axis;
   - added mass per axis;
@@ -10,8 +18,8 @@
 - **How it checks itself:** it scores the original and calibrated models on recordings it never saw.
 - **What you get back:** your vehicle file, with only those settings changed.
 
-On URI's ALPHA RISE, Stonefish calibrated this way had 27–35% less position error after 60 s on unseen missions than
-URI's original model (PROJECT_STATUS.md #71, #72).
+On URI's ALPHA RISE, Stonefish calibrated this way had 53–66% less position error after 60 s on unseen missions than
+URI's original model, holding the surge added mass at a slender-body estimate (PROJECT_STATUS.md #71–#73).
 
 ## 1. Build Stonefish with the added-mass patch (recommended)
 Stonefish gives a body one added mass: the average of its three axes. A slender vehicle carries far less water moving
@@ -36,6 +44,7 @@ and says so.
 cmake -S calibration/stonefish -B calibration/stonefish/build -DCMAKE_PREFIX_PATH=<your Stonefish install prefix>
 cmake --build calibration/stonefish/build
 ```
+(Built it before #74? Rebuild it: `export-stonefish` needs the mesh areas, inertia and centres it now reports.)
 This builds `calibration/stonefish/build/strathe_stonefish_replay`, which `fit-stonefish` finds on its own
 (or give `--replay-tool`). Stonefish is Linux-first.
 - **macOS:** build Stonefish and this tool with OpenMP from Homebrew `libomp`, passing `-DOpenMP_CXX_FLAGS="-Xpreprocessor
@@ -58,6 +67,10 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `--axisymmetric`: a torpedo-shaped hull; one value across the hull (sideways = vertical).
 - `--density-by-date 27-03-2026=1000`: fresh-water recordings in a sea-water world.
 - `--compare-params calibrated_parameters.yaml`: also scores your Strathe calibration, for reference.
+- `--from-strathe calibration_output_my_auv`: start from your Strathe calibration's values, converted as
+  `export-stonefish` does, then fit. The report compares three Stonefish models: the original, the converted values
+  and the fit. **Not recommended yet:** on ALPHA RISE it ended worse than fitting from URI's own model (60 s drift
+  29–33 m against 13–22 m, #74), stuck near the converted values.
 - `--hold NAME=VALUE`: keep a setting at a value you measured instead of fitting it. **Recommended for surge added
   mass**, which ordinary missions can't pin down. On ALPHA RISE, holding it at a slender-body estimate
   (`--hold added_mass_x=3.3`, about 0.1 × mass) halved the 60 s position error again (#73). For example,
@@ -77,6 +90,38 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `stonefish_fit_report.md`: the held-out comparison (drift after 10, 30 and 60 s, velocity and attitude error), with
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
+
+## Put your Strathe calibration into Stonefish: `export-stonefish`
+```bash
+python strathe.py export-stonefish --calibration calibration_output_my_auv --scenario my_world.scn --robot my_auv \
+    --part Hull --buoyancy-part Foam --reference-point -0.76 0 0 --find my_stonefish_pkg=/path/to/my_stonefish_pkg
+```
+It reads the calibration's parameters, its logs (`ingested_logs/`), its held-out dates (`metrics.json`) and the vehicle
+mass (calibrations from before #74 need `--mass`). It then sets, on the one part:
+- **mass:** the part takes the difference, so the vehicle weighs the calibration's mass;
+- **net buoyancy:** resizes `--buoyancy-part`, in the water the calibration was trained in (`--density-by-date`);
+- **centre of gravity:** moves the part's `<cg>` so CG − CB matches (fore-aft only when the calibration fitted it);
+- **inertia:** roll, pitch and yaw, rigid plus added. It uses added inertia first, then the part's rigid `<inertia>`
+  where that isn't enough, never below 5% of Stonefish's own;
+- **added mass per axis** (needs the patch);
+- **drag per axis:** Cd and Cf fitted to Strathe's drag over the speeds your logs cover, after what the other parts
+  already give.
+
+Each value is checked by reloading your vehicle in Stonefish (the report's "before and after" table). You get
+`<your vehicle file>_strathe.scn`, `stonefish_export_report.md` (with what can't be carried, and why) and
+`stonefish_export.yaml`.
+
+## Why converting isn't enough
+Measured on Stonefish's code and in the replay (PROJECT_STATUS.md #74):
+- **Stonefish's "quadratic" drag is cubic in speed.** Each mesh face facing the flow adds `|v|² · v_n · area`, so a
+  pure translation gives 0.5·ρ·Cd·S·|v|³; the viscous term is linear, ρ·Cf·T·v.
+- **It couples the axes.** The force is along the whole flow, so once the hull pitches a few degrees, its large side
+  faces add surge drag. Converted per axis, ALPHA RISE lost forward speed (0.61 → 0.46 m/s in a second) under thrust
+  that Strathe's model, and the real vehicle, held.
+- **Rotational drag** comes from the same coefficients over the mesh, so Strathe's rotational damping can't be set.
+
+So values can't be copied into Stonefish; they have to be fitted through it. `fit-stonefish` does that. Starting it
+from the converted values (`--from-strathe`) didn't help on ALPHA RISE (#74); start from your own model.
 
 ## Limits
 - **One part is tuned,** with diagonal (per-axis) drag and added mass. Stonefish computes the rotational drag from the
