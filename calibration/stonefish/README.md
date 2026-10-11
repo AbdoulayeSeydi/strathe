@@ -58,6 +58,17 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `--axisymmetric`: a torpedo-shaped hull; one value across the hull (sideways = vertical).
 - `--density-by-date 27-03-2026=1000`: fresh-water recordings in a sea-water world.
 - `--compare-params calibrated_parameters.yaml`: also scores your Strathe calibration, for reference.
+- `--hold NAME=VALUE`: keep a setting at a value you measured instead of fitting it. **Recommended for surge added
+  mass**, which ordinary missions can't pin down. On ALPHA RISE, holding it at a slender-body estimate
+  (`--hold added_mass_x=3.3`, about 0.1 × mass) halved the 60 s position error again (#73). For example,
+  `--hold added_mass_x=10.6`
+  (from a tank test, CAD or your Strathe calibration's `Xu_dot`). The names are:
+  - `quadratic_drag_x/y/z`, `viscous_drag_x/y/z` and `added_mass_x/y/z` (`_yz` with `--axisymmetric`);
+  - `buoyancy_scale`;
+  - `cg_shift_x`, `cg_shift_z`.
+- How each axis's error is weighted: by how much that axis's velocity varies in your logs (the default). A vehicle
+  cruising steadily at 0.7 m/s would otherwise make surge errors cheap, and the fit would trade surge for pitch and
+  yaw. `--weighting magnitude` reproduces the first version.
 - It takes an hour or more: every step replays your recordings in Stonefish, several at once (`--workers`).
 
 ## What you get (in `--out`, default `stonefish_fit_<name>/`)

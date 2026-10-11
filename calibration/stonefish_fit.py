@@ -397,27 +397,61 @@ def baselines(runs_wins: list) -> dict:
 
 @dataclass
 class Knobs:
-    """Which settings are fitted, and the parameter vector <-> PartSettings mapping (log scale for drag and added
-    mass, a log volume factor for buoyancy, metres for the CG shift)."""
+    """The tuned settings, by name, and the parameter vector <-> PartSettings mapping. Each setting is fitted (in the
+    vector: log scale for drag and added mass, a log factor for the buoyant volume, metres for the CG shift) or held
+    at a value the lab measured (`--hold added_mass_x=10.6`)."""
     fit: tuple
     start: dict             # the tuned part's settings from the replay tool's --info
     axisymmetric: bool = False
+    held: dict = field(default_factory=dict)   # {setting name: physical value}
 
-    def _axes(self):
-        return [0, 1] if self.axisymmetric else [0, 1, 2]
+    def _ax(self):
+        return ["x", "yz"] if self.axisymmetric else ["x", "y", "z"]
 
-    def names(self) -> list:
-        ax = ["x", "yz"] if self.axisymmetric else ["x", "y", "z"]
+    def all_names(self) -> list:
         n = []
         if "drag" in self.fit:
-            n += [f"log_Cd_{a}" for a in ax] + [f"log_Cf_{a}" for a in ax]
+            n += [f"quadratic_drag_{a}" for a in self._ax()] + [f"viscous_drag_{a}" for a in self._ax()]
         if "added_mass" in self.fit:
-            n += [f"log_added_mass_{a}" for a in ax]
+            n += [f"added_mass_{a}" for a in self._ax()]
         if "buoyancy" in self.fit:
-            n += ["log_buoyancy_volume"]
+            n += ["buoyancy_scale"]
         if "cg" in self.fit:
             n += ["cg_shift_x", "cg_shift_z"]
         return n
+
+    def __post_init__(self):
+        unknown = set(self.held) - set(self.all_names())
+        if unknown:
+            raise StonefishFitError(f"can't hold {', '.join(sorted(unknown))}: the settings being fitted are "
+                                    f"{', '.join(self.all_names()) or 'none'} (add the group to --fit to hold one of it)")
+
+    def names(self) -> list:
+        """The fitted settings (the parameter vector's entries)."""
+        return [n for n in self.all_names() if n not in self.held]
+
+    def _start_value(self, name: str) -> float:
+        kind, _, axis = name.rpartition("_")
+        i = {"x": 0, "y": 1, "yz": 1, "z": 2}[axis]
+        floor = {"quadratic_drag": 1e-4, "viscous_drag": 1e-5, "added_mass": 1e-2}[kind]
+        return max(float(self.start[kind][i]), floor)
+
+    def _param(self, name: str, value: float) -> float:
+        """A setting's physical value -> its parameter."""
+        if name == "buoyancy_scale":
+            return math.log(value)
+        if name.startswith("cg_shift"):
+            return value
+        if value <= 0:
+            raise StonefishFitError(f"{name} must be positive, got {value}")
+        return math.log(value / self._start_value(name))
+
+    def _value(self, name: str, p: float) -> float:
+        if name == "buoyancy_scale":
+            return math.exp(p)
+        if name.startswith("cg_shift"):
+            return p
+        return self._start_value(name) * math.exp(p)
 
     def x0(self) -> np.ndarray:
         return np.zeros(len(self.names()))
@@ -425,50 +459,71 @@ class Knobs:
     def bounds(self):
         lo, hi = [], []
         for n in self.names():
-            if n.startswith("log_buoyancy"):
+            if n == "buoyancy_scale":
                 lo.append(math.log(0.5)); hi.append(math.log(2.0))
-            elif n.startswith("log_"):
-                lo.append(-math.log(30.0)); hi.append(math.log(30.0))
-            else:
+            elif n.startswith("cg_shift"):
                 lo.append(-0.15); hi.append(0.15)
+            else:
+                lo.append(-math.log(30.0)); hi.append(math.log(30.0))
         return np.array(lo), np.array(hi)
 
-    def _expand(self, v):
-        return [v[0], v[1], v[1]] if self.axisymmetric else list(v)
+    def values(self, x) -> dict:
+        """{setting: physical value} for a parameter vector, held settings included."""
+        out = dict(zip(self.names(), (self._value(n, float(p)) for n, p in zip(self.names(), x))))
+        out.update({n: float(v) for n, v in self.held.items()})
+        return {n: out[n] for n in self.all_names()}
+
+    def _axes3(self, v: dict, kind: str) -> list:
+        if self.axisymmetric:
+            return [v[f"{kind}_x"], v[f"{kind}_yz"], v[f"{kind}_yz"]]
+        return [v[f"{kind}_{a}"] for a in "xyz"]
 
     def settings(self, x) -> PartSettings:
-        s, i = PartSettings(), 0
-        k = len(self._axes())
-        st = self.start
+        v = self.values(x)
+        s = PartSettings()
         if "drag" in self.fit:
-            cd = np.exp(self._expand(x[i:i + k])); i += k
-            cf = np.exp(self._expand(x[i:i + k])); i += k
-            s.quadratic_drag = (np.maximum(st["quadratic_drag"], 1e-4) * cd).tolist()
-            s.viscous_drag = (np.maximum(st["viscous_drag"], 1e-5) * cf).tolist()
+            s.quadratic_drag = self._axes3(v, "quadratic_drag")
+            s.viscous_drag = self._axes3(v, "viscous_drag")
         if "added_mass" in self.fit:
-            am = np.exp(self._expand(x[i:i + k])); i += k
-            s.added_mass = (np.maximum(st["added_mass"], 1e-2) * am).tolist()
-            s.added_inertia = list(st["added_inertia"])
+            s.added_mass = self._axes3(v, "added_mass")
+            s.added_inertia = list(self.start["added_inertia"])
             s.anisotropic = True
         if "buoyancy" in self.fit:
-            s.buoyancy_scale = float(math.exp(x[i])); i += 1
+            s.buoyancy_scale = v["buoyancy_scale"]
         if "cg" in self.fit:
-            s.cg_shift = [float(x[i]), 0.0, float(x[i + 1])]; i += 2
+            s.cg_shift = [v["cg_shift_x"], 0.0, v["cg_shift_z"]]
         return s
 
 
+LINEAR_FLOOR, ANGULAR_FLOOR = 0.05, 0.02  # m/s, rad/s: an axis that barely varies isn't weighted without limit
+
+
+def axis_scales(velocities: np.ndarray, weighting: str = "variation") -> np.ndarray:
+    """What each axis's velocity error is divided by in the fit. 'variation' (default): the axis's standard deviation
+    over the training recordings, floored, so a vehicle cruising steadily at 0.7 m/s weighs surge errors by how much
+    surge actually changes. 'magnitude': its RMS (Strathe's own objective's scale; #72's first runs), which makes
+    surge errors cheap during a cruise and let the fit trade surge for pitch and yaw (#73)."""
+    if weighting == "magnitude":
+        sc = np.sqrt(np.mean(velocities ** 2, axis=0))
+    elif weighting == "variation":
+        sc = np.std(velocities, axis=0)
+    else:
+        raise StonefishFitError(f"unknown weighting {weighting!r}: use variation or magnitude")
+    return np.maximum(sc, np.array([LINEAR_FLOOR] * 3 + [ANGULAR_FLOOR] * 3))
+
+
 def fit(scenario: Scenario, replay: Replay, train: list, knobs: Knobs, work: str, densities: dict,
-        workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0, log=print) -> dict:
+        workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0, log=print,
+        weighting: str = "variation") -> dict:
     """Least squares over Stonefish's own settings on the training recordings (30 s free-running windows every 30 s;
-    velocity error per axis scaled by the recordings' RMS velocity, plus end-of-window drift scaled by the no-motion
-    drift). The Jacobian's Stonefish runs go in parallel."""
+    velocity error per axis scaled by axis_scales, plus end-of-window drift scaled by the no-motion drift). The
+    Jacobian's Stonefish runs go in parallel."""
     from scipy.optimize import least_squares
     runs_wins = [(run, windows(run, FIT_WINDOW_S, FIT_STRIDE_S)) for run in train]
     if not any(w for _, w in runs_wins):
         raise StonefishFitError(f"the training recordings are shorter than one {FIT_WINDOW_S:g} s window")
     rows = [window_rows(run, w) for run, w in runs_wins]
-    allv = np.vstack([run.real_nu for run in train])
-    scale = np.maximum(np.sqrt(np.mean(allv ** 2, axis=0)), 1e-3)
+    scale = axis_scales(np.vstack([run.real_nu for run in train]), weighting)
     real_paths = [[path(run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.dt) for a, n in w] for run, w in runs_wins]
     d0 = max(float(np.median([np.linalg.norm(P[-1]) for ps in real_paths for P in ps])), 0.1)
     counter = {"n": 0}
@@ -523,7 +578,8 @@ def fit(scenario: Scenario, replay: Replay, train: list, knobs: Knobs, work: str
     r0 = fun(x0)  # cached: least_squares' first evaluation reuses it
     res = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf", max_nfev=max_iterations, x_scale=1.0)
     best = res.x
-    return {"x": best.tolist(), "names": knobs.names(), "start_cost": 0.5 * float(r0 @ r0),
+    return {"x": best.tolist(), "names": knobs.names(), "values": knobs.values(best), "axis_scales": scale.tolist(),
+            "start_cost": 0.5 * float(r0 @ r0),
             "cost": float(res.cost), "evaluations": counter["n"], "status": res.message,
             "settings": knobs.settings(best)}
 
@@ -602,12 +658,22 @@ def run_fit_stonefish(a) -> int:
         if "buoyancy" in fit_knobs and not a.buoyancy_part:
             fit_knobs = tuple(k for k in fit_knobs if k != "buoyancy")
             notes.append("Buoyancy not fitted: give --buoyancy-part (a buoyant box, cylinder or sphere part).")
-        knobs = Knobs(fit_knobs, parts[a.part], a.axisymmetric)
+        holds = {}
+        for kv in (a.hold or []):
+            name, eq, value = kv.partition("=")
+            try:
+                holds[name.strip()] = float(value)
+            except ValueError:
+                raise StonefishFitError(f"--hold takes NAME=VALUE (e.g. added_mass_x=10.6), got {kv!r}")
+        knobs = Knobs(fit_knobs, parts[a.part], a.axisymmetric, holds)
+        if holds:
+            print("  held: " + ", ".join(f"{n} = {v:g}" for n, v in holds.items()), flush=True)
         print(f"Fitting {', '.join(fit_knobs)} on part '{a.part}' ({len(knobs.names())} values) from "
               f"{len(train)} training recording(s); {len(held)} held out ({', '.join(split.heldout_groups)}).", flush=True)
         for n in notes:
             print("  note: " + n, flush=True)
-        f = fit(scenario, replay, train, knobs, work, densities, a.workers, a.max_iterations, log=lambda s: print(s, flush=True))
+        f = fit(scenario, replay, train, knobs, work, densities, a.workers, a.max_iterations,
+                log=lambda s: print(s, flush=True), weighting=a.weighting)
         s = f["settings"]
         vehicle_out = os.path.join(out, os.path.splitext(os.path.basename(scenario.vehicle_file))[0] + "_calibrated.scn")
         scenario.write_calibrated_vehicle(vehicle_out, s)
@@ -632,6 +698,7 @@ def run_fit_stonefish(a) -> int:
         summary = {"scenario": os.path.abspath(a.scenario), "robot": a.robot, "part": a.part,
                    "buoyancy_part": a.buoyancy_part, "reference_point_m": list(a.reference_point),
                    "fitted": list(fit_knobs), "axisymmetric": bool(a.axisymmetric), "notes": notes,
+                   "held": holds, "weighting": a.weighting, "axis_scales": f["axis_scales"], "values": f["values"],
                    "train_dates": split.train_groups, "heldout_dates": split.heldout_groups,
                    "fit": {k: f[k] for k in ("start_cost", "cost", "evaluations", "status")},
                    "before": {k: parts[a.part][k] for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia")},
@@ -672,6 +739,8 @@ def run_fit_stonefish(a) -> int:
             L.append("- `anisotropic_added_mass=\"true\"`: needs Stonefish with "
                      "`calibration/stonefish/stonefish_added_mass.patch` (unpatched Stonefish ignores added mass "
                      "settings and averages it over the three axes)")
+        if holds:
+            L.append("- held at your values: " + ", ".join(f"{n} = {v:g}" for n, v in holds.items()))
         L += ["", "## How the fit went\n",
               f"Fitted: {', '.join(fit_knobs)} ({len(knobs.names())} values) on {', '.join(split.train_groups)}. Cost "
               f"{f['start_cost']:.3f} -> {f['cost']:.3f} after {f['evaluations']} evaluations ({f['status']})."]
@@ -707,6 +776,12 @@ def add_arguments(ap) -> None:
     ap.add_argument("--heldout-dates", nargs="+", help="recording dates to hold out (default: the latest 30%%)")
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized to fit the net buoyancy")
     ap.add_argument("--fit", nargs="+", choices=KNOBS, help=f"what to fit (default: all of {', '.join(KNOBS)})")
+    ap.add_argument("--hold", nargs="+", metavar="NAME=VALUE",
+                    help="hold settings at values you measured instead of fitting them, e.g. added_mass_x=10.6 "
+                         "(names: quadratic_drag_x/y/z, viscous_drag_x/y/z, added_mass_x/y/z -- _yz with "
+                         "--axisymmetric --, buoyancy_scale, cg_shift_x, cg_shift_z)")
+    ap.add_argument("--weighting", choices=["variation", "magnitude"], default="variation",
+                    help="each axis's error is divided by its velocity's variation (default) or its magnitude (RMS)")
     ap.add_argument("--axisymmetric", action="store_true",
                     help="one drag and added mass across the hull (y = z), for a torpedo-shaped vehicle")
     ap.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")

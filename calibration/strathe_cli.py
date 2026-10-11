@@ -887,7 +887,7 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
             "--max-iterations", str(args.max_iterations), "--workers", str(args.workers),
             "--start-depth", str(args.start_depth)]
     for flag, value in (("--heldout-dates", args.heldout_dates), ("--fit", args.fit), ("--find", args.find),
-                        ("--density-by-date", args.density_by_date)):
+                        ("--density-by-date", args.density_by_date), ("--hold", args.hold)):
         if value:
             argv += [flag, *value]
     for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
@@ -898,6 +898,8 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
         argv += ["--compare-mass", str(args.compare_mass)]
     if args.axisymmetric:
         argv += ["--axisymmetric"]
+    if args.weighting != "variation":
+        argv += ["--weighting", args.weighting]
     return argv
 
 
@@ -1166,6 +1168,10 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--fit", nargs="+", choices=["drag", "added_mass", "buoyancy", "cg"],
                     help="what to fit (default: all; added mass needs the patched Stonefish)")
     sf.add_argument("--axisymmetric", action="store_true", help="torpedo-shaped vehicle: one value across the hull")
+    sf.add_argument("--hold", nargs="+", metavar="NAME=VALUE",
+                    help="hold settings at values you measured, e.g. added_mass_x=10.6 (calibration/stonefish/README.md)")
+    sf.add_argument("--weighting", choices=["variation", "magnitude"], default="variation",
+                    help="divide each axis's error by its velocity's variation (default) or magnitude")
     sf.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     sf.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
     sf.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",

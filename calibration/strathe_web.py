@@ -440,6 +440,11 @@ def stonefish_cli_args(form: dict) -> list:
         args += ["--compare-params", _existing_file(form["compare_params"], "Calibration file", (".yaml", ".yml"))]
     if form.get("axisymmetric"):
         args += ["--axisymmetric"]
+    holds = form.get("hold", "").split()
+    if holds:
+        if not all(re.fullmatch(r"[a-z_]+=-?[\d.]+(e-?\d+)?", h) for h in holds):
+            raise ValueError("Held values are NAME=VALUE, e.g. added_mass_x=10.6.")
+        args += ["--hold", *holds]
     return args
 
 
@@ -692,6 +697,8 @@ e.g. your URDF's base_link)</label><input type=text id=sf-ref name=reference_poi
 <label for=sf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label>
 <input type=text id=sf-cmp name=compare_params value="">
 <label><input type=checkbox id=sf-axi name=axisymmetric> Torpedo-shaped vehicle: one value across the hull</label>
+<label for=sf-hold>Hold values you measured, NAME=VALUE (optional; e.g. added_mass_x=10.6)</label>
+<input type=text id=sf-hold name=hold value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
 <div class=card><h2>Convert logs</h2>
