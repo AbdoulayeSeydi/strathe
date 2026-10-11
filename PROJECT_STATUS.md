@@ -1789,6 +1789,48 @@ can run, wired in like the rest. A Stonefish limitation surfaced on the way:
 
   **Next:** scale by each axis's variation instead, and let labs hold a measured value (e.g. surge added mass).
 
+### 73. `fit-stonefish`: weight each axis by how much it varies, and hold measured values (2026-10-10)
+
+**Why.** #72's fit made surge worse at short horizons and gave ALPHA RISE a nonphysical surge added mass (172–274 kg
+against about 10). Each axis's error was divided by its RMS velocity. During a 0.7 m/s cruise surge's RMS is mostly
+its mean, so surge errors were cheap and the fit traded them for pitch and yaw.
+
+**What changed:**
+- **Each axis's error is divided by its standard deviation** over the training recordings (floored at 0.05 m/s and
+  0.02 rad/s). On ALPHA's bay training mission surge's scale went from about 0.7 to 0.09. `--weighting magnitude`
+  reproduces #72.
+- **`--hold NAME=VALUE`** keeps a setting at a measured value instead of fitting it, e.g. `--hold added_mass_x=3.3`.
+  The names:
+  - `quadratic_drag_x/y/z`, `viscous_drag_x/y/z` and `added_mass_x/y/z` (`_yz` when axisymmetric);
+  - `buoyancy_scale`;
+  - `cg_shift_x`, `cg_shift_z`.
+- **Plumbing:** in the CLI, the web card (a "hold" field) and the report and YAML (the scales and held values are
+  recorded).
+- **Tests:** the scales, held settings staying put and leaving the fit, a held value reaching the report, and the CLI
+  and web pass-through.
+
+**URI's ALPHA RISE again** (patched Stonefish, axisymmetric, 15 iterations). Held-out drift after 10 / 30 / 60 s, and
+surge velocity error over 10 s:
+
+| | Pond | Bay |
+|---|---|---|
+| Stonefish, URI's model | 2.40 / 15.9 / 47.6 m; surge 0.17 | 1.92 / 11.4 / 37.4 m; surge 0.15 |
+| #72 (RMS weighting) | 2.49 / 12.5 / 36.7 m; surge 0.28 | 2.75 / 10.9 / 23.3 m; surge 0.32 |
+| **variation weighting** | **2.10** / 11.8 / 38.8 m; surge 0.23 | **2.01** / 8.1 / 24.4 m; surge 0.21 |
+| **variation + `--hold added_mass_x=3.3`** (0.1 × mass, no data from either mission) | 2.94 / **9.8 / 22.2 m**; surge 0.36 | 2.17 / **7.8 / 12.6 m**; surge 0.24 |
+| Strathe's own model | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.9 m |
+
+- **Variation weighting fixes the short horizon:** 10 s drift is better than URI's model in the pond and within 5% in
+  the bay.
+- **The fitted surge added mass** is still large without the hold: 148 kg (pond) and 81 kg (bay).
+- **Holding surge added mass at a physical value** cuts 60 s drift by 53% and 66% against URI's model, and beats
+  Strathe's own model in both directions. It generalizes better, too: training cost was higher (158 vs 67) and
+  held-out error lower.
+- **Still open: surge velocity over 10 s** stays worse than URI's model in every variant. A likely cause (not
+  confirmed) is that Stonefish's mesh-face drag couples surge to pitch.
+
+**Recommended for labs:** the default weighting, plus `--hold` for added mass you've measured, surge especially.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

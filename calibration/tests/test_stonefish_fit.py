@@ -163,6 +163,7 @@ def test_the_command_line_runs_the_fit_after_converting_the_logs(tmp_path):
     rc = cli.main(["fit-stonefish", "--scenario", str(tmp_path / "w.scn"), "--robot", "auv", "--part", "Hull",
                    "--ingest-spec", str(tmp_path / "spec.yaml"), "--reference-point", "-0.76", "0", "0",
                    "--axisymmetric", "--buoyancy-part", "Foam", "--find", "pkg=/p", "--density-by-date", "1-1=1000",
+                   "--hold", "added_mass_x=10.6", "--weighting", "magnitude",
                    "--out", str(tmp_path / "o")], runner=lambda c: calls.append(c) or 0)
     assert rc == 0 and len(calls) == 2
     assert "data_ingestion.py" in " ".join(calls[0])
@@ -171,6 +172,7 @@ def test_the_command_line_runs_the_fit_after_converting_the_logs(tmp_path):
     assert fit[fit.index("--data") + 1] == str(tmp_path / "o" / "ingested_logs")
     assert fit[fit.index("--reference-point") + 1:fit.index("--reference-point") + 4] == ["-0.76", "0.0", "0.0"]
     assert "--axisymmetric" in fit and fit[fit.index("--buoyancy-part") + 1] == "Foam"
+    assert fit[fit.index("--hold") + 1] == "added_mass_x=10.6" and fit[fit.index("--weighting") + 1] == "magnitude"
     assert cli.main(["fit-stonefish", "--scenario", str(tmp_path / "w.scn"), "--robot", "a", "--part", "H",
                      "--reference-point", "0", "0", "0"], runner=lambda c: 0) == 2  # no logs given
 
@@ -181,12 +183,46 @@ def test_web_form_builds_the_command(tmp_path):
     (tmp_path / "logs").mkdir()
     form = {"scenario": str(tmp_path / "w.scn"), "robot": "auv", "part": "Hull", "reference_point": "-0.76 0 0",
             "data": str(tmp_path / "logs"), "heldout": "27-03-2026", "buoyancy_part": "Foam", "find": "pkg=/x",
-            "density_by_date": "27-03-2026=1000", "axisymmetric": "on"}
+            "density_by_date": "27-03-2026=1000", "axisymmetric": "on", "hold": "added_mass_x=10.6"}
     args = web.stonefish_cli_args(form)
     assert args[:6] == ["--scenario", str(tmp_path / "w.scn"), "--robot", "auv", "--part", "Hull"]
     assert "--axisymmetric" in args and args[args.index("--density-by-date") + 1] == "27-03-2026=1000"
+    assert args[args.index("--hold") + 1] == "added_mass_x=10.6"
     for bad, match in (({"reference_point": "1 2"}, "three numbers"), ({"data": ""}, "Give the logs"),
-                       ({"density_by_date": "fresh"}, "DATE=RHO"), ({"find": "pkg"}, "PKG=/path")):
+                       ({"density_by_date": "fresh"}, "DATE=RHO"), ({"find": "pkg"}, "PKG=/path"),
+                       ({"hold": "added_mass_x"}, "NAME=VALUE")):
         with pytest.raises(ValueError, match=match):
             web.stonefish_cli_args({**form, **bad})
     assert "id=sf-scn" in open(web.__file__, encoding="utf-8").read()  # the card is on the page
+
+
+def test_axes_are_weighted_by_how_much_they_vary():
+    """#73: scaling by the RMS made a 0.7 m/s cruise's surge errors cheap, and the fit traded surge for pitch/yaw."""
+    rng = np.random.default_rng(0)
+    v = rng.normal([0.7, 0, 0, 0, 0, 0], [0.15, 0.06, 0.06, 0.04, 0.03, 0.05], (5000, 6))
+    var, mag = SF.axis_scales(v), SF.axis_scales(v, "magnitude")
+    assert var[0] == pytest.approx(0.15, rel=0.05) and mag[0] == pytest.approx(0.716, rel=0.05)
+    assert np.allclose(var[1:], mag[1:], rtol=0.02)  # axes centred on zero: the same either way
+    assert SF.axis_scales(np.zeros((10, 6)))[0] == SF.LINEAR_FLOOR  # an axis that never moves isn't weighted forever
+
+
+def test_held_settings_stay_at_the_measured_value():
+    start = {"quadratic_drag": [0.1, 1, 1], "viscous_drag": [0.01, 0.1, 0.1], "added_mass": [9.8, 223, 224],
+             "added_inertia": [0.1, 2, 2]}
+    k = SF.Knobs(("drag", "added_mass"), start, True, {"added_mass_x": 10.6, "quadratic_drag_yz": 3.0})
+    assert "added_mass_x" not in k.names() and len(k.names()) == len(k.all_names()) - 2
+    s = k.settings(np.full(len(k.names()), 0.5))
+    assert s.added_mass[0] == 10.6 and s.quadratic_drag[1:] == [3.0, 3.0]
+    assert s.added_mass[1] == pytest.approx(223 * np.exp(0.5))  # the fitted ones move
+    with pytest.raises(SF.StonefishFitError, match="can't hold buoyancy_scale"):
+        SF.Knobs(("drag",), start, True, {"buoyancy_scale": 1.1})
+
+
+def test_a_held_value_reaches_the_fit_and_the_report(tmp_path):
+    data = _logs(tmp_path, seconds=70)
+    _lab(tmp_path / "lab")
+    a = _args(tmp_path, data, hold=["added_mass_x=8"], max_iterations=2)
+    assert SF.run_fit_stonefish(a) == 0
+    s = yaml.safe_load(open(tmp_path / "out" / "stonefish_fit.yaml"))
+    assert s["held"] == {"added_mass_x": 8.0} and s["after"]["added_mass"][0] == 8.0 and s["weighting"] == "variation"
+    assert "held at your values: added_mass_x = 8" in (tmp_path / "out" / "stonefish_fit_report.md").read_text()
