@@ -110,6 +110,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         yaml.dump({"generated_at_utc": metrics["reproducibility"]["timestamp_utc"],
                    "spec_version": spec.raw.get("schema_version", "unknown"),
                    "git_commit": metrics["reproducibility"]["git_commit"],
+                   "vehicle_mass_kg": float(spec.vehicle.mass_kg),
                    "note": metrics["optimizer"]["message"] + (f" ({n_evals} evaluations)" if n_evals else ""),
                    "parameters": {n: float(getattr(params, n)) for n in params.param_names}}, f, sort_keys=False)
     with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as f:

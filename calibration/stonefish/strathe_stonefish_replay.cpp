@@ -9,7 +9,8 @@
 // IN.csv rows:  win,k,u,v,w,p,q,r,qx,qy,qz,qw,Fx,Fy,Fz,Tx,Ty,Tz  (k = 0, 1, ... per window, one log sample apart)
 //   velocity: body FRD at the reference point; quaternion: body->world (NED); wrench: body FRD about the reference point
 // OUT.csv rows: win,k,u,v,w,p,q,r,qx,qy,qz,qw  (Stonefish's prediction; k = 0 is the logged start)
-// --info prints the robot's base link and its parts (mass, drag coefficients, added mass, volume) as JSON.
+// --info prints the water density, the robot's base link and its parts (mass, drag coefficients, added mass, volume,
+// and the mesh areas Stonefish's drag uses) as JSON.
 // Frames: Stonefish's body frame is forward-right-down and its world NED, the same as Strathe's.
 #include <core/ConsoleSimulationApp.h>
 #include <core/SimulationManager.h>
@@ -18,6 +19,8 @@
 #include <entities/SolidEntity.h>
 #include <entities/FeatherstoneEntity.h>
 #include <entities/solids/Compound.h>
+#include <entities/forcefields/Ocean.h>
+#include <graphics/OpenGLDataStructs.h>
 #include <actuators/Actuator.h>
 #include <BulletDynamics/Featherstone/btMultiBody.h>
 #include <cmath>
@@ -73,14 +76,57 @@ public:
 
 static void vec(FILE* f, const Vector3& v) { fprintf(f, "[%.9g, %.9g, %.9g]", v.x(), v.y(), v.z()); }
 
-static void info(FILE* f, FeatherstoneRobot* robot, SolidEntity* body) {
+// The sums Stonefish's drag uses, over the part's physics mesh in the part's own (O) axes, for a translation along each
+// axis: quadratic drag = 0.5 rho Cd * sum(A * max(n_i, 0)) * |v|^2 * |v_n| (the projected area), viscous drag = rho Cf *
+// sum(A * (1 - n_i^2)) * v (the area the flow slides along). `strathe export-stonefish` converts Strathe's drag with them.
+static void drag_areas(FILE* f, SolidEntity* s) {
+    Vector3 proj = V0(), tang = V0();
+    const Mesh* m = s->getPhysicsMesh();
+    if (m) {
+        Transform t = s->getO2CTransform();
+        for (size_t i = 0; i < m->faces.size(); ++i) {
+            Vector3 p[3];
+            for (unsigned short j = 0; j < 3; ++j) {
+                glm::vec3 g = m->getVertexPos(i, j);
+                p[j] = t * Vector3(g.x, g.y, g.z);
+            }
+            Vector3 n = (p[1] - p[0]).cross(p[2] - p[0]);
+            Scalar len = n.length();
+            if (len < Scalar(1e-12)) continue;
+            n /= len;
+            Scalar A = len / 2;
+            for (int k = 0; k < 3; ++k) {
+                proj[k] += A * btMax(n[k], Scalar(0));
+                tang[k] += A * (1 - n[k] * n[k]);
+            }
+        }
+    }
+    fprintf(f, ", \"projected_area\": ");
+    vec(f, proj);
+    fprintf(f, ", \"tangential_area\": ");
+    vec(f, tang);
+}
+
+static void info(FILE* f, SimulationManager* sim, FeatherstoneRobot* robot, SolidEntity* body) {
     Vector3 Cd, Cf;
-    fprintf(f, "{\"patched\": %s, \"base\": {\"name\": \"%s\", \"mass\": %.9g, \"augmented_mass\": %.9g, \"volume\": %.9g,"
-               " \"inertia\": ", kPatched ? "true" : "false", body->getName().c_str(), body->getMass(),
-            body->getAugmentedMass(), body->getVolume());
+    Ocean* ocn = sim->getOcean();
+    fprintf(f, "{\"patched\": %s, \"water_density\": %.9g, \"base\": {\"name\": \"%s\", \"mass\": %.9g, "
+               "\"augmented_mass\": %.9g, \"volume\": %.9g, \"inertia\": ", kPatched ? "true" : "false",
+            ocn ? ocn->getLiquid().density : 0.0, body->getName().c_str(), body->getMass(), body->getAugmentedMass(),
+            body->getVolume());
     vec(f, body->getAugmentedInertia());
     fprintf(f, ", \"added_mass\": ");
     vec(f, body->getAddedMass());
+    Transform cg2o = body->getCG2OTransform().inverse();  // CG frame -> body (O) frame
+    fprintf(f, ", \"cg\": ");
+    vec(f, cg2o.getOrigin());
+    fprintf(f, ", \"cb\": ");
+    vec(f, cg2o * body->getCB());
+    Matrix3 R = cg2o.getBasis();  // the inertia (with added inertia) along the body's own axes, about the CG
+    Vector3 Ip = body->getAugmentedInertia();
+    Matrix3 Io = R * Matrix3(Ip.x(), 0, 0, 0, Ip.y(), 0, 0, 0, Ip.z()) * R.transpose();
+    fprintf(f, ", \"inertia_body_axes\": ");
+    vec(f, Vector3(Io[0][0], Io[1][1], Io[2][2]));
 #ifdef STONEFISH_ADDED_MASS_PATCH
     fprintf(f, ", \"anisotropic_added_mass\": ");
     vec(f, body->getAnisotropicAddedMass());
@@ -106,6 +152,9 @@ static void info(FILE* f, FeatherstoneRobot* robot, SolidEntity* body) {
             vec(f, s->getAddedMass());
             fprintf(f, ", \"added_inertia\": ");
             vec(f, s->getAddedInertia());
+            fprintf(f, ", \"inertia\": ");
+            vec(f, s->getInertia());
+            drag_areas(f, s);
             fprintf(f, "}");
         }
     }
@@ -163,7 +212,7 @@ int main(int argc, char** argv) {
     FeatherstoneRobot* robot = dynamic_cast<FeatherstoneRobot*>(r);
     if (!robot) { fprintf(stderr, "robot '%s' isn't a multibody robot\n", robotName.c_str()); return 3; }
     SolidEntity* body = robot->getBaseLink();
-    if (doInfo) { info(stdout, robot, body); return 0; }
+    if (doInfo) { info(stdout, &sim, robot, body); return 0; }
 
     btMultiBody* mb = robot->getDynamics()->getMultiBody();
     WrenchInjector* inj = new WrenchInjector();

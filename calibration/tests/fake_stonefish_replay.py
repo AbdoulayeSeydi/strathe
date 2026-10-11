@@ -11,6 +11,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 K_Q, K_F, RHO, G = 20.0, 200.0, 1000.0, 9.81
+PROJECTED, TANGENTIAL, CB = [0.05, 0.4, 0.4], [1.1, 0.6, 0.6], [-0.5, 0.0, -0.05]  # the hull's, for --info
 DEFAULTS = {"quadratic_drag": [0.2, 1.0, 1.0], "viscous_drag": [0.02, 0.1, 0.1], "added_mass": [5.0, 40.0, 40.0],
             "added_inertia": [0.1, 2.0, 2.0]}
 
@@ -29,7 +30,7 @@ def scenario_text(path):
 
 def part(text, name):
     m = re.search(r'<(external_part|internal_part)\b[^>]*name="%s"[^>]*>(.*?)</\1>' % name, text, re.S)
-    return m.group(2) if m else ""
+    return re.sub(r"<!--.*?-->", "", m.group(2), flags=re.S) if m else ""
 
 
 def vec(body, attr, default):
@@ -45,10 +46,13 @@ def model(text):
     foam = part(text, "Foam")
     r = float(re.search(r'radius="([^"]*)"', foam).group(1)) if foam else 0.0
     hgt = float(re.search(r'height="([^"]*)"', foam).group(1)) if foam else 0.0
+    rho = float(re.search(r'<water\b[^>]*density="([^"]*)"', text).group(1)) if "<water" in text else RHO
+    vol = math.pi * r * r * hgt
     return {"mass": mass, "Cd": vec(hy, "quadratic_drag", DEFAULTS["quadratic_drag"]),
             "Cf": vec(hy, "viscous_drag", DEFAULTS["viscous_drag"]), "A": vec(hy, "added_mass", DEFAULTS["added_mass"]),
-            "AI": vec(hy, "added_inertia", DEFAULTS["added_inertia"]),
-            "buoyancy": RHO * G * math.pi * r * r * hgt - mass * G}
+            "AI": vec(hy, "added_inertia", DEFAULTS["added_inertia"]), "I": vec(hull, "inertia xyz", [1.0, 3.0, 3.0]),
+            "cg": vec(hull, "cg xyz", [0.0, 0.0, 0.0]), "rho": rho, "volume": vol,
+            "buoyancy": rho * G * vol - mass * G}
 
 
 def main():
@@ -56,10 +60,20 @@ def main():
     m = model(text)
     if "--info" in sys.argv:
         print("[INFO] fake Stonefish")
-        print(json.dumps({"patched": True, "base": {"name": f"{arg('--robot')}/Vehicle", "mass": m["mass"]},
-                          "parts": [{"name": f"{arg('--robot')}/Vehicle/Hull", "mass": m["mass"],
-                                     "quadratic_drag": m["Cd"], "viscous_drag": m["Cf"], "added_mass": m["A"],
-                                     "added_inertia": m["AI"]}]}))
+        robot = arg("--robot")
+        parts = [{"name": f"{robot}/Vehicle/Hull", "mass": m["mass"], "volume": 0.0, "buoyant": False, "external": True,
+                  "quadratic_drag": m["Cd"], "viscous_drag": m["Cf"], "added_mass": m["A"], "added_inertia": m["AI"],
+                  "inertia": m["I"], "projected_area": PROJECTED, "tangential_area": TANGENTIAL}]
+        if m["volume"]:
+            parts.append({"name": f"{robot}/Vehicle/Foam", "mass": 0.0, "volume": m["volume"], "buoyant": True,
+                          "external": False, "quadratic_drag": [0.5, 0.5, 1], "viscous_drag": [0.05, 0.05, 0.1],
+                          "added_mass": [0, 0, 0], "added_inertia": [0, 0, 0], "inertia": [0, 0, 0],
+                          "projected_area": [0, 0, 0], "tangential_area": [0, 0, 0]})
+        print(json.dumps({"patched": True, "water_density": m["rho"], "parts": parts,
+                          "base": {"name": f"{robot}/Vehicle", "mass": m["mass"], "volume": m["volume"],
+                                   "added_mass": [float(np.mean(m["A"]))] * 3, "anisotropic_added_mass": m["A"],
+                                   "cg": m["cg"], "cb": CB,
+                                   "inertia_body_axes": (np.array(m["I"]) + np.array(m["AI"])).tolist()}}))
         return 0
     dt, hz = float(arg("--dt")), float(arg("--hz"))
     sub = max(1, int(round(dt * hz)))
@@ -69,7 +83,7 @@ def main():
         v = [float(x) for x in line.split(",")]
         rows.setdefault(int(v[0]), []).append(v[2:])
     M = m["mass"] + np.array(m["A"])
-    I = np.array([1.0, 3.0, 3.0]) + np.array(m["AI"])
+    I = np.array(m["I"]) + np.array(m["AI"])
     with open(arg("--out"), "w") as f:
         f.write("win,k,u,v,w,p,q,r,qx,qy,qz,qw\n")
         for win, rr in rows.items():

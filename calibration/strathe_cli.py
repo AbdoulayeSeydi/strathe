@@ -14,6 +14,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py free-decay --data <tank tests> --out <folder>  roll and pitch from free-decay tank tests
     python strathe.py fit-link --log <messages.csv> --out <folder>  the acoustic/optical link from message logs
     python strathe.py fit-stonefish --scenario my_world.scn ...  calibrate your own Stonefish vehicle model
+    python strathe.py export-stonefish --calibration DIR ...      put a Strathe calibration into your Stonefish model
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -891,9 +892,10 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
         if value:
             argv += [flag, *value]
     for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
-                        ("--compare-params", args.compare_params), ("--replay-tool", args.replay_tool)):
+                        ("--compare-params", args.compare_params), ("--replay-tool", args.replay_tool),
+                        ("--from-strathe", args.from_strathe)):
         if value:
-            argv += [flag, _abs(value) if flag in ("--stonefish-data", "--compare-params", "--replay-tool") else value]
+            argv += [flag, value if flag == "--buoyancy-part" else _abs(value)]
     if args.compare_mass:
         argv += ["--compare-mass", str(args.compare_mass)]
     if args.axisymmetric:
@@ -928,6 +930,36 @@ def cmd_fit_stonefish(args, runner=None) -> int:
             print(f"❌ data folder not found: {data}")
             return 2
     return run_step(fit_stonefish_argv(args, data, out), runner)
+
+
+def export_stonefish_argv(args, out: str) -> list:
+    """stonefish_export.py with this command's settings (PROJECT_STATUS.md #74)."""
+    argv = ["stonefish_export.py", "--calibration", _abs(args.calibration), "--scenario", _abs(args.scenario),
+            "--robot", args.robot, "--part", args.part, "--reference-point", *(str(x) for x in args.reference_point),
+            "--out", out, "--start-depth", str(args.start_depth)]
+    for flag, value in (("--heldout-dates", args.heldout_dates), ("--find", args.find),
+                        ("--density-by-date", args.density_by_date)):
+        if value:
+            argv += [flag, *value]
+    for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
+                        ("--data", args.data), ("--replay-tool", args.replay_tool)):
+        if value:
+            argv += [flag, value if flag == "--buoyancy-part" else _abs(value)]
+    if args.mass:
+        argv += ["--mass", str(args.mass)]
+    return argv
+
+
+def cmd_export_stonefish(args, runner=None) -> int:
+    if not os.path.exists(os.path.join(_abs(args.calibration), "calibrated_parameters.yaml")):
+        print(f"❌ no calibrated_parameters.yaml in {_abs(args.calibration)}: give your calibration's output folder "
+              f"(from `strathe calibrate`)")
+        return 2
+    if not os.path.exists(_abs(args.scenario)):
+        print(f"❌ Stonefish scenario not found: {_abs(args.scenario)}")
+        return 2
+    out = _abs(args.out) if args.out else os.path.join(REPO_DIR, f"stonefish_export_{safe_name(args.name)}")
+    return run_step(export_stonefish_argv(args, out), runner)
 
 
 def cmd_ingest(args, runner=None) -> int:
@@ -1176,8 +1208,12 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
     sf.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date, e.g. 27-03-2026=1000 for fresh water")
+    sf.add_argument("--from-strathe", metavar="CALIBRATION",
+                    help="start from your Strathe calibration's values (its output folder), converted into Stonefish's "
+                         "as export-stonefish does, then fit from there")
     sf.add_argument("--compare-params", help="also score your Strathe calibration (calibrated_parameters.yaml)")
-    sf.add_argument("--compare-mass", type=float, help="that calibration's vehicle mass, kg (default: Stonefish's)")
+    sf.add_argument("--compare-mass", type=float, help="that calibration's vehicle mass, kg (default: the calibration's, "
+                                                       "else Stonefish's)")
     sf.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
     sf.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (default 15)")
     sf.add_argument("--workers", type=int, default=default_workers(), help="Stonefish runs at once")
@@ -1185,6 +1221,30 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")
     sf.add_argument("--out", help="output folder (default: stonefish_fit_<name> in the repository)")
     sf.set_defaults(fn=cmd_fit_stonefish)
+
+    ex = sub.add_parser("export-stonefish", help="put your Strathe calibration into your own Stonefish vehicle model "
+                                                 "and score both on recordings it never saw (calibration/stonefish/"
+                                                 "README.md)")
+    ex.add_argument("--calibration", required=True, help="your calibration's output folder (from `calibrate`)")
+    ex.add_argument("--scenario", required=True, help="your Stonefish world scenario (.scn) with the robot in it")
+    ex.add_argument("--robot", required=True, help="the robot's name in the scenario")
+    ex.add_argument("--part", required=True, help="the part that takes the values, e.g. the hull (its external_part name)")
+    ex.add_argument("--reference-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"),
+                    help="where the logs' velocity and forces are measured, in the robot's frame (forward-right-down, "
+                         "m from the robot's origin), e.g. your URDF's base_link")
+    ex.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part to resize for the net buoyancy")
+    ex.add_argument("--mass", type=float, help="the vehicle's mass, kg (default: the calibration's)")
+    ex.add_argument("--data", help="the logs (default: the calibration's ingested_logs/)")
+    ex.add_argument("--heldout-dates", nargs="+", help="recording dates to score on (default: the calibration's)")
+    ex.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
+    ex.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ex.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
+                    help="water density per recording date, e.g. 27-03-2026=1000 for fresh water")
+    ex.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
+    ex.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ex.add_argument("--name", default="my_vehicle", help="names the default output folder")
+    ex.add_argument("--out", help="output folder (default: stonefish_export_<name> in the repository)")
+    ex.set_defaults(fn=cmd_export_stonefish)
 
     d = sub.add_parser("free-decay", help="roll and pitch from free-decay tank tests (calibration/FREE_DECAY_PROTOCOL.md)")
     d.add_argument("--data", help="the tank-test logs in Strathe's CSV layout")
