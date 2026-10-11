@@ -36,6 +36,7 @@ python strathe.py check
 | Your modems' message logs: send time, receive time or lost, range | the acoustic and/or optical link | [link_log_template.csv](calibration/templates/link_log_template.csv) |
 | Logs in a steady current | calibration in that current | `calibrate --current-world-mps`, or `--estimate-current` if unknown |
 | Nothing extra: the same logs | your sensors' white noise and DVL dropouts, for realistic simulation (biases need an independent reference) | `fit-noise` (command line only) |
+| Nothing extra: the same logs, plus your **Stonefish** scenario | your own Stonefish vehicle model: its drag, added mass, buoyancy and CG, scored against the original on unseen recordings | `fit-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
 
 ## 3. Pick a template
 
@@ -105,7 +106,10 @@ python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yam
 # 3. (optional) your communication link from message logs
 python strathe.py fit-link --log messages.csv --out my_link
 
-# 4. use the calibration
+# 4. (optional) your own Stonefish model, calibrated from the same logs (calibration/stonefish/README.md)
+python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
+
+# 5. use the calibration
 python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --task station_keeping --compare-generic
 python strathe.py train-fleet --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --out my_policy
 python strathe.py fleet --params calibration_output_my_rov/calibrated_parameters.yaml --vehicle-spec my_vehicle_spec.yaml --thrusters my_rov.yaml --policies my_policy.zip --link-calibration my_link/link_calibration.yaml
@@ -134,6 +138,7 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 **From the optional steps:**
 - **`free-decay`:** `free_decay.yaml` and a short report: the roll/pitch swing period, damping and righting.
 - **`fit-link`:** `link_calibration.yaml`, a report and plots: delivery against range and latency for each link.
+- **`fit-stonefish`:** your Stonefish vehicle file with the tuned part changed, and a report comparing it with the original on unseen recordings.
 - **`arena` / `fleet`:** a report each, with confidence intervals, comparing your calibrated model against generic physics.
 
 ## 7. When something isn't right

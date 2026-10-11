@@ -122,6 +122,16 @@ Quick answers:
 | **SAC and TD3 fleet policies were validated on one task and one vehicle** | Three seeds each, 1M steps, passed criteria fixed in advance: SAC ties PPO (−0 points, 95% CI −1 to +1) and TD3 is 4 points better (+3 to +6) over 17,600 paired episodes (#58). That's formation hold on the reference BlueROV2, clean simulation, SB3-standard settings with no tuning for another vehicle. The ranking doesn't necessarily carry over: TD3 went from best in clean simulation to worst under noise (−22 points). | For your vehicle, train two or three seeds of each (`strathe train-fleet --params <yours> --algorithm sac --seed 1 ...`) and compare them in one experiment (`--policies ppo=a ppo=b sac=c sac=d`), ideally with `--mode both`. The report's "Policy groups compared" table gives the paired difference with a 95% CI. |
 | **SAC and TD3 cost more per step** | Each off-policy step includes gradient updates from a replay buffer: about 500-650 steps/s on one M1 core vs about 770 for PPO. With a third of the steps, a 1M-step run takes about 30-35 min alone, against about 65 min for PPO's 3M. Several runs sharing a machine slow each other down (the study's own runs took 2-2.5 h with 9 at once). | Run fewer at a time than cores, as with PPO. |
 
+## Your own simulator (Stonefish)
+
+| Limit | What it means | What to do |
+|---|---|---|
+| **Stonefish only** | `fit-stonefish` calibrates a Stonefish vehicle model. Gazebo, HoloOcean and other simulators aren't supported yet. | Use Strathe's own calibrated model, or ask us about your simulator. |
+| **Added mass needs a Stonefish patch** | Stonefish averages a body's added mass over its three axes, which is wrong for a slender vehicle, and can't set it from a scenario. `calibration/stonefish/stonefish_added_mass.patch` (about 100 lines) adds both. Without the patch, `fit-stonefish` fits drag, buoyancy and the CG only. | Apply the patch to your Stonefish (`calibration/stonefish/README.md`). |
+| **One part, per-axis values, no hull lift** | The tuned part's drag and added mass are per axis. Stonefish derives rotational drag from the same coefficients over the mesh and has no hull-lift term, so the fit may raise sideways drag to stand in for lift. | Read the report's fitted values: odd ones mean the logs don't pin them down. |
+| **Open-loop replay** | Each window replays the logged forces from the logged state, in still water, at a fixed depth. Over a closed-loop mission, "keep the starting velocity" beats every simulator; the scores rank models. | Compare the original and the calibrated model on the same windows, as the report does. |
+| **Slow** | Every fitting step replays your recordings in Stonefish: an hour or more. | `--workers`; fewer recordings for a first look. |
+
 ## Communication model
 
 | Limit | What it means | What to do |

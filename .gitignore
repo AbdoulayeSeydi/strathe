@@ -21,3 +21,5 @@ calibration/results/ci_smoke/
 
 # local web interface job logs (strathe.py web)
 strathe_jobs/
+calibration/stonefish/build/
+stonefish_fit_*/

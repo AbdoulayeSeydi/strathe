@@ -1,0 +1,208 @@
+diff --git a/Library/include/entities/SolidEntity.h b/Library/include/entities/SolidEntity.h
+index f0ab3c9..05b6fec 100644
+--- a/Library/include/entities/SolidEntity.h
++++ b/Library/include/entities/SolidEntity.h
+@@ -26,6 +26,8 @@
+ #ifndef __Stonefish_SolidEntity__
+ #define __Stonefish_SolidEntity__
+ 
++#define STONEFISH_ADDED_MASS_PATCH 1 //added mass override + anisotropic added mass (Strathe's patch)
++
+ #include "BulletDynamics/Featherstone/btMultiBodyLinkCollider.h"
+ #include "core/MaterialManager.h"
+ #include "entities/MovingEntity.h"
+@@ -252,6 +254,22 @@ namespace sf
+          \param Cf a vector of skin friction (viscous drag) coefficients
+          */
+         void SetHydrodynamicCoefficients(const Vector3& Cd, const Vector3& Cf);
++
++        //! A method used to set the added mass and inertia instead of the geometric approximation (e.g. from a calibration).
++        //! (STONEFISH_ADDED_MASS_PATCH is defined when this patch is applied.)
++        /*!
++         \param m added mass along the body's own x, y, z axes [kg]
++         \param I added inertia about the body's own x, y, z axes [kg m2]
++         \param anisotropic apply the difference between the per-axis added mass and the scalar one the multibody solver
++                uses (and the Munk moment) as forces every step; false keeps Stonefish's scalar (mean) added mass
++         */
++        void SetAddedMass(const Vector3& m, const Vector3& I, bool anisotropic);
++
++        //! Forget the previous velocity used for the anisotropic added mass (call after setting a body's state by hand).
++        void ResetAddedMassState();
++
++        //! Per-axis added mass along the body's own (O) axes used by the anisotropic correction (zero when off).
++        Vector3 getAnisotropicAddedMass() const;
+         
+         //! A method to set the body pose in the world frame.
+         void setCGTransform(const Transform& trans);
+@@ -437,6 +455,9 @@ namespace sf
+         
+         Vector3 aMass; //Hydrodynamic added mass
+ 		Vector3 aI; //Hydrodynamic added inertia
++        Vector3 aMassAniso; //Per-axis added mass, body (O) axes, for the anisotropic correction (zero = off)
++        Vector3 aniPrevV; //World velocity of the CG at the previous step (anisotropic correction)
++        bool aniPrevValid;
+         GeometryApproxType fdApproxType;
+         std::vector<Scalar> fdApproxParams;
+         Vector3 fdCd;
+diff --git a/Library/include/entities/solids/Compound.h b/Library/include/entities/solids/Compound.h
+index 2690ddc..025d9fa 100644
+--- a/Library/include/entities/solids/Compound.h
++++ b/Library/include/entities/solids/Compound.h
+@@ -104,6 +104,9 @@ namespace sf
+         //! A method returning a pointer to one part of the compound body.
+         const CompoundPart getPart(size_t partId) const;
+ 
++        //! A method returning the number of parts of the compound body.
++        size_t getNumOfParts() const { return parts.size(); }
++
+         //! A method that returns the type of solid.
+         SolidType getSolidType();
+         
+diff --git a/Library/src/core/ScenarioParser.cpp b/Library/src/core/ScenarioParser.cpp
+index d0c414e..9af310b 100644
+--- a/Library/src/core/ScenarioParser.cpp
++++ b/Library/src/core/ScenarioParser.cpp
+@@ -1737,6 +1737,8 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+         Vector3 I;
+         Vector3 Cf(-1,-1,-1);
+         Vector3 Cd(-1,-1,-1);    
++        Vector3 addedM(0,0,0), addedI(0,0,0);
++        bool addedMassOk = false, addedAniso = false;
+         bool cgok;
+         unsigned int uvMode = 0;
+         float uvScale = 1.f;
+@@ -1779,6 +1781,11 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+                 ParseVector(xyz, Cf);
+             if(item->QueryStringAttribute("quadratic_drag", &xyz) == XML_SUCCESS)
+                 ParseVector(xyz, Cd);  
++            if(item->QueryStringAttribute("added_mass", &xyz) == XML_SUCCESS)
++                addedMassOk = ParseVector(xyz, addedM);
++            if(item->QueryStringAttribute("added_inertia", &xyz) == XML_SUCCESS)
++                ParseVector(xyz, addedI);
++            item->QueryAttribute("anisotropic_added_mass", &addedAniso);
+         } 
+ 
+         //Origin    
+@@ -1943,6 +1950,8 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+             solid->SetArbitraryPhysicalProperties(newMass, newI, newCg);
+         }
+         solid->SetHydrodynamicCoefficients(Cd, Cf);
++        if(addedMassOk)
++            solid->SetAddedMass(addedM, addedI, addedAniso);
+     }
+ 
+     //Contact properties (soft contact)
+diff --git a/Library/src/entities/SolidEntity.cpp b/Library/src/entities/SolidEntity.cpp
+index a92fa27..a0c0c30 100644
+--- a/Library/src/entities/SolidEntity.cpp
++++ b/Library/src/entities/SolidEntity.cpp
+@@ -24,6 +24,8 @@
+ //
+ 
+ #include "entities/SolidEntity.h"
++#include "core/SimulationApp.h"
++#include "core/SimulationManager.h"
+ 
+ #include "core/GraphicalSimulationApp.h"
+ #include "core/SimulationManager.h"
+@@ -66,6 +68,9 @@ SolidEntity::SolidEntity(std::string uniqueName, BodyPhysicsSettings phy, std::s
+     //Set properties
+     mass = Scalar(0);
+     aMass.setZero();
++    aMassAniso.setZero();
++    aniPrevV.setZero();
++    aniPrevValid = false;
+     surface = Scalar(0);
+     aI.setZero();
+     Ipri.setZero();
+@@ -1923,10 +1928,58 @@ void SolidEntity::CorrectAerodynamicForces(Atmosphere* atm, Vector3& _Fda, Vecto
+     _Tda *= btFabs(corFactor);
+ }
+ 
++void SolidEntity::SetAddedMass(const Vector3& m, const Vector3& I, bool anisotropic)
++{
++    //Given along the body's own (O) axes; rotate the diagonal tensors to the CG frame used by the dynamics
++    Matrix3 R = T_CG2O.getBasis();
++    Matrix3 Am = R * Matrix3(m.x(), 0, 0, 0, m.y(), 0, 0, 0, m.z()) * R.transpose();
++    Matrix3 AI = R * Matrix3(I.x(), 0, 0, 0, I.y(), 0, 0, 0, I.z()) * R.transpose();
++    aMass = Vector3(btFabs(Am[0][0]), btFabs(Am[1][1]), btFabs(Am[2][2]));
++    aI = Vector3(btFabs(AI[0][0]), btFabs(AI[1][1]), btFabs(AI[2][2]));
++    aMassAniso = anisotropic ? m : V0(); //kept along the body's own (O) axes
++    aniPrevValid = false;
++}
++
++void SolidEntity::ResetAddedMassState()
++{
++    aniPrevValid = false;
++}
++
++Vector3 SolidEntity::getAnisotropicAddedMass() const
++{
++    return aMassAniso;
++}
++
+ void SolidEntity::ApplyHydrodynamicForces()
+ {
+-    ApplyCentralForce(Fb + Fdq + Fdf);
+-    ApplyTorque(Tb + Tdq + Tdf);
++    Vector3 F = Fb + Fdq + Fdf;
++    Vector3 T = Tb + Tdq + Tdf;
++
++    //Anisotropic added mass: the multibody solver carries one (mean) added mass in all directions; apply the per-axis
++    //difference D = A - mean as forces, F = -D*dv/dt - w x (D*v), plus the Munk moment T = -v x (D*v) (body frame).
++    if(!btFuzzyZero(aMassAniso.length2()))
++    {
++        Matrix3 R = getOTransform().getBasis(); //the body's own axes, in which aMassAniso is given
++        Vector3 vW = getLinearVelocity();
++        Vector3 wB = R.transpose() * getAngularVelocity();
++        Vector3 vB = R.transpose() * vW;
++        Scalar dt = Scalar(1) / SimulationApp::getApp()->getSimulationManager()->getStepsPerSecond();
++        Vector3 aW = aniPrevValid ? (vW - aniPrevV) / dt : V0();
++        aniPrevV = vW;
++        aniPrevValid = true;
++        Scalar mean = getAugmentedMass() - mass;
++        Scalar lim = Scalar(0.8) * getAugmentedMass(); //keeps the explicit correction stable
++        Vector3 D(btClamped(aMassAniso.x() - mean, -lim, lim), btClamped(aMassAniso.y() - mean, -lim, lim),
++                  btClamped(aMassAniso.z() - mean, -lim, lim));
++        Vector3 vdotB = R.transpose() * aW - wB.cross(vB);
++        Vector3 Dv(D.x() * vB.x(), D.y() * vB.y(), D.z() * vB.z());
++        Vector3 Fc = -Vector3(D.x() * vdotB.x(), D.y() * vdotB.y(), D.z() * vdotB.z()) - wB.cross(Dv);
++        Vector3 Tc = -vB.cross(Dv);
++        F += R * Fc;
++        T += R * Tc;
++    }
++    ApplyCentralForce(F);
++    ApplyTorque(T);
+ }
+ 
+ void SolidEntity::ApplyAerodynamicForces()
+diff --git a/Library/src/entities/solids/Compound.cpp b/Library/src/entities/solids/Compound.cpp
+index 56fdd96..6b471d1 100644
+--- a/Library/src/entities/solids/Compound.cpp
++++ b/Library/src/entities/solids/Compound.cpp
+@@ -266,6 +266,25 @@ void Compound::RecalculatePhysicalProperties()
+     aMass.setX(compoundAugmentedMass - compoundMass);
+     aMass.setY(compoundAugmentedMass - compoundMass);
+     aMass.setZ(compoundAugmentedMass - compoundMass);
++
++    //Parts with an anisotropic added mass: carry the per-axis values to the compound, along its own (O) axes (its CG
++    //frame is the principal-inertia frame, which for a near-axisymmetric body can be rotated arbitrarily about its
++    //axis); the scalar part above stays the multibody's mass, and SolidEntity::ApplyHydrodynamicForces applies the
++    //difference
++    aMassAniso.setZero();
++    bool anyAniso = false;
++    for(unsigned int i=0; i<parts.size(); ++i)
++    {
++        if(!parts[i].isExternal) continue;
++        Vector3 partAniso = parts[i].solid->getAnisotropicAddedMass();
++        Vector3 partA = btFuzzyZero(partAniso.length2()) ? parts[i].solid->getAddedMass() : partAniso;
++        anyAniso = anyAniso || !btFuzzyZero(partAniso.length2());
++        Matrix3 R = parts[i].origin.getBasis(); //part (O) axes -> compound (O) axes
++        Matrix3 A = R * Matrix3(partA.x(), 0, 0, 0, partA.y(), 0, 0, 0, partA.z()) * R.transpose();
++        aMassAniso += Vector3(btFabs(A[0][0]), btFabs(A[1][1]), btFabs(A[2][2]));
++    }
++    if(!anyAniso)
++        aMassAniso.setZero();
+     volume = compoundVolume;
+     surface = compoundSurface;
+     Ipri = compoundPriInertia;
