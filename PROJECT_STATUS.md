@@ -1919,6 +1919,50 @@ cg_cb_offset_x is still fitted. Drift after 10 / 60 s, pitch error after 3 / 10 
 - **Holding the terms is harmless where fitting them hurt:** drift is level with B0 (5% better at 60 s in the bay),
   and the mean held-out skill is unchanged (+0.18), where T0's fell to −0.10.
 
+### 75. Transplanted values, axis by axis: why Strathe calibrates the customer's simulator instead of translating (2026-10-11)
+
+**Why.** #74 showed that converting Strathe's values into URI's Stonefish helps over a minute and hurts over seconds.
+Labs reading an `export-stonefish` report saw the numbers but no verdict per axis, and no direction. The working
+explanation ("the values don't balance against Stonefish's added mass and buoyancy") also needed checking: #74
+transplants both exactly.
+
+**Axis by axis, after 10 s** (velocity error; attitude error), ALPHA RISE held out:
+
+| | Pond: original → transplanted | Bay: original → transplanted |
+|---|---|---|
+| surge | 0.17 → 0.44 m/s (worse) | 0.15 → 0.42 m/s (worse) |
+| sway | 0.086 → 0.049 m/s (better) | 0.070 → 0.073 m/s (same) |
+| heave | 0.25 → 0.07 m/s (better) | 0.24 → 0.09 m/s (better) |
+| roll | 4.6° → 10.6° (worse) | 2.4° → 5.1° (worse) |
+| pitch | 10.9° → 24.2° (worse) | 8.9° → 11.3° (worse) |
+| heading | 32.7° → 14.5° (better) | 19.7° → 14.5° (better) |
+
+**What causes it: Stonefish's drag and righting, not its added mass or buoyancy.**
+- **The test:** transplant everything except the centre of gravity, keeping Stonefish's CG − CB of 97 mm instead of
+  Strathe's 3–5 mm.
+- **Roll returns to the original's:** 4.6° (pond) and 2.5° (bay).
+- **Pitch improves in the pond** (24.2° → 15.9°) but stays worse than the original in both.
+- **Surge is unchanged** (0.42, 0.39 m/s).
+- **60 s drift improves slightly:** 33.3 and 29.6 m.
+
+Three mechanisms:
+- **Surge:** Stonefish's mesh drag, cubic in speed and coupled across axes (#74).
+- **Roll:** Strathe's near-zero righting arm. It balances Strathe's own roll damping, but not Stonefish's, which comes
+  from the mesh.
+- **Pitch:** both the righting arm and Stonefish's mesh-derived rotational drag.
+
+**What shipped:** the export report and its printed summary now
+- list, per axis, what got better, worse or stayed the same after 10 s (velocity for surge/sway/heave, attitude for
+  roll/pitch/heading; within 5% is "same");
+- always state the recommendation: Strathe's values aren't a calibrated Stonefish model, and `fit-stonefish`
+  calibrates it through Stonefish (53–66% less 60 s error on ALPHA, against 17–28% for the conversion).
+
+Both are in `stonefish_export.yaml` (`axis_verdict_10s`, `recommendation`). Documented in the Stonefish README and
+LIMITS. Tests: the verdict on #74's bay numbers, and the report and YAML carrying both.
+
+**Conclusion, now in the product:** Strathe calibrates the customer's simulator directly. It doesn't translate
+parameters into it.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

@@ -119,6 +119,16 @@ Measured on Stonefish's code and in the replay (PROJECT_STATUS.md #74):
   faces add surge drag. Converted per axis, ALPHA RISE lost forward speed (0.61 → 0.46 m/s in a second) under thrust
   that Strathe's model, and the real vehicle, held.
 - **Rotational drag** comes from the same coefficients over the mesh, so Strathe's rotational damping can't be set.
+- **Strathe's values balance against Strathe's own drag and righting, not Stonefish's.** Transplanted onto URI's ALPHA
+  RISE, after 10 s:
+  - **better:** heave (velocity error 0.24 → 0.07–0.09 m/s) and heading (20–33° → 14.5°);
+  - **worse:** surge (0.15 → 0.42 m/s), roll (2.4 → 5.1°, 4.6 → 10.6°) and pitch (8.9 → 11.3°, 10.9 → 24.2°);
+  - **mixed:** sway (better in the pond, about the same in the bay).
+
+  Added mass and buoyancy aren't the cause: they're transplanted exactly. **Surge** is the drag coupling above.
+  **Roll** is the transplanted CG − CB (Strathe's 3–5 mm against Stonefish's 97 mm): keep Stonefish's CG and roll
+  returns to the original's. **Pitch** is partly the CG (pond: 24° → 16° when it's kept) and partly the rotational
+  drag. The export report lists, per axis, what got better and worse.
 
 So values can't be copied into Stonefish; they have to be fitted through it. `fit-stonefish` does that. Starting it
 from the converted values (`--from-strathe`) didn't help on ALPHA RISE (#74); start from your own model.
