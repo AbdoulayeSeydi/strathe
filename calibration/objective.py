@@ -346,6 +346,18 @@ def with_thruster_lag(run: RunData, params: CalibrationParameters) -> RunData:
     return replace(run, forces_torques=apply_thruster_lag(run.forces_torques, T, run.dt))
 
 
+# A blown-up evaluation's residuals: this many times those of predicting no motion (residuals_for_run).
+DIVERGED_PENALTY = 10.0
+
+
+def _zero_prediction_rows(run: RunData, horizon_samples: Optional[int] = None) -> np.ndarray:
+    """The logged velocity in the rows a normal evaluation's residuals cover (whole run, or the prediction windows
+    after each re-anchored start), i.e. the residuals, up to sign, of predicting no motion."""
+    if horizon_samples is not None and horizon_samples < run.n_samples:
+        return np.concatenate([run.real_nu[a:b][1:] for a, b in horizon_windows(run.n_samples, horizon_samples)], axis=0)
+    return np.asarray(run.real_nu, dtype=float)
+
+
 def _raw_residuals(
     params: CalibrationParameters,
     run: RunData,
@@ -497,7 +509,15 @@ def residuals_for_run(
     within a timestep block; time is the outer, slower-varying index.
     """
     params = _coerce_params(params)
-    residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
+    try:
+        residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
+    except (FloatingPointError, ValueError) as e:
+        if isinstance(e, ValueError) and "Non-finite" not in str(e):
+            raise
+        # These parameters make the simulation blow up on this recording. Tell the optimizer it's a very bad fit,
+        # rather than stopping the whole calibration (PROJECT_STATUS.md #77; URI's X2 crashed this way): the
+        # residuals of predicting no motion, x DIVERGED_PENALTY, in the shape a normal evaluation has.
+        residuals = -DIVERGED_PENALTY * _zero_prediction_rows(run, horizon_samples)
 
     if dof_scales is not None:
         residuals = residuals / dof_scales
