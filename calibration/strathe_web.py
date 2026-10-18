@@ -507,7 +507,7 @@ def describe_stonefish_cli_args(form: dict) -> list:
         args += ["--stonefish-data", d]
     if form.get("hull_lift"):
         args += ["--hull-lift"]
-    return args
+    return args + _replay_tool_args(form)
 
 
 def stonefish_export_cli_args(form: dict) -> list:
@@ -805,6 +805,8 @@ e.g. your URDF's base_link)</label><input type=text id=ds-ref name=reference_poi
 <label for=ds-sfdata>Stonefish data folder for meshes (optional; default the scenario's folder)</label>
 <input type=text id=ds-sfdata name=stonefish_data value="">
 <label><input type=checkbox id=ds-lift name=hull_lift> Slender hull: include the hull-lift terms</label>
+<label for=ds-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<input type=text id=ds-tool name=replay_tool value="">
 <label for=ds-name>Vehicle name</label><input type=text id=ds-name name=name value="my_vehicle" required>
 <button>Write the vehicle description</button></form></div>
 <div class=card><h2>Put your Strathe calibration into Stonefish</h2>

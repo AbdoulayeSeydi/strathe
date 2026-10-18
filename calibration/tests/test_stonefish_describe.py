@@ -125,5 +125,9 @@ def test_the_command_line_and_web_form_build_it(tmp_path):
     args = web.describe_stonefish_cli_args({"scenario": str(tmp_path / "w.scn"), "robot": "auv", "reference_point": "-0.76 0 0",
                                             "mass": "33", "hull_lift": "on"})
     assert args[:4] == ["--scenario", str(tmp_path / "w.scn"), "--robot", "auv"] and "--hull-lift" in args
+    tool = tmp_path / "replay"
+    tool.write_text("#!/bin/sh\n"); tool.chmod(0o755)
+    args = web.describe_stonefish_cli_args({"scenario": str(tmp_path / "w.scn"), "robot": "auv", "replay_tool": str(tool)})
+    assert args[args.index("--replay-tool") + 1] == str(tool)
     with pytest.raises(ValueError, match="three numbers"):
         web.describe_stonefish_cli_args({"scenario": str(tmp_path / "w.scn"), "robot": "auv", "reference_point": "1 2"})
