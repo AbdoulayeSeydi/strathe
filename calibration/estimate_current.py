@@ -76,7 +76,20 @@ def _half(run, a, b):
 
 
 def estimate_run(job) -> dict:
-    """job: (filepath, params_vector, vehicle, dataset_config). One recording's current and its checks."""
+    """job: (filepath, params_vector, vehicle, dataset_config). One recording's current and its checks. A recording on
+    which these parameters make the simulation blow up gets no current (still water, flagged `unstable`) instead of
+    stopping every other recording's estimate and the calibration around it (PROJECT_STATUS.md #76)."""
+    try:
+        with np.errstate(over="ignore", invalid="ignore"):  # an unstable recording is reported below, not as warnings
+            return _estimate_run(job)
+    except FloatingPointError as e:
+        return {"file": os.path.basename(job[0]), "vx_mps": 0.0, "vy_mps": 0.0, "vz_mps": 0.0, "speed_mps": 0.0,
+                "direction_deg": 0.0, "first_half": None, "second_half": None, "half_difference_mps": None,
+                "looks_constant": None, "heading_range_deg": 0.0, "error_explained_pct": 0.0,
+                "error_still_water": None, "error_with_current": None, "samples": None, "unstable": str(e)[:200]}
+
+
+def _estimate_run(job) -> dict:
     import os as _os
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         _os.environ[var] = "1"
@@ -118,6 +131,9 @@ def estimate_currents(files: list, params, vehicle, dataset_config, workers: int
 
 
 def verdict(r: dict) -> str:
+    if r.get("unstable"):
+        return ("no current estimated: with these parameters the simulation blew up on this recording, so it's held "
+                "at still water. The parameters are unstable for its motion; check the calibration's limits")
     notes = []
     if r.get("model") == "default":
         notes.append("estimated with the uncalibrated default model, so rough: a drag error along the vehicle's "
@@ -150,12 +166,16 @@ def write_outputs(rows: list, out_csv: str, model_label: str) -> str:
         L.append(f"| {r['file']} | {100 * r['speed_mps']:.0f} cm/s (vertical {100 * r['vz_mps']:+.0f}) | "
                  f"{r['direction_deg']:.0f}° | {r['error_explained_pct']:.0f}% | {verdict(r)} |")
     flagged = sum(1 for r in rows if r["looks_constant"] is False)
+    unstable = [r["file"] for r in rows if r.get("unstable")]
     if rows and rows[0].get("model") == "default":
         L.append("\n**Rough estimates:** made with the uncalibrated default model. Use them only as a starting "
                  "point; `strathe calibrate --estimate-current` refines them with a calibration.")
     L.append("")
     L.append(f"**{flagged} of {len(rows)} recording(s)** look like the current changed during them."
              if flagged else "Every recording's current looks constant over the recording.")
+    if unstable:
+        L.append(f"\n**No current for {len(unstable)} recording(s)** ({', '.join(unstable)}): the simulation blew up "
+                 f"on them with these parameters, so they're held at still water.")
     L.append("\nLimit: this estimates one constant current per recording. A current that changes within a "
              "recording, or varies from place to place, isn't modelled (see LIMITS.md).")
     with open(md, "w", encoding="utf-8") as f:
@@ -207,6 +227,9 @@ def main(argv=None) -> int:
     out = args.out or os.path.join(args.data_dir, "currents.csv")
     md = write_outputs(rows, out, label)
     for r in rows:
+        if r.get("unstable"):
+            print(f"  {r['file']:<40} {verdict(r)}")
+            continue
         print(f"  {r['file']:<40} {100 * r['speed_mps']:5.1f} cm/s toward {r['direction_deg']:5.0f} deg  "
               f"({r['error_explained_pct']:.0f}% of the error explained) - {verdict(r)}")
     print(f"Wrote {out} and {md}")

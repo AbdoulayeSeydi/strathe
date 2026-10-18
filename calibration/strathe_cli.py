@@ -336,6 +336,10 @@ def cmd_calibrate(args, runner=None) -> int:
     if warn:
         print(warn, flush=True)
 
+    import secrets
+    seed = args.seed if args.seed is not None else secrets.randbelow(2**31 - 1)
+    print(f"ℹ️  Starting-point seed {seed}: the fit starts from a randomly perturbed point, so a hard calibration can "
+          f"land differently on another run. `--seed {seed}` repeats this one exactly.", flush=True)
     memo = {}
 
     def settings():
@@ -389,7 +393,8 @@ def cmd_calibrate(args, runner=None) -> int:
 
     def fit_argv(dest, currents=None, warm=None):
         rate, extra = settings()
-        argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev, extra, rate)
+        argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev,
+                              extra + ["--seed", str(seed)], rate)  # every round starts from the same recorded seed
         if currents:
             argv += ["--currents-file", currents]
         if warm and os.path.exists(warm):
@@ -457,15 +462,21 @@ def cmd_calibrate(args, runner=None) -> int:
         if rc != 0 and argv[0] == "run_calibration.py" and os.path.exists(os.path.join(dest, "checkpoint.yaml")):
             # the fit stopped early (usually: the --max-nfev budget ran out). Keep the best result so far as a
             # clearly-marked, not-converged result and carry on, rather than leaving the lab with nothing.
-            print(f"\n⚠️  The fit stopped before converging (exit code {rc}; usually the evaluation budget, "
-                  f"--max-nfev {args.max_nfev}, ran out). Saving the best result so far, marked NOT converged; "
-                  f"the report will say so. Re-run with a larger --max-nfev for a converged fit.", flush=True)
+            if rc == 3:  # run_calibration.EXIT_BLEW_UP
+                why = "the simulation blew up (NaN/inf) at values inside your limits"
+                print(f"\n⚠️  The fit stopped before converging: {why}. Some combination of values the limits allow "
+                      f"makes the vehicle unstable on your recordings. Saving the best result so far, marked NOT "
+                      f"converged; the report will say so. Narrow the limits the report lists at their edges "
+                      f"(vehicle_spec.yaml), or try another --seed.", flush=True)
+            else:
+                why = f"the optimizer stopped before converging (budget --max-nfev {args.max_nfev})"
+                print(f"\n⚠️  The fit stopped before converging (exit code {rc}; usually the evaluation budget, "
+                      f"--max-nfev {args.max_nfev}, ran out). Saving the best result so far, marked NOT converged; "
+                      f"the report will say so. Re-run with a larger --max-nfev for a converged fit.", flush=True)
             rate, extra = settings()
             cur = [argv[argv.index("--currents-file")], argv[argv.index("--currents-file") + 1]] \
                 if "--currents-file" in argv else []
-            rc = run_step(finalize_argv(dest, data, spec, args.heldout_dates, rate, extra + cur,
-                                        f"the optimizer stopped before converging (budget --max-nfev "
-                                        f"{args.max_nfev})"), runner)
+            rc = run_step(finalize_argv(dest, data, spec, args.heldout_dates, rate, extra + cur, why), runner)
         if rc != 0 and fatal:
             print(f"\n❌ Step {i} failed (exit code {rc}). {hint}")
             return rc
@@ -993,6 +1004,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="recording dates to hold out for validation, e.g. 16-02-2024 (default: the latest 30%% of dates, at least one)")
     c.add_argument("--workers", type=int, default=default_workers(), help="CPU cores to use")
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
+    c.add_argument("--seed", type=int, help="the starting point's random seed (default: a new one, printed and "
+                                            "recorded); give a calibration's seed to repeat it exactly")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
                    help="advanced: re-express logged torques about another point (default: what the ingestion "
                         "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")

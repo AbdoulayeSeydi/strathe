@@ -44,7 +44,8 @@ and says so.
 cmake -S calibration/stonefish -B calibration/stonefish/build -DCMAKE_PREFIX_PATH=<your Stonefish install prefix>
 cmake --build calibration/stonefish/build
 ```
-(Built it before #74? Rebuild it: `export-stonefish` needs the mesh areas, inertia and centres it now reports.)
+(Built it before #76? Rebuild it: `export-stonefish` needs the mesh areas, inertia and centres it reports (#74), and until
+#76 a tool built against unpatched Stonefish listed no parts, so neither command could run without the patch.)
 This builds `calibration/stonefish/build/strathe_stonefish_replay`, which `fit-stonefish` finds on its own
 (or give `--replay-tool`). Stonefish is Linux-first.
 - **macOS:** build Stonefish and this tool with OpenMP from Homebrew `libomp`, passing `-DOpenMP_CXX_FLAGS="-Xpreprocessor

@@ -134,12 +134,9 @@ static void info(FILE* f, SimulationManager* sim, FeatherstoneRobot* robot, Soli
     fprintf(f, "}, \"parts\": [");
     if (body->getSolidType() == SolidType::COMPOUND) {
         Compound* c = (Compound*)body;
-#ifdef STONEFISH_ADDED_MASS_PATCH
-        size_t n = c->getNumOfParts();
-#else
-        size_t n = 0;  // unpatched Stonefish can't list the parts of a compound
-#endif
-        for (size_t i = 0; i < n; ++i) {
+        // Compound::getPart returns a part with no solid past the last one, in unpatched Stonefish too (#76: the
+        // part count used to come from the patch, so unpatched Stonefish listed none and both commands failed)
+        for (size_t i = 0; c->getPart(i).solid != nullptr; ++i) {
             SolidEntity* s = c->getPart(i).solid;
             s->getHydrodynamicCoefficients(Cd, Cf);
             fprintf(f, "%s{\"name\": \"%s\", \"mass\": %.9g, \"volume\": %.9g, \"buoyant\": %s, \"external\": %s, "

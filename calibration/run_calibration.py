@@ -220,6 +220,9 @@ class ParameterDelta:
         return f"{self.magnitude_ratio:.2f}x magnitude"
 
 
+# Exit code when the fit stops because the simulation blew up (NaN/inf), not because the budget ran out (#76).
+EXIT_BLEW_UP = 3
+
 @dataclass
 class ReproducibilitySummary:
     git_commit: Optional[str]
@@ -228,6 +231,7 @@ class ReproducibilitySummary:
     data_dir: str
     timestamp_utc: str
     vehicle_mass_kg: Optional[float] = None  # the spec's mass, so tools reading the calibration (export-stonefish) have it
+    seed: Optional[int] = None  # the starting point's random seed: --seed N repeats this fit exactly (#76)
 
 
 @dataclass
@@ -355,6 +359,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "spec_version": report.reproducibility.spec_version,
             "git_commit": report.reproducibility.git_commit,
             "vehicle_mass_kg": report.reproducibility.vehicle_mass_kg,
+            "seed": report.reproducibility.seed,
             "parameters": params_dict,
         }, f, sort_keys=False)
 
@@ -623,6 +628,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         data_dir=config.data_dir,
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         vehicle_mass_kg=float(loaded_spec.vehicle.mass_kg),
+        seed=config.calibration_config.seed,
     )
 
     report = CalibrationReport(
@@ -934,6 +940,10 @@ def main() -> None:
               "calibrate_parallel() cannot safely checkpoint across multiple "
               "processes writing the same file. An interrupted parallel run "
               "cannot be resumed; re-run from scratch if needed.")
+    if args.seed is None and args.initialization_strategy != "fixed":
+        # The start is randomly perturbed: draw the seed here, so it's recorded and `--seed N` repeats the fit (#76).
+        import secrets
+        args.seed = secrets.randbelow(2**31 - 1)
     calibration_config = CalibrationConfig(
         loss=args.loss, n_restarts=args.n_restarts, seed=args.seed, max_nfev=args.max_nfev,
         initialization_strategy=args.initialization_strategy,
@@ -974,13 +984,14 @@ def main() -> None:
         report = run_pipeline(pipeline_config)
     except Exception as e:
         logger.error("Pipeline failed: %s", e)
+        blew_up = isinstance(e, FloatingPointError) or "NaN/inf" in str(e)
         log_calibration_run(
             script="run_calibration", run_name=f"run_calibration_{_time.strftime('%Y-%m-%d_%H%M')}",
             status=STATUS_FAILED, status_reason=str(e),
             git_commit=_get_git_commit(), vehicle_spec_path=args.spec,
             tags={"run_type": "real"},
         )
-        sys.exit(1)
+        sys.exit(EXIT_BLEW_UP if blew_up else 1)
 
     _dataset_dir = Path(args.data_dir)
     _dataset_files = list(_dataset_dir.rglob("*.csv")) if _dataset_dir.exists() else []
