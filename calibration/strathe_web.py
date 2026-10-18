@@ -479,6 +479,37 @@ def stonefish_cli_args(form: dict) -> list:
     return args
 
 
+def describe_stonefish_cli_args(form: dict) -> list:
+    """`strathe describe-stonefish` arguments from the web form (PROJECT_STATUS.md #77)."""
+    scn = _existing_file(form.get("scenario", ""), "Stonefish scenario", (".scn", ".xml"))
+    robot = form.get("robot", "").strip()
+    if not robot:
+        raise ValueError("Give the robot's name in the scenario.")
+    ref = form.get("reference_point", "0 0 0").split()
+    try:
+        ref = [str(float(x)) for x in ref]
+    except ValueError:
+        ref = []
+    if len(ref) != 3:
+        raise ValueError("The reference point is three numbers: x y z in metres.")
+    args = ["--scenario", scn, "--robot", robot, "--reference-point", *ref]
+    if form.get("mass", "").strip():
+        args += ["--mass", str(_number(form["mass"], "Vehicle mass", 0.1, 100000))]
+    finds = form.get("find", "").split()
+    if finds:
+        if not all("=" in f for f in finds):
+            raise ValueError("$(find) folders are PKG=/path.")
+        args += ["--find", *finds]
+    if form.get("stonefish_data", "").strip():
+        d = os.path.abspath(os.path.expanduser(form["stonefish_data"].strip()))
+        if not os.path.isdir(d):
+            raise ValueError(f"Stonefish data folder not found: {d}")
+        args += ["--stonefish-data", d]
+    if form.get("hull_lift"):
+        args += ["--hull-lift"]
+    return args
+
+
 def stonefish_export_cli_args(form: dict) -> list:
     """`strathe export-stonefish` arguments from the web form (PROJECT_STATUS.md #74)."""
     args = ["--calibration", _calibration_folder(form.get("calibration", ""))] + _stonefish_vehicle_args(form) + \
@@ -759,6 +790,23 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label for=sf-workers>Stonefish runs at once (optional; default all cores but one)</label><input type=text id=sf-workers name=workers value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
+<div class=card><h2>Describe your vehicle from your Stonefish model</h2>
+<p class=muted>Writes the vehicle description that Calibrate needs (mass, inertia, added mass, drag, buoyancy, centre of
+gravity), with starting values from your own Stonefish model, so you don't fill the template by hand. Seconds. Needs the
+replay tool (<code>calibration/stonefish/README.md</code>).</p>
+<form method=post action=/jobs/describe_stonefish>{tok}
+<label for=ds-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=ds-scn name=scenario required>
+<label for=ds-robot>Robot name in the scenario</label><input type=text id=ds-robot name=robot required>
+<label for=ds-ref>Where your logs' velocity and forces are measured, in the robot's frame: x y z, m (forward-right-down,
+e.g. your URDF's base_link)</label><input type=text id=ds-ref name=reference_point value="0 0 0" required>
+<label for=ds-mass>Weighed vehicle mass, kg (optional; default the model's)</label><input type=text id=ds-mass name=mass value="">
+<label for=ds-find>ROS-style scenarios: $(find PKG) folders, PKG=/path (optional)</label>
+<input type=text id=ds-find name=find value="">
+<label for=ds-sfdata>Stonefish data folder for meshes (optional; default the scenario's folder)</label>
+<input type=text id=ds-sfdata name=stonefish_data value="">
+<label><input type=checkbox id=ds-lift name=hull_lift> Slender hull: include the hull-lift terms</label>
+<label for=ds-name>Vehicle name</label><input type=text id=ds-name name=name value="my_vehicle" required>
+<button>Write the vehicle description</button></form></div>
 <div class=card><h2>Put your Strathe calibration into Stonefish</h2>
 <p class=muted>Converts the values your calibration found (mass, buoyancy, centre of gravity, inertia, drag, added mass)
 into your own Stonefish vehicle's settings on one part, and scores the original and the converted model on the
@@ -1057,6 +1105,13 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"link_{name}")
             args = ["fit-link", "--log", *logs, "--out", out, "--link", link] + (["--optical-water", water] if water else [])
             return self.manager.start("fit_link", f"Link calibration: {name}", args, [out])
+        if path == "/jobs/describe_stonefish":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_vehicle"
+            folder = os.path.join(JOBS_DIR, f"describe_{name}")
+            os.makedirs(folder, exist_ok=True)
+            out = os.path.join(folder, f"{name}_vehicle_spec.yaml")
+            args = ["describe-stonefish", *describe_stonefish_cli_args(form), "--name", name, "--out", out]
+            return self.manager.start("describe_stonefish", f"Vehicle description: {name}", args, [folder])
         if path == "/jobs/export_stonefish":
             name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_stonefish"
             out = os.path.join(JOBS_DIR, f"stonefish_export_{name}")

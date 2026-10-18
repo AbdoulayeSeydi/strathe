@@ -15,6 +15,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py fit-link --log <messages.csv> --out <folder>  the acoustic/optical link from message logs
     python strathe.py fit-stonefish --scenario my_world.scn ...  calibrate your own Stonefish vehicle model
     python strathe.py export-stonefish --calibration DIR ...      put a Strathe calibration into your Stonefish model
+    python strathe.py describe-stonefish --scenario my_world.scn ... write your vehicle description from your Stonefish model
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -973,6 +974,32 @@ def cmd_export_stonefish(args, runner=None) -> int:
     return run_step(export_stonefish_argv(args, out), runner)
 
 
+def describe_stonefish_argv(args, out: str) -> list:
+    """stonefish_describe.py with this command's settings (PROJECT_STATUS.md #77)."""
+    argv = ["stonefish_describe.py", "--scenario", _abs(args.scenario), "--robot", args.robot,
+            "--reference-point", *(str(x) for x in args.reference_point), "--name", args.name, "--out", out,
+            "--cruise-speed", str(args.cruise_speed)]
+    for flag, value in (("--mass", args.mass), ("--water-density", args.water_density)):
+        if value is not None:
+            argv += [flag, str(value)]
+    if args.find:
+        argv += ["--find", *args.find]
+    for flag, value in (("--stonefish-data", args.stonefish_data), ("--replay-tool", args.replay_tool)):
+        if value:
+            argv += [flag, _abs(value)]
+    if args.hull_lift:
+        argv += ["--hull-lift"]
+    return argv
+
+
+def cmd_describe_stonefish(args, runner=None) -> int:
+    if not os.path.exists(_abs(args.scenario)):
+        print(f"❌ Stonefish scenario not found: {_abs(args.scenario)}")
+        return 2
+    out = _abs(args.out) if args.out else os.path.join(os.getcwd(), f"{safe_name(args.name)}_vehicle_spec.yaml")
+    return run_step(describe_stonefish_argv(args, out), runner)
+
+
 def cmd_ingest(args, runner=None) -> int:
     return run_step(ingest_argv(args.spec, args.out), runner)
 
@@ -1234,6 +1261,24 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")
     sf.add_argument("--out", help="output folder (default: stonefish_fit_<name> in the repository)")
     sf.set_defaults(fn=cmd_fit_stonefish)
+
+    ds = sub.add_parser("describe-stonefish", help="write your vehicle description (for --spec) from your own "
+                                                   "Stonefish model, instead of filling the template by hand")
+    ds.add_argument("--scenario", required=True, help="your Stonefish world scenario (.scn) with the robot in it")
+    ds.add_argument("--robot", required=True, help="the robot's name in the scenario")
+    ds.add_argument("--reference-point", type=float, nargs=3, default=[0.0, 0.0, 0.0], metavar=("X", "Y", "Z"),
+                    help="where your logs' velocity and forces are measured, in the robot's frame (forward-right-down, "
+                         "m from the robot's origin), e.g. your URDF's base_link (default 0 0 0)")
+    ds.add_argument("--mass", type=float, help="the vehicle's weighed mass, kg (default: the Stonefish model's)")
+    ds.add_argument("--water-density", type=float, help="kg/m^3 (default: the scenario's)")
+    ds.add_argument("--cruise-speed", type=float, default=0.5, help="typical forward speed, m/s (default 0.5)")
+    ds.add_argument("--hull-lift", action="store_true", help="slender hulls: include the hull-lift terms (off by default)")
+    ds.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
+    ds.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ds.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ds.add_argument("--name", default="my_vehicle", help="the vehicle's name")
+    ds.add_argument("--out", help="the description to write (default: <name>_vehicle_spec.yaml here)")
+    ds.set_defaults(fn=cmd_describe_stonefish)
 
     ex = sub.add_parser("export-stonefish", help="put your Strathe calibration into your own Stonefish vehicle model "
                                                  "and score both on recordings it never saw (calibration/stonefish/"

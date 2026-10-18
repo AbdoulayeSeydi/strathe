@@ -182,7 +182,8 @@ def test_home_page_has_every_form(server):
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
     assert "Calibrate your Stonefish model" in body and "Put your Strathe calibration into Stonefish" in body
-    assert body.count(f"value='{token}'") == 9
+    assert "Describe your vehicle from your Stonefish model" in body
+    assert body.count(f"value='{token}'") == 10
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 

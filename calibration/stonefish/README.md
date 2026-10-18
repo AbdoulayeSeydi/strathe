@@ -92,6 +92,28 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
 
+## Describe your vehicle for Strathe from your Stonefish model: `describe-stonefish`
+
+```bash
+python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 \
+    --mass 33 --find my_stonefish_pkg=/path/to/my_stonefish_pkg --out my_vehicle_spec.yaml
+```
+
+It writes the vehicle description `strathe calibrate --spec` needs, from what your model already says, so you don't
+fill in `templates/vehicle_spec_template.yaml` by hand. It takes:
+- **mass:** the model's, or `--mass` (weigh it: the model's can differ, and its rigid inertia is scaled to it);
+- **inertia:** roll, pitch and yaw, rigid plus added, about the logs' reference point;
+- **added mass** per axis: Stonefish's geometric estimate for each external part;
+- **drag** per axis: from the parts' coefficients and mesh areas, Stonefish's cubic law matched at `--cruise-speed`;
+- **pitch and yaw damping:** from the hull's length and diameter;
+- **net buoyancy:** the model's trim;
+- **the centre of gravity's offset** below the centre of buoyancy;
+- **the hull-lift terms:** with `--hull-lift`, for a slender hull.
+
+**Limits.** Every value's limits are the wider of about 5× around the model's value and the template's general range.
+A model value can be far off: Stonefish's default nose drag for ALPHA RISE is 20× smaller than the fitted one, so
+limits around it alone would keep the fit from the vehicle's value.
+
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash
 python strathe.py export-stonefish --calibration calibration_output_my_auv --scenario my_world.scn --robot my_auv \

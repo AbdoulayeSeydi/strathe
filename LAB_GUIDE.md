@@ -72,8 +72,21 @@ allowed range for its inertia, drag, added mass and buoyancy. **Without `--spec`
 (11.2 kg).** That's right only for a BlueROV2 Heavy. Any other vehicle needs its own description, or the fit is poor
 and the simulation can blow up (a 33 kg AUV calibrated as a BlueROV2: no axis trustworthy, PROJECT_STATUS.md #70).
 
-Copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next to your
-logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
+**Have a Stonefish model of your vehicle?** Strathe writes the description from it, with no template to fill in:
+
+```bash
+python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 --mass 33 --out my_vehicle_spec.yaml
+```
+
+- **What it reads:** the model's mass distribution, added mass, drag coefficients, hull size and the centres of
+  gravity and buoyancy.
+- **What `--mass` does:** give the weighed mass; the model's can differ, and its rigid inertia is then scaled to it.
+- **Limits:** every value's range is the wider of about 5× around the model's value and the template's general range,
+  so a model value that's off can't keep the fit away from your vehicle's.
+- **Then check two things:** the thruster count, and anything you know better.
+
+Otherwise, copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next
+to your logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
 the rest:
 
 | Value | First guess | Allowed range |
