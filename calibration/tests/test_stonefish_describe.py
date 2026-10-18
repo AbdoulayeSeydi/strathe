@@ -131,3 +131,16 @@ def test_the_command_line_and_web_form_build_it(tmp_path):
     assert args[args.index("--replay-tool") + 1] == str(tool)
     with pytest.raises(ValueError, match="three numbers"):
         web.describe_stonefish_cli_args({"scenario": str(tmp_path / "w.scn"), "robot": "auv", "reference_point": "1 2"})
+
+
+def test_a_replay_tool_that_hangs_is_a_plain_error(monkeypatch, tmp_path):
+    import subprocess
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="replay", timeout=600)
+    monkeypatch.setattr(subprocess, "run", hang)
+    rp = SF.Replay(["replay"], str(tmp_path), "auv", (0.0, 0.0, 0.0))
+    with pytest.raises(SF.StonefishFitError, match="within 10 minutes"):
+        rp.info("w.scn")
+    with pytest.raises(SF.StonefishFitError, match="within 24 hours"):
+        rp.run("w.scn", [], str(tmp_path / "r"))
