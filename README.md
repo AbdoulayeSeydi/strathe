@@ -81,6 +81,7 @@ Before the first lab pilots (PROJECT_STATUS.md #61–63):
   - **The shipped reference calibration:** unchanged and self-consistent. Its fitted net buoyancy has the opposite sign to the real vehicle's (LIMITS.md).
 - **`strathe calibrate` stopped at its data check for any logs not dated like the reference dataset.** Three steps defaulted to that dataset's held-out dates. It is now tested end to end, every step for real, on logs with their own dates.
 - **`strathe calibrate ... --finish`** turns an interrupted fit (a sleeping laptop, a stopped run) into a result with the same settings.
+- **`strathe calibrate ... --seed N`** repeats a calibration exactly: each one prints and records its seed.
 - **Clearer messages:** a lab with only one recording session is told what to do.
 - **Cleanup:** 402 unused research scripts and stale outputs were removed. Tag `research-archive-2026-10` keeps them.
 

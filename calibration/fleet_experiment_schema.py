@@ -587,4 +587,14 @@ def load_fleet_experiment(path: str) -> FleetExperimentConfig:
     try:
         return FleetExperimentConfig(**raw)
     except ValidationError as e:
-        raise ConfigError(f"invalid experiment config {path!r}:\n{e}") from e
+        raise ConfigError(f"invalid experiment config {path!r}:\n{plain_validation_errors(e)}") from e
+
+
+def plain_validation_errors(e) -> str:
+    """One line per problem, "setting: what's wrong", without pydantic's type tags and help links (#76)."""
+    lines = []
+    for err in e.errors():
+        where = ".".join(str(x) for x in err.get("loc", ())) or "experiment"
+        msg = str(err.get("msg", "")).removeprefix("Value error, ")
+        lines.append(f"- {where}: {msg}")
+    return "\n".join(lines)

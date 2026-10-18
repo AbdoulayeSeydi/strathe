@@ -125,6 +125,8 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 - **Calibration:** a few minutes on a small log set, about an hour on large ones.
 - **Keep it awake:** the machine is kept awake, but closing a laptop lid still sleeps it, so keep it on mains power.
 - **If it was interrupted:** run the same command again with `--finish` to keep the best result so far.
+- **To repeat a calibration exactly:** add `--seed N` with the seed it printed (also in its report). The fit starts from
+  a random point, so on a hard set-up two or three seeds show how much the result depends on it.
 
 ## 6. What you get back
 

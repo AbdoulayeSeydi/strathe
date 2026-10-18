@@ -1963,6 +1963,66 @@ LIMITS. Tests: the verdict on #74's bay numbers, and the report and YAML carryin
 **Conclusion, now in the product:** Strathe calibrates the customer's simulator directly. It doesn't translate
 parameters into it.
 
+### 76. URI full re-run of every variable, and the bugs it found fixed (2026-10-18)
+
+**Why.** After #70–#75, URI's run was repeated on `main` (`748378b`) from a fresh clone, varying every option of
+every command, Strathe-only and through Stonefish. The writeup and every table are in
+`~/strathe_uri_lab_v2/URI_FULL_RERUN_REPORT.md` (lab machine).
+- **Size:** 275 runs, 476 active compute hours, Oct 12–18, on one 8-core laptop.
+- **Spread:** B0 repeated 7 times; B8 and B9 4 times each.
+
+**Results:**
+- **The original run reproduces.**
+  - Docs-literal (A0): −0.66 mean, 70.6 m.
+  - B0: surge +0.89 / +0.83, mean +0.23 / +0.18, drift 3.5 / 4.0 m.
+  - Ingestion is byte-identical.
+- **The fit isn't deterministic.** `run_calibration.py` starts from a randomly perturbed point with no recorded seed.
+  - B0 lands at the same place every time (±0.001).
+  - B8 (surfacings removed) lands at +0.06 or +0.24 mean skill (10.6 or 4.7 m), and B9 (20 Hz) at +0.18 or +0.23.
+  - Both differences from the original run are this, not a code change: the data are byte-identical, and the
+    objective at the same parameters is identical to 15 digits under the old and new code.
+- **Pitch doesn't calibrate.**
+  - Fitted or held hull terms (T0–T2): pitch skill ≤ 0.
+  - Held terms with widened limits (T3): 2–4° of pitch error, by freezing pitch (values at the new limits).
+- **Stonefish:**
+  - `fit-stonefish` with surge added mass held: −55% / −63% at 60 s against URI's model.
+  - Also holding sideways added mass at strip theory (F4, pond): better than URI's model at 10, 30 and 60 s.
+  - Export: −17% / −28%.
+  - `fit-stonefish` is deterministic (1 or 4 workers: identical).
+- **Arena:**
+  - Clean docking: +12 [+9, +15] with 8 seeds (the original's 2-seed +25 was seed luck).
+  - Noisy docking: +32.
+  - Calibration-trained seeds range 0.59–1.00 on their own, so read arena results with fewer than 4 seeds as
+    provisional.
+- **Web:** results identical to the command line; all 9 forms refuse bad input with a plain message.
+
+**Fixed here:**
+- **F23, unpatched Stonefish:** the replay tool listed a compound's parts only through the patch, so neither
+  command ran. It now walks `Compound::getPart(i)` until it returns no solid, which works in unpatched Stonefish. On
+  URI's data with unpatched Stonefish:
+  - `fit-stonefish` fits drag, buoyancy and CG: 1.70 / 12.6 / 42.7 m against 2.40 / 15.9 / 47.6 m;
+  - `export-stonefish`: 3.88 / 16.4 / 40.7 m.
+- **F24, current estimation:** a recording on which the parameters blow up used to stop the whole calibration. It is
+  now held at still water and flagged ("no current estimated"), and the others carry on. On X2's real parameters,
+  2 of 5 recordings are flagged and the rest estimated.
+- **F25, the seed:** `calibrate` draws a seed when none is given, prints it, passes it to every current round, and
+  records it in `calibrated_parameters.yaml`, `metrics.json` and the report. `--seed N` repeats a calibration exactly.
+- **F9, blow-ups:** a fit that stops because the simulation blew up (NaN/inf) exits with its own code (3). The
+  command line names it and points at the limits, instead of blaming the evaluation budget.
+- **Fleet config errors:** one plain line per problem ("communication.optical: optical beacon_interval_s must be a
+  positive multiple of the 0.1 s tick"), not pydantic's dump.
+- **Tests:** `tests/test_rerun_fixes.py` covers the seed (given, drawn, the same for every round, not passed to
+  finalize), blow-up vs budget messages, an unstable recording, the report's seed line and the fleet message.
+
+**Still open:**
+- F21: `--finish` refuses `--estimate-current` runs.
+- F1, F2: header stamps; recording-date sessions.
+- F5: noise from filtered logs.
+- F15: arena intervals ignore seed variance.
+- F18: `fleet` has no `--workers`.
+- F20: shipped policies on another vehicle.
+- F11: missing web form fields.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
