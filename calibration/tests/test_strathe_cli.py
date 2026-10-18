@@ -744,3 +744,31 @@ def test_stonefish_form_starts_exactly_the_cli_command(server):
     # and the command line accepts exactly what the form built
     args = cli.build_parser().parse_args(cmd[3:])
     assert args.fn is cli.cmd_fit_stonefish and args.reference_point == [-0.76, 0.0, 0.0]
+
+
+def test_calibration_form_passes_every_advanced_option(server):
+    request, token, started, manager, tmp_path = server
+    status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv",
+                                                      "estimate_current": "1", "current_rounds": "3", "workers": "4",
+                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1"})
+    assert status == 303
+    cmd = started[0]
+    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior")):
+        assert cmd[cmd.index(flag) + 1] == val
+    assert cmd[cmd.index("--torque-reference-offset-m") + 1:cmd.index("--torque-reference-offset-m") + 4] == ["0.05", "0.0", "0.0"]
+    status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv2",
+                                                         "current_rounds": "3"})
+    assert status == 400 and "estimate the current" in body
+
+
+def test_stonefish_forms_take_the_replay_tool_iterations_and_workers(tmp_path):
+    tool = tmp_path / "replay"
+    tool.write_text("#!/bin/sh\n"); tool.chmod(0o755)
+    (tmp_path / "w.scn").write_text("<scenario/>")
+    form = {"scenario": str(tmp_path / "w.scn"), "robot": "auv", "part": "Hull", "reference_point": "0 0 0",
+            "data": str(tmp_path), "replay_tool": str(tool), "max_iterations": "30", "workers": "2"}
+    args = web.stonefish_cli_args(form)
+    assert args[args.index("--replay-tool") + 1] == str(tool)
+    assert args[args.index("--max-iterations") + 1] == "30" and args[args.index("--workers") + 1] == "2"
+    with pytest.raises(ValueError, match="Replay tool not found"):
+        web.stonefish_cli_args({**form, "replay_tool": str(tmp_path / "nope")})

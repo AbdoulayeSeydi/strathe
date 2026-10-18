@@ -114,3 +114,47 @@ def test_a_bad_fleet_setting_is_one_plain_line(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "- communication.optical: optical beacon_interval_s must be a positive multiple of the 0.1 s tick" in out
     assert "pydantic" not in out and "validation error for" not in out
+
+
+# --- #77: a blown-up evaluation is a bad fit for the optimizer, not a crash ---------------------------------------
+
+def _run(n=40):
+    import numpy as np
+    from objective import RunData
+    rng = np.random.default_rng(0)
+    nu = rng.normal(0, 0.2, (n, 6))
+    return RunData(filepath="r-01-01-2030-run1.csv", forces_torques=np.zeros((n, 6)), roll_pitch=np.zeros((n, 2)),
+                   real_nu=nu, nu0=nu[0].copy(), dt=0.1, sample_rate_hz=10.0)
+
+
+def _blows_up(*a, **k):
+    raise FloatingPointError("Simulation produced NaN/inf")
+
+
+def test_a_blown_up_evaluation_is_penalised_in_the_normal_shape():
+    import numpy as np
+    from dynamics_model import CalibrationParameters, VehicleConstants
+    from objective import DIVERGED_PENALTY, residuals_for_run
+    from optimizer import initial_parameters, load_vehicle_spec
+    params = initial_parameters(load_vehicle_spec("vehicle_spec.yaml"))
+    run, veh = _run(), VehicleConstants(11.2)
+    ok = residuals_for_run(params, run, veh)
+    bad = residuals_for_run(params, run, veh, simulate_fn=_blows_up)
+    assert bad.shape == ok.shape and np.all(np.isfinite(bad))
+    zero = residuals_for_run(params, run, veh, simulate_fn=lambda p, v, c, t: types.SimpleNamespace(
+        nu=np.zeros_like(run.real_nu), used_teacher_forced_orientation=False))
+    assert float(bad @ bad) == pytest.approx(DIVERGED_PENALTY ** 2 * float(zero @ zero))  # far worse than not moving
+    bad_h = residuals_for_run(params, run, veh, simulate_fn=_blows_up, horizon_samples=10)
+    assert bad_h.shape == residuals_for_run(params, run, veh, horizon_samples=10).shape
+
+
+def test_other_value_errors_still_raise():
+    from dynamics_model import VehicleConstants
+    from objective import residuals_for_run
+    from optimizer import initial_parameters, load_vehicle_spec
+    params = initial_parameters(load_vehicle_spec("vehicle_spec.yaml"))
+
+    def broken(*a, **k):
+        raise ValueError("bad shape")
+    with pytest.raises(ValueError, match="bad shape"):
+        residuals_for_run(params, _run(), VehicleConstants(11.2), simulate_fn=broken)

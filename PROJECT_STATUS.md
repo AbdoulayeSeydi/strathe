@@ -2023,6 +2023,28 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
 - F20: shipped policies on another vehicle.
 - F11: missing web form fields.
 
+### 78. Unstable values don't stop a fit, and the web forms get the missing options (2026-10-19)
+
+**Why.** URI's re-run (#76) left two gaps.
+- **X2 (surfacings removed + widened limits) stopped after 3 minutes:** the optimizer tried values inside the limits
+  that make the simulation blow up, and the exception ended the fit.
+- **The web forms lacked options the command line has (F11):**
+  - calibrate: workers, current-estimation rounds, the drag prior, the torque reference point and the seed;
+  - fit-stonefish and export-stonefish: the replay tool's location;
+  - fit-stonefish: iterations and workers.
+
+**What changed:**
+- **`objective.residuals_for_run`** (what the optimizer minimizes) returns, for a recording on which the parameters
+  blow up, the residuals of predicting no motion ×10 in the normal shape. The optimizer sees a very bad fit and moves
+  away, instead of stopping.
+  - Validation and reporting still detect and report divergence as before (`stable_rmse_by_dof`).
+  - Other errors still raise.
+- **The web forms** have every option above. The replay-tool field is checked: it must exist and be runnable.
+- **Tests:**
+  - the penalty: same shape as a normal evaluation, with and without prediction windows, and 100× the no-motion cost;
+  - other errors still raise;
+  - every new form option reaches the command, and bad values are refused.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -2048,6 +2070,7 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
 
 ## What's actually next
 
+0. **Calibrate any simulator a lab uses, not only Stonefish** (asked 2026-10-19, deferred): HoloOcean, Gazebo (UUV Simulator / DAVE / Plankton use the same Fossen model, so values map directly), MuJoCo, and a generic replay adapter so any simulator can be fitted through like `fit-stonefish`; with commands and docs a lab or company can run on its own.
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).

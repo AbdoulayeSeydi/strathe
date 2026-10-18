@@ -436,9 +436,24 @@ def _calibration_folder(text: str) -> str:
     return d
 
 
+def _replay_tool_args(form: dict) -> list:
+    """--replay-tool from a Stonefish form, if given (the tool must exist and be runnable)."""
+    t = form.get("replay_tool", "").strip()
+    if not t:
+        return []
+    t = os.path.abspath(os.path.expanduser(t))
+    if not (os.path.isfile(t) and os.access(t, os.X_OK)):
+        raise ValueError(f"Replay tool not found or not runnable: {t} (calibration/stonefish/README.md step 2 builds it)")
+    return ["--replay-tool", t]
+
+
 def stonefish_cli_args(form: dict) -> list:
     """`strathe fit-stonefish` arguments from the web form (PROJECT_STATUS.md #72)."""
-    args = _stonefish_vehicle_args(form)
+    args = _stonefish_vehicle_args(form) + _replay_tool_args(form)
+    if form.get("max_iterations", "").strip():
+        args += ["--max-iterations", str(int(_number(form["max_iterations"], "Fit iterations", 1, 200)))]
+    if form.get("workers", "").strip():
+        args += ["--workers", str(int(_number(form["workers"], "Stonefish runs at once", 1, 256)))]
     if form.get("ingest_spec", "").strip():
         args += ["--ingest-spec", _existing_file(form["ingest_spec"], "Ingestion spec", (".yaml", ".yml"))]
     elif form.get("data", "").strip():
@@ -466,7 +481,8 @@ def stonefish_cli_args(form: dict) -> list:
 
 def stonefish_export_cli_args(form: dict) -> list:
     """`strathe export-stonefish` arguments from the web form (PROJECT_STATUS.md #74)."""
-    args = ["--calibration", _calibration_folder(form.get("calibration", ""))] + _stonefish_vehicle_args(form)
+    args = ["--calibration", _calibration_folder(form.get("calibration", ""))] + _stonefish_vehicle_args(form) + \
+        _replay_tool_args(form)
     if form.get("mass", "").strip():
         args += ["--mass", str(_number(form["mass"], "Vehicle mass", 0.1, 100000))]
     if form.get("heldout", "").strip():
@@ -605,8 +621,18 @@ world frame (optional; empty = still water)</label><input type=text id=cal-cur n
 <label class=inline><input type=checkbox id=cal-estcur name=estimate_current value=1 aria-label="Estimate the water current in each recording"> Open water, current unknown:
 estimate each recording's current from the logs (alternates with the fit; about 2-3x the time). Leave the
 current field above empty.</label>
+<label for=cal-rounds>Current estimation rounds (with the box above; default 2)</label>
+<input type=text id=cal-rounds name=current_rounds value="">
 <label for=cal-nfev>Optimizer budget, evaluations (default 100; more = slower but may fit better)</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
+<label for=cal-workers>CPU cores to use (optional; default all but one)</label>
+<input type=text id=cal-workers name=workers value="">
+<label for=cal-seed>Starting-point seed (optional): a calibration's seed, from its report, repeats it exactly</label>
+<input type=text id=cal-seed name=seed value="">
+<label for=cal-torque>Advanced: re-express logged torques about another point, <code>x y z</code> in m (optional)</label>
+<input type=text id=cal-torque name=torque_offset value="">
+<label class=inline><input type=checkbox id=cal-drag name=drag_prior value=1 aria-label="Pull drag toward published BlueROV2 values"> Advanced, BlueROV2-like frames only:
+pull the drag gently toward published BlueROV2 values (when the report says linear and quadratic drag can't be told apart)</label>
 <label for=cal-fd>Roll and pitch measured in free-decay tank tests: the <code>free_decay.yaml</code> that
 <code>strathe free-decay</code> wrote, full path (optional; see calibration/FREE_DECAY_PROTOCOL.md)</label>
 <input type=text id=cal-fd name=free_decay value="">
@@ -727,6 +753,10 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label><input type=checkbox id=sf-axi name=axisymmetric> Torpedo-shaped vehicle: one value across the hull</label>
 <label for=sf-hold>Hold values you measured, NAME=VALUE (optional; e.g. added_mass_x=10.6)</label>
 <input type=text id=sf-hold name=hold value="">
+<label for=sf-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<input type=text id=sf-tool name=replay_tool value="">
+<label for=sf-iter>Fit iterations (optional; default 15)</label><input type=text id=sf-iter name=max_iterations value="">
+<label for=sf-workers>Stonefish runs at once (optional; default all cores but one)</label><input type=text id=sf-workers name=workers value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
 <div class=card><h2>Put your Strathe calibration into Stonefish</h2>
@@ -752,6 +782,8 @@ e.g. your URDF's base_link)</label><input type=text id=sx-ref name=reference_poi
 <input type=text id=sx-sfdata name=stonefish_data value="">
 <label for=sx-density>Water density per recording date, DATE=RHO (optional; e.g. 27-03-2026=1000)</label>
 <input type=text id=sx-density name=density_by_date value="">
+<label for=sx-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<input type=text id=sx-tool name=replay_tool value="">
 <label for=sx-name>Name for this export</label><input type=text id=sx-name name=name value="my_stonefish" required>
 <button>Put it into Stonefish</button></form></div>
 <div class=card><h2>Convert logs</h2>
@@ -905,12 +937,27 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--max-nfev", str(int(_number(nfev, "Optimizer budget", 1, 100000)))]
             if form.get("exclude_rp"):
                 args += ["--exclude-axes", "p", "q"]
+            if form.get("workers", "").strip():
+                args += ["--workers", str(int(_number(form["workers"], "CPU cores", 1, 256)))]
+            if form.get("seed", "").strip():
+                args += ["--seed", str(int(_number(form["seed"], "Seed", 0, 2 ** 31 - 1)))]
+            if form.get("torque_offset", "").strip():
+                parts = form["torque_offset"].replace(",", " ").split()
+                if len(parts) != 3:
+                    raise ValueError("Torque reference point: give three numbers, x y z (m).")
+                args += ["--torque-reference-offset-m", *[repr(_number(p, "Torque reference point", -10, 10)) for p in parts]]
+            if form.get("drag_prior"):
+                args += ["--drag", "prior"]
             if form.get("free_decay", "").strip():
                 args += ["--free-decay", _existing_file(form["free_decay"], "Free-decay result", (".yaml", ".yml"))]
             if form.get("estimate_current"):
                 if form.get("current_world", "").strip():
                     raise ValueError("Give either the known water current or tick 'estimate the current', not both.")
                 args.append("--estimate-current")
+                if form.get("current_rounds", "").strip():
+                    args += ["--current-rounds", str(int(_number(form["current_rounds"], "Current estimation rounds", 1, 10)))]
+            elif form.get("current_rounds", "").strip():
+                raise ValueError("Current estimation rounds need 'estimate the current' ticked.")
             if heldout:
                 args += ["--heldout-dates", *heldout]
             if form.get("finish"):
