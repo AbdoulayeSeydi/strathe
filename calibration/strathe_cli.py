@@ -58,8 +58,8 @@ REQUIRED_PACKAGES = [("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"
                      ("torch", "torch")]
 OPTIONAL_PACKAGES = [("rosbags", "rosbags", "reading ROS 1/ROS 2 bags directly"),
                      ("pymavlink", "pymavlink", "reading ArduPilot .bin / MAVLink .tlog logs directly"),
-                     ("mlflow", "mlflow", "experiment tracking"),
-                     ("holoocean", "holoocean", "HoloOcean engine (not needed for calibration or the fleet kit)")]
+                     ("mlflow", "mlflow", "experiment tracking")]
+# HoloOcean has its own `check` line with the simulators (#88: it was listed twice)
 
 
 def _abs(path: str) -> str:
@@ -483,9 +483,10 @@ def cmd_check(args, runner=None) -> int:
         print("➖ MuJoCo not installed (pip install -r requirements.txt)")
     try:
         importlib.import_module("holoocean.fossen_dynamics.torpedo")
-        print("✅ HoloOcean's Fossen dynamics (fit-sim --sim holoocean)")
+        print("✅ HoloOcean (fit-sim --sim holoocean; its engine for the HoloOcean studies)")
     except Exception:
-        print("➖ HoloOcean not installed (optional: fit-sim --sim holoocean; Windows/Linux, README 'Setup' step 2)")
+        print("➖ HoloOcean not installed (optional: fit-sim --sim holoocean and the HoloOcean studies; Windows/Linux, "
+              "README 'Setup' step 2)")
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 
