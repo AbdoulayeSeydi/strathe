@@ -2045,6 +2045,58 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   - other errors still raise;
   - every new form option reaches the command, and bad values are refused.
 
+### 80. Strathe's damping in Stonefish as it is: the patch's per-axis damping (2026-10-19)
+
+**Why.** `export-stonefish` (#74) helped after a minute but hurt over seconds. Stonefish's drag is a sum over the hull's
+mesh: cubic in speed, and coupled across axes (a hull pitched a few degrees picks up surge drag). No Stonefish
+coefficients reproduce Strathe's per-axis linear + quadratic damping, so it was converted, and the conversion is what
+hurt (#74, #75).
+
+**What changed:**
+- **The Stonefish patch** (`calibration/stonefish/stonefish_added_mass.patch`, now about 330 lines) adds optional
+  per-axis damping: `<hydrodynamics damping_linear="Xu Yv Zw" damping_linear_rot="Kp Mq Nr" damping_quadratic="..."
+  damping_quadratic_rot="..." damping_point="x y z"/>`.
+  - Force per axis = (linear + quadratic·|v|)·v, with v relative to the water, at the point (the robot's frame); its
+    moment about the CG follows.
+  - On a compound's part it replaces the mesh drag of every external part (the values are the whole vehicle's).
+  - Off unless a vehicle file sets it. Stonefish without the patch ignores the attributes.
+- **The replay tool** reports `axis_damping` in `--info`, and `--features` without a scenario.
+- **`export-stonefish`**, when the build has it, writes Strathe's damping unconverted, all six axes, at
+  `--reference-point`. It also carries Strathe's fore-aft CG − CB (zero unless fitted), since the whole model is now
+  Strathe's. Stonefish's own −7.4 mm, against Strathe's 3–5 mm righting arm, pitched ALPHA RISE 23–36°. Without the
+  patch, it converts as before, and the report says why.
+- **`strathe check`** says whether the replay tool is built and which of the patch's features its Stonefish has, and
+  when to rebuild.
+
+**Results on URI's ALPHA RISE** (B0, position error after 10 / 30 / 60 s on the unseen mission):
+
+| Model | Pond held out | Bay held out |
+|---|---|---|
+| URI's model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
+| Drag converted (#74) | 4.16 / 14.8 / 34.3 m | 4.48 / 13.9 / 30.9 m |
+| **With the patch's damping** | **2.18 / 10.0 / 42.6 m** | **1.69 / 5.8 / 22.6 m** |
+| Strathe's own model | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.6 m |
+| `fit-stonefish` (F2) | 2.89 / 9.7 / 21.6 m | 2.48 / 7.2 / 13.8 m |
+
+- **Over seconds, the export now behaves like Strathe's model:**
+  - forward-speed error after 10 s: 0.10 and 0.12 m/s, against Strathe's 0.09 and 0.12 (converted: 0.44 and 0.42);
+  - sway and heave match too;
+  - error after 10 s falls 48–62% against the conversion;
+  - better than URI's model at every horizon in both directions.
+- **Pitch still drifts more:** 27° and 14° after 10 s, against Strathe's 11° and 10°. That grows the pond's error over
+  a minute (42.6 m, against 34.3 m converted). Without carrying the fore-aft CG it was 36° and 23°. What's left isn't
+  the drag. Candidates: the multi-part vehicle's products of inertia, and the rigid-body terms about the CG against
+  Strathe's about the reference point.
+- **So:** export with the patch for a model that behaves like Strathe's over seconds; `fit-stonefish` for the best over
+  a minute.
+- **Tests:** the exact export (values unconverted, the mesh coefficients untouched, attributes written) and the
+  `strathe check` line for each kind of build. The patch applies cleanly to a fresh Stonefish checkout (GSO-soslab
+  fork, `7d52673`) and builds on macOS.
+
+**Still open:**
+- the remaining pitch difference;
+- `fit-stonefish` could fit the patch's damping directly, instead of the mesh coefficients.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

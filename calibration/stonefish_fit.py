@@ -108,6 +108,9 @@ class PartSettings:
     buoyancy_scale: Optional[float] = None   # volume factor for the buoyancy part
     mass: Optional[float] = None             # the part's <mass value>, kg
     inertia: Optional[list] = None           # the part's <inertia xyz>, kg m2 (rigid, about its CG)
+    # Strathe's per-axis damping, replacing the vehicle's mesh drag (needs the patch's STONEFISH_AXIS_DAMPING_PATCH):
+    # {"linear": [Xu, Yv, Zw], "linear_rot": [Kp, Mq, Nr], "quadratic": [Xuu, ...], "quadratic_rot": [...], "point": xyz}
+    axis_damping: Optional[dict] = None
 
 
 def _search(pattern: str, text: str):
@@ -139,7 +142,7 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
     if base is None or top is None:
         return top if base is None else base
     out = PartSettings(**base.__dict__)
-    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia"):
+    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
         if getattr(top, k) is not None:
             setattr(out, k, getattr(top, k))
     if top.added_mass is not None:
@@ -170,6 +173,9 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
             hydro["added_mass"] = _fmt(s.added_mass)
             hydro["added_inertia"] = _fmt(s.added_inertia if s.added_inertia is not None else [0, 0, 0])
             hydro["anisotropic_added_mass"] = "true" if s.anisotropic else "false"
+        if s.axis_damping is not None:
+            for k in ("linear", "linear_rot", "quadratic", "quadratic_rot", "point"):
+                hydro[f"damping_{k}"] = _fmt(s.axis_damping[k])
         if hydro:
             m = _search(r"<hydrodynamics\b[^>]*/>", body)
             if m:
