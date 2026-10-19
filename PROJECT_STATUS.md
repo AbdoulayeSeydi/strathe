@@ -2353,6 +2353,29 @@ through.
 
 Checked in the browser: the cards render and there are no console errors.
 
+### 87. `setup-sim stonefish`, and Stonefish and Gazebo with nothing to build (Docker) (2026-10-19)
+
+**What changed:**
+- **`strathe setup-sim stonefish [--source PATH] [--prefix PATH] [--jobs N]`** does what `calibration/stonefish/README.md`
+  sections 1–2 describe:
+  1. clone GSO-soslab/stonefish @ 7d52673 (the commit the patch is made for), or use the lab's checkout;
+  2. apply `stonefish_added_mass.patch` (it detects when it's already applied);
+  3. build and install Stonefish into `~/.strathe/stonefish`;
+  4. build the replay tool against it;
+  5. finish with the `strathe check` line.
+
+  On macOS it adds Homebrew's OpenMP and the SDK's C++ headers (what the URI lab build needed, #76). Each step that
+  fails prints its error.
+- **Checked on this Mac, on a clean copy of the source:** patched, built, installed, replay tool built and checked
+  (✅ added mass and damping) in 4 min 48 s.
+- **`--replay-tool docker:IMAGE` for Stonefish** (`stonefish_fit.Replay` and `find_tool`): the scenario's folder,
+  Stonefish's data folder and the work folders are mounted at the same paths. `calibration/stonefish/Dockerfile` builds
+  the image (Ubuntu 24.04, the fork at the patch's commit, patched, plus the replay tool). Gazebo's is in #82. **Both
+  images are untested:** there's no Docker on the dev machine.
+- The golden outputs of fit-stonefish and export-stonefish are unchanged.
+- **Tests:** the Docker command line and mounts; the plain "needs Docker" message; setup-sim saying what's missing;
+  the macOS flags.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

@@ -319,8 +319,13 @@ class Replay:
     hz: float = 200.0
     dt: float = 0.1
 
-    def _argv(self, scenario):
-        return self.tool + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
+    def _argv(self, scenario, folders=()):
+        if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86)
+            dirs = sorted({os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders})
+            prefix = ["docker", "run", "--rm", *[x for d in dirs for x in ("-v", f"{d}:{d}")], self.tool[0][7:]]
+        else:
+            prefix = self.tool
+        return prefix + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
                             "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
                             "--dt", f"{self.dt:g}"]
 
@@ -340,7 +345,8 @@ class Replay:
             for i, rows in enumerate(rows_by_window):
                 for k, row in enumerate(rows):
                     f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
-        r = subprocess.run(self._argv(scenario) + ["--windows", fin, "--out", fout], capture_output=True, text=True,
+        r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+                           capture_output=True, text=True,
                            timeout=24 * 3600)
         if r.returncode:
             raise StonefishFitError(f"the Stonefish replay failed: {r.stderr.strip()[-800:]}")
@@ -360,6 +366,11 @@ class Replay:
 
 def find_tool(path: Optional[str]) -> list:
     p = path or os.environ.get("STRATHE_STONEFISH_REPLAY") or DEFAULT_TOOL
+    if p.startswith("docker:"):
+        if not shutil.which("docker"):
+            raise StonefishFitError("--replay-tool docker:... needs Docker (docker.com), or build the tool: "
+                                    "python strathe.py setup-sim stonefish")
+        return [p]
     if not (os.path.exists(p) and os.access(p, os.X_OK)):
         raise StonefishFitError(f"the Stonefish replay tool isn't built ({p}). Build it against your Stonefish: "
                                 f"calibration/stonefish/README.md, or give its path with --replay-tool")

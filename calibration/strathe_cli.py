@@ -330,12 +330,89 @@ def gazebo_status(tool: Optional[str] = None) -> str:
         return f"⚠️  Gazebo replay tool at {p} doesn't run: rebuild it (python strathe.py setup-sim gazebo)"
 
 
-def cmd_setup_sim(args, runner=None) -> int:
-    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82)."""
+SF_REPO, SF_COMMIT = "https://github.com/GSO-soslab/stonefish.git", "7d52673"  # the fork and commit the patch is made for
+
+
+def _macos_cmake_flags() -> list:
+    """macOS: OpenMP from Homebrew's libomp, and the SDK's C++ headers (what the URI lab build needed, #76)."""
+    import platform
     import shutil
+    if platform.system() != "Darwin":
+        return []
+    flags = []
+    omp = subprocess.run(["brew", "--prefix", "libomp"], capture_output=True, text=True).stdout.strip() \
+        if shutil.which("brew") else ""
+    sdk = subprocess.run(["xcrun", "--show-sdk-path"], capture_output=True, text=True).stdout.strip() \
+        if shutil.which("xcrun") else ""
+    cxx = []
+    if sdk and os.path.isdir(os.path.join(sdk, "usr", "include", "c++", "v1")):
+        cxx += ["-nostdinc++", "-isystem", os.path.join(sdk, "usr", "include", "c++", "v1")]
+    if omp:
+        o = f"-Xpreprocessor -fopenmp -I{omp}/include"
+        cxx += o.split()
+        flags += [f"-DOpenMP_CXX_FLAGS={o}", f"-DOpenMP_C_FLAGS={o}", "-DOpenMP_CXX_LIB_NAMES=omp",
+                  "-DOpenMP_C_LIB_NAMES=omp", f"-DOpenMP_omp_LIBRARY={omp}/lib/libomp.dylib"]
+    if cxx:
+        flags.append("-DCMAKE_CXX_FLAGS=" + " ".join(cxx))
+    return flags
+
+
+def _setup_stonefish(args) -> int:
+    """Clone (or use --source), apply the patch, build and install Stonefish, build the replay tool, check (#86)."""
+    import shutil
+    if not shutil.which("cmake") or not shutil.which("git"):
+        print("❌ needs git and cmake (and Stonefish's dependencies: calibration/stonefish/README.md)")
+        return 2
+    home = os.path.expanduser("~/.strathe")
+    src = os.path.abspath(os.path.expanduser(args.source)) if args.source else os.path.join(home, "stonefish-src")
+    prefix = os.path.abspath(os.path.expanduser(args.prefix or os.path.join(home, "stonefish")))
+    patch = os.path.join(CAL_DIR, "stonefish", "stonefish_added_mass.patch")
+
+    def step(title, cmd, cwd=None):
+        print(title + "...", flush=True)
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        if r.returncode:
+            print(f"❌ {title} failed:\n" + (r.stderr or r.stdout)[-2000:])
+        return r.returncode
+    if not args.source and not os.path.isdir(os.path.join(src, ".git")):
+        if step(f"Cloning Stonefish ({SF_REPO} @ {SF_COMMIT})", ["git", "clone", "-q", SF_REPO, src]) or \
+                step("Checking out the patch's commit", ["git", "-C", src, "checkout", "-q", SF_COMMIT]):
+            return 2
+    if not os.path.isdir(src):
+        print(f"❌ no Stonefish source at {src}")
+        return 2
+    applied = subprocess.run(["git", "-C", src, "apply", "--reverse", "--check", patch], capture_output=True).returncode == 0
+    if applied:
+        print("The patch is already applied.")
+    elif step("Applying stonefish_added_mass.patch", ["git", "-C", src, "apply", patch]):
+        print("Re-apply it to a clean checkout (git -C SOURCE checkout .), or use a fresh --source.")
+        return 2
+    flags = _macos_cmake_flags()
+    build = os.path.join(src, "build-strathe")
+    jobs = str(args.jobs or max(1, (os.cpu_count() or 2) - 1))
+    if step("Configuring Stonefish", ["cmake", "-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTS=OFF",
+                                      f"-DCMAKE_INSTALL_PREFIX={prefix}", *flags]) or \
+            step(f"Building Stonefish ({jobs} jobs; 10-40 minutes)", ["cmake", "--build", build, "-j", jobs]) or \
+            step(f"Installing it into {prefix}", ["cmake", "--install", build]):
+        return 2
+    tool_build = os.path.join(CAL_DIR, "stonefish", "build")
+    ppath = prefix + (";/opt/homebrew" if os.path.isdir("/opt/homebrew") else "")
+    if step("Configuring the replay tool", ["cmake", "-S", os.path.join(CAL_DIR, "stonefish"), "-B", tool_build,
+                                            f"-DCMAKE_PREFIX_PATH={ppath}", *flags]) or \
+            step("Building the replay tool", ["cmake", "--build", tool_build]):
+        return 2
+    line = stonefish_status()
+    print(line)
+    return 0 if line.startswith("✅") else 2
+
+
+def cmd_setup_sim(args, runner=None) -> int:
+    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82, #86)."""
+    import shutil
+    if args.sim == "stonefish":
+        return _setup_stonefish(args)
     if args.sim != "gazebo":
-        guides = {"stonefish": "calibration/stonefish/README.md (sections 1-2)",
-                  "mujoco": "nothing: MuJoCo comes with pip install -r requirements.txt",
+        guides = {"mujoco": "nothing: MuJoCo comes with pip install -r requirements.txt",
                   "holoocean": "README.md 'Setup' step 2", "external": "calibration/simulators/SIMULATOR_PROTOCOL.md"}
         print(f"{args.sim}: {guides[args.sim]}")
         return 0
@@ -1364,6 +1441,8 @@ def build_parser() -> argparse.ArgumentParser:
     su.add_argument("sim", choices=list(SIMULATORS))
     su.add_argument("--prefix", help="where the simulator is installed (e.g. the conda env with gz-sim8); default: "
                                      "the active conda env, else the system")
+    su.add_argument("--source", help="stonefish: your Stonefish checkout (default: clone the fork the patch is made for)")
+    su.add_argument("--jobs", type=int, help="stonefish: parallel build jobs (default: all cores but one)")
     su.set_defaults(fn=cmd_setup_sim)
     # listed for --help; main() hands them to cmd_sim, which passes each simulator's own options through
     sub.add_parser("fit-sim", add_help=False,

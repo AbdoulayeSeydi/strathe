@@ -247,3 +247,25 @@ def test_strathe_check_says_what_the_stonefish_build_supports(tmp_path):
         tool.write_text(f"#!/bin/sh\necho '{out}'\n")
         tool.chmod(0o755)
         assert want in cli.stonefish_status(str(tool)), out
+
+
+def test_stonefish_runs_in_docker_with_its_folders_mounted(monkeypatch):
+    """--replay-tool docker:IMAGE: nothing to build (PROJECT_STATUS.md #87)."""
+    import shutil
+    r = SF.Replay(["docker:strathe-stonefish-replay"], "/data", "auv", (-0.76, 0.0, 0.0))
+    argv = r._argv("/w/world.scn", ("/work",))
+    assert argv[:3] == ["docker", "run", "--rm"] and "/data:/data" in argv and "/w:/w" in argv and "/work:/work" in argv
+    assert argv[argv.index("strathe-stonefish-replay") + 1] == "--scenario"
+    monkeypatch.setattr(shutil, "which", lambda x: None)
+    with pytest.raises(SF.StonefishFitError, match="needs Docker"):
+        SF.find_tool("docker:strathe-stonefish-replay")
+
+
+def test_setup_sim_stonefish_says_what_is_missing(monkeypatch, capsys):
+    import shutil
+    import strathe_cli as cli
+    monkeypatch.setattr(shutil, "which", lambda x: None)
+    assert cli.main(["setup-sim", "stonefish"]) == 2
+    assert "needs git and cmake" in capsys.readouterr().out
+    flags = cli._macos_cmake_flags()
+    assert all(f.startswith("-D") for f in flags)

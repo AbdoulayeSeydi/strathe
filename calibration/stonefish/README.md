@@ -21,6 +21,19 @@ Two commands put Strathe's calibration into the simulator you already use:
 On URI's ALPHA RISE, Stonefish calibrated this way had 53–66% less position error after 60 s on unseen missions than
 URI's original model, holding the surge added mass at a slender-body estimate (PROJECT_STATUS.md #71–#73).
 
+## 0. The quick way
+- **One command:** `python strathe.py setup-sim stonefish` clones the Stonefish fork the patch is made for
+  (GSO-soslab/stonefish @ 7d52673), applies the patch, builds and installs Stonefish into `~/.strathe/stonefish` and
+  builds the replay tool. It finishes with the `strathe check` line. Your own checkout: `--source PATH`. Elsewhere:
+  `--prefix PATH`.
+  - **Dependencies:** git, cmake, a C++ compiler, GLM, SDL2, Freetype and OpenGL. On macOS also Homebrew's `libomp`,
+    whose flags are added for you.
+- **Nothing to build, with Docker:**
+  `docker build -t strathe-stonefish-replay -f calibration/stonefish/Dockerfile calibration/stonefish` once, then
+  `--replay-tool docker:strathe-stonefish-replay`. **Not yet tested:** the development machine had no Docker.
+
+Sections 1 and 2 below do the same steps by hand.
+
 ## 1. Build Stonefish with the added-mass patch (recommended)
 Stonefish gives a body one added mass: the average of its three axes. A slender vehicle carries far less water moving
 forward than sideways (ALPHA RISE: about 11 kg forward, about 120 kg sideways), so the average makes its surge
