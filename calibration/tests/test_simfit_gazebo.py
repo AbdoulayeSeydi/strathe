@@ -114,12 +114,14 @@ def test_gazebo_frames_and_steady_states():
 
 
 @needs_gazebo
-@pytest.mark.parametrize("net", [0.0, 2.0])
-def test_gazebo_export_reproduces_strathes_model(net):
+@pytest.mark.parametrize("net,inertia", [(0.0, None), (2.0, None), (0.0, (0.1, 2.0, 1.2))])
+def test_gazebo_export_reproduces_strathes_model(net, inertia):
     """Gazebo's Hydrodynamics is Strathe's damping law: with the reference point at the link origin the exported model
     runs as Strathe's own model does (moving, tilted start; forces and torques; added mass; buoyant)."""
     from dynamics_model import VehicleConstants
-    p = _params(net_buoyancy_z=net)
+    # (0.1, 2.0, 1.2): an effective inertia no rigid body has (0.1 + 1.2 < 2.0), like ALPHA RISE's B0 (#88)
+    p = _params(net_buoyancy_z=net, **({} if inertia is None else dict(zip(("Ieff_roll", "Ieff_pitch", "Ieff_yaw"),
+                                                                            inertia))))
     ad = GazeboAdapter(WORLD, tool=[TOOL])
     v, _ = ad.export_values(p, 10.0, ad.info(), [], 1000.0)
     rng = np.random.default_rng(1)
@@ -159,3 +161,11 @@ def test_fit_sim_gazebo_recovers_the_drag_from_logs(tmp_path):
     assert held["Gazebo, calibrated by Strathe"]["30s"]["drift_median_m"] < 0.5 * held["Gazebo, original"]["30s"]["drift_median_m"]
     assert abs(np.log(s["after"]["xUabsU"] / 30)) < abs(np.log(10 / 30))
     assert "<xUabsU>-" in (out / "world_calibrated.sdf").read_text()
+
+
+def test_the_rigid_inertia_is_always_a_rigid_bodys():
+    from simfit.adapters.gazebo import rigid_inertia_within
+    r = rigid_inertia_within(np.array([0.2, 0.3, 0.4]), np.array([3.0, 60.0, 35.5]))
+    assert list(r) == [0.2, 0.3, 0.4]  # the model's own, within Strathe's
+    r = rigid_inertia_within(np.array([1.0, 80.0, 80.0]), np.array([3.0, 60.0, 35.5]))
+    assert all(r <= [3.0, 60.0, 35.5]) and all(r[i] <= r[(i + 1) % 3] + r[(i + 2) % 3] for i in range(3))

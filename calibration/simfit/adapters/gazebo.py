@@ -340,8 +340,14 @@ class GazeboAdapter:
             v[f"+{self.link_path}/inertial|fluid_added_mass"] = ""
         # Strathe's added mass is about the reference point; Gazebo's about the link origin: moved there exactly
         # (M_origin = J^T M_ref J, with v_ref = v_origin - r x w)
+        # Strathe's effective inertia (rigid + added) needn't be a rigid body's: B0 on ALPHA RISE has roll 3, pitch 60,
+        # yaw 35.5 kg m2, which breaks the triangle inequality and Gazebo refuses the link (#88). So the rigid part stays
+        # a valid rigid inertia (the model's own, capped at Strathe's) and the rest is rotational added mass.
+        Ieff = np.array([params.Ieff_roll, params.Ieff_pitch, params.Ieff_yaw])
+        rigid = rigid_inertia_within(np.array(info.get("inertia") or Ieff, dtype=float), Ieff)
         Ma = np.zeros((6, 6))
         Ma[0, 0], Ma[1, 1], Ma[2, 2] = params.Xu_dot, params.Yv_dot, params.Zw_dot
+        Ma[3, 3], Ma[4, 4], Ma[5, 5] = Ieff - rigid
         Ma[0, 4] = Ma[4, 0] = -params.Xq_dot  # forward-left-up signs
         Ma[2, 4] = Ma[4, 2] = params.Zq_dot
         J = np.block([[np.eye(3), -S], [np.zeros((3, 3)), np.eye(3)]])
@@ -358,11 +364,11 @@ class GazeboAdapter:
         refl = np.array([self.ref[0], -self.ref[1], -self.ref[2]])  # forward-left-up
         v[f"+{ip}|pose"] = f"{fmt_number(refl[0])} {fmt_number(refl[1])} {fmt_number(refl[2])} 0 0 0"
         ii = f"{ip}/inertia"
-        for tag, x in (("ixx", params.Ieff_roll), ("iyy", params.Ieff_pitch), ("izz", params.Ieff_yaw),
-                       ("ixy", 0.0), ("ixz", 0.0), ("iyz", 0.0)):
+        for tag, x in (("ixx", rigid[0]), ("iyy", rigid[1]), ("izz", rigid[2]), ("ixy", 0.0), ("ixz", 0.0), ("iyz", 0.0)):
             add(ii, tag, x)
-        notes.append("Inertia: Strathe's effective inertia (rigid + added) as the link's inertia, with the rotational "
-                     "added mass set to 0, so the total is Strathe's.")
+        notes.append(f"Inertia: Strathe's effective inertia ({', '.join(f'{x:.3g}' for x in Ieff)} kg·m², rigid + added) "
+                     f"as the link's rigid inertia ({', '.join(f'{x:.3g}' for x in rigid)}) plus rotational added mass "
+                     f"(<fluid_added_mass> pp, qq, rr), so the total is Strathe's and the link is a valid rigid body.")
         # buoyancy: the collisions' volume and centre, from what the replay tool measured
         cols = [c for c in info.get("collisions", []) if c.get("volume", 0) > 0]
         if len(cols) != len(info.get("collisions", [])) or not cols:
@@ -381,6 +387,15 @@ class GazeboAdapter:
         if params.thruster_time_constant_s:
             notes.append(f"Thruster lag ({params.thruster_time_constant_s:.2f} s) not carried: set it on your thrusters.")
         return v, notes
+
+
+def rigid_inertia_within(model: np.ndarray, Ieff: np.ndarray) -> np.ndarray:
+    """A rigid inertia (principal moments) no larger than Strathe's effective inertia on any axis and satisfying the
+    triangle inequality: the model's own, capped at Strathe's; else isotropic at half the smallest."""
+    r = np.minimum(np.maximum(model, 1e-6), Ieff)
+    if all(r[i] <= r[(i + 1) % 3] + r[(i + 2) % 3] + 1e-12 for i in range(3)):
+        return r
+    return np.full(3, 0.5 * float(Ieff.min()))
 
 
 def add_arguments(ap) -> None:
