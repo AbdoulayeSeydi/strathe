@@ -23,7 +23,7 @@ Only `--sim` and the simulator's own options (which model, which part) change be
 | `external` | ready | whatever your description lists | where your description maps it | [SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md) |
 | `gazebo` | ready (#82) | Hydrodynamics damping, added mass, buoyancy (collision size), CG, mass | exact with the reference point at the link origin (0.006 m/s over 30 s) | [gazebo/README.md](gazebo/README.md) |
 | `mujoco` | ready (#83) | ellipsoid fluid-model drag and lift coefficients, gravcomp buoyancy, CG, mass | none (MuJoCo has no per-axis damping, buoyancy force or full added mass) | [mujoco/README.md](mujoco/README.md) |
-| `holoocean` | in progress (#84) | Fossen torpedo dynamics parameters | exact, as a Fossen model class | holoocean/README.md |
+| `holoocean` | ready, provisional until checked on Windows (#84) | the scenario's Fossen `dynamics` (time constants, damping ratios, Cd, r44, CG, mass) | Strathe's model as a Fossen class (`strathe_fossen.py`) | [holoocean/README.md](holoocean/README.md) |
 
 **Any other simulator** (in-house, Isaac Sim, ...): describe it in a short YAML and give it a replay command
 ([SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md)). A working example is in [example/](example/).

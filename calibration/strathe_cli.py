@@ -404,6 +404,11 @@ def cmd_check(args, runner=None) -> int:
         print(f"✅ MuJoCo {mujoco.__version__} (fit-sim --sim mujoco: nothing to build)")
     except ImportError:
         print("➖ MuJoCo not installed (pip install -r requirements.txt)")
+    try:
+        importlib.import_module("holoocean.fossen_dynamics.torpedo")
+        print("✅ HoloOcean's Fossen dynamics (fit-sim --sim holoocean)")
+    except Exception:
+        print("➖ HoloOcean not installed (optional: fit-sim --sim holoocean; Windows/Linux, README 'Setup' step 2)")
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 

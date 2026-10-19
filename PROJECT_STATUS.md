@@ -2258,6 +2258,46 @@ web cards and the URI stress test of every simulator.
 
 A 10 s window replays in about 0.3 s.
 
+### 84. HoloOcean: `fit-sim --sim holoocean` through its Fossen dynamics; export as a Fossen class (2026-10-19)
+
+**Why this way.** HoloOcean 2.x drives torpedo vehicles with Fossen's equations (`"fossen_model": "torpedo"`, control
+scheme 1), configured by the scenario's `agents[i]["dynamics"]` (docs v2.3.0). Those equations are Python
+(`holoocean.fossen_dynamics.torpedo.Torpedo`: `Minv`, `dynamics(eta, nu, u_actual, u_control, h) -> (nu_dot,
+u_actual)`). A window can therefore be replayed through the lab's own vehicle class without the Unreal engine, exactly:
+- the propeller and fins at rest;
+- the logged thrust added as M⁻¹τ, since the equations are linear in τ;
+- the velocity and thrust moved between the reference point and Fossen's origin.
+
+**What changed:**
+- **`simfit/adapters/holoocean.py`:** reads the scenario (JSON), finds the Fossen agent, and loads the class
+  (`--fossen-model`, `--configure`).
+  - **What it tunes,** in the `dynamics` keys, with class defaults when a key is missing: the `T_*` time constants,
+    `zeta_*`, `K_nomoto`, `Cd`, `e`, `r44`, `r_bg` x/z and `mass`.
+  - `--density-by-date` writes `rho`.
+  - **Integration:** at `--hz`, attitude by quaternion; frames are already NED/FRD.
+- **`export-sim`** writes `strathe_fossen.py`: a self-contained Fossen class (numpy only) with Strathe's model (damping,
+  added mass and Coriolis at the reference point, restoring, hull lift), moved to the class's origin
+  (M_o = Jᵀ M J, forces Jᵀ f). It has HoloOcean's `dynamics()` interface, for the custom-dynamics loop. The report scores
+  it on held-out recordings.
+- **`strathe check`** has a HoloOcean line.
+- **Guide:** `calibration/simulators/holoocean/README.md`, with an example scenario.
+
+**Tests (`tests/test_simfit_holoocean.py`):** against `tests/fake_holoocean`, a stand-in with HoloOcean's interface,
+since HoloOcean doesn't install on macOS or in CI.
+- knobs from the scenario and the class;
+- the calibrated scenario changes only those keys;
+- fit-sim recovers `T_surge` and `Cd` from logs (held-out drift more than halved);
+- the exported class replays like Strathe's own model within 0.02 over 30 s, at the origin and at an offset reference
+  point, with lift and buoyancy;
+- plain messages.
+
+**Still to do, on Windows:**
+- the real `holoocean.fossen_dynamics` (the parameter names follow the docs);
+- an in-engine run against the Python replay;
+- the tick-rate check (#40).
+
+HoloOcean results are provisional until then.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
