@@ -1,0 +1,14 @@
+<mujoco model="example_auv">
+  <!-- An example underwater vehicle for Strathe fit-sim with MuJoCo (calibration/simulators/mujoco/README.md): 10 kg,
+       neutral (gravcomp="1"), with MuJoCo's ellipsoid fluid model on its hull. x forward, z up. The timestep must
+       divide the logs' sample time (0.002 s for 10 Hz logs). -->
+  <option timestep="0.002" density="1000" viscosity="0.0009" integrator="implicitfast"/>
+  <worldbody>
+    <body name="auv" pos="0 0 -3" gravcomp="1">
+      <freejoint/>
+      <inertial pos="0 0 0" mass="10" diaginertia="0.2 0.3 0.4"/>
+      <geom name="hull" type="ellipsoid" size="0.25 0.15 0.08" fluidshape="ellipsoid"
+            fluidcoef="0.5 0.25 1.5 1.0 1.0" mass="0" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>

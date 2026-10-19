@@ -2223,6 +2223,41 @@ web cards and the URI stress test of every simulator.
 - With Gazebo, skipped unless the tool is built: frames and steady states; the export against Strathe's model (neutral
   and buoyant); fit-sim end to end.
 
+### 83. MuJoCo: `fit-sim --sim mujoco`, nothing to build (2026-10-19)
+
+**What changed:**
+- **`simfit/adapters/mujoco.py`:** the lab's MJCF vehicle (a body with a free joint, x forward, z up), replayed
+  in-process with the `mujoco` package Strathe already installs.
+  - **Each window:** the logged pose and velocity are set (the free joint's velocity is the body origin's in world axes;
+    its angular velocity is in body axes).
+  - **Every timestep:** the logged wrench at the reference point, through `xfrc_applied` moved to the centre of mass.
+    The kinematics are refreshed first: after `mj_step` they still describe the pose before the step.
+  - **Read-back:** velocity at a site added in memory at the reference point, after a forward pass.
+  - It refuses a timestep that doesn't divide the logs' sample time.
+- **What can be tuned, found in the file:**
+  - `drag`: each named ellipsoid hull geom's blunt, slender and angular coefficients. MJCF's default `fluidcoef` is
+    written in first, using a new editor helper, `ensure_attr`. With no ellipsoid geom (the inertia-box model), the
+    option's density and viscosity are tuned instead.
+  - `lift`: the Kutta and Magnus coefficients.
+  - `buoyancy`: `gravcomp`.
+  - `cg`: the inertial pos.
+  - `mass`.
+- **`export-sim` refuses with a plain message.** MuJoCo has no per-axis linear damping or buoyancy force, and doesn't
+  apply the part of added mass that resists acceleration. It points to `fit-sim` and to `mujoco_backend.py`, which runs
+  Strathe's own model in MuJoCo.
+- **`strathe check`** has a MuJoCo line.
+- **Guide:** `calibration/simulators/mujoco/README.md`, with an example `example/auv.xml`.
+
+**Tests (`tests/test_simfit_mujoco.py`; MuJoCo is a pip package, so they run in CI):**
+- every axis's sign in Strathe's frames;
+- the start state round-trips within 0.01 at an offset reference point (no water);
+- knobs found, MJCF defaults made explicit, only tuned numbers changed;
+- plain messages;
+- fit-sim recovers the ellipsoid drag coefficients from logs (held-out drift more than halved);
+- export refused.
+
+A 10 s window replays in about 0.3 s.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

@@ -399,6 +399,11 @@ def cmd_check(args, runner=None) -> int:
     ok = ok and len(policies) == 3
     print(stonefish_status())
     print(gazebo_status())
+    try:
+        import mujoco
+        print(f"✅ MuJoCo {mujoco.__version__} (fit-sim --sim mujoco: nothing to build)")
+    except ImportError:
+        print("➖ MuJoCo not installed (pip install -r requirements.txt)")
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 

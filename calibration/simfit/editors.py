@@ -210,6 +210,19 @@ class XmlFile:
         new = raw[:o] + fmt_number(value) + raw[o + ln:]
         self.data = self.data[:a] + new.encode("utf-8") + self.data[b:]
 
+    def ensure_attr(self, path: str, attr: str, default: str) -> None:
+        """Give the element at `path` the attribute `attr`, with `default`, if it doesn't have it (so it can be tuned)."""
+        steps, _a, _c = _split_path(path)
+        hits = _select(_parse_xml(self.data), steps)
+        if len(hits) != 1:
+            raise SimFitError(f"the model file has {len(hits)} matches for {path!r}, not one")
+        n = hits[0]
+        head = self.data[n.start:n.head_end]
+        if re.search(rb"(?<![\w:.\-])" + re.escape(attr.encode()) + rb"\s*=", head):
+            return
+        close = n.head_end - (2 if head.endswith(b"/>") else 1)
+        self.data = self.data[:close] + f' {attr}="{default}"'.encode() + self.data[close:]
+
     def exists(self, path: str) -> bool:
         steps, attr, comp = _split_path(path)
         hits = _select(_parse_xml(self.data), steps)

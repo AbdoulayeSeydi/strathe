@@ -22,7 +22,7 @@ Only `--sim` and the simulator's own options (which model, which part) change be
 | `stonefish` | ready | per-axis drag, added mass, buoyancy, CG (one part) | exact with the patch's damping (#80) | [stonefish/README.md](../stonefish/README.md) |
 | `external` | ready | whatever your description lists | where your description maps it | [SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md) |
 | `gazebo` | ready (#82) | Hydrodynamics damping, added mass, buoyancy (collision size), CG, mass | exact with the reference point at the link origin (0.006 m/s over 30 s) | [gazebo/README.md](gazebo/README.md) |
-| `mujoco` | in progress (#83) | fluid model coefficients, buoyancy, CG | none (MuJoCo has no per-axis damping) | mujoco/README.md |
+| `mujoco` | ready (#83) | ellipsoid fluid-model drag and lift coefficients, gravcomp buoyancy, CG, mass | none (MuJoCo has no per-axis damping, buoyancy force or full added mass) | [mujoco/README.md](mujoco/README.md) |
 | `holoocean` | in progress (#84) | Fossen torpedo dynamics parameters | exact, as a Fossen model class | holoocean/README.md |
 
 **Any other simulator** (in-house, Isaac Sim, ...): describe it in a short YAML and give it a replay command
