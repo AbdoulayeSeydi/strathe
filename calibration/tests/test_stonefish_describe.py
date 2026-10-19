@@ -5,7 +5,6 @@ import math
 import os
 
 import pytest
-import yaml
 
 import stonefish_describe as SD
 import stonefish_fit as SF
@@ -41,27 +40,38 @@ def test_the_description_takes_the_models_values():
     t = _targets(spec)
     assert spec["fixed_parameters"]["mass_kg"]["value"] == 27.0
     assert t["Xu_dot"]["initial_guess"] == pytest.approx(10.1)  # external parts only (the foam is inside)
-    assert t["Yv_dot"]["initial_guess"] == pytest.approx(220.5)
     rho = 1000.0
-    assert t["Xuu"]["initial_guess"] == pytest.approx(-0.5 * rho * (0.08 * 0.05 + 0.3 * 0.005) * 0.5, rel=1e-3)
+    assert t["Yvv"]["initial_guess"] == pytest.approx(-0.5 * rho * (1.0 * 0.375 + 1.0 * 0.015) * 0.5, rel=1e-3)
     assert t["Xu"]["initial_guess"] == pytest.approx(-rho * (0.008 * 1.1 + 0.03 * 0.03), rel=1e-3)
     added_I = 54.0 + 0.2
     assert t["Ieff_pitch"]["initial_guess"] == pytest.approx((66.0 - added_I) + added_I + 27.0 * (0.1 ** 2 + 0.005 ** 2), rel=1e-3)
     assert t["net_buoyancy_z"]["initial_guess"] == pytest.approx(rho * 9.81 * 0.03 - 27.0 * 9.81, rel=1e-3)
     assert t["cg_cb_offset_z"]["initial_guess"] == pytest.approx(0.095, rel=1e-3)  # CG 9.5 cm below CB
-    assert all("Stonefish" in t[k]["source"] for k in ("Ieff_pitch", "Xu_dot", "Xuu", "net_buoyancy_z"))
+    assert all("Stonefish" in t[k]["source"] for k in ("Ieff_pitch", "Xu_dot", "Yvv", "net_buoyancy_z"))
 
 
-def test_limits_never_shut_out_the_templates_range():
-    """A model value can be off (Stonefish's default nose drag is tiny); the fit must still reach a real vehicle's."""
-    spec, _ = SD.describe(_info())
+def test_limits_come_from_the_hulls_size_not_the_models_values():
+    """Stonefish's geometric added mass can be ~3x strip theory (ALPHA RISE's is). Limits sized from those values let the
+    fit wander: on ALPHA RISE it fitted the training mission and drifted 64 m on the unseen one, against 3.5 m with
+    limits sized from the hull (#77)."""
+    spec, notes = SD.describe(_info())
     t = _targets(spec)
-    tpl = _targets(yaml.safe_load(open(SD.TEMPLATE)))
+    D = math.sqrt(4 * 0.055 / math.pi)
+    L = 0.39 / D
+    strip = 1000.0 * 0.055 * L
+    assert t["Yv_dot"]["bounds"] == [0.0, pytest.approx(2 * strip, rel=1e-3)]
+    assert t["Yv_dot"]["initial_guess"] < 2 * strip < 220.5  # the model's 220.5 kg starts just inside
+    assert any("Yv_dot 220" in n for n in notes)
+    assert t["Xuu"]["bounds"][0] <= -200.0  # a drag coefficient up to 8: the fitted ALPHA RISE value (-47 to -64) is inside
     for k, v in t.items():
         lo, hi = v["bounds"]
-        assert lo <= tpl[k]["bounds"][0] and hi >= tpl[k]["bounds"][1], k
         assert lo <= v["initial_guess"] <= hi, k
-    assert t["Xuu"]["bounds"][0] <= -200.0  # the fitted ALPHA RISE value (-47 to -64) is inside
+    info = _info()
+    for p in info["parts"]:
+        p["added_mass"] = [10 * a for a in p["added_mass"]]
+        p["quadratic_drag"] = [10 * c for c in p["quadratic_drag"]]
+    t10 = _targets(SD.describe(info)[0])
+    assert all(t10[k]["bounds"] == t[k]["bounds"] for k in ("Xu_dot", "Yv_dot", "Zw_dot", "Xuu", "Yvv", "Zww"))
 
 
 def test_a_weighed_mass_scales_the_rigid_inertia_and_keeps_the_trim():

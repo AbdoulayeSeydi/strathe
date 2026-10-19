@@ -14,8 +14,10 @@ to work them out by hand (LAB_GUIDE.md step 4) or send CAD:
   - pitch and yaw damping from the hull's length and diameter;
   - net buoyancy (the model's trim), and the centre of gravity relative to the centre of buoyancy;
   - for a slender hull, the hull-lift terms (#71).
-Every value is a starting point with limits about 5x either way: the logs decide the calibrated value. The model's own
-values are estimates too; where they disagree with the vehicle, the calibration report shows it.
+The model's values are the starting points. The limits come from the hull's size (its length and diameter from the mesh,
+its displaced volume, its mass distribution), not from the model's values: Stonefish's geometric estimates can be
+several times the physical ones (ALPHA RISE's sway added mass is 3x strip theory), and limits sized from them let the
+fit wander far enough to fit the training logs and fail on unseen ones. The logs decide the calibrated values.
 """
 from __future__ import annotations
 
@@ -34,17 +36,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "templates", "vehicle_spec_template.yaml")
 G = 9.81
 SLENDER = 3.0  # length / diameter above which the hull-lift terms are included
+CD_SURGE = (0.05, 8.0)  # quadratic drag coefficient on the frontal area: a faired nose up to thrusters and sensors
+CD_BROADSIDE = (0.03, 2.5)  # on the side area: sway, heave, and (strip theory) pitch and yaw
+LINEAR_SPEED = 0.3  # m/s: linear drag limit = this x the quadratic limit
 
 
-def _neg_bounds(v: float, floor: float = 0.05) -> list:
-    """Limits for a damping value (negative): 5x either way, the upper limit kept below 0."""
-    v = min(v, -floor)
-    return [round(5 * v, 4), round(min(v / 5, -floor / 5), 4)]
-
-
-def _pos_bounds(v: float, floor: float) -> list:
-    v = max(v, floor)
-    return [round(v / 5, 4), round(5 * v, 4)]
+def _inside(v: float, lo: float, hi: float) -> float:
+    """The model's value as the starting point, moved just inside the limits if it's outside them."""
+    margin = 0.02 * (hi - lo)
+    return min(max(v, lo + margin), hi - margin)
 
 
 def describe(info: dict, *, mass: float | None = None, water_density: float | None = None, cruise_speed: float = 0.5,
@@ -70,21 +70,26 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
     T = spec["calibration_targets"]
 
     def put(group, key, guess, bounds, source, rationale):
-        """The model's value as the starting point; limits the wider of the model's and the template's general ones,
-        so a model value that's off (e.g. a default drag coefficient) can't keep the fit from the vehicle's."""
-        tlo, thi = T[group][key]["bounds"]
-        lo, hi = min(float(bounds[0]), float(tlo)), max(float(bounds[1]), float(thi))
-        T[group][key].update({"initial_guess": round(float(guess), 4), "bounds": [round(lo, 4), round(hi, 4)],
-                              "source": source, "bounds_rationale": rationale + "; widened to the template's general "
-                              "range where that's wider", "confidence": "estimated"})
+        """The model's value as the starting point, inside limits sized from the hull (not from the model's value: a
+        model value that's off, e.g. a geometric added-mass estimate 3x strip theory, mustn't widen them)."""
+        lo, hi = float(bounds[0]), float(bounds[1])
+        start = _inside(float(guess), lo, hi)
+        if abs(start - float(guess)) > 1e-9 * max(1.0, abs(float(guess))):
+            outside.append(f"{key} {float(guess):.3g}")
+        T[group][key].update({"initial_guess": round(start, 4), "bounds": [round(lo, 4), round(hi, 4)],
+                              "source": source, "bounds_rationale": rationale, "confidence": "estimated"})
         T[group][key].pop("reference", None)
 
+    outside = []
     # Geometry from the parts' projected areas: frontal area -> equivalent diameter, side area -> length.
     S = np.sum([p["projected_area"] for p in ext], axis=0)
-    Tg = np.sum([p["tangential_area"] for p in ext], axis=0)
     D = math.sqrt(4 * max(S[0], 1e-6) / math.pi)
     L = max(S[1], S[2]) / max(D, 1e-6)
     slender = L / max(D, 1e-6) > SLENDER
+    hull = f"a {L:.2f} m x {D:.2f} m hull"
+    frontal, side = math.pi * D ** 2 / 4, L * D
+    strip = rho * frontal * L  # strip-theory sway/heave added mass, rho*pi*r^2*L
+    displaced = rho * float(base["volume"])
 
     # Mass and its distribution.
     spec["vehicle"]["name"] = name
@@ -98,29 +103,42 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
     d = np.array(reference_point, dtype=float) - np.array(base["cg"], dtype=float)
     shift = m * np.array([d[1] ** 2 + d[2] ** 2, d[0] ** 2 + d[2] ** 2, d[0] ** 2 + d[1] ** 2])
     Ieff = rigid + added_I + shift
-    for k, ax, v in zip(("Ieff_roll", "Ieff_pitch", "Ieff_yaw"), ("roll", "pitch", "yaw"), Ieff):
-        put("effective_inertia", k, v, _pos_bounds(v, 0.05), src(f"{ax} inertia, rigid + added, about the logs' "
-                                                                 f"reference point"), "the model's value, 5x either way")
+    # Limits: the model's rigid inertia (its mass distribution) plus slender-body added inertia rho*pi*r^2*L^3/12.
+    phys_added = rho * frontal * L ** 3 / 12
+    for i, (k, ax) in enumerate((("Ieff_roll", "roll"), ("Ieff_pitch", "pitch"), ("Ieff_yaw", "yaw"))):
+        nominal = rigid[i] + shift[i] + (0.0 if i == 0 else phys_added)
+        nominal = max(nominal, 0.05)
+        put("effective_inertia", k, Ieff[i], [nominal / 5, (5 if i == 0 else 3) * nominal],
+            src(f"{ax} inertia, rigid + added, about the logs' reference point"),
+            f"rigid {rigid[i] + shift[i]:.3g}" + ("" if i == 0 else f" + slender-body added {phys_added:.3g}")
+            + f" for {hull}; {'1/5 to 5x' if i == 0 else '1/5 to 3x'}")
     A = np.sum([p["added_mass"] for p in ext], axis=0)
-    for k, ax, v in zip(("Xu_dot", "Yv_dot", "Zw_dot"), ("surge", "sway", "heave"), A):
-        put("added_mass_diag", k, v, [0.0, round(4 * max(v, 0.5), 3)], src(f"{ax} added mass (geometric estimate)"),
-            "0 to 4x the model's geometric estimate")
+    for k, ax, v, hi, why in (("Xu_dot", "surge", A[0], displaced, f"0 to the displaced mass {displaced:.3g} kg"),
+                              ("Yv_dot", "sway", A[1], 2 * strip, f"0 to 2x strip theory rho*pi*r^2*L = {strip:.3g} kg"),
+                              ("Zw_dot", "heave", A[2], 2 * strip, f"0 to 2x strip theory rho*pi*r^2*L = {strip:.3g} kg")):
+        put("added_mass_diag", k, v, [0.0, hi], src(f"{ax} added mass (geometric estimate)"), f"{why} for {hull}")
 
     # Drag. Stonefish: quadratic 0.5 rho Cd S |v|^2 |v| (cubic, matched at the cruise speed), viscous rho Cf T v.
+    # Limits: a drag coefficient between CD_RANGE on the hull's frontal (surge) or side (sway, heave) area.
     for i, (lk, qk, ax) in enumerate((("Xu", "Xuu", "surge"), ("Yv", "Yvv", "sway"), ("Zw", "Zww", "heave"))):
+        area, (cmin, cmax) = (frontal, CD_SURGE) if i == 0 else (side, CD_BROADSIDE)
+        qlo, qhi = -0.5 * rho * cmax * area, -0.5 * rho * cmin * area
         quad = -sum(0.5 * rho * p["quadratic_drag"][i] * p["projected_area"][i] for p in ext) * cruise_speed
         lin = -sum(rho * p["viscous_drag"][i] * p["tangential_area"][i] for p in ext)
-        put("quadratic_damping", qk, quad, _neg_bounds(quad, 0.5),
-            src(f"{ax} drag from its coefficients and mesh area, matched at {cruise_speed:g} m/s"), "5x either way")
-        put("linear_damping", lk, lin, _neg_bounds(lin, 0.5), src(f"{ax} skin friction from its coefficients and "
-                                                                  f"mesh area"), "5x either way")
-    rot = -0.5 * rho * 1.0 * D * L ** 4 / 32
+        put("quadratic_damping", qk, quad, [qlo, qhi],
+            src(f"{ax} drag from its coefficients and mesh area, matched at {cruise_speed:g} m/s"),
+            f"drag coefficient {cmin:g} to {cmax:g} on the {'frontal' if i == 0 else 'side'} area of {hull}")
+        put("linear_damping", lk, lin, [LINEAR_SPEED * qlo, -0.5], src(f"{ax} skin friction from its coefficients "
+                                                                       f"and mesh area"),
+            f"up to {LINEAR_SPEED:g} m/s x the quadratic limit")
+    rot = 0.5 * rho * D * L ** 4 / 32  # strip theory, drag coefficient 1
     for k in ("Mqq", "Nrr"):
-        put("quadratic_damping", k, rot, _neg_bounds(rot, 0.5),
-            src(f"hull length {L:.2f} m and diameter {D:.2f} m, strip theory 0.5*rho*D*L^4/32"), "5x either way")
-    for k, q in (("Mq", "Mqq"), ("Nr", "Nrr")):
-        lin = 0.3 * T["quadratic_damping"][q]["initial_guess"]
-        put("linear_damping", k, lin, _neg_bounds(lin, 0.2), "0.3 rad/s x the quadratic value", "5x either way")
+        put("quadratic_damping", k, -rot, [-CD_BROADSIDE[1] * 3 * rot, -max(CD_BROADSIDE[0] * rot, 0.05)],
+            src(f"strip theory 0.5*rho*D*L^4/32 for {hull}"), "drag coefficient as sway, up to 3x for fins")
+    for k, qk in (("Mq", "Mqq"), ("Nr", "Nrr")):
+        qb = T["quadratic_damping"][qk]
+        put("linear_damping", k, 0.3 * qb["initial_guess"], [0.5 * qb["bounds"][0], -0.2],
+            "0.3 rad/s x the quadratic value", "up to 0.5 rad/s x the quadratic limit")
 
     # Trim and the centres.
     net = rho * G * float(base["volume"]) - model_mass * G
@@ -128,8 +146,11 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
     put("buoyancy", "net_buoyancy_z", net, [min(-0.12 * weight, net - 0.12 * weight), max(0.12 * weight, net + 0.12 * weight)],
         src(f"its trim (buoyant volume against its mass, water {rho:g})"), "+-12% of the weight around the model's trim")
     cgcb = np.array(base["cg"]) - np.array(base["cb"])  # body frame forward-right-down: z > 0 = CG below CB
-    put("buoyancy", "cg_cb_offset_z", cgcb[2], [min(-0.05, -abs(cgcb[2])), max(0.1, 2 * abs(cgcb[2]))],
-        src("centre of gravity below the centre of buoyancy"), "the model's offset, down to the CB and up to twice it")
+    put("buoyancy", "cg_cb_offset_z", cgcb[2], [-D / 2, D / 2], src("centre of gravity below the centre of buoyancy"),
+        f"within the hull's radius ({D / 2:.3g} m) either way")
+    if outside:
+        notes.append("Outside the limits for the hull's size, so the fit starts just inside them: "
+                     + ", ".join(outside) + ". Stonefish's geometric estimates can be several times the physical ones.")
     if slender and hull_lift:
         put("buoyancy", "cg_cb_offset_x", cgcb[0], [cgcb[0] - 0.05, cgcb[0] + 0.05],
             src("centre of gravity ahead of the centre of buoyancy"), "the model's offset +-5 cm")
@@ -165,7 +186,7 @@ def _plain(x):
 
 HEADER = """# Vehicle description written by `strathe describe-stonefish` from {model}.
 # Pass it to every command: python strathe.py calibrate --ingest-spec my_ingest.yaml --spec {out} --name my_vehicle
-# Each value's `source` says where it came from. They are starting values with limits about 5x either way; the logs
+# Each value's `source` says where it came from. They are starting values, with limits sized from the hull; the logs
 # decide the calibrated values. Check the mass (weigh the vehicle) and the thruster count; edit anything you know
 # better (calibration/templates/vehicle_spec_template.yaml explains every field).
 """

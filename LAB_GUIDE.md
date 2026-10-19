@@ -81,8 +81,9 @@ python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --re
 - **What it reads:** the model's mass distribution, added mass, drag coefficients, hull size and the centres of
   gravity and buoyancy.
 - **What `--mass` does:** give the weighed mass; the model's can differ, and its rigid inertia is then scaled to it.
-- **Limits:** every value's range is the wider of about 5× around the model's value and the template's general range,
-  so a model value that's off can't keep the fit away from your vehicle's.
+- **Limits:** sized from the hull (its length and diameter, displaced volume and mass distribution), not from the
+  model's values, with the model's values as starting points. A model value outside them (Stonefish's geometric added
+  mass can be several times strip theory) starts just inside, and the command says so.
 - **Then check two things:** the thruster count, and anything you know better.
 
 Otherwise, copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next

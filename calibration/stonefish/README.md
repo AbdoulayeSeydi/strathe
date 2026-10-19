@@ -110,9 +110,18 @@ fill in `templates/vehicle_spec_template.yaml` by hand. It takes:
 - **the centre of gravity's offset** below the centre of buoyancy;
 - **the hull-lift terms:** with `--hull-lift`, for a slender hull.
 
-**Limits.** Every value's limits are the wider of about 5× around the model's value and the template's general range.
-A model value can be far off: Stonefish's default nose drag for ALPHA RISE is 20× smaller than the fitted one, so
-limits around it alone would keep the fit from the vehicle's value.
+**Limits** come from the hull's size, not the model's values:
+- **inertia:** the model's rigid inertia plus slender-body added inertia, 1/5 to 3× (roll 1/5 to 5×);
+- **added mass:** surge up to the displaced mass, sway and heave up to 2× strip theory (ρπr²L);
+- **drag:** a drag coefficient of 0.05–8 on the frontal area (surge) and 0.03–2.5 on the side area (sway, heave,
+  and pitch and yaw by strip theory); linear drag up to 0.3 m/s × the quadratic limit;
+- **net buoyancy:** ±12% of the weight around the model's trim; **CG below CB:** within the hull's radius.
+
+The model's values can be far off either way. ALPHA RISE's sway and heave added mass are 3× strip theory, and its nose
+drag is 20× smaller than the fitted one. With limits sized around those values (5× either way), the fit landed
+somewhere that matched the training mission and drifted 64 m on the unseen one. With limits sized from the hull, it
+calibrates like the hand-written description (PROJECT_STATUS.md #77). A model value outside the limits starts just
+inside them, and the command lists it.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash
