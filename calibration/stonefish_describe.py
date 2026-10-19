@@ -38,7 +38,10 @@ G = 9.81
 SLENDER = 3.0  # length / diameter above which the hull-lift terms are included
 CD_SURGE = (0.05, 8.0)  # quadratic drag coefficient on the frontal area: a faired nose up to thrusters and sensors
 CD_BROADSIDE = (0.03, 2.5)  # on the side area: sway, heave, and (strip theory) pitch and yaw
-LINEAR_SPEED = 0.3  # m/s: linear drag limit = this x the quadratic limit
+LINEAR_SPEED = 1.0  # m/s: linear drag limit = this x the quadratic limit
+# Damping limits are generous on purpose: in an open-loop replay damping also absorbs what the model leaves out, and
+# ALPHA RISE's calibration wants more of it than the hull alone gives (#77: 0.3 m/s here cost 0.6 of mean skill).
+# Inertia and added mass keep limits from the hull's size: those are where an off model value did the damage.
 
 
 def _inside(v: float, lo: float, hi: float) -> float:
@@ -108,10 +111,10 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
     for i, (k, ax) in enumerate((("Ieff_roll", "roll"), ("Ieff_pitch", "pitch"), ("Ieff_yaw", "yaw"))):
         nominal = rigid[i] + shift[i] + (0.0 if i == 0 else phys_added)
         nominal = max(nominal, 0.05)
-        put("effective_inertia", k, Ieff[i], [nominal / 5, (5 if i == 0 else 3) * nominal],
+        put("effective_inertia", k, Ieff[i], [nominal / 5, (10 if i == 0 else 3) * nominal],
             src(f"{ax} inertia, rigid + added, about the logs' reference point"),
             f"rigid {rigid[i] + shift[i]:.3g}" + ("" if i == 0 else f" + slender-body added {phys_added:.3g}")
-            + f" for {hull}; {'1/5 to 5x' if i == 0 else '1/5 to 3x'}")
+            + f" for {hull}; {'1/5 to 10x' if i == 0 else '1/5 to 3x'}")
     A = np.sum([p["added_mass"] for p in ext], axis=0)
     for k, ax, v, hi, why in (("Xu_dot", "surge", A[0], displaced, f"0 to the displaced mass {displaced:.3g} kg"),
                               ("Yv_dot", "sway", A[1], 2 * strip, f"0 to 2x strip theory rho*pi*r^2*L = {strip:.3g} kg"),
@@ -133,12 +136,12 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
             f"up to {LINEAR_SPEED:g} m/s x the quadratic limit")
     rot = 0.5 * rho * D * L ** 4 / 32  # strip theory, drag coefficient 1
     for k in ("Mqq", "Nrr"):
-        put("quadratic_damping", k, -rot, [-CD_BROADSIDE[1] * 3 * rot, -max(CD_BROADSIDE[0] * rot, 0.05)],
-            src(f"strip theory 0.5*rho*D*L^4/32 for {hull}"), "drag coefficient as sway, up to 3x for fins")
+        put("quadratic_damping", k, -rot, [-CD_BROADSIDE[1] * 3 * rot, -max(0.005 * rot, 0.05)],
+            src(f"strip theory 0.5*rho*D*L^4/32 for {hull}"), "drag coefficient up to 3x sway's, for fins")
     for k, qk in (("Mq", "Mqq"), ("Nr", "Nrr")):
         qb = T["quadratic_damping"][qk]
-        put("linear_damping", k, 0.3 * qb["initial_guess"], [0.5 * qb["bounds"][0], -0.2],
-            "0.3 rad/s x the quadratic value", "up to 0.5 rad/s x the quadratic limit")
+        put("linear_damping", k, 0.3 * qb["initial_guess"], [qb["bounds"][0], -0.2],
+            "0.3 rad/s x the quadratic value", "up to 1 rad/s x the quadratic limit")
 
     # Trim and the centres.
     net = rho * G * float(base["volume"]) - model_mass * G
