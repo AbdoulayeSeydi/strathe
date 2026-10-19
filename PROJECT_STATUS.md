@@ -2331,6 +2331,28 @@ origin at the logs' reference point.
 model loads in its adapter, and a trimmed MuJoCo copy neither rises nor falls; `strathe convert-sim` passes its options
 through.
 
+### 86. The web page: "Calibrate your simulator model" and "Put your Strathe calibration into your simulator" (2026-10-19)
+
+**What changed:** two cards with a simulator selector (Gazebo Harmonic, MuJoCo, HoloOcean, your own description).
+- `strathe_web.sim_cli_args` maps each simulator's fields to its options (`SIM_FIELDS`):
+  - the model file;
+  - Gazebo's included model file;
+  - the vehicle's name (Gazebo model, MuJoCo body, HoloOcean agent) and Gazebo's link.
+- Shared fields: the logs (an ingestion spec or a folder), the reference point, held-out dates, what to fit, holds,
+  `--axisymmetric`, densities, `--from-strathe`, a comparison calibration, the replay tool (a path or `docker:IMAGE`),
+  iterations and workers.
+- Every field is checked, with a plain line for anything wrong.
+- The routes `/jobs/fit_sim` and `/jobs/export_sim` start `strathe fit-sim` / `export-sim`. Stonefish keeps its own cards.
+
+**Tests:**
+- every field reaches the command;
+- bad input is refused with a plain line;
+- the server starts exactly the command;
+- the home page has 11 forms, each label pointing at one input. The new cards first reused an existing `fs-` id prefix;
+  now `simf-` and `simx-`.
+
+Checked in the browser: the cards render and there are no console errors.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

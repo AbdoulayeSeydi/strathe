@@ -182,7 +182,8 @@ def test_home_page_has_every_form(server):
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
     assert "Calibrate your Stonefish model" in body and "Put your Strathe calibration into Stonefish" in body
-    assert body.count(f"value='{token}'") == 9
+    assert "Calibrate your simulator model" in body and "Put your Strathe calibration into your simulator" in body
+    assert body.count(f"value='{token}'") == 11
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -772,3 +773,20 @@ def test_stonefish_forms_take_the_replay_tool_iterations_and_workers(tmp_path):
     assert args[args.index("--max-iterations") + 1] == "30" and args[args.index("--workers") + 1] == "2"
     with pytest.raises(ValueError, match="Replay tool not found"):
         web.stonefish_cli_args({**form, "replay_tool": str(tmp_path / "nope")})
+
+
+def test_the_simulator_cards_start_fit_sim_and_export_sim(server):
+    """PROJECT_STATUS.md #86: the "your simulator" cards reach `strathe fit-sim` / `export-sim`."""
+    request, token, started, manager, tmp_path = server
+    world = tmp_path / "w.sdf"
+    world.write_text("<sdf/>")
+    status, body, _ = request("GET", "/")
+    assert "Calibrate your simulator model" in body and 'name=sim' in body
+    status, _, _ = request("POST", "/jobs/fit_sim", {"token": token, "sim": "gazebo", "model": str(world),
+                                                    "reference_point": "0 0 0", "data": str(tmp_path), "name": "g1"})
+    assert status == 303
+    cmd = started[-1]
+    assert cmd[3:6] == ["fit-sim", "--sim", "gazebo"] and cmd[-2:] == ["--out", os.path.join(web.JOBS_DIR, "sim_fit_g1")]
+    status, body, _ = request("POST", "/jobs/fit_sim", {"token": token, "sim": "gazebo", "model": str(world),
+                                                       "reference_point": "0 0", "data": str(tmp_path), "name": "g2"})
+    assert status == 400 and "three numbers" in body

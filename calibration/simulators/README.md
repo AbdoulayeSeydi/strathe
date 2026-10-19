@@ -17,6 +17,10 @@ python strathe.py export-sim --sim SIMULATOR ... --calibration calibration_outpu
 Only `--sim` and the simulator's own options (which model, which part) change between simulators.
 `python strathe.py fit-sim --sim SIMULATOR --help` lists them.
 
+**On the local web page** (`python strathe.py web`), use the "Calibrate your simulator model" and "Put your Strathe
+calibration into your simulator" cards. Pick the simulator and give your model and logs. Stonefish keeps its own two
+cards.
+
 | `--sim` | Status | What `fit-sim` tunes | `export-sim` | Guide |
 |---|---|---|---|---|
 | `stonefish` | ready | per-axis drag, added mass, buoyancy, CG (one part) | exact with the patch's damping (#80) | [stonefish/README.md](../stonefish/README.md) |

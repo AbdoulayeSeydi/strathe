@@ -197,3 +197,31 @@ def test_the_documented_example_runs_as_shipped(tmp_path):
     assert (tmp_path / "fit" / "vehicle_calibrated.json").exists()
     d = yaml.safe_load((ex / "my_sim.yaml").read_text())
     assert {e["param"] for e in d["export"]} >= {"Xuu", "Yv_dot", "Ieff_pitch", "mass"}
+
+
+def test_the_web_cards_build_fit_sim_and_export_sim(tmp_path):
+    import strathe_web as web
+    world = tmp_path / "w.sdf"
+    world.write_text("<sdf/>")
+    cal = tmp_path / "cal"
+    cal.mkdir()
+    (cal / "calibrated_parameters.yaml").write_text("parameters: {}\n")
+    form = {"sim": "gazebo", "model": str(world), "vehicle": "auv", "link": "base_link", "reference_point": "0 0 0",
+            "data": str(tmp_path), "heldout": "02-01-2030", "fit": "drag added_mass", "hold": "xUabsU=30",
+            "axisymmetric": "on", "replay_tool": "docker:strathe-gz-replay", "max_iterations": "5", "workers": "2"}
+    a = web.sim_cli_args(form, "fit")
+    assert a[:4] == ["--sim", "gazebo", "--world", str(world)] and a[a.index("--model-name") + 1] == "auv"
+    for flag, val in (("--fit", "drag"), ("--hold", "xUabsU=30"), ("--replay-tool", "docker:strathe-gz-replay"),
+                      ("--max-iterations", "5"), ("--heldout-dates", "02-01-2030")):
+        assert a[a.index(flag) + 1] == val
+    assert "--axisymmetric" in a
+    mjcf = tmp_path / "w.xml"
+    mjcf.write_text("<mujoco/>")
+    x = web.sim_cli_args({"sim": "mujoco", "model": str(mjcf), "reference_point": "0 0 0", "calibration": str(cal)},
+                         "export")
+    assert x[:3] == ["--sim", "mujoco", "--model"] and x[x.index("--calibration") + 1] == str(cal)
+    for bad, msg in (({**form, "sim": "nope"}, "Choose the simulator"), ({**form, "reference_point": "1 2"}, "three numbers"),
+                     ({**form, "heldout": "2030"}, "27-03-2026"), ({**form, "hold": "x"}, "NAME=VALUE"),
+                     ({**form, "data": "", "ingest_spec": ""}, "Give the logs")):
+        with pytest.raises(ValueError, match=msg):
+            web.sim_cli_args(bad, "fit")
