@@ -305,6 +305,70 @@ def stonefish_status(tool: Optional[str] = None) -> str:
             "(calibration/stonefish/README.md)")
 
 
+GZ_DIR = os.path.join(CAL_DIR, "simulators", "gazebo")
+GZ_TOOL = os.path.join(GZ_DIR, "build", "strathe_gz_replay")
+GZ_INSTALL = """Install Gazebo Harmonic (gz-sim 8) first, one of:
+  - any OS, no admin rights (conda-forge; about 3 GB):
+      micromamba create -p ~/strathe_gz_env/env -c conda-forge gz-sim8 cmake ninja cxx-compiler pkg-config
+      python strathe.py setup-sim gazebo --prefix ~/strathe_gz_env/env
+  - Ubuntu 22.04/24.04: sudo apt install gz-harmonic libgz-sim8-dev (gazebosim.org/docs/harmonic/install_ubuntu)
+  - macOS with Homebrew: brew tap osrf/simulation && brew install gz-harmonic
+  - or nothing to build: --replay-tool docker:IMAGE (calibration/simulators/gazebo/README.md)"""
+
+
+def gazebo_status(tool: Optional[str] = None) -> str:
+    """One line for `strathe check`: the Gazebo replay tool (PROJECT_STATUS.md #82)."""
+    p = tool or os.environ.get("STRATHE_GZ_REPLAY") or GZ_TOOL
+    if not os.access(p, os.X_OK):
+        return ("➖ Gazebo replay tool not built (optional: fit-sim / export-sim --sim gazebo; "
+                "python strathe.py setup-sim gazebo)")
+    try:
+        out = subprocess.run([p, "--features"], capture_output=True, text=True, timeout=60).stdout
+        f = json.loads(out.strip().splitlines()[-1])
+        return f"✅ Gazebo replay tool (gz-sim {f.get('gz_sim', '?')})"
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return f"⚠️  Gazebo replay tool at {p} doesn't run: rebuild it (python strathe.py setup-sim gazebo)"
+
+
+def cmd_setup_sim(args, runner=None) -> int:
+    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82)."""
+    import shutil
+    if args.sim != "gazebo":
+        guides = {"stonefish": "calibration/stonefish/README.md (sections 1-2)",
+                  "mujoco": "nothing: MuJoCo comes with pip install -r requirements.txt",
+                  "holoocean": "README.md 'Setup' step 2", "external": "calibration/simulators/SIMULATOR_PROTOCOL.md"}
+        print(f"{args.sim}: {guides[args.sim]}")
+        return 0
+    prefix = args.prefix or os.environ.get("CONDA_PREFIX")
+    if not shutil.which("cmake") and not (prefix and os.path.exists(os.path.join(prefix, "bin", "cmake"))):
+        print("❌ cmake isn't installed.\n" + GZ_INSTALL)
+        return 2
+    cmake = os.path.join(prefix, "bin", "cmake") if prefix and os.path.exists(os.path.join(prefix, "bin", "cmake")) else "cmake"
+    build = os.path.join(GZ_DIR, "build")
+    cfg = [cmake, "-S", GZ_DIR, "-B", build, "-DCMAKE_BUILD_TYPE=Release"]
+    if prefix:
+        cfg.append(f"-DCMAKE_PREFIX_PATH={os.path.abspath(os.path.expanduser(prefix))}")
+    env = dict(os.environ)
+    if prefix:
+        env["PATH"] = os.path.join(os.path.abspath(os.path.expanduser(prefix)), "bin") + os.pathsep + env.get("PATH", "")
+    print("Configuring the Gazebo replay tool...", flush=True)
+    r = subprocess.run(cfg, env=env, capture_output=True, text=True)
+    if r.returncode:
+        if "gz-sim8" in r.stdout + r.stderr:
+            print("❌ Gazebo Harmonic (gz-sim 8) wasn't found" + (f" under {prefix}" if prefix else "") + ".\n" + GZ_INSTALL)
+        else:
+            print("❌ cmake failed:\n" + (r.stderr or r.stdout)[-1500:])
+        return 2
+    print("Building it (a minute or two)...", flush=True)
+    r = subprocess.run([cmake, "--build", build], env=env, capture_output=True, text=True)
+    if r.returncode:
+        print("❌ the build failed:\n" + (r.stderr or r.stdout)[-1500:])
+        return 2
+    line = gazebo_status()
+    print(line)
+    return 0 if line.startswith("✅") else 2
+
+
 def cmd_check(args, runner=None) -> int:
     ok = True
     print(f"Python {sys.version.split()[0]} ({sys.executable})")
@@ -334,6 +398,7 @@ def cmd_check(args, runner=None) -> int:
     print(("✅" if len(policies) == 3 else "❌") + f" shipped fleet policies ({len(policies)}/3)")
     ok = ok and len(policies) == 3
     print(stonefish_status())
+    print(gazebo_status())
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 
@@ -1284,6 +1349,12 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--name", default="my_vehicle", help="names the default output folder")
     ex.add_argument("--out", help="output folder (default: stonefish_export_<name> in the repository)")
     ex.set_defaults(fn=cmd_export_stonefish)
+    su = sub.add_parser("setup-sim", help="build what a simulator needs for fit-sim / export-sim, and check it "
+                                         "(gazebo: the replay tool; calibration/simulators/README.md)")
+    su.add_argument("sim", choices=list(SIMULATORS))
+    su.add_argument("--prefix", help="where the simulator is installed (e.g. the conda env with gz-sim8); default: "
+                                     "the active conda env, else the system")
+    su.set_defaults(fn=cmd_setup_sim)
     # listed for --help; main() hands them to cmd_sim, which passes each simulator's own options through
     sub.add_parser("fit-sim", add_help=False,
                    help="calibrate your own simulator model from your logs, any simulator: --sim stonefish | gazebo | "

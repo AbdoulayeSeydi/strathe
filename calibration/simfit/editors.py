@@ -210,6 +210,36 @@ class XmlFile:
         new = raw[:o] + fmt_number(value) + raw[o + ln:]
         self.data = self.data[:a] + new.encode("utf-8") + self.data[b:]
 
+    def exists(self, path: str) -> bool:
+        steps, attr, comp = _split_path(path)
+        hits = _select(_parse_xml(self.data), steps)
+        return len(hits) == 1 and (attr is None or attr.encode() in self.data[hits[0].start:hits[0].head_end])
+
+    def set_or_add(self, parent: str, tag: str, value: str) -> None:
+        """Set <tag> under the element at `parent`, adding <tag>value</tag> as its last child if it isn't there (indented
+        like its siblings). `value` is the element's text (a number, or numbers separated by spaces)."""
+        steps, attr, comp = _split_path(parent)
+        hits = _select(_parse_xml(self.data), steps)
+        if len(hits) != 1:
+            raise SimFitError(f"the model file has {len(hits)} matches for {parent!r}, not one")
+        p = hits[0]
+        kids = [c for c in p.children if c.tag == tag]
+        if kids:
+            c = kids[0]
+            self.data = self.data[:c.head_end] + value.encode() + self.data[c.end:]
+            return
+        if self.data[p.head_end - 2:p.head_end] == b"/>":
+            raise SimFitError(f"{parent!r} is an empty element (<.../>); give it a closing tag to add <{tag}>")
+        if p.children:
+            last = p.children[-1]
+            line = self.data.rfind(b"\n", 0, last.start)
+            ind = self.data[line + 1:last.start] if line >= 0 and not self.data[line + 1:last.start].strip() else b""
+            end_of_last = self.data.index(b">", last.end) + 1 if last.end != last.head_end else last.head_end
+            ins = (b"\n" + ind if ind else b"") + f"<{tag}>{value}</{tag}>".encode()
+            self.data = self.data[:end_of_last] + ins + self.data[end_of_last:]
+        else:
+            self.data = self.data[:p.head_end] + f"<{tag}>{value}</{tag}>".encode() + self.data[p.end:]
+
 
 # ---------------------------------------------------------------------------------------------------------------------
 # JSON / YAML (JSON pointer) and regex

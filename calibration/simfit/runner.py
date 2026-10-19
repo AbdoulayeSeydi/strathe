@@ -151,7 +151,8 @@ def run_fit(adapter, a) -> int:
             a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
             print(f"Starting from {pfile}'s values, put into the {adapter.label} model (mass {smass:g} kg).", flush=True)
         info = adapter.info()
-        groups = tuple(a.fit or adapter.groups)
+        groups = tuple(a.fit or getattr(adapter, "default_groups", None) or adapter.groups)
+        groups = tuple(g for g in groups if g in adapter.groups) if not a.fit else groups
         unknown = set(groups) - set(adapter.groups)
         if unknown:
             raise SimFitError(f"--fit {', '.join(sorted(unknown))}: the {adapter.label} model has "

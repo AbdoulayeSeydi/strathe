@@ -21,7 +21,7 @@ Only `--sim` and the simulator's own options (which model, which part) change be
 |---|---|---|---|---|
 | `stonefish` | ready | per-axis drag, added mass, buoyancy, CG (one part) | exact with the patch's damping (#80) | [stonefish/README.md](../stonefish/README.md) |
 | `external` | ready | whatever your description lists | where your description maps it | [SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md) |
-| `gazebo` | in progress (#82) | Hydrodynamics plugin damping and added mass, buoyancy, CG | exact (the same Fossen law) | gazebo/README.md |
+| `gazebo` | ready (#82) | Hydrodynamics damping, added mass, buoyancy (collision size), CG, mass | exact with the reference point at the link origin (0.006 m/s over 30 s) | [gazebo/README.md](gazebo/README.md) |
 | `mujoco` | in progress (#83) | fluid model coefficients, buoyancy, CG | none (MuJoCo has no per-axis damping) | mujoco/README.md |
 | `holoocean` | in progress (#84) | Fossen torpedo dynamics parameters | exact, as a Fossen model class | holoocean/README.md |
 

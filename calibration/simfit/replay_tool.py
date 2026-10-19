@@ -82,19 +82,26 @@ class ReplayTool:
     dt: float = 0.1
     extra: list = field(default_factory=list)   # the simulator's own options
     name: str = "simulator"          # for messages
+    env: dict = field(default_factory=dict)     # extra environment for the command
 
     def _argv(self, model: str, folders=()) -> list:
         base = ["--model", model, "--ref", *(f"{x:g}" for x in self.ref), "--dt", f"{self.dt:g}", *self.extra]
         if self.tool and self.tool[0].startswith("docker:"):
-            mounts = []
-            for d in {os.path.dirname(os.path.abspath(model)), *folders}:
-                mounts += ["-v", f"{d}:{d}"]
-            return ["docker", "run", "--rm", *mounts, self.tool[0][len("docker:"):], *base]
+            # the model's and work folders, and any folder the environment points at (model paths), at the same paths
+            dirs = {os.path.dirname(os.path.abspath(model)), *folders}
+            for v in self.env.values():
+                dirs |= {d for d in str(v).split(os.pathsep) if os.path.isabs(d) and os.path.isdir(d)}
+            if "--model-dir" in self.extra:
+                dirs.add(self.extra[self.extra.index("--model-dir") + 1])
+            mounts = [x for d in sorted(dirs) for x in ("-v", f"{d}:{d}")]
+            envs = [x for k, v in self.env.items() for x in ("-e", f"{k}={v}")]
+            return ["docker", "run", "--rm", *mounts, *envs, self.tool[0][len("docker:"):], *base]
         return self.tool + base
 
     def _call(self, argv: list, timeout: int, what: str):
         try:
-            return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            env = {**os.environ, **self.env} if self.env else None
+            return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             raise SimFitError(f"the {self.name} replay tool didn't {what} within {timeout // 60} minutes; is the machine "
                               f"asleep or overloaded? Try fewer --workers")
