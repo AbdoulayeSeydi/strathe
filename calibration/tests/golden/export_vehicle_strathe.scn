@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- the lab's vehicle file: comments and sensors must survive in the calibrated copy -->
+<scenario>
+    <robot name="$(arg robot_name)" fixed="false" self_collisions="false">
+        <base_link name="Vehicle" type="compound" physics="submerged">
+            <external_part name="Hull" type="model" physics="submerged" buoyant="false">
+                <mass value="32"/>
+                <inertia xyz="0.8 3 3"/>
+                
+                <compound_transform rpy="0 0 0" xyz="0 0 0"/>
+                <cg xyz="-0.5 0 -0.03" rpy="0 0 0"/>
+                            <hydrodynamics quadratic_drag="0.960664 2.0442 1.96033" viscous_drag="0.0289479 0.103558 0.120126" added_mass="6 60 65" added_inertia="0 3 4" anisotropic_added_mass="true"/>
+</external_part>
+            <internal_part name="Foam" type="cylinder" physics="floating" buoyant="true">
+                <dimensions radius="0.101566" height="1.0"/>
+                <mass value="0.5"/>
+                <compound_transform rpy="0 0 0" xyz="0 0 0"/>
+            </internal_part>
+        </base_link>
+        <sensor name="dvl" type="dvl" rate="5.0"><link name="Base"/></sensor>
+        <world_transform xyz="0 0 0" rpy="0 0 0"/>
+    </robot>
+</scenario>

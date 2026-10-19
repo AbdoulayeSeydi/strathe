@@ -1,0 +1,257 @@
+"""
+simfit/core.py -- what calibrating any simulator's own model from logs shares (PROJECT_STATUS.md #81): the windows a
+recording is cut into, scoring a model on them (drift, velocity and attitude error per horizon), the baselines,
+Strathe's own model over the same windows, the least-squares fit over a simulator's settings, loading the recordings
+and the report's table and plot. An adapter (calibration/simfit/adapters/) supplies the simulator: how its model is
+changed and how windows are run in it. Moved from stonefish_fit.py (#72-#80) unchanged.
+"""
+from __future__ import annotations
+
+import concurrent.futures
+import json
+import math
+import os
+import shutil
+from typing import Optional
+
+import numpy as np
+from scipy.spatial.transform import Rotation
+
+FIT_WINDOW_S, FIT_STRIDE_S = 30.0, 30.0
+EVAL_WINDOW_S, EVAL_STRIDE_S, HORIZONS_S = 60.0, 10.0, (10, 30, 60)
+
+
+class SimFitError(RuntimeError):
+    """A problem the lab can fix (shown as one plain line, exit code 2)."""
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Windows and scores
+# ---------------------------------------------------------------------------------------------------------------------
+
+def windows(run, length_s: float, stride_s: float) -> list:
+    n = int(round(length_s / run.dt)) + 1
+    return [(a, n) for a in range(0, len(run.real_nu) - n + 1, max(1, int(round(stride_s / run.dt))))]
+
+
+def window_rows(run, wins) -> list:
+    return [np.hstack([run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
+            for a, n in wins]
+
+
+def path(V, Q, dt):
+    R = Rotation.from_quat(np.nan_to_num(Q) + np.array([0, 0, 0, 1e-12]))
+    return np.vstack([np.zeros(3), np.cumsum(R.apply(V[:, :3]) * dt, axis=0)[:-1]])
+
+
+def score(runs_wins: list, preds: list, horizons=HORIZONS_S) -> dict:
+    """Median drift, velocity RMSE per axis and attitude error per horizon, over all windows of all recordings."""
+    vel = {h: [] for h in horizons}
+    drift = {h: [] for h in horizons}
+    att = {h: [] for h in horizons}
+    total = diverged = 0
+    for (run, wins), pr in zip(runs_wins, preds):
+        for (a, n), (V, Q) in zip(wins, pr):
+            total += 1
+            if np.isnan(V).any():
+                diverged += 1
+                continue
+            rv, rq = run.real_nu[a:a + n], run.orientation_quat[a:a + n]
+            Pp, Pr = path(V, Q, run.dt), path(rv, rq, run.dt)
+            e = np.degrees(np.abs((Rotation.from_quat(Q).as_euler("xyz") - Rotation.from_quat(rq).as_euler("xyz")
+                                   + np.pi) % (2 * np.pi) - np.pi))
+            for h in horizons:
+                m = int(round(h / run.dt))
+                if m >= n:
+                    continue
+                vel[h].append((V[1:m + 1] - rv[1:m + 1]) ** 2)
+                drift[h].append(float(np.linalg.norm(Pp[m] - Pr[m])))
+                att[h].append(e[m])
+    out = {"windows": total, "diverged": diverged}
+    for h in horizons:
+        if drift[h]:
+            out[f"{h}s"] = {"drift_median_m": round(float(np.median(drift[h])), 3),
+                            "drift_p90_m": round(float(np.percentile(drift[h], 90)), 3),
+                            "velocity_rmse": np.sqrt(np.concatenate(vel[h]).mean(axis=0)).round(4).tolist(),
+                            "attitude_error_median_deg": np.median(np.array(att[h]), axis=0).round(2).tolist()}
+    return out
+
+
+def strathe_free_run(params, vehicle, run, a: int, n: int):
+    """Strathe's own model over the same window: its physics step, its own attitude (as validation.free_run)."""
+    from dynamics_model import SimulationConfig
+    from fast_dynamics import FastDynamics
+    acc = FastDynamics(params, vehicle).acceleration_trig
+    cfg = SimulationConfig(dt=run.dt)
+    sub, h = cfg.n_substeps, cfg.sub_dt
+    qx, qy, qz, qw = (float(x) for x in run.orientation_quat[a])
+    v = [float(x) for x in run.real_nu[a]]
+    V, Q = np.full((n, 6), np.nan), np.full((n, 4), np.nan)
+    for k in range(n):
+        V[k], Q[k] = v, (qx, qy, qz, qw)
+        if k + 1 == n:
+            break
+        tau = run.forces_torques[a + k].tolist()
+        for _ in range(sub):
+            r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
+            vd = acc(v, tau, r21, r22, -r20, 1.0)
+            v = [v[j] + vd[j] * h for j in range(6)]
+            if not all(math.isfinite(x) and abs(x) < 1e3 for x in v):
+                return V, Q
+            wx, wy, wz = v[3] * h, v[4] * h, v[5] * h
+            th = math.sqrt(wx * wx + wy * wy + wz * wz)
+            if th > 1e-12:
+                c, s_ = math.cos(th / 2), math.sin(th / 2) / th
+                dx, dy, dz = wx * s_, wy * s_, wz * s_
+                qw, qx, qy, qz = (qw * c - qx * dx - qy * dy - qz * dz, qw * dx + qx * c + qy * dz - qz * dy,
+                                  qw * dy - qx * dz + qy * c + qz * dx, qw * dz + qx * dy - qy * dx + qz * c)
+        nq = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+        qx, qy, qz, qw = qx / nq, qy / nq, qz / nq, qw / nq
+    return V, Q
+
+
+def baselines(runs_wins: list) -> dict:
+    zero, keep = [], []
+    for run, wins in runs_wins:
+        zero.append([(np.zeros((n, 6)), np.repeat(run.orientation_quat[a:a + 1], n, axis=0)) for a, n in wins])
+        keep.append([(np.repeat(run.real_nu[a:a + 1], n, axis=0), np.repeat(run.orientation_quat[a:a + 1], n, axis=0))
+                     for a, n in wins])
+    return {"no motion": score(runs_wins, zero), "keeps its starting velocity": score(runs_wins, keep)}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The fit
+# ---------------------------------------------------------------------------------------------------------------------
+
+LINEAR_FLOOR, ANGULAR_FLOOR = 0.05, 0.02  # m/s, rad/s: an axis that barely varies isn't weighted without limit
+
+
+def axis_scales(velocities: np.ndarray, weighting: str = "variation") -> np.ndarray:
+    """What each axis's velocity error is divided by in the fit. 'variation' (default): the axis's standard deviation
+    over the training recordings, floored, so a vehicle cruising steadily at 0.7 m/s weighs surge errors by how much
+    surge actually changes. 'magnitude': its RMS (Strathe's own objective's scale; #72's first runs), which makes
+    surge errors cheap during a cruise and let the fit trade surge for pitch and yaw (#73)."""
+    if weighting == "magnitude":
+        sc = np.sqrt(np.mean(velocities ** 2, axis=0))
+    elif weighting == "variation":
+        sc = np.std(velocities, axis=0)
+    else:
+        raise SimFitError(f"unknown weighting {weighting!r}: use variation or magnitude")
+    return np.maximum(sc, np.array([LINEAR_FLOOR] * 3 + [ANGULAR_FLOOR] * 3))
+
+
+def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0,
+        log=print, weighting: str = "variation") -> dict:
+    """Least squares over a simulator's own settings on the training recordings (30 s free-running windows every 30 s;
+    velocity error per axis scaled by axis_scales, plus end-of-window drift scaled by the no-motion drift). The
+    Jacobian's simulator runs go in parallel.
+
+    simulate(x, i, run, rows, folder) -> [(V, Q) per window]: recording i's windows run with the settings for
+    parameter vector x (an adapter's model written into `folder`). knobs: names(), values(x), x0(), bounds()."""
+    from scipy.optimize import least_squares
+    runs_wins = [(run, windows(run, FIT_WINDOW_S, FIT_STRIDE_S)) for run in train]
+    if not any(w for _, w in runs_wins):
+        raise SimFitError(f"the training recordings are shorter than one {FIT_WINDOW_S:g} s window")
+    rows = [window_rows(run, w) for run, w in runs_wins]
+    scale = axis_scales(np.vstack([run.real_nu for run in train]), weighting)
+    real_paths = [[path(run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.dt) for a, n in w] for run, w in runs_wins]
+    d0 = max(float(np.median([np.linalg.norm(P[-1]) for ps in real_paths for P in ps])), 0.1)
+    counter = {"n": 0}
+
+    def residuals_at(x, tag):
+        d = os.path.join(work, f"eval_{tag}")
+        out = []
+        for i, ((run, wins), rw, rp) in enumerate(zip(runs_wins, rows, real_paths)):
+            preds = simulate(x, i, run, rw, d)
+            for (a, n), (V, Q), Pr in zip(wins, preds, rp):
+                if np.isnan(V).any():
+                    out.append(np.full(6 * (n - 1) + 1, 10.0))
+                    continue
+                e = ((V[1:] - run.real_nu[a + 1:a + n]) / scale).ravel() / math.sqrt(n - 1)
+                dr = np.linalg.norm(path(V, Q, run.dt)[-1] - Pr[-1]) / d0
+                out.append(np.append(e, math.sqrt(drift_weight) * dr))
+        shutil.rmtree(d, ignore_errors=True)
+        return np.concatenate(out)
+
+    cache = {}
+
+    def fun(x):
+        key = tuple(np.round(x, 12))
+        if key in cache:
+            return cache[key]
+        counter["n"] += 1
+        r = residuals_at(x, f"f{counter['n']}")
+        log(f"  evaluation {counter['n']}: cost {0.5 * float(r @ r):.4f}")
+        cache.clear()
+        cache[key] = r
+        return r
+
+    lo, hi = knobs.bounds()
+    h = 0.05
+
+    def jac(x):
+        f0 = fun(x)
+        cols = [None] * len(x)
+
+        def col(j):
+            xj = x.copy()
+            step = h if x[j] + h <= hi[j] else -h
+            xj[j] += step
+            return j, (residuals_at(xj, f"j{counter['n']}_{j}") - f0) / step
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            for j, c in ex.map(col, range(len(x))):
+                cols[j] = c
+        return np.column_stack(cols)
+
+    x0 = knobs.x0()
+    r0 = fun(x0)  # cached: least_squares' first evaluation reuses it
+    res = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf", max_nfev=max_iterations, x_scale=1.0)
+    best = res.x
+    return {"x": best.tolist(), "names": knobs.names(), "values": knobs.values(best), "axis_scales": scale.tolist(),
+            "start_cost": 0.5 * float(r0 @ r0),
+            "cost": float(res.cost), "evaluations": counter["n"], "status": res.message}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Recordings, table and plot
+# ---------------------------------------------------------------------------------------------------------------------
+
+def load_runs(data_dir: str, heldout_dates: Optional[list]):
+    from data_split import discover_csv_files, split_by_date
+    from objective import DatasetConfig, load_run
+    files = discover_csv_files(data_dir)[0]
+    split = split_by_date(files, heldout_dates=heldout_dates)
+    rate = None
+    rp = os.path.join(data_dir, "ingest_report.json")
+    if os.path.exists(rp):
+        rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
+    cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
+    return [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files], split
+
+
+def table(results: dict, horizons=HORIZONS_S) -> list:
+    L = ["| Model | " + " | ".join(f"drift {h} s" for h in horizons) + " | velocity error over 10 s, u v w (m/s) "
+         "| roll, pitch, yaw after 10 s | diverged |", "|---|" + "---|" * (len(horizons) + 3)]
+    for name, r in results.items():
+        cells = [f"{r[f'{h}s']['drift_median_m']:.2f} m" if f"{h}s" in r else "n/a" for h in horizons]
+        v = r.get("10s", {}).get("velocity_rmse")
+        a = r.get("10s", {}).get("attitude_error_median_deg")
+        L.append(f"| {name} | " + " | ".join(cells) + f" | {', '.join(f'{x:.3f}' for x in v[:3]) if v else 'n/a'} "
+                 f"| {', '.join(f'{x:.1f}°' for x in a) if a else 'n/a'} | {r['diverged']}/{r['windows']} |")
+    return L
+
+
+def plot(results: dict, path_png: str, title: str = "Unseen recordings: original vs calibrated model") -> None:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for name, r in results.items():
+        hs = [h for h in HORIZONS_S if f"{h}s" in r]
+        ax.plot(hs, [r[f"{h}s"]["drift_median_m"] for h in hs], marker="o", label=name)
+    ax.set_xlabel("prediction horizon [s]"); ax.set_ylabel("median position error [m]")
+    ax.set_title(title); ax.grid(alpha=0.3); ax.legend(fontsize=8)
+    fig.tight_layout(); fig.savefig(path_png, dpi=120); plt.close(fig)
