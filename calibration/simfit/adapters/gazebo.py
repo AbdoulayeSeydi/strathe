@@ -120,6 +120,9 @@ class GazeboAdapter:
                 if tag in self.params:
                     tie = f"{TIES[a]}_{'quadratic' if 'abs' in tag else 'linear'}" if a in TIES else None
                     out.append((tag, group, f"{self.plugin}/{tag}", -1.0, tie))
+        for tag in ("zUW", "yUV", "mUW", "nUV", "mUQ", "nUR"):  # hull lift (cross terms), when the model has them
+            if tag in self.params:
+                out.append((tag, "lift", f"{self.plugin}/{tag}", 1.0, None))
         if self.fluid_added:
             for a, k in (("x", "xx"), ("y", "yy"), ("z", "zz")):
                 out.append((f"added_mass_{a}", "added_mass", f"{self.link_path}/inertial/fluid_added_mass/{k}", 1.0,
@@ -265,6 +268,8 @@ class GazeboAdapter:
             v = ed.get(path) * sign
             if group == "cg":
                 specs.append(KnobSpec(name, group, v, "linear", v - 0.15, v + 0.15))
+            elif group == "lift":  # signed, can start at 0: tuned by adding to it
+                specs.append(KnobSpec(name, group, v, "linear", v - 200.0, v + 200.0))
             elif group == "mass":
                 specs.append(KnobSpec(name, group, v, "log_factor", 1.25, 1.25))
             else:

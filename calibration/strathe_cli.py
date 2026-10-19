@@ -1369,6 +1369,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("fit-sim", add_help=False,
                    help="calibrate your own simulator model from your logs, any simulator: --sim stonefish | gazebo | "
                         "mujoco | holoocean | external (calibration/simulators/README.md)")
+    sub.add_parser("convert-sim", add_help=False,
+                   help="write your vehicle's model for another simulator (from Stonefish to Gazebo, MuJoCo or "
+                        "HoloOcean), a starting point for fit-sim (calibration/simulators/README.md)")
     sub.add_parser("export-sim", add_help=False,
                    help="put your Strathe calibration into your own simulator model, where it has the same physics "
                         "(--sim ...; calibration/simulators/README.md)")
@@ -1456,6 +1459,9 @@ def main(argv=None, runner=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in ("fit-sim", "export-sim"):
         return cmd_sim(argv[0], argv[1:], runner)
+    if argv and argv[0] == "convert-sim":  # PROJECT_STATUS.md #85; its options pass through (--help lists them)
+        rest = [_abs(x) if (not x.startswith("-") and os.path.exists(x)) else x for x in argv[1:]]
+        return run_step(["-m", "simfit.convert", *rest], runner)
     args = build_parser().parse_args(argv)
     return args.fn(args, runner)
 

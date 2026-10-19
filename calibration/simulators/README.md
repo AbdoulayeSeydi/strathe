@@ -28,6 +28,29 @@ Only `--sim` and the simulator's own options (which model, which part) change be
 **Any other simulator** (in-house, Isaac Sim, ...): describe it in a short YAML and give it a replay command
 ([SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md)). A working example is in [example/](example/).
 
+## Moving to another simulator: `convert-sim`
+```bash
+python strathe.py convert-sim --from stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 \
+    --mass 33 --to gazebo --out my_auv_gazebo        # or --to mujoco, --to holoocean
+```
+It writes your vehicle for the other simulator from what your Stonefish model reports:
+- the mass and its distribution;
+- the centres of gravity and buoyancy (the model's trim kept);
+- the hull's size and displaced volume;
+- added mass and drag (quadratic drag matched at 0.5 m/s; pitch and yaw damping by strip theory).
+
+**What each target gets:**
+- **Gazebo:** a world with the Hydrodynamics and Buoyancy systems. The hull-lift terms are set to 0, so `fit-sim` can
+  find the fins' stabilising lift.
+- **MuJoCo:** an MJCF with an ellipsoid hull. A small body at the centre of buoyancy carries the buoyancy, which gives a
+  righting moment.
+- **HoloOcean:** a torpedo scenario with first-order time constants.
+
+**Two things to know:**
+- **Use `--reference-point 0 0 0` with the converted model:** its origin is your logs' reference point.
+- **A conversion is a starting point:** your Stonefish model's fins and mesh drag don't carry over one for one. Calibrate
+  the converted model with `fit-sim`.
+
 ## Two ways to run each simulator
 You choose; each guide shows both.
 

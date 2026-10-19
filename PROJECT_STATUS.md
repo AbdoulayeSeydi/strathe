@@ -2298,6 +2298,39 @@ since HoloOcean doesn't install on macOS or in CI.
 
 HoloOcean results are provisional until then.
 
+### 85. `strathe convert-sim`: a Stonefish model written for Gazebo, MuJoCo or HoloOcean (2026-10-19)
+
+**Why.** The URI stress test of every simulator needs ALPHA RISE in each of them, and URI only has a Stonefish model.
+It's also useful for a lab moving between simulators.
+
+**What it does:** `simfit/convert.py` reads the source through the replay tool's `--info`. Each converted model has its
+origin at the logs' reference point.
+- **What it reads:**
+  - the mass (`--mass`), with the rigid inertia scaled to it;
+  - the CG and CB;
+  - the hull's length and diameter from the mesh;
+  - the displaced volume, grown to keep the model's trim when the weighed mass differs;
+  - added mass per axis and inertia;
+  - drag: quadratic matched at 0.5 m/s, viscous, rotational by strip theory.
+- **Gazebo:** a world with Physics, Buoyancy and Hydrodynamics, `<fluid_added_mass>`, and a cylinder collision at the CB
+  with the displaced volume. The hull-lift terms are written at 0 and are now a `lift` knob group (signed, linear) in
+  the Gazebo adapter.
+- **MuJoCo:** an MJCF with an ellipsoid hull. A body named `buoyancy` at the CB carries the buoyancy (gravcomp on
+  0.01 kg). The MuJoCo adapter now tunes that body's gravcomp when it exists (±15%).
+- **HoloOcean:** a torpedo scenario with first-order time constants from the damping and added mass.
+
+**Found on ALPHA RISE (URI's model, 33 kg):**
+- Keeping the weighed mass with the model's own volume made the Gazebo copy 52 N heavy, hence the trim fix.
+- Buoyancy at the centre of mass (plain gravcomp) left MuJoCo with no righting: it pitched 74° under 20 N of thrust.
+  With the buoyancy body, 9°.
+- A bare converted hull in Gazebo still pitches up under thrust: sway and heave added mass of about 230 kg against
+  10 kg in surge make a strong destabilising Munk moment, which ALPHA's fins counter. The conversion has no fin data,
+  so the `lift` knobs are there for `fit-sim`.
+
+**Tests (`tests/test_simfit_convert.py`):** the facts relative to the reference point and the trim kept; each converted
+model loads in its adapter, and a trimmed MuJoCo copy neither rises nor falls; `strathe convert-sim` passes its options
+through.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

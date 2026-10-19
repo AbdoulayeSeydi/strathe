@@ -88,6 +88,9 @@ class MujocoAdapter:
         if any(not g for g in self.ellipsoids):
             raise SimFitError("every geom with fluidshape=\"ellipsoid\" on the vehicle needs a name, so it can be tuned")
         self.inertial = next((c for c in b.children if c.tag == "inertial"), None)
+        # buoyancy: a child body named "buoyancy" at the centre of buoyancy carries it (righting moment), else the body
+        floats = [c for c in b.children if c.tag == "body" and c.attrs.get("name") == "buoyancy"]
+        self.buoyancy_path = "//body[@name='buoyancy']" if floats else self.body_path
         opts = [n for n in _descend(root) if n.tag == "option"]
         self.option = opts[0] if opts else None
         if not self.ellipsoids:
@@ -100,7 +103,7 @@ class MujocoAdapter:
         ed = XmlFile(text)
         for g in self.ellipsoids:
             ed.ensure_attr(f"{self.body_path}/geom[@name='{g}']", "fluidcoef", DEFAULT_FLUIDCOEF)
-        ed.ensure_attr(self.body_path, "gravcomp", "0")
+        ed.ensure_attr(self.buoyancy_path, "gravcomp", "0")
         return ed
 
     def _knob_defs(self):
@@ -110,7 +113,7 @@ class MujocoAdapter:
                 out.append((f"{g}_{name}", group, f"{self.body_path}/geom[@name='{g}']/@fluidcoef#{i}"))
         if not self.ellipsoids and self.option is not None:
             out += [("water_density", "drag", "//option/@density"), ("water_viscosity", "drag", "//option/@viscosity")]
-        out.append(("gravcomp", "buoyancy", f"{self.body_path}/@gravcomp"))
+        out.append(("gravcomp", "buoyancy", f"{self.buoyancy_path}/@gravcomp"))
         if self.inertial is not None:
             if "pos" in self.inertial.attrs:
                 out += [("cg_x", "cg", f"{self.body_path}/inertial/@pos#0"), ("cg_z", "cg", f"{self.body_path}/inertial/@pos#2")]
@@ -150,8 +153,10 @@ class MujocoAdapter:
             if group not in groups:
                 continue
             v = ed.get(path)
-            if group in ("cg", "buoyancy"):
+            if group == "cg" or (group == "buoyancy" and self.buoyancy_path == self.body_path):
                 specs.append(KnobSpec(name, group, v, "linear", v - 0.15, v + 0.15))
+            elif group == "buoyancy":  # a buoyancy body's gravcomp: +-15% of the buoyancy
+                specs.append(KnobSpec(name, group, v, "log_factor", 1.15, 1.15))
             elif group == "mass":
                 specs.append(KnobSpec(name, group, v, "log_factor", 1.25, 1.25))
             else:
