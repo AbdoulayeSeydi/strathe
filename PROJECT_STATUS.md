@@ -2107,6 +2107,66 @@ hurt (#74, #75).
 - the pond's remaining pitch difference;
 - `fit-stonefish` could fit the patch's damping directly, instead of the mesh coefficients.
 
+### 81. One workflow for every simulator: `fit-sim` / `export-sim`, and any simulator through a replay contract (2026-10-19)
+
+**Why.** Labs use Gazebo, MuJoCo, HoloOcean and in-house simulators, not only Stonefish (asked 2026-10-19; plan:
+Gazebo, then MuJoCo, then HoloOcean, plus a protocol for any simulator; stress-tested on URI's data). Half of
+`fit-stonefish` was already simulator-agnostic. This phase (P0–P1) pulls that half out, and makes any simulator usable
+through a documented replay command.
+
+**What changed:**
+- **`calibration/simfit/core.py`:** the shared half, moved from `stonefish_fit.py` unchanged:
+  - windows, scores, baselines, Strathe's free run;
+  - the least-squares fit, which now takes a `simulate(x, i, run, rows, folder)` callback;
+  - loading recordings, the table and the plot.
+
+  `stonefish_fit` keeps every name, and `StonefishFitError` is `SimFitError`. **Golden outputs** of `fit-stonefish` and
+  `export-stonefish` against the fake simulator were written before the move (`tests/test_golden_stonefish.py`), and
+  are byte-identical after it.
+- **`simfit/knobs.py`:** `KnobSpec` and `Knobs`, any tunable number in a model:
+  - transforms `log_factor`, `log` and `linear`;
+  - limits;
+  - `--hold`;
+  - ties for `--axisymmetric`.
+- **`simfit/editors.py`:** change numbers in a lab's own model file, leaving everything else byte for byte:
+  - XML by a small XPath (SDF, URDF, MJCF, .scn), using expat byte offsets so comments and formatting stay;
+  - JSON and YAML by JSON pointer;
+  - regex with one capture group.
+- **`simfit/replay_tool.py`:** Stonefish's replay CSV contract, for any command:
+  - `--features`, `--info`, `--windows IN --out OUT`, plus `--model-dir`;
+  - plain timeout messages;
+  - `docker:IMAGE`, which runs the tool in a container with the folders mounted, so there's nothing to build.
+- **`simfit/adapters/`:** `FileAdapter` (knob definitions, runnable copies, the calibrated file, export maps).
+  `external.py` builds one from a lab's YAML description.
+- **`simfit/runner.py`:** `run_fit` and `run_export`, the same steps and report as fit-stonefish for any adapter. The
+  outputs are `<model>_calibrated.<ext>`, `<sim>_fit.yaml`, `<sim>_fit_report.md` and `drift.png`.
+- **`strathe fit-sim` / `export-sim --sim stonefish|gazebo|mujoco|holoocean|external`:**
+  - `--sim stonefish` runs `fit-stonefish` / `export-stonefish` unchanged;
+  - the others go to `python -m simfit.cli`;
+  - `--ingest-spec` converts raw logs first;
+  - relative paths are made absolute;
+  - `--help` lists each simulator's options.
+- **Docs:**
+  - `calibration/simulators/README.md` (the overview, and both ways to run each simulator);
+  - `SIMULATOR_PROTOCOL.md` (the contract, frames, the YAML, a checklist);
+  - a working example in `calibration/simulators/example/` (`example_replay.py`, `vehicle.json`, `my_sim.yaml`; the
+    tests run it);
+  - LAB_GUIDE, README and LIMITS updated.
+
+**Tests (`tests/test_simfit_external.py`):**
+- fit-sim on a described simulator moves the knobs toward the truth and cuts held-out drift;
+- the calibrated file changes only the knobs;
+- `--axisymmetric` ties sway and heave;
+- export-sim puts Strathe's values in exactly (the true vehicle is reproduced: 0.00 m drift);
+- plain messages for a missing key, an incomplete description and missing logs;
+- knob transforms, holds and ties;
+- the editors change only the number;
+- `strathe fit-sim` routing;
+- the shipped example runs as documented.
+
+**Next:** Gazebo Harmonic (#82), MuJoCo (#83), HoloOcean (#84), then `setup-sim`, the Docker images, `convert-sim`, the
+web cards and the URI stress test of every simulator.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

@@ -1284,6 +1284,13 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--name", default="my_vehicle", help="names the default output folder")
     ex.add_argument("--out", help="output folder (default: stonefish_export_<name> in the repository)")
     ex.set_defaults(fn=cmd_export_stonefish)
+    # listed for --help; main() hands them to cmd_sim, which passes each simulator's own options through
+    sub.add_parser("fit-sim", add_help=False,
+                   help="calibrate your own simulator model from your logs, any simulator: --sim stonefish | gazebo | "
+                        "mujoco | holoocean | external (calibration/simulators/README.md)")
+    sub.add_parser("export-sim", add_help=False,
+                   help="put your Strathe calibration into your own simulator model, where it has the same physics "
+                        "(--sim ...; calibration/simulators/README.md)")
 
     d = sub.add_parser("free-decay", help="roll and pitch from free-decay tank tests (calibration/FREE_DECAY_PROTOCOL.md)")
     d.add_argument("--data", help="the tank-test logs in Strathe's CSV layout")
@@ -1309,7 +1316,65 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+SIMULATORS = ("stonefish", "gazebo", "mujoco", "holoocean", "external")
+
+
+def cmd_sim(command: str, rest: list, runner=None) -> int:
+    """`strathe fit-sim` / `export-sim --sim NAME ...` (PROJECT_STATUS.md #81): the same workflow for every simulator.
+    Stonefish goes to fit-stonefish / export-stonefish; the others to simfit (calibration/simfit/). The simulator's own
+    options pass through; `python strathe.py fit-sim --sim NAME --help` lists them."""
+    pre = argparse.ArgumentParser(prog=f"strathe {command}", add_help=False)
+    pre.add_argument("--sim", choices=SIMULATORS)
+    pre.add_argument("--ingest-spec")
+    pre.add_argument("--data")
+    pre.add_argument("--out")
+    pre.add_argument("--name", default="my_vehicle")
+    a, extra = pre.parse_known_args(rest)
+    if not a.sim:
+        print(f"❌ give --sim, one of {', '.join(SIMULATORS)} (calibration/simulators/README.md)")
+        return 2
+    short = command.split("-")[0]  # fit | export
+    if a.sim == "stonefish":
+        back = [x for kv in (("--ingest-spec", a.ingest_spec), ("--data", a.data), ("--out", a.out)) if kv[1]
+                for x in kv] + (["--name", a.name] if a.name != "my_vehicle" else [])
+        return main([f"{short}-stonefish", *back, *extra], runner)
+    if "-h" in extra or "--help" in extra:
+        return run_step(["-m", "simfit.cli", short, "--sim", a.sim, "--help"], runner)
+    out = _abs(a.out) if a.out else os.path.join(REPO_DIR, f"{a.sim}_{short}_{safe_name(a.name)}")
+    data = _abs(a.data) if a.data else None
+    if a.ingest_spec:
+        if short != "fit":
+            print("❌ --ingest-spec is for fit-sim; export-sim reads the calibration's own converted logs")
+            return 2
+        if data:
+            print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
+            return 2
+        if not os.path.exists(_abs(a.ingest_spec)):
+            print(f"❌ ingestion spec not found: {_abs(a.ingest_spec)}")
+            return 2
+        data = os.path.join(out, "ingested_logs")
+        _banner(1, 2, "Converting your logs into Strathe's layout")
+        rc = run_step(ingest_argv(a.ingest_spec, data) + ["--no-next-step"], runner)
+        if rc != 0:
+            print(f"\n❌ The logs couldn't be converted (exit code {rc}); the message above says why.")
+            return rc
+        _banner(2, 2, f"Calibrating your {a.sim} model (each step runs it on your recordings)")
+    elif short == "fit" and not data:
+        print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
+        return 2
+    elif data and not os.path.isdir(data):
+        print(f"❌ data folder not found: {data}")
+        return 2
+    # the step runs from the calibration folder: files and folders given relative to here become absolute
+    extra = [_abs(x) if (not x.startswith("-") and os.path.exists(x)) else x for x in extra]
+    return run_step(["-m", "simfit.cli", short, "--sim", a.sim, "--out", out, *(["--data", data] if data else []),
+                     *extra], runner)
+
+
 def main(argv=None, runner=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("fit-sim", "export-sim"):
+        return cmd_sim(argv[0], argv[1:], runner)
     args = build_parser().parse_args(argv)
     return args.fn(args, runner)
 

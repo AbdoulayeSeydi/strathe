@@ -1,0 +1,56 @@
+# Calibrate the simulator you already use
+
+Strathe calibrates your vehicle from its logs (`strathe calibrate`). These commands then put the result into **your own
+simulator model**, the same way for every simulator:
+
+```bash
+python strathe.py fit-sim    --sim SIMULATOR ... --ingest-spec my_logs.yaml --reference-point X Y Z
+python strathe.py export-sim --sim SIMULATOR ... --calibration calibration_output_my_rov --reference-point X Y Z
+```
+
+- **`fit-sim`** tunes your model's own settings (drag, added mass, buoyancy, centre of gravity, ...) by replaying your
+  logs in your simulator. It scores the original and the calibrated model on recordings it never saw, and gives your
+  model file back with only those settings changed.
+- **`export-sim`** puts the values `strathe calibrate` found into your model, where your simulator has the same
+  physics. It scores the result the same way.
+
+Only `--sim` and the simulator's own options (which model, which part) change between simulators.
+`python strathe.py fit-sim --sim SIMULATOR --help` lists them.
+
+| `--sim` | Status | What `fit-sim` tunes | `export-sim` | Guide |
+|---|---|---|---|---|
+| `stonefish` | ready | per-axis drag, added mass, buoyancy, CG (one part) | exact with the patch's damping (#80) | [stonefish/README.md](../stonefish/README.md) |
+| `external` | ready | whatever your description lists | where your description maps it | [SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md) |
+| `gazebo` | in progress (#82) | Hydrodynamics plugin damping and added mass, buoyancy, CG | exact (the same Fossen law) | gazebo/README.md |
+| `mujoco` | in progress (#83) | fluid model coefficients, buoyancy, CG | none (MuJoCo has no per-axis damping) | mujoco/README.md |
+| `holoocean` | in progress (#84) | Fossen torpedo dynamics parameters | exact, as a Fossen model class | holoocean/README.md |
+
+**Any other simulator** (in-house, Isaac Sim, ...): describe it in a short YAML and give it a replay command
+([SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md)). A working example is in [example/](example/).
+
+## Two ways to run each simulator
+You choose; each guide shows both.
+
+- **On your machine:** install the simulator, then build or point Strathe at its replay command.
+  `python strathe.py check` says what's there and what's missing.
+- **Nothing to build:** use a pure-Python path (MuJoCo; HoloOcean's Fossen model) or a Docker image
+  (`--replay-tool docker:IMAGE`), which mounts your model's folder at the same path.
+
+## What every simulator shares
+- **The logs** are the same folder `strathe calibrate` uses (`--data`), or your raw logs with `--ingest-spec`.
+- **`--reference-point`** is where your logs' velocity and forces are measured, in the model's frame: x forward, y
+  right, z down, metres from the model's origin. For a URDF `base_link`, it's where `base_link` sits in the model.
+- **Scoring:**
+  - Each held-out recording is cut into 60 s windows every 10 s.
+  - Each window starts from the logged state and is driven by the logged thrust, in still water. The model turns and
+    tilts on its own.
+  - The report gives the drift after 10, 30 and 60 s, plus the velocity and attitude error.
+  - It compares against your original model and two baselines: "no motion" and "keeps its starting velocity".
+- **Holding values you measured:** `--hold NAME=VALUE` keeps a value fixed (from a tank test or CAD). Surge added mass
+  is the usual one: ordinary missions can't pin it down (#73).
+- **Outputs:** `<model>_calibrated.<ext>` (or `_strathe` from export), `<sim>_fit_report.md`, `<sim>_fit.yaml`,
+  `drift.png`.
+
+These are open-loop replays: your controller's commands react to the real vehicle, so any model's error grows over a
+minute. The scores rank models against each other on the same windows. They aren't minute-ahead forecasts
+([LIMITS.md](../../LIMITS.md)).

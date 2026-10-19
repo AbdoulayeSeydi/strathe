@@ -38,6 +38,7 @@ python strathe.py check
 | Nothing extra: the same logs | your sensors' white noise and DVL dropouts, for realistic simulation (biases need an independent reference) | `fit-noise` (command line only) |
 | Nothing extra: the same logs, plus your **Stonefish** scenario | your own Stonefish vehicle model: its drag, added mass, buoyancy and CG, scored against the original on unseen recordings | `fit-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
 | Nothing extra: your calibration, plus your **Stonefish** scenario | your calibration's values put into your Stonefish vehicle (minutes), scored the same way | `export-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
+| Nothing extra: the same logs, plus **another simulator's** model (Gazebo, MuJoCo, HoloOcean, in-house) | the same, in your simulator: `fit-sim` and `export-sim`, one workflow for all | `fit-sim --sim ...` ([calibration/simulators/README.md](calibration/simulators/README.md)) |
 
 ## 3. Pick a template
 
@@ -112,6 +113,9 @@ python strathe.py fit-link --log messages.csv --out my_link
 #    calibration/stonefish/stonefish_added_mass.patch it carries the damping as it is (`check` says if yours has it)
 python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
 python strathe.py export-stonefish --calibration calibration_output_my_rov --scenario my_world.scn --robot my_rov --part Hull --reference-point 0 0 0
+
+#    any other simulator: the same two commands with --sim (calibration/simulators/README.md); e.g. your own:
+python strathe.py fit-sim --sim external --simulator my_sim.yaml --ingest-spec my_rov.yaml --reference-point 0 0 0
 
 # 5. use the calibration
 python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --task station_keeping --compare-generic
