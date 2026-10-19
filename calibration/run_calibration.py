@@ -140,6 +140,7 @@ class OptimizerSummary:
     n_restarts: int
     n_converged: int
     convergence_rate: float
+    restart_costs: Optional[list] = None  # each starting point's training cost, in order (#79)
 
 
 @dataclass
@@ -594,6 +595,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             n_restarts=config.calibration_config.n_restarts,
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
+            restart_costs=[float(r.cost) for r in cal_result.restarts],
         )
     else:
         # calibrate_parallel() (config.parallel=True) never populates
@@ -602,7 +604,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         # the best individual restart's own stored fields instead of
         # crashing on scipy_result.nfev. optimality has no substitute
         # (RestartResult doesn't store it) - NaN, not silently omitted.
-        best_restart = min((r for r in cal_result.restarts if r.success), key=lambda r: r.cost)
+        best_restart = min(cal_result.restarts, key=lambda r: r.cost)
         optimizer_summary = OptimizerSummary(
             converged=cal_result.converged,
             cost=cal_result.cost,
@@ -614,6 +616,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             n_restarts=config.calibration_config.n_restarts,
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
+            restart_costs=[float(r.cost) for r in cal_result.restarts],
         )
 
     parameter_deltas = [

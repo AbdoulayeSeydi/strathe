@@ -750,10 +750,12 @@ def test_calibration_form_passes_every_advanced_option(server):
     request, token, started, manager, tmp_path = server
     status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv",
                                                       "estimate_current": "1", "current_rounds": "3", "workers": "4",
-                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1"})
+                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1",
+                                                      "restarts": "4"})
     assert status == 303
     cmd = started[0]
-    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior")):
+    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior"),
+                      ("--restarts", "4")):
         assert cmd[cmd.index(flag) + 1] == val
     assert cmd[cmd.index("--torque-reference-offset-m") + 1:cmd.index("--torque-reference-offset-m") + 4] == ["0.05", "0.0", "0.0"]
     status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv2",

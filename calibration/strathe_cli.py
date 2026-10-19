@@ -337,9 +337,17 @@ def cmd_calibrate(args, runner=None) -> int:
         print(warn, flush=True)
 
     import secrets
+    restarts = getattr(args, "restarts", 1)
+    restarts = 1 if restarts is None else restarts
+    if restarts < 1:
+        print("❌ --restarts must be at least 1")
+        return 2
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31 - 1)
     print(f"ℹ️  Starting-point seed {seed}: the fit starts from a randomly perturbed point, so a hard calibration can "
           f"land differently on another run. `--seed {seed}` repeats this one exactly.", flush=True)
+    if restarts > 1:
+        print(f"ℹ️  Starting the fit from {restarts} points and keeping the lowest training cost: the first fit takes "
+              f"about {restarts}x as long.", flush=True)
     memo = {}
 
     def settings():
@@ -395,6 +403,8 @@ def cmd_calibrate(args, runner=None) -> int:
         rate, extra = settings()
         argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev,
                               extra + ["--seed", str(seed)], rate)  # every round starts from the same recorded seed
+        if restarts > 1 and not warm:  # the first fit chooses where to start; later rounds start from its result
+            argv += ["--n-restarts", str(restarts)]
         if currents:
             argv += ["--currents-file", currents]
         if warm and os.path.exists(warm):
@@ -1006,6 +1016,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--seed", type=int, help="the starting point's random seed (default: a new one, printed and "
                                             "recorded); give a calibration's seed to repeat it exactly")
+    c.add_argument("--restarts", type=int, default=1,
+                   help="start the fit from this many points and keep the lowest training cost (default 1). A hard "
+                        "calibration can land in a different place from each start; 3-4 makes that much less likely, "
+                        "for that many times the first fit's time. With --estimate-current, the first round only: "
+                        "later rounds start from its result")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
                    help="advanced: re-express logged torques about another point (default: what the ingestion "
                         "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")
