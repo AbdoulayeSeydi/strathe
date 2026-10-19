@@ -102,6 +102,11 @@ def test_with_the_damping_patch_strathes_damping_goes_in_as_it_is(tmp_path):
     t = out.read_text()
     assert f'damping_linear="{SF._fmt([p.Xu, p.Yv, p.Zw])}"' in t and 'damping_point="-0.76 0 0"' in t
     assert 'damping_quadratic_rot=' in t and 'quadratic_drag="1 1 1"' in t
+    # Strathe's model is written about the reference point: the CG goes there, the CB to the calibrated offset from it
+    info = measure(e.settings)
+    assert info["base"]["cg"] == pytest.approx([-0.76, 0.0, 0.0], abs=1e-6)
+    assert info["base"]["cb"] == pytest.approx([-0.76 - p.cg_cb_offset_x, 0.0, -p.cg_cb_offset_z], abs=1e-6)
+    assert "<compound_transform rpy=\"0 0 0\" xyz=\"" in t and any("reference point" in n for n in e.notes)
 
 
 def test_inertia_below_what_stonefish_allows_is_floored_and_said(tmp_path):

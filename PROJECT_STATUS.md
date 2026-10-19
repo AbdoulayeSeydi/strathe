@@ -2061,10 +2061,20 @@ hurt (#74, #75).
   - On a compound's part it replaces the mesh drag of every external part (the values are the whole vehicle's).
   - Off unless a vehicle file sets it. Stonefish without the patch ignores the attributes.
 - **The replay tool** reports `axis_damping` in `--info`, and `--features` without a scenario.
-- **`export-stonefish`**, when the build has it, writes Strathe's damping unconverted, all six axes, at
-  `--reference-point`. It also carries Strathe's fore-aft CG − CB (zero unless fitted), since the whole model is now
-  Strathe's. Stonefish's own −7.4 mm, against Strathe's 3–5 mm righting arm, pitched ALPHA RISE 23–36°. Without the
-  patch, it converts as before, and the report says why.
+- **`export-stonefish`**, when the build has it:
+  - writes Strathe's damping unconverted, all six axes, at `--reference-point`;
+  - puts the vehicle's geometry where Strathe's model has it. The CG goes to the reference point, through the tuned
+    part's `<cg>`. The buoyancy part is moved (`PartSettings.buoyancy_shift`, its `<compound_transform>`) to put the CB
+    at the calibrated offset, fore-aft included (zero unless fitted).
+
+  Without the patch, it converts as before, and the report says why.
+- **Why the geometry has to move:** Strathe's rigid-body terms and restoring moment are written about the reference
+  point. In Stonefish's own geometry, the logged thrust and the damping acted about a CG 11 cm ahead of and 9.6 cm above
+  the reference point (the export had raised it to match Strathe's 5 mm CG−CB). That made about 3.4 N·m of pitch moment
+  that Strathe's model doesn't have, against a calibrated righting of 1.75 N·m/rad.
+  - The damping alone pitched ALPHA RISE 36° (pond) and 23° (bay) after 10 s.
+  - Adding Strathe's fore-aft offset brought it to 27° / 14°.
+  - Adding the CG at the reference point brought it to 19° / 4°.
 - **`strathe check`** says whether the replay tool is built and which of the patch's features its Stonefish has, and
   when to rebuild.
 
@@ -2074,27 +2084,27 @@ hurt (#74, #75).
 |---|---|---|
 | URI's model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
 | Drag converted (#74) | 4.16 / 14.8 / 34.3 m | 4.48 / 13.9 / 30.9 m |
-| **With the patch's damping** | **2.18 / 10.0 / 42.6 m** | **1.69 / 5.8 / 22.6 m** |
+| **With the patch's damping** | **1.85 / 10.1 / 36.0 m** | **1.44 / 5.6 / 17.6 m** |
 | Strathe's own model | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.6 m |
 | `fit-stonefish` (F2) | 2.89 / 9.7 / 21.6 m | 2.48 / 7.2 / 13.8 m |
 
-- **Over seconds, the export now behaves like Strathe's model:**
-  - forward-speed error after 10 s: 0.10 and 0.12 m/s, against Strathe's 0.09 and 0.12 (converted: 0.44 and 0.42);
+- **Speeds match Strathe's model:**
+  - forward-speed error after 10 s: 0.09 and 0.13 m/s, against Strathe's 0.09 and 0.12 (converted: 0.44 and 0.42);
   - sway and heave match too;
-  - error after 10 s falls 48–62% against the conversion;
+  - error after 10 s falls 56–68% against the conversion;
   - better than URI's model at every horizon in both directions.
-- **Pitch still drifts more:** 27° and 14° after 10 s, against Strathe's 11° and 10°. That grows the pond's error over
-  a minute (42.6 m, against 34.3 m converted). Without carrying the fore-aft CG it was 36° and 23°. What's left isn't
-  the drag. Candidates: the multi-part vehicle's products of inertia, and the rigid-body terms about the CG against
-  Strathe's about the reference point.
-- **So:** export with the patch for a model that behaves like Strathe's over seconds; `fit-stonefish` for the best over
-  a minute.
+- **Bay held out:** better than Strathe's own model at every horizon (1.44 / 5.6 / 17.6 m against 1.47 / 9.1 / 30.6 m),
+  with pitch 3.8° against 9.9°.
+- **Pond held out:** pitch is 19° against Strathe's 11°, which grows the error over a minute (36.0 m). Candidates for
+  the rest: the patch's explicit, clamped anisotropic added mass, and restoring with B rather than W.
+- **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute
+  matters on a hard mission (pond: 21.6 m).
 - **Tests:** the exact export (values unconverted, the mesh coefficients untouched, attributes written) and the
   `strathe check` line for each kind of build. The patch applies cleanly to a fresh Stonefish checkout (GSO-soslab
   fork, `7d52673`) and builds on macOS.
 
 **Still open:**
-- the remaining pitch difference;
+- the pond's remaining pitch difference;
 - `fit-stonefish` could fit the patch's damping directly, instead of the mesh coefficients.
 
 ## Honest open items

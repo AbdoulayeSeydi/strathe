@@ -52,6 +52,9 @@ def model(text):
             "Cf": vec(hy, "viscous_drag", DEFAULTS["viscous_drag"]), "A": vec(hy, "added_mass", DEFAULTS["added_mass"]),
             "AI": vec(hy, "added_inertia", DEFAULTS["added_inertia"]), "I": vec(hull, "inertia xyz", [1.0, 3.0, 3.0]),
             "cg": vec(hull, "cg xyz", [0.0, 0.0, 0.0]), "rho": rho, "volume": vol,
+            "cb": (np.array(CB) + np.array(vec(re.search(r"<compound_transform\b[^>]*/>", foam).group(0)
+                                               if foam and "<compound_transform" in foam else "", "xyz",
+                                               [0.0, 0.0, 0.0]))).tolist(),
             "buoyancy": rho * G * vol - mass * G}
 
 
@@ -72,7 +75,7 @@ def main():
         print(json.dumps({"patched": True, "water_density": m["rho"], "parts": parts,
                           "base": {"name": f"{robot}/Vehicle", "mass": m["mass"], "volume": m["volume"],
                                    "added_mass": [float(np.mean(m["A"]))] * 3, "anisotropic_added_mass": m["A"],
-                                   "cg": m["cg"], "cb": CB,
+                                   "cg": m["cg"], "cb": m["cb"],
                                    "inertia_body_axes": (np.array(m["I"]) + np.array(m["AI"])).tolist()}}))
         return 0
     dt, hz = float(arg("--dt")), float(arg("--hz"))

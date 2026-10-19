@@ -167,6 +167,28 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
         e.notes.append("Fore-aft CG offset kept as Stonefish has it: the calibration didn't fit cg_cb_offset_x "
                        "(only with the torpedo-hull terms, vehicle_spec.yaml).")
     s.cg_shift = [float((tx - d[0]) * mass / s.mass), 0.0, float((params.cg_cb_offset_z - d[2]) * mass / s.mass)]
+    if exact_damping and buoyancy_part:
+        # Strathe's model has its CG at the logs' reference point (its rigid-body terms and restoring moment are written
+        # there), with the CB at the calibrated offset from it. Stonefish's vehicle keeps its own geometry, so the
+        # logged thrust and the damping, both at the reference point, would pitch it about a CG ~10 cm away: ALPHA RISE
+        # pitched 14-27 deg after 10 s against Strathe's 10-11 (#80). So the CG goes to the reference point (the
+        # tuned part's <cg>) and the CB to the calibrated offset from it (the buoyancy part moves).
+        ref = np.array(reference_point, dtype=float)
+        target_cb = ref - np.array([params.cg_cb_offset_x, 0.0, params.cg_cb_offset_z])
+        s.cg_shift, s.buoyancy_shift = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+        for _ in range(3):  # moving one changes the other's mass or volume share slightly
+            info = measure(s)
+            b, bp = info["base"], _parts(info)[buoyancy_part]
+            s.cg_shift = [c + float(x) for c, x in zip(s.cg_shift, (ref - np.array(b["cg"])) * mass / s.mass)]
+            share = max(bp["volume"], 1e-9) / max(b["volume"], 1e-9)
+            s.buoyancy_shift = [c + float(x) for c, x in zip(s.buoyancy_shift, (target_cb - np.array(b["cb"])) / share)]
+        e.notes.append(f"Centre of gravity moved to the reference point and part '{buoyancy_part}' moved to put the "
+                       f"centre of buoyancy at the calibrated offset from it: Strathe's model is written about that "
+                       f"point, so the vehicle's geometry follows it.")
+    elif exact_damping:
+        e.notes.append("Centre of gravity left where Stonefish has it: give --buoyancy-part, so the CG can go to the "
+                       "reference point with the CB at the calibrated offset (what Strathe's model assumes; otherwise "
+                       "pitch drifts, #80).")
 
     # Effective inertia: added inertia first, then the rigid inertia where that isn't enough. Two passes, since moving
     # mass and the CG change the vehicle's inertia about its CG.
@@ -355,11 +377,11 @@ RECOMMENDATION = ("Strathe's values are not a calibrated Stonefish model: they b
                   "error after 60 s, against 17-28% for this conversion; PROJECT_STATUS.md #73-#75).")
 
 
-RECOMMENDATION_EXACT = ("With the patch's damping, Stonefish runs Strathe's own model: on URI's ALPHA RISE the speeds "
-                        "matched Strathe's, and the error after 10 s fell 48-62% against the drag conversion (#80). "
-                        "Pitch still drifts further than in Strathe's model, so over a minute `strathe fit-stonefish`, "
-                        "which fits your model through Stonefish itself, remains better (21.6 and 13.8 m after 60 s on "
-                        "ALPHA RISE, against 42.6 and 22.6 m for this export).")
+RECOMMENDATION_EXACT = ("With the patch's damping, Stonefish runs Strathe's own model, with the centre of gravity at the "
+                        "logs' reference point as Strathe's model has it: on URI's ALPHA RISE the speeds matched "
+                        "Strathe's, and the error after 10 s fell 56-68% against the drag conversion (#80). Over a "
+                        "minute `strathe fit-stonefish`, which fits your model through Stonefish itself, can still be "
+                        "better (21.6 and 13.8 m after 60 s on ALPHA RISE, against 36.0 and 17.6 m for this export).")
 
 
 def recommendation(settings) -> str:
@@ -450,6 +472,9 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
         L.append(f"- centre of gravity moved by {s.cg_shift[0]:+.3f} m (x), {s.cg_shift[2]:+.3f} m (z)")
     if s.buoyancy_scale is not None:
         L.append(f"- buoyant volume of `{a.buoyancy_part}`: x{s.buoyancy_scale:.3f}")
+    if s.buoyancy_shift is not None and any(s.buoyancy_shift):
+        L.append(f"- `{a.buoyancy_part}` moved by {s.buoyancy_shift[0]:+.3f} m (x), {s.buoyancy_shift[2]:+.3f} m (z), "
+                 f"so the centre of buoyancy sits at the calibrated offset from the reference point")
     if e.notes:
         L += ["", "## Not carried, and why\n"] + [f"- {n}" for n in e.notes]
     return L

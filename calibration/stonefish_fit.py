@@ -106,6 +106,7 @@ class PartSettings:
     anisotropic: bool = False
     cg_shift: Optional[list] = None          # metres added to the part's <cg xyz> (x, y, z)
     buoyancy_scale: Optional[float] = None   # volume factor for the buoyancy part
+    buoyancy_shift: Optional[list] = None    # metres added to the buoyancy part's <compound_transform xyz> (#80)
     mass: Optional[float] = None             # the part's <mass value>, kg
     inertia: Optional[list] = None           # the part's <inertia xyz>, kg m2 (rigid, about its CG)
     # Strathe's per-axis damping, replacing the vehicle's mesh drag (needs the patch's STONEFISH_AXIS_DAMPING_PATCH):
@@ -151,6 +152,8 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
         out.cg_shift = [a + b for a, b in zip(base.cg_shift or [0.0, 0.0, 0.0], top.cg_shift)]
     if top.buoyancy_scale is not None:
         out.buoyancy_scale = (base.buoyancy_scale or 1.0) * top.buoyancy_scale
+    if top.buoyancy_shift is not None:
+        out.buoyancy_shift = [a + b for a, b in zip(base.buoyancy_shift or [0.0, 0.0, 0.0], top.buoyancy_shift)]
     return out
 
 
@@ -201,6 +204,16 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
             xyz = [float(x) + d for x, d in zip(m.group(1).split(), s.cg_shift)]
             body = body[:m.start(1)] + _fmt(xyz) + body[m.end(1):]
         text = text[:a] + body + text[b:]
+    if buoyancy_part and s.buoyancy_shift is not None and any(s.buoyancy_shift):
+        span = _part_span(text, buoyancy_part)
+        if span:
+            a, b = span
+            body = text[a:b]
+            m = _search(r'<compound_transform\b[^>]*\bxyz="([^"]*)"', body)
+            if not m:
+                raise StonefishFitError(f"buoyancy part '{buoyancy_part}' has no <compound_transform xyz=...> to move")
+            xyz = [float(x) + d for x, d in zip(m.group(1).split(), s.buoyancy_shift)]
+            text = text[:a] + body[:m.start(1)] + _fmt(xyz) + body[m.end(1):] + text[b:]
     if buoyancy_part and s.buoyancy_scale is not None:
         span = _part_span(text, buoyancy_part)
         if span:

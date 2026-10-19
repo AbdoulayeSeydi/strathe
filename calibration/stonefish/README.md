@@ -3,10 +3,10 @@
 Two commands put Strathe's calibration into the simulator you already use:
 - **`strathe fit-stonefish`** fits your Stonefish model's own settings by replaying your logs in Stonefish (an hour or
   more). This is the one that improves Stonefish (53–66% less error after a minute on ALPHA RISE, #73).
-- **`strathe export-stonefish`** converts your Strathe calibration's values into your Stonefish model's settings
-  (minutes), checks each one, and scores the result. It helps over a minute and hurts over seconds (see
-  [Why converting isn't enough](#why-converting-isnt-enough)): use it to see how far your model is from your
-  calibration, not as the calibrated model.
+- **`strathe export-stonefish`** puts your Strathe calibration into your Stonefish model (minutes), checks each value,
+  and scores the result. With Stonefish built with the patch (section 1), Strathe's damping goes in as it is and the
+  model behaves like Strathe's (#80). Without it, the drag has to be converted, which hurts over seconds (see
+  [Why converting isn't enough](#why-converting-isnt-enough)).
 
 `fit-stonefish` makes the simulator you already use match your real vehicle.
 - **What it fits:** your own Stonefish model's settings on one part of the vehicle (usually the hull):
@@ -144,25 +144,28 @@ Measured on Stonefish's code and in the replay (PROJECT_STATUS.md #74):
 So with Stonefish's own drag, values can't be copied in; they have to be fitted through it. `fit-stonefish` does that.
 Starting it from the converted values (`--from-strathe`) didn't help on ALPHA RISE (#74); start from your own model.
 
-**With the patch's damping (#80), they can.** Stonefish then applies Strathe's damping law itself, and the export also
-carries Strathe's fore-aft centre of gravity (zero unless fitted), since the whole model is now Strathe's. On URI's ALPHA
-RISE (the baseline calibration, position error after 10 / 30 / 60 s on the unseen mission):
+**With the patch's damping (#80), they can.** Stonefish then applies Strathe's damping law itself. Strathe's model is
+written about the logs' reference point, so the export also puts the vehicle's centre of gravity there and moves the
+buoyancy part to put the centre of buoyancy at the calibrated offset from it (`--buoyancy-part` needed). Otherwise the
+logged thrust, acting about 10 cm from Stonefish's own CG, pitches the vehicle. On URI's ALPHA RISE (the baseline
+calibration, position error after 10 / 30 / 60 s on the unseen mission):
 
 | Model | Pond held out | Bay held out |
 |---|---|---|
 | URI's Stonefish model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
 | Strathe's values, drag converted | 4.16 / 14.8 / 34.3 m | 4.48 / 13.9 / 30.9 m |
-| **Strathe's values, with the patch's damping** | **2.18 / 10.0 / 42.6 m** | **1.69 / 5.8 / 22.6 m** |
+| **Strathe's values, with the patch's damping** | **1.85 / 10.1 / 36.0 m** | **1.44 / 5.6 / 17.6 m** |
 | Strathe's own model | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.6 m |
 | `fit-stonefish`, surge added mass held | 2.89 / 9.7 / 21.6 m | 2.48 / 7.2 / 13.8 m |
 
-- **Speeds now match Strathe's model** (forward speed error after 10 s: 0.44 → 0.10 m/s and 0.42 → 0.12 m/s; Strathe's
-  0.09 and 0.12), and the error after 10 s falls 48–62% against the conversion.
-- **Pitch still drifts more** than in Strathe's model (27° and 14° after 10 s, against 11° and 10°), which is what grows
-  the pond's error over a minute. What's left is in Stonefish's rigid-body handling of a multi-part vehicle, not the
-  drag.
-- **So:** export with the patch for a model that behaves like Strathe's over seconds; `fit-stonefish` for the best
-  model over a minute.
+- **Speeds match Strathe's model** (forward speed error after 10 s: 0.44 → 0.09 m/s and 0.42 → 0.13 m/s; Strathe's
+  0.09 and 0.12), and the error after 10 s falls 56–68% against the conversion.
+- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°: that
+  is what still grows the pond's error over a minute.
+- **The steps that got here:** carrying the damping alone left pitch at 36° / 23°; carrying Strathe's fore-aft offset
+  27° / 14°; the CG at the reference point 19° / 4°.
+- **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute
+  matters (better on the pond).
 
 ## Limits
 - **One part is tuned,** with diagonal (per-axis) drag and added mass. Without the patch's damping, Stonefish computes
