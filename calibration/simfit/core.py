@@ -220,7 +220,10 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
     from data_split import discover_csv_files, split_by_date
     from objective import DatasetConfig, load_run
     files = discover_csv_files(data_dir)[0]
-    split = split_by_date(files, heldout_dates=heldout_dates)
+    try:
+        split = split_by_date(files, heldout_dates=heldout_dates)
+    except ValueError as e:  # e.g. a held-out date the logs don't have: it lists the ones they do (#88, F5)
+        raise SimFitError(f"{e} (--heldout-dates takes dates of your recordings)")
     rate = None
     rp = os.path.join(data_dir, "ingest_report.json")
     if os.path.exists(rp):

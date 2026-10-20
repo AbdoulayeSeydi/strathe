@@ -134,3 +134,13 @@ def test_an_incomplete_calibration_is_a_plain_message(tmp_path):
     (tmp_path / "calibrated_parameters.yaml").write_text("parameters: {Xu: -1}\nvehicle_mass_kg: 10\n")
     with pytest.raises(SimFitError, match="isn't a complete calibration"):
         load_calibration(str(tmp_path))
+
+
+def test_a_held_out_date_the_logs_dont_have_is_a_plain_message(tmp_path):
+    from simfit import core
+    from simfit.core import SimFitError
+    for date in ("01-01-2030", "02-01-2030"):
+        pd.DataFrame(np.zeros((5, 16)), columns=["Fx", "Fy", "Fz", "Tx", "Ty", "Tz", "Bu", "Bv", "Bw", "Bp", "Bq", "Br",
+                                                 "qx", "qy", "qz", "qw"]).to_csv(tmp_path / f"auv-{date}-run1.csv", index=False)
+    with pytest.raises(SimFitError, match="02-01-2030"):
+        core.load_runs(str(tmp_path), ["01-01-1999"])
