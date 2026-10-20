@@ -266,7 +266,11 @@ def load_calibration(path: str, mass: Optional[float] = None) -> tuple:
     if not mass:
         raise StonefishFitError("this calibration doesn't record the vehicle's mass (it's older than #74): give --mass, "
                                 "the mass in your vehicle_spec.yaml")
-    return CalibrationParameters(**doc["parameters"]), float(mass), pfile
+    try:
+        return CalibrationParameters(**(doc.get("parameters") or {})), float(mass), pfile
+    except TypeError as e:  # an incomplete or hand-edited file: say which values are missing (#88)
+        raise StonefishFitError(f"{pfile} isn't a complete calibration ({str(e).split(': ', 1)[-1]}): give the "
+                                f"output folder of `strathe calibrate`")
 
 
 def training_density(train_dates: list, densities: dict, model_rho: float) -> float:

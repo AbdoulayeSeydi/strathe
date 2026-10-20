@@ -103,3 +103,34 @@ def test_fit_sim_mujoco_recovers_the_fluid_coefficients(tmp_path):
     rc = cli.main(["export", "--sim", "mujoco", "--model", MODEL, "--calibration", str(tmp_path), "--data", str(data),
                    "--reference-point", "0", "0", "0", "--out", str(tmp_path / "e")])
     assert rc == 2
+
+
+def test_from_strathe_on_mujoco_says_to_drop_it(tmp_path, capsys):
+    """#88 F3: the refusal names --from-strathe, not export-sim."""
+    import yaml as _y
+    from simfit import cli
+    cal = tmp_path / "cal"
+    cal.mkdir()
+    params = dict(Ieff_roll=0.3, Ieff_pitch=0.5, Ieff_yaw=0.6, Xu=-6.0, Yv=-18.0, Zw=-22.0, Kp=-1.5, Mq=-2.5, Nr=-2.0,
+                  Xuu=-35.0, Yvv=-70.0, Zww=-80.0, Kpp=-1.0, Mqq=-1.2, Nrr=-0.8, Xu_dot=3.0, Yv_dot=8.0, Zw_dot=9.0,
+                  net_buoyancy_z=0.0, cg_cb_offset_z=0.02)
+    (cal / "calibrated_parameters.yaml").write_text(_y.safe_dump({"parameters": params, "vehicle_mass_kg": 10.0}))
+    data = tmp_path / "logs"
+    data.mkdir()
+    F = np.zeros((40, 6))
+    for date in ("01-01-2030", "02-01-2030"):
+        pd.DataFrame(np.hstack([F, np.zeros((40, 6)), np.tile([0, 0, 0, 1.0], (40, 1))]),
+                     columns=["Fx", "Fy", "Fz", "Tx", "Ty", "Tz", "Bu", "Bv", "Bw", "Bp", "Bq", "Br", "qx", "qy", "qz",
+                              "qw"]).to_csv(data / f"auv-{date}-run1.csv", index=False)
+    rc = cli.main(["fit", "--sim", "mujoco", "--model", MODEL, "--data", str(data), "--reference-point", "0", "0", "0",
+                   "--heldout-dates", "02-01-2030", "--from-strathe", str(cal), "--out", str(tmp_path / "o")])
+    out = capsys.readouterr().out
+    assert rc == 2 and "--from-strathe needs" in out and "without --from-strathe" in out
+
+
+def test_an_incomplete_calibration_is_a_plain_message(tmp_path):
+    from stonefish_export import load_calibration
+    from simfit.core import SimFitError
+    (tmp_path / "calibrated_parameters.yaml").write_text("parameters: {Xu: -1}\nvehicle_mass_kg: 10\n")
+    with pytest.raises(SimFitError, match="isn't a complete calibration"):
+        load_calibration(str(tmp_path))

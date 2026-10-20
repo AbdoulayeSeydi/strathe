@@ -145,7 +145,11 @@ def run_fit(adapter, a) -> int:
             sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)
             info0 = adapter.info()
             rho = training_density(split.train_groups, densities, info0.get("water_density") or 1025.0)
-            values, enotes = adapter.export_values(sp, smass, info0, train, rho)
+            try:
+                values, enotes = adapter.export_values(sp, smass, info0, train, rho)
+            except SimFitError as e:  # e.g. MuJoCo: say what to do here, not what export-sim would (#88, F3)
+                raise SimFitError(f"--from-strathe needs Strathe's values in the {adapter.label} model, and that isn't "
+                                  f"possible: {e} Run fit-sim without --from-strathe: it starts from your own model.")
             adapter.set_base(values)
             exported = {"calibration": pfile, "values": values, "notes": enotes}
             a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
