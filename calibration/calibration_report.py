@@ -198,6 +198,18 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
     return verdicts
 
 
+def restart_costs(result_dir, metrics):
+    """Each starting point's training cost (#79): the first fit's, which with --estimate-current is round 1's."""
+    first = os.path.join(result_dir, "current_round1", "metrics.json")
+    if os.path.exists(first):
+        try:
+            with open(first, encoding="utf-8") as f:
+                metrics = json.load(f)
+        except (OSError, ValueError):
+            return None
+    return ((metrics or {}).get("optimizer") or {}).get("restart_costs")
+
+
 def vehicle_description_note(spec, data_dir: Optional[str]) -> Optional[str]:
     """When the calibration used the shipped BlueROV2 Heavy description but the logs' thrusters aren't that vehicle's
     (ingest_report.json): the plain warning, else None. Fitting a different vehicle with a BlueROV2's mass, inertia
@@ -443,7 +455,7 @@ def validation_section(v: dict) -> list:
 
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
-                 free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None):
+                 free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
@@ -526,10 +538,19 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
     for i, s in enumerate(steps, 1):
         L.append(f"{i}. {s}")
     L.append("")
-    if seed is not None:
+    if restarts and len(restarts) > 1:
+        costs = ", ".join(f"{c:.4g}" for c in restarts)
+        spread = (max(restarts) - min(restarts)) / max(min(restarts), 1e-12)
+        L.append(f"The fit started from {len(restarts)} points (seed {seed}) and kept the lowest training cost. Their "
+                 f"costs: {costs}. "
+                 + ("They ended within 1% of each other: where the fit starts doesn't matter for this calibration."
+                    if spread < 0.01 else
+                    "They ended in different places: this calibration depends on where the fit starts. More starts "
+                    "(--restarts) make it more likely the best one is found.") + "\n")
+    elif seed is not None:
         L.append(f"The fit started from a randomly perturbed point (seed {seed}): `strathe calibrate ... --seed {seed}` "
-                 f"repeats it exactly. On a hard calibration another seed can land elsewhere; running two or three "
-                 f"seeds shows how much the result depends on where the fit starts.\n")
+                 f"repeats it exactly. On a hard calibration another seed can land elsewhere; `--restarts 3` starts "
+                 f"from three points and keeps the lowest training cost.\n")
     if verdicts:
         L.append("## Technical appendix\n")
         L.append("Held-out RMSE per axis (m/s or rad/s): predicting no motion, default physics, calibrated physics. "
@@ -589,7 +610,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     write_report(out, os.path.basename(os.path.abspath(result_dir)), verdicts, gen_gap, pinned, implausible,
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
                  diverged_note(metrics), load_validation(result_dir), vehicle_note,
-                 ((metrics or {}).get("reproducibility") or {}).get("seed"))
+                 ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 

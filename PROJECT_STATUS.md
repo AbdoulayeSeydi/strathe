@@ -2045,6 +2045,53 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   - other errors still raise;
   - every new form option reaches the command, and bad values are refused.
 
+### 79. `strathe calibrate --restarts N`: several starting points, keep the lowest training cost (2026-10-19)
+
+**Why.** #76 made the random start repeatable (`--seed`), but a hard calibration still depends on it. On URI's re-run,
+B8 (surfacings removed) landed at +0.24 or +0.06 mean skill and B9 (20 Hz) at +0.23 or +0.18, depending on the start.
+The describe-stonefish variants (#77) all stopped at worse training costs than the hand-written description.
+
+**The evidence that makes the choice safe:** every time repeats landed in different places, the better one on the
+unseen mission also had the lower *training* cost:
+- B8: +0.24 at a cost of 3.86, against +0.06 at 4.17;
+- B9: +0.23 at 2.018, against +0.18 at 2.217.
+
+So the choice never needs the held-out data.
+
+**What changed:**
+- **`optimizer.calibrate`** keeps the restart with the lowest cost, converged or not. A best restart that stopped at its
+  budget is reported as not converged, instead of being dropped for a worse converged one.
+- **`metrics.json`** records each start's cost (`optimizer.restart_costs`). The report lists them and says whether the
+  starting point mattered (within 1%) or not.
+- **`strathe calibrate --restarts N`** (default 1).
+  - With `--estimate-current` it applies to the first round only; later rounds start from its result.
+  - The web form has a "Starting points" field.
+  - LAB_GUIDE, README and LIMITS say when to use it.
+- **Tests (`tests/test_multi_start.py`):**
+  - the flag reaches the first fit only;
+  - the lowest cost is kept even when it stopped at its budget;
+  - one start behaves as before;
+  - the report's lines;
+  - the web field.
+
+**Validation on URI's data** (4 starts, seed 11). Mean skill on the unseen mission, and drift:
+
+| Run | One start | Four starts | Hand-written description |
+|---|---|---|---|
+| B9, pond held out | +0.176 | **+0.227**, 3.5 m at 60 s | |
+| B8, pond held out | +0.062 | +0.062 | |
+| V3 (#77), pond held out | +0.159, pitch 21° | **+0.205**, 5.25 m at 60 s, pitch 12° | +0.227, 3.5 m |
+| V3 (#77), bay held out | **−3.18**, 65.7 m at 60 s | **+0.191**, 0.75 / 4.04 m at 10 / 60 s, pitch 7.2° | +0.183, 0.72 / 3.98 m, pitch 8.3° |
+
+- **B9 and V3:** four starts pick the good result in every case. On the bay, V3 goes from a blow-up to the
+  hand-written description's result. Two of the four pond starts blew up (costs 170 and 307) and were dropped by cost.
+- **B8 doesn't help:** all four round-1 starts agreed (costs 4.76–4.78). Its good/bad split happens in a later round,
+  which starts from round 1's result. Restarting later rounds is possible but not done.
+- **A gap this found, fixed:** on the bay run, every start used up its evaluation budget, so none "converged". The CLI
+  then finished the run from its checkpoint (the lowest cost seen over all four starts), but the report lost each
+  start's cost. `optimizer.RestartsFailed` now carries the costs; `run_calibration.py` adds them to the checkpoint, and
+  `finalize_checkpoint.py` puts them in `metrics.json`. Tested in `tests/test_multi_start.py`.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

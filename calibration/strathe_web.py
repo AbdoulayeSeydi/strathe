@@ -658,6 +658,9 @@ current field above empty.</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
 <label for=cal-workers>CPU cores to use (optional; default all but one)</label>
 <input type=text id=cal-workers name=workers value="">
+<label for=cal-restarts>Starting points (optional; default 1): start the fit from this many points and keep the
+lowest training cost. 3-4 for a hard calibration; the first fit takes that many times as long</label>
+<input type=text id=cal-restarts name=restarts value="">
 <label for=cal-seed>Starting-point seed (optional): a calibration's seed, from its report, repeats it exactly</label>
 <input type=text id=cal-seed name=seed value="">
 <label for=cal-torque>Advanced: re-express logged torques about another point, <code>x y z</code> in m (optional)</label>
@@ -991,6 +994,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--workers", str(int(_number(form["workers"], "CPU cores", 1, 256)))]
             if form.get("seed", "").strip():
                 args += ["--seed", str(int(_number(form["seed"], "Seed", 0, 2 ** 31 - 1)))]
+            if form.get("restarts", "").strip():
+                args += ["--restarts", str(int(_number(form["restarts"], "Starting points", 1, 20)))]
             if form.get("torque_offset", "").strip():
                 parts = form["torque_offset"].replace(",", " ").split()
                 if len(parts) != 3:
