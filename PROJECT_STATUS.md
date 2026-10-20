@@ -2074,12 +2074,23 @@ So the choice never needs the held-out data.
   - the report's lines;
   - the web field.
 
-**Validation on URI's data** (4 starts, seed 11; running):
-- B9 and B8 with the pond held out: do they pick the good result?
-- V3 (#77: the Stonefish model's values with the template's limits) in both directions: does it reach the
-  hand-written description's result?
+**Validation on URI's data** (4 starts, seed 11). Mean skill on the unseen mission, and drift:
 
-Results will be added here.
+| Run | One start | Four starts | Hand-written description |
+|---|---|---|---|
+| B9, pond held out | +0.176 | **+0.227**, 3.5 m at 60 s | |
+| B8, pond held out | +0.062 | +0.062 | |
+| V3 (#77), pond held out | +0.159, pitch 21° | **+0.205**, 5.25 m at 60 s, pitch 12° | +0.227, 3.5 m |
+| V3 (#77), bay held out | **−3.18**, 65.7 m at 60 s | **+0.191**, 0.75 / 4.04 m at 10 / 60 s, pitch 7.2° | +0.183, 0.72 / 3.98 m, pitch 8.3° |
+
+- **B9 and V3:** four starts pick the good result in every case. On the bay, V3 goes from a blow-up to the
+  hand-written description's result. Two of the four pond starts blew up (costs 170 and 307) and were dropped by cost.
+- **B8 doesn't help:** all four round-1 starts agreed (costs 4.76–4.78). Its good/bad split happens in a later round,
+  which starts from round 1's result. Restarting later rounds is possible but not done.
+- **A gap this found, fixed:** on the bay run, every start used up its evaluation budget, so none "converged". The CLI
+  then finished the run from its checkpoint (the lowest cost seen over all four starts), but the report lost each
+  start's cost. `optimizer.RestartsFailed` now carries the costs; `run_calibration.py` adds them to the checkpoint, and
+  `finalize_checkpoint.py` puts them in `metrics.json`. Tested in `tests/test_multi_start.py`.
 
 ## Honest open items
 

@@ -903,6 +903,16 @@ def load_checkpoint_warm_start(checkpoint_path: str) -> np.ndarray:
     return params.to_vector()
 
 
+def note_restart_costs(checkpoint_path: str, error: Exception) -> None:
+    """No start converged: add each start's cost to the checkpoint, so the result finished from it reports them (#79)."""
+    costs = getattr(error, "restart_costs", None)
+    if costs and Path(checkpoint_path).exists():
+        try:
+            write_checkpoint(checkpoint_path, {**read_checkpoint(checkpoint_path), "restart_costs": costs})
+        except (OSError, CheckpointError):
+            pass
+
+
 def main() -> None:
     args = build_arg_parser().parse_args()
 
@@ -987,6 +997,7 @@ def main() -> None:
         report = run_pipeline(pipeline_config)
     except Exception as e:
         logger.error("Pipeline failed: %s", e)
+        note_restart_costs(checkpoint_path, e)
         blew_up = isinstance(e, FloatingPointError) or "NaN/inf" in str(e)
         log_calibration_run(
             script="run_calibration", run_name=f"run_calibration_{_time.strftime('%Y-%m-%d_%H%M')}",

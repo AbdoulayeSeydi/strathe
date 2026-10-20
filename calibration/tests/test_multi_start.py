@@ -97,3 +97,24 @@ def test_the_report_reads_the_first_rounds_starts(tmp_path):
     final = {"optimizer": {"restart_costs": [1.0]}}
     assert calibration_report.restart_costs(str(tmp_path), final) == [1.0, 2.0]
     assert calibration_report.restart_costs(str(tmp_path / "nowhere"), final) == [1.0]
+
+
+def test_when_no_start_converges_the_finished_result_still_lists_each_starts_cost(monkeypatch, tmp_path):
+    """URI's bay run: all four starts ran out of budget, the CLI finished it from the checkpoint and the report lost
+    the four costs. They now go through the checkpoint."""
+    import yaml as _yaml
+    from finalize_checkpoint import finalize
+    from run_calibration import note_restart_costs
+    monkeypatch.setattr(optimizer, "least_squares", _fake_least_squares([2.3, 2.6], [False, False]))
+    with pytest.raises(optimizer.RestartsFailed, match="failed to converge") as e:
+        calibrate(_spec(), [], CalibrationConfig(n_restarts=2, seed=1, initialization_strategy="perturbed"))
+    assert e.value.restart_costs == [2.3, 2.6]
+    p = optimizer.initial_parameters(_spec())
+    ck = tmp_path / "checkpoint.yaml"
+    ck.write_text(_yaml.safe_dump({"call_count": 5, "best_cost_so_far": 2.3, "best_parameters_so_far":
+                                   {n: float(getattr(p, n)) for n in p.param_names}}))
+    note_restart_costs(str(ck), e.value)
+    note_restart_costs(str(tmp_path / "missing.yaml"), e.value)  # no checkpoint: nothing to add, no crash
+    m = finalize(str(ck), "synth_test_data", "vehicle_spec.yaml", ["03-03-2024"], str(tmp_path), 10.0)
+    assert m["optimizer"]["restart_costs"] == [2.3, 2.6]
+    assert calibration_report.restart_costs(str(tmp_path), m) == [2.3, 2.6]
