@@ -2381,6 +2381,62 @@ Checked in the browser: the cards render and there are no console errors.
 - **Tests:** the Docker command line and mounts; the plain "needs Docker" message; setup-sim saying what's missing;
   the macOS flags.
 
+### 88. Stress test of every simulator on URI's ALPHA RISE (2026-10-19/20)
+
+**What was run:** a fresh clone of `feat/simfit` in `~/strathe_uri_lab_v3`, set up from the lab's side:
+- `check`;
+- `setup-sim gazebo` (48 s) and `setup-sim stonefish` (2 min 43 s);
+- `convert-sim` of URI's Stonefish model to Gazebo and MuJoCo (12 s each).
+
+Then 44 runs: Gazebo, MuJoCo and Stonefish through `fit-sim`, the protocol route, and exports of six Strathe
+calibrations, with every option varied. The writeup is `~/strathe_uri_lab_v3/URI_SIMULATORS_REPORT.md`, with
+`tables/sims.csv` and `NOTES.md`.
+
+**Results** (position error after 10 / 30 / 60 s on the unseen mission; pond, bay):
+- **Gazebo, calibrated through Gazebo** from the conversion: 0.81 / 5.1 / 15.3 m and 1.30 / 6.0 / 15.0 m. The
+  conversion was 6.10 / 19.2 / 40.1 and 4.76 / 17.9 / 37.7; URI's Stonefish model 2.40 / 15.9 / 47.6 and
+  1.92 / 11.4 / 37.4; Strathe's own model 1.74 / 10.3 / 26.4 and 1.47 / 9.1 / 30.6. The best simulator model of ALPHA
+  RISE so far.
+- **MuJoCo, calibrated:** 0.89 / 6.8 / 27.4 and 1.57 / 8.2 / 19.5 m. Its fluid model can't represent per-axis damping
+  or buoyancy at a CB.
+- **Exports reproduce Strathe's model** when scored in the calibration's own water: Gazebo B0 on the pond 1.75 / 10.7 /
+  27.1 m against Strathe's 1.74 / 10.3 / 26.4, with identical velocity errors and pitch 11.0° against 10.9°; Stonefish
+  (patched) 1.74 / 6.6 / 30.1 m, pitch 11.2°.
+  - The pond's earlier extra pitch drift (about 19°, #80) was `--density-by-date`: in fresh water the bay-calibrated
+    vehicle is 2.3% less buoyant in the simulator, and URI almost certainly re-trimmed it.
+  - The guides now say to use the flag only when the ballast was the same in both waters.
+- **Cross-checks:**
+  - `--sim external` reproduces Gazebo's adapter exactly (same cost, 744.502);
+  - `fit-sim --sim stonefish` reproduces `fit-stonefish` (F2) in both directions;
+  - workers 1 and 4 give identical results, in Gazebo and MuJoCo;
+  - exports re-run give identical results.
+- **Options** (the details are in the report):
+  - tune drag with buoyancy and the CG, not alone;
+  - hull lift and `--axisymmetric` cost over a minute;
+  - variation weighting beats magnitude;
+  - `--from-strathe` is not the better start (as #74).
+- **Multi-start (#79), pond held out:**
+  - B9 picks the good answer (+0.227, where the single start gave +0.176);
+  - V3 (describe-stonefish) +0.205 / 5.3 m, against the single start's +0.159;
+  - B8 still lands at +0.062: its split happens after round 1, the only multi-start round.
+
+**Friction found from the lab's side, all fixed:**
+- **F1:** `check` listed HoloOcean twice.
+- **F2:** the Gazebo export's rigid inertia broke the triangle inequality (Strathe's effective inertia isn't a rigid
+  body's) and Gazebo refused the link. Fix: a valid rigid inertia plus rotational `<fluid_added_mass>`, still exact.
+- **F3:** `--from-strathe` on MuJoCo gave export's message.
+- **F4:** an incomplete calibration crashed with a TypeError.
+- **F5:** a held-out date the logs don't have gave a traceback.
+
+**Ease of use:**
+- the "any simulator" guide's example ran as written in the fresh clone;
+- 15 common mistakes all give a plain line.
+
+**Not tested:**
+- real HoloOcean (needs Windows or Linux; a stand-in with its interface was used);
+- the Docker images (no Docker here);
+- a public Gazebo model (bluerov2_gz).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
