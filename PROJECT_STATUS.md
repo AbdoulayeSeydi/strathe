@@ -2086,11 +2086,24 @@ So the choice never needs the held-out data.
 - **B9 and V3:** four starts pick the good result in every case. On the bay, V3 goes from a blow-up to the
   hand-written description's result. Two of the four pond starts blew up (costs 170 and 307) and were dropped by cost.
 - **B8 doesn't help:** all four round-1 starts agreed (costs 4.76–4.78). Its good/bad split happens in a later round,
-  which starts from round 1's result. Restarting later rounds is possible but not done.
+  which starts from round 1's result.
 - **A gap this found, fixed:** on the bay run, every start used up its evaluation budget, so none "converged". The CLI
   then finished the run from its checkpoint (the lowest cost seen over all four starts), but the report lost each
   start's cost. `optimizer.RestartsFailed` now carries the costs; `run_calibration.py` adds them to the checkpoint, and
   `finalize_checkpoint.py` puts them in `metrics.json`. Tested in `tests/test_multi_start.py`.
+
+**`--restarts-every-round`, for B8's case.** With `--estimate-current` and `--restarts N`, every round (and the final
+fit) starts from N points, not only the first:
+- **The points:** the previous round's result, unchanged, plus N−1 points around it (the usual ±10% of each range).
+  Keeping the previous result as a start means a restarted round can only find a lower training cost than staying put.
+  One start behaves as before.
+- **Cost:** every round takes N times as long.
+- **Where it shows:** the web form has a checkbox, the report lists each later round's costs and says whether a point
+  around the previous result found a lower cost, and LAB_GUIDE, README and LIMITS say when to use it.
+- **Tests:** the flag reaches every fit; a refusal without `--restarts 2` or more; a note without `--estimate-current`;
+  a warm start keeps its first point unchanged; the report's lines; the web checkbox.
+- **Validation on URI's data:** B8 with the pond held out, 4 starts every round, seed 11 (round 1 identical to M_B8's);
+  running. Results will be added here.
 
 ## Honest open items
 

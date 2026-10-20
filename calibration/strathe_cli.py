@@ -345,9 +345,18 @@ def cmd_calibrate(args, runner=None) -> int:
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31 - 1)
     print(f"ℹ️  Starting-point seed {seed}: the fit starts from a randomly perturbed point, so a hard calibration can "
           f"land differently on another run. `--seed {seed}` repeats this one exactly.", flush=True)
+    every_round = bool(getattr(args, "restarts_every_round", False))
+    if every_round and restarts < 2:
+        print("❌ --restarts-every-round needs --restarts 2 or more (how many points each round starts from)")
+        return 2
+    if every_round and not args.estimate_current:
+        print("ℹ️  --restarts-every-round only matters with --estimate-current (there's one round otherwise).")
+        every_round = False
     if restarts > 1:
-        print(f"ℹ️  Starting the fit from {restarts} points and keeping the lowest training cost: the first fit takes "
-              f"about {restarts}x as long.", flush=True)
+        print(f"ℹ️  Starting the fit from {restarts} points and keeping the lowest training cost: "
+              + (f"every round takes about {restarts}x as long. Later rounds keep the previous round's result as one "
+                 f"of the points." if every_round else f"the first fit takes about {restarts}x as long."),
+              flush=True)
     memo = {}
 
     def settings():
@@ -403,7 +412,9 @@ def cmd_calibrate(args, runner=None) -> int:
         rate, extra = settings()
         argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev,
                               extra + ["--seed", str(seed)], rate)  # every round starts from the same recorded seed
-        if restarts > 1 and not warm:  # the first fit chooses where to start; later rounds start from its result
+        if restarts > 1 and (every_round or not warm):
+            # the first fit chooses where to start; later rounds start from its result, and with
+            # --restarts-every-round also from points around it (#79)
             argv += ["--n-restarts", str(restarts)]
         if currents:
             argv += ["--currents-file", currents]
@@ -1020,7 +1031,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="start the fit from this many points and keep the lowest training cost (default 1). A hard "
                         "calibration can land in a different place from each start; 3-4 makes that much less likely, "
                         "for that many times the first fit's time. With --estimate-current, the first round only: "
-                        "later rounds start from its result")
+                        "later rounds start from its result (see --restarts-every-round)")
+    c.add_argument("--restarts-every-round", action="store_true",
+                   help="with --estimate-current and --restarts N: every round starts from N points, the previous "
+                        "round's result and N-1 around it, not only the first. For a calibration whose result "
+                        "changes in a later round; every round takes N times as long")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
                    help="advanced: re-express logged torques about another point (default: what the ingestion "
                         "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")

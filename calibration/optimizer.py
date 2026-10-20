@@ -332,6 +332,17 @@ def _initialize_x0(x0_base, lb, ub, rng, strategy, perturbation_frac):
     raise ValueError(f"Unknown initialization_strategy: {strategy!r}")
 
 
+def _starting_points(x0_base, lb, ub, rng, config) -> list:
+    """Each restart's starting point. A warm start (config.x0_override: the previous round's result) with several
+    starts keeps that result, unperturbed, as the first one and spreads the others around it, so restarting a later
+    round can only find a lower training cost than staying put (#79, --restarts-every-round)."""
+    points = [_initialize_x0(x0_base, lb, ub, rng, config.initialization_strategy, config.perturbation_frac)
+              for _ in range(config.n_restarts)]
+    if config.x0_override is not None and config.n_restarts > 1:
+        points[0] = np.clip(x0_base, lb, ub)
+    return points
+
+
 def _wrap_residual_fn(base_fn: Callable, on_iteration: Optional[Callable],
                       watchdog: Optional[object] = None) -> Callable:
     """Scipy's least_squares has no native callback= — this wraps the
@@ -547,11 +558,7 @@ def calibrate_parallel(
     x_scale_free = x_scale[free_mask]
 
     rng = np.random.default_rng(config.seed)
-    x0_list = [
-        _initialize_x0(x0_base_free, lb_free, ub_free, rng,
-                        config.initialization_strategy, config.perturbation_frac)
-        for _ in range(config.n_restarts)
-    ]
+    x0_list = _starting_points(x0_base_free, lb_free, ub_free, rng, config)
 
     from concurrent.futures import ProcessPoolExecutor
     start_time = time.monotonic()
@@ -677,9 +684,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
 
     restarts = []
     start_time = time.monotonic()
-    for _ in range(config.n_restarts):
-        x0_free = _initialize_x0(x0_base_free, lb_free, ub_free, rng,
-                                  config.initialization_strategy, config.perturbation_frac)
+    for x0_free in _starting_points(x0_base_free, lb_free, ub_free, rng, config):
         result = least_squares(
             fun=optimized_residual_fn,
             x0=x0_free,
