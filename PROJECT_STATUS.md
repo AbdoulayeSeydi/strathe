@@ -2045,6 +2045,75 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   - other errors still raise;
   - every new form option reaches the command, and bad values are refused.
 
+### 89. `strathe comms-study`: N vehicles coordinating under acoustic latency, bandwidth and packet loss (2026-10-20)
+
+**Why.** Strathe has to show teams they can test multi-vehicle coordination under the limits of acoustic
+communication, not only simulate vehicles. `strathe fleet` is two vehicles flown by trained policies, over a
+point-to-point link with a per-tick byte budget. Its only comm knob is the bundled L0–L3b loss levels: latency and
+bandwidth couldn't be set on their own, and there was no shared channel.
+
+**What's new:**
+- **`acoustic_network.py`, a shared acoustic channel for N vehicles.** Every effect is in seconds:
+  - travel time (range ÷ 1500 m/s);
+  - time on the air (preamble + bits ÷ bit rate);
+  - the modem's decoding delay;
+  - TDMA slots or random access, with jitter;
+  - half duplex;
+  - collisions at each receiver;
+  - independent or bursty (Gilbert-Elliott) loss, an optional distance ramp, and range.
+
+  Every packet's fate is counted. It is vehicle-agnostic like `comm_channel.py`, and deterministic per seed.
+- **`fleet_coordination.py`, 2–12 vehicles on Strathe's calibrated physics.**
+  - **The task:** they follow a leader whose turns they can't predict, in a wedge, line, column or custom
+    formation.
+  - **What a vehicle knows:** its teammates only through beacons and a belief model (`fleet_belief.py` gains
+    `estimate_state`: position, velocity, heading).
+  - **Controllers:** a built-in leader-follower PID, or a team's own `module:Class`.
+  - **Scoring, always on the truth:** formation error, closest approach and collisions, belief error, beacon age,
+    and the channel's statistics.
+  - **A formation that turns with the leader** is refused when its outer slot would need to outrun the vehicle,
+    with the slowest turn that works.
+- **`strathe comms-study` (`comms_study.py`).** One setting at a time, on paired seeds:
+  - modem delay, bit rate, loss, burst length, fleet size, beacon interval, spacing;
+  - TDMA against random access, teammate prediction, and controller.
+
+  It writes `report.md` (where coordination holds and breaks, with Wilson intervals), `summary.csv`,
+  `episodes.csv`, plots and `study.yaml`. Modem classes `slow` / `medium` / `fast` / `ideal` are generic starting
+  points.
+- **Web card** "Test your fleet's coordination under acoustic limits". **Docs:** `calibration/COMMS_STUDY.md` (with
+  how to plug in a controller), README, LAB_GUIDE section 9, and a LIMITS section.
+- **Tests:**
+  - `tests/test_acoustic_network.py`:
+    - airtime and exact latency;
+    - TDMA never collides and its cycle is the update interval;
+    - random access collides when busy;
+    - half duplex;
+    - burst statistics;
+    - range and distance loss;
+    - determinism;
+    - no physics imports.
+  - `tests/test_fleet_coordination.py`:
+    - formations;
+    - refusals;
+    - a good channel holds and a saturated one doesn't;
+    - repeatability and paired leaders;
+    - six vehicles;
+    - every belief's state;
+    - a team's own controller;
+    - each setting changes only itself;
+    - verdicts;
+    - a small study end to end;
+    - the CLI pass-through.
+  - The web form test.
+
+**Found while building it:**
+- A formation that turns rigidly with the leader is unflyable at survey turn rates: a wedge's outer slot moves at
+  1.5 m/s in a 3°/s turn, against a vehicle top speed of 0.35 m/s.
+- Without integral action the PID sat about 2 m behind its slot: drag at cruise is about 14 N.
+- Random access with fixed beacon periods locked two vehicles into colliding forever; random jitter fixed it.
+
+**Results:** the default study on the shipped BlueROV2 is to be added here.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

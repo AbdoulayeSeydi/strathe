@@ -121,6 +121,14 @@ class TeammateBelief:
     def _estimate(self) -> np.ndarray:
         raise NotImplementedError
 
+    def estimate_state(self, true_state: Optional[tuple] = None) -> Optional[tuple]:
+        """(position, world velocity, body->world rotation) of the teammate as this belief has it, or None before any
+        beacon (fleet_coordination.py's controllers steer by it). true_state is only read by the oracle."""
+        if self._beacon is None:
+            return None
+        b = self._beacon
+        return self.estimate(None if true_state is None else true_state[0]), b.orientation @ b.nu[:3], b.orientation
+
 
 class LastBeaconBelief(TeammateBelief):
     kind = "last_beacon"
@@ -176,6 +184,13 @@ class PhysicsBelief(TeammateBelief):
     def _estimate(self):
         return self._core.position_array()
 
+    def estimate_state(self, true_state=None):
+        if self._beacon is None:
+            return None
+        c = self._core
+        return c.position_array(), c.world_velocity(), c.rotation_matrix() if hasattr(c, "rotation_matrix") \
+            else np.array(c.R)
+
 
 class OracleBelief(TeammateBelief):
     """Upper bound: perfect knowledge of the teammate's true position,
@@ -189,6 +204,13 @@ class OracleBelief(TeammateBelief):
         if true_teammate_position is None:
             raise ValueError("OracleBelief.estimate() needs the true teammate position")
         return np.asarray(true_teammate_position, dtype=float).copy()
+
+    def estimate_state(self, true_state=None):
+        if self._beacon is None:
+            return None
+        if true_state is None:
+            raise ValueError("OracleBelief.estimate_state() needs the true teammate state")
+        return tuple(np.asarray(x, dtype=float).copy() for x in true_state)
 
 
 def interpolate_params(truth: CalibrationParameters, other: CalibrationParameters,

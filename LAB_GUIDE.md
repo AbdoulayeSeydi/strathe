@@ -165,3 +165,21 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 - **The report folder** (`calibration_output_<name>/`): no raw logs needed.
 - **Your ingest spec and `ingest_report.json`,** for conversion problems.
 - **Your vehicle description** (`my_vehicle_spec.yaml`).
+
+## 9. Test multi-vehicle coordination under acoustic limits
+
+Once you have a calibration, test how a fleet of your vehicles coordinates over your acoustic modems:
+
+```bash
+python strathe.py comms-study --params calibration_output_my_vehicle/calibrated_parameters.yaml \
+    --vehicle-spec my_vehicle_spec.yaml --modem slow --fleet-size 4 --out my_fleet_comms
+```
+
+- **What happens:** 2–12 vehicles hold a formation behind a leader whose turns they can't predict. They know each
+  other only through beacons on one shared acoustic channel.
+- **What it changes:** one thing at a time: modem delay, bit rate, packet loss, loss bursts, fleet size, beacon
+  rate, turn-taking (TDMA) against random access, and how a vehicle predicts a teammate.
+- **What it reports:** where coordination holds and where it breaks, with 95% intervals.
+- **Your own strategy:** `--controller my_module:MyController`.
+- **Web page:** the "Test your fleet's coordination under acoustic limits" form.
+- **Full guide:** [calibration/COMMS_STUDY.md](calibration/COMMS_STUDY.md).

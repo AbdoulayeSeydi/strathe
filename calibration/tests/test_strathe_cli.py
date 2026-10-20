@@ -182,7 +182,8 @@ def test_home_page_has_every_form(server):
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
     assert "Calibrate your Stonefish model" in body and "Put your Strathe calibration into Stonefish" in body
-    assert body.count(f"value='{token}'") == 9
+    assert "Test your fleet" in body and "under acoustic limits" in body
+    assert body.count(f"value='{token}'") == 10
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -772,3 +773,27 @@ def test_stonefish_forms_take_the_replay_tool_iterations_and_workers(tmp_path):
     assert args[args.index("--max-iterations") + 1] == "30" and args[args.index("--workers") + 1] == "2"
     with pytest.raises(ValueError, match="Replay tool not found"):
         web.stonefish_cli_args({**form, "replay_tool": str(tmp_path / "nope")})
+
+
+def test_comms_study_form(server):
+    """#89: the web card runs `strathe comms-study` with what was filled in."""
+    request, token, started, manager, tmp_path = server
+    status, _, _ = request("POST", "/jobs/comms_study", {"token": token, "name": "six boats", "fleet_size": "6",
+                                                         "modem": "slow", "loss": "0.2", "burst": "4",
+                                                         "sweep_latency": "1", "sweep_mac": "1", "episodes": "10"})
+    assert status == 303
+    cmd = started[0]
+    assert cmd[3] == "comms-study"
+    for flag, val in (("--fleet-size", "6"), ("--modem", "slow"), ("--loss", "0.2"), ("--burst", "4.0"),
+                      ("--episodes", "10")):
+        assert cmd[cmd.index(flag) + 1] == val
+    assert cmd[cmd.index("--sweep") + 1:cmd.index("--sweep") + 3] == ["latency", "mac"]
+    assert cmd[-1].endswith("comms_six_boats")
+    import comms_study
+    comms_study.build_parser().parse_args(cmd[4:])   # the study accepts exactly what the form built
+    for bad, msg in (({"fleet_size": "20"}, "Vehicles"), ({"loss": "1.5"}, "Packet loss"),
+                     ({"controller": "not a class"}, "module:Class")):
+        status, body, _ = request("POST", "/jobs/comms_study", {"token": token, "name": "x", **bad})
+        assert status == 400 and msg in body
+    status, body, _ = request("GET", "/", None)
+    assert "Test your fleet&#x27;s coordination" in body or "Test your fleet's coordination" in body
