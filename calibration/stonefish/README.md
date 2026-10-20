@@ -120,9 +120,19 @@ fill in `templates/vehicle_spec_template.yaml` by hand. It takes:
 
 The model's values can be far off either way. ALPHA RISE's sway and heave added mass are 3× strip theory, and its nose
 drag is 20× smaller than the fitted one. With limits sized around those values (5× either way), the fit landed
-somewhere that matched the training mission and drifted 64 m on the unseen one. With limits sized from the hull, it
-calibrates like the hand-written description (PROJECT_STATUS.md #77). A model value outside the limits starts just
-inside them, and the command lists it.
+somewhere that matched the training mission and drifted 64 m on the unseen one. A model value outside the limits
+starts just inside them, and the command lists it.
+
+**Calibrate it with `--restarts 4`.** Limits sized from the hull are wide, so where the fit ends up depends on where it
+starts. On URI's ALPHA RISE (PROJECT_STATUS.md #77, #79), mean skill on the unseen mission:
+
+| Mission held out | One start | 4 starts | Hand-written description |
+|---|---|---|---|
+| Bay | −3.18 (blew up: 66 m drift at 60 s) | +0.191, 4.0 m at 60 s | +0.183, 4.0 m |
+| Pond | +0.159 | +0.205, 5.3 m at 60 s | +0.227, 3.5 m |
+
+Four starts take about four times as long. Strathe keeps the start with the lowest training cost, so the choice never
+uses the unseen mission, and the report lists each start's cost.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash

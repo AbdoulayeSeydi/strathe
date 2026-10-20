@@ -115,7 +115,8 @@ def test_describe_stonefish_writes_a_description_calibrate_can_load(tmp_path, ca
     assert "describe-stonefish" in out.read_text().splitlines()[0]
     params = initial_parameters(load_vehicle_spec(str(out)))
     assert params.Ieff_pitch > 0 and params.Xu < 0
-    assert "Wrote" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "Wrote" in printed and "--restarts 4" in printed  # #79: one start isn't reliable with these limits
 
 
 def test_the_command_line_and_web_form_build_it(tmp_path):
@@ -154,3 +155,16 @@ def test_a_replay_tool_that_hangs_is_a_plain_error(monkeypatch, tmp_path):
         rp.info("w.scn")
     with pytest.raises(SF.StonefishFitError, match="within 24 hours"):
         rp.run("w.scn", [], str(tmp_path / "r"))
+
+
+
+def test_the_file_docs_and_web_card_say_to_calibrate_from_four_starts():
+    """#79: one start blew up on URI's bay mission with a description this command writes; four matched the
+    hand-written one."""
+    import inspect
+    import strathe_web
+    here = os.path.dirname(os.path.abspath(__file__))
+    assert "--restarts 4" in SD.HEADER
+    for doc in ("../../LAB_GUIDE.md", "../../README.md", "../stonefish/README.md"):
+        assert "--restarts 4" in open(os.path.join(here, doc), encoding="utf-8").read(), doc
+    assert "4 starting points" in inspect.getsource(strathe_web.home_page)

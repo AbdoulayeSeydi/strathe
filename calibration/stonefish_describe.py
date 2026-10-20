@@ -188,7 +188,10 @@ def _plain(x):
 
 
 HEADER = """# Vehicle description written by `strathe describe-stonefish` from {model}.
-# Pass it to every command: python strathe.py calibrate --ingest-spec my_ingest.yaml --spec {out} --name my_vehicle
+# Pass it to every command: python strathe.py calibrate --ingest-spec my_ingest.yaml --spec {out} --name my_vehicle \
+#     --restarts 4
+# Calibrate it from 4 starting points (--restarts 4): its limits are wide, and one start can land badly (on URI's
+# ALPHA RISE, one start blew up on the unseen mission; four matched the hand-written description, PROJECT_STATUS #79).
 # Each value's `source` says where it came from. They are starting values, with limits sized from the hull; the logs
 # decide the calibrated values. Check the mass (weigh the vehicle) and the thruster count; edit anything you know
 # better (calibration/templates/vehicle_spec_template.yaml explains every field).
@@ -220,6 +223,8 @@ def run(a) -> int:
           f"below CB")
     for n in notes:
         print("  note: " + n)
+    print(f"Next: python strathe.py calibrate --spec {a.out} --restarts 4 ... (4 starting points: with limits this "
+          f"wide, one start isn't reliable)")
     return 0
 
 

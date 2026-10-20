@@ -796,7 +796,8 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <div class=card><h2>Describe your vehicle from your Stonefish model</h2>
 <p class=muted>Writes the vehicle description that Calibrate needs (mass, inertia, added mass, drag, buoyancy, centre of
 gravity), with starting values from your own Stonefish model, so you don't fill the template by hand. Seconds. Needs the
-replay tool (<code>calibration/stonefish/README.md</code>).</p>
+replay tool (<code>calibration/stonefish/README.md</code>). Then calibrate with it using <b>4 starting points</b>: its
+limits are wide, and one start isn't reliable.</p>
 <form method=post action=/jobs/describe_stonefish>{tok}
 <label for=ds-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=ds-scn name=scenario required>
 <label for=ds-robot>Robot name in the scenario</label><input type=text id=ds-robot name=robot required>
