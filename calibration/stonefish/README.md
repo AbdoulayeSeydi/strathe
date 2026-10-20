@@ -173,8 +173,11 @@ calibration, position error after 10 / 30 / 60 s on the unseen mission):
 
 - **Speeds match Strathe's model** (forward speed error after 10 s: 0.44 → 0.09 m/s and 0.42 → 0.13 m/s; Strathe's
   0.09 and 0.12), and the error after 10 s falls 56–68% against the conversion.
-- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°: that
-  is what still grows the pond's error over a minute.
+- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°.
+  That was the water density: these runs used `--density-by-date`. Scored without it, the pond export reproduces
+  Strathe's own model (pitch 11.2° against 10.9°, identical velocity errors, #88).
+- **`--density-by-date`:** give it only when the vehicle kept the same ballast in both waters. URI's ALPHA RISE scored
+  better without it, so it was probably re-trimmed for the pond, as vehicles usually are for fresh water.
 - **The steps that got here:** carrying the damping alone left pitch at 36° / 23°; carrying Strathe's fore-aft offset
   27° / 14°; the CG at the reference point 19° / 4°.
 - **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute

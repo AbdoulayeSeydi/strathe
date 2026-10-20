@@ -73,6 +73,11 @@ You choose; each guide shows both.
     tilts on its own.
   - The report gives the drift after 10, 30 and 60 s, plus the velocity and attitude error.
   - It compares against your original model and two baselines: "no motion" and "keeps its starting velocity".
+- **`--density-by-date DATE=RHO`:** use it only if the vehicle kept the same ballast in fresh and salt water.
+  - **Why:** a vehicle re-trimmed for each water, as is usual, is about neutral in both. Forcing the density makes it
+    2–3% heavy or light in the simulator.
+  - **On URI's ALPHA RISE:** without it, both the Stonefish and Gazebo exports reproduced Strathe's own model. With it,
+    pitch drifted 19° against 11° (#88).
 - **Holding values you measured:** `--hold NAME=VALUE` keeps a value fixed (from a tank test or CAD). Surge added mass
   is the usual one: ordinary missions can't pin it down (#73).
 - **Outputs:** `<model>_calibrated.<ext>` (or `_strathe` from export), `<sim>_fit_report.md`, `<sim>_fit.yaml`,

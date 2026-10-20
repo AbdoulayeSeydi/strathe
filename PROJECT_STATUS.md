@@ -2095,8 +2095,13 @@ hurt (#74, #75).
   - better than URI's model at every horizon in both directions.
 - **Bay held out:** better than Strathe's own model at every horizon (1.44 / 5.6 / 17.6 m against 1.47 / 9.1 / 30.6 m),
   with pitch 3.8° against 9.9°.
-- **Pond held out:** pitch is 19° against Strathe's 11°, which grows the error over a minute (36.0 m). Candidates for
-  the rest: the patch's explicit, clamped anisotropic added mass, and restoring with B rather than W.
+- **Pond held out:** pitch is 19° against Strathe's 11°, which grows the error over a minute (36.0 m).
+  - **The cause is water density (found in #88):** this run was scored with `--density-by-date`. The bay-calibrated
+    vehicle in fresh water is 2.3% less buoyant in the simulator, while Strathe's own model keeps its calibrated
+    buoyancy.
+  - **Scored without it,** the export reproduces Strathe's own model: 1.74 / 6.6 / 30.1 m against 1.74 / 10.3 / 26.4 m.
+    Velocity errors are identical; pitch 11.2° against 10.9°, yaw 7.2° against 7.2°.
+  - So the patched export carries Strathe's model, and the pond's gap was the density setting.
 - **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute
   matters on a hard mission (pond: 21.6 m).
 - **Tests:** the exact export (values unconverted, the mesh coefficients untouched, attributes written) and the
