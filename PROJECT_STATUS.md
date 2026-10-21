@@ -2124,8 +2124,22 @@ So the choice never needs the held-out data.
   - the refusals and notes;
   - the report's paragraph;
   - the web checkbox.
-- **Validation on URI's data:** B8, pond held out, `--restarts 4 --restart-whole-fit --seed 11` (seeds 11–14); running.
-  Results will be added here.
+- **Validation on URI's data:** B8, pond held out, `--restarts 4 --restart-whole-fit --seed 11` (seeds 11–14). It
+  gives **the good result**:
+
+  | B8, pond held out | Mean skill | Drift at 10 / 60 s | Pitch after 10 s | Final training cost |
+  |---|---|---|---|---|
+  | `--restart-whole-fit`, 4 starts | **+0.237** | 0.68 / 4.69 m | 11.7° | 3.8599 |
+  | A good single start (B8r2) | +0.236 | 0.67 / 4.67 m | 11.7° | 3.8599 |
+  | 4 starts chosen after round 1, or in every round | +0.062 | 1.68 / 10.56 m | 18.5° | 4.1704 |
+
+  - **All four whole fits ended in the good result** (round 1 4.7809, round 2 3.9306, final 3.8599–3.8604), so this
+    run didn't have to choose between the two. That the lower *final* cost is the better result rests on the earlier
+    runs (3.86 against 4.17).
+  - **What it shows:** with the same seed 11, four starts chosen after round 1 kept the 4.7598 start and ended badly.
+    The whole fit, from that seed and three others, ended well every time.
+  - **Cost:** 8.5 h on 7 cores, about 2 h of it on battery. Four round-1 starts took 7.4 h on 2 cores.
+  - **The report** lists each start's costs by round, and here says they ended within 1% of each other.
 
 ## Honest open items
 
