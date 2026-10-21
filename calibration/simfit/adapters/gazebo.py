@@ -273,11 +273,41 @@ class GazeboAdapter:
             elif group == "mass":
                 specs.append(KnobSpec(name, group, v, "log_factor", 1.25, 1.25))
             else:
-                specs.append(KnobSpec(name, group, max(v, 0.0), "log_factor", floor=1e-3 if group == "drag" else 1e-2,
-                                      tie=tie if axisymmetric else None))
+                start = max(v, 0.0)
+                floor = 1e-3 if group == "drag" else 1e-2
+                if_zero = self._zero_start(name, ed) if start <= floor else None
+                note = (f"0 in your model; tuned from {fmt_number(if_zero)}, sized from the vehicle" if if_zero else "")
+                specs.append(KnobSpec(name, group, start, "log_factor", floor=floor, if_zero=if_zero,
+                                      tie=tie if axisymmetric else None, note=note))
         if "buoyancy" in groups and any(t for _n, t, _p in self.collisions):
             specs.append(KnobSpec("buoyancy_scale", "buoyancy", 1.0, "log", 0.8, 1.25))
         return specs
+
+    TYPICAL_SPEED = {"x": 0.2, "y": 0.2, "z": 0.2, "k": 0.5, "m": 0.5, "n": 0.5}   # m/s and rad/s, ROV scale
+
+    def _zero_start(self, name: str, ed) -> float:
+        """A starting value for a drag or added-mass term the model has at 0 (#89 follow-up: bluerov2_gz has no
+        linear drag and no added mass). Added mass: 0.3 x the vehicle's mass. Linear drag: the same axis's
+        quadratic drag x a typical speed; quadratic: linear / that speed; without either, sized from the mass (or
+        the inertia for rotation). The fit moves it up to x30 either way."""
+        def get(path, default):
+            try:
+                return float(ed.get(path))
+            except Exception:
+                return default
+        mass = get(f"{self.link_path}/inertial/mass", 10.0)
+        if name.startswith("added_mass") or "Dot" in name:
+            return 0.3 * mass
+        a = name[0]
+        rot = a in "kmn"
+        inertia = get(f"{self.link_path}/inertial/inertia/{ {'k': 'ixx', 'm': 'iyy', 'n': 'izz'}.get(a, 'ixx') }", 0.1 * mass)
+        s = self.TYPICAL_SPEED.get(a, 0.2)
+        v = name[1]
+        if "abs" in name:   # quadratic
+            lin = abs(get(f"{self.plugin}/{a}{v}", 0.0))
+            return lin / s if lin > 1e-3 else (5.0 * inertia if rot else 2.0 * mass)
+        quad = abs(get(f"{self.plugin}/{a}{v}abs{v}", 0.0))
+        return quad * s if quad > 1e-3 else (2.0 * inertia if rot else 1.0 * mass)
 
     def write_calibrated(self, values, out_dir: str, suffix: str) -> str:
         stem, ext = os.path.splitext(os.path.basename(self.model_path))

@@ -121,6 +121,7 @@ Strathe changes only those numbers.
 | `lo`, `hi` | The limits (see `transform`). | 30× either way; ±(\|start\| + 1) for `linear` |
 | `axisym` | With `--axisymmetric`, knobs sharing this key take one value (a torpedo hull: sway = heave). | none |
 | `note` | A line for the report. | none |
+| `if_zero` | Where to start a `log_factor` knob that is 0 in your model. A factor of 0 stays 0, so Strathe refuses a zero without it. Size it from your vehicle, e.g. 0.3 × the mass for added mass. | none |
 
 Choose what to tune by which physics in your simulator actually moves the vehicle: drag, added mass, buoyancy and the
 centre of gravity first. Keep the list short. Each knob adds a replay of all training windows to every step of the fit.

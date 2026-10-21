@@ -31,7 +31,8 @@ class KnobSpec:
     lo: Optional[float] = None     # limits: a factor for log_factor (default 30), else the value's (or offset's) units
     hi: Optional[float] = None
     tie: Optional[str] = None      # knobs with the same tie take one value (the first's)
-    floor: float = 1e-9            # log transforms: the smallest start that's used (a zero drag still gets tuned)
+    floor: float = 1e-9            # log transforms: a start at or below this counts as zero
+    if_zero: Optional[float] = None  # log transforms: where to start when the model has 0 (a factor of 0 stays 0)
     note: str = ""                 # a line for the report (what the value is, in the lab's file)
 
     def __post_init__(self):
@@ -80,7 +81,11 @@ class Knobs:
 
     @staticmethod
     def _base(s: KnobSpec) -> float:
-        return max(s.start, s.floor) if s.transform != "linear" else s.start
+        if s.transform == "linear":
+            return s.start
+        if s.start <= s.floor and s.if_zero:
+            return s.if_zero
+        return max(s.start, s.floor)
 
     def _value(self, s: KnobSpec, p: float) -> float:
         if s.transform == "log_factor":

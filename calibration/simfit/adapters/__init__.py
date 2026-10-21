@@ -28,6 +28,7 @@ class KnobDef:
     hi: Optional[float] = None
     axisym: Optional[str] = None    # with --axisymmetric, knobs sharing this key take one value
     note: str = ""
+    if_zero: Optional[float] = None  # where to start a log_factor knob that is 0 in the model
 
 
 @dataclass
@@ -99,8 +100,12 @@ class FileAdapter:
         for k in self.knob_defs:
             if k.group not in groups:
                 continue
-            specs.append(KnobSpec(k.name, k.group, self._file_value(k), k.transform, k.lo, k.hi,
-                                  tie=k.axisym if (axisymmetric and k.axisym) else None, note=k.note))
+            v = self._file_value(k)
+            if k.transform == "log_factor" and abs(v) < 1e-12 and not k.if_zero:
+                raise SimFitError(f"knob {k.name} is 0 in your model, and a factor of 0 stays 0: give it a starting value "
+                                  f"(`if_zero: VALUE` in its knob line), or use `transform: log` with lo/hi limits")
+            specs.append(KnobSpec(k.name, k.group, v, k.transform, k.lo, k.hi,
+                                  tie=k.axisym if (axisymmetric and k.axisym) else None, note=k.note, if_zero=k.if_zero))
         return specs
 
     def write_runnable(self, values: Optional[dict], folder: str, rho: Optional[float] = None) -> str:

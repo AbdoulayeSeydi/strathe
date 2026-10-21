@@ -169,3 +169,32 @@ def test_the_rigid_inertia_is_always_a_rigid_bodys():
     assert list(r) == [0.2, 0.3, 0.4]  # the model's own, within Strathe's
     r = rigid_inertia_within(np.array([1.0, 80.0, 80.0]), np.array([3.0, 60.0, 35.5]))
     assert all(r <= [3.0, 60.0, 35.5]) and all(r[i] <= r[(i + 1) % 3] + r[(i + 2) % 3] for i in range(3))
+
+
+def test_a_term_the_model_has_at_zero_still_gets_tuned(tmp_path):
+    """bluerov2_gz has no linear drag and no added mass: a factor of 0 stays 0, so a zero starts from a value sized
+    from the vehicle (and the report says so)."""
+    from simfit.knobs import Knobs
+    w = tmp_path / "w.sdf"
+    w.write_text(open(WORLD).read().replace("<xU>-5</xU>", "<xU>0</xU>").replace("<nR>-2</nR>", "<nR>0</nR>"))
+    ad = GazeboAdapter(str(w), tool=["unused"])
+    specs = {s.name: s for s in ad.knob_specs({}, ("drag", "added_mass"), False)}
+    assert specs["xU"].if_zero == pytest.approx(30 * 0.2) and "0 in your model" in specs["xU"].note  # |xUabsU| x 0.2
+    assert specs["yV"].if_zero is None                                                               # not zero
+    k = Knobs([specs["xU"], specs["nR"]])
+    vals = k.values(k.x0())
+    assert vals["xU"] == pytest.approx(6.0) and vals["nR"] > 0.01
+    lo, hi = k.bounds()
+    assert k.values(hi)["xU"] == pytest.approx(180.0)   # x30 from where it starts, not from 0
+
+
+def test_the_generic_adapter_refuses_a_zero_it_cant_scale(tmp_path):
+    from simfit.adapters import FileAdapter, KnobDef
+    from simfit.core import SimFitError
+    m = tmp_path / "v.json"
+    m.write_text('{"drag": 0.0, "mass": 10}')
+    ad = FileAdapter("external", "Mine", str(m), ["unused"], [KnobDef("drag", "drag", "/drag")], fmt="json")
+    with pytest.raises(SimFitError, match="if_zero"):
+        ad.knob_specs({}, ("drag",), False)
+    ad = FileAdapter("external", "Mine", str(m), ["unused"], [KnobDef("drag", "drag", "/drag", if_zero=5.0)], fmt="json")
+    assert ad.knob_specs({}, ("drag",), False)[0].if_zero == 5.0
