@@ -2112,7 +2112,66 @@ bandwidth couldn't be set on their own, and there was no shared channel.
 - Without integral action the PID sat about 2 m behind its slot: drag at cruise is about 14 N.
 - Random access with fixed beacon periods locked two vehicles into colliding forever; random jitter fixed it.
 
-**Results:** the default study on the shipped BlueROV2 is to be added here.
+**Results on the shipped BlueROV2** (30 paired episodes per value; success = formation error under 3 m RMS and no
+collision; intervals are 95% Wilson). Every run's command, CSVs, plots and report are in `~/strathe_comms_demo/`.
+
+**1. The default study** (`strathe comms-study`, 22 min on 4 cores, 1,170 episodes). 4 vehicles in a 10 m wedge,
+a 1 kbit/s modem, TDMA, beacons every 2 s (TDMA cycle 3.4 s), constant-velocity prediction:
+
+| Setting | Holds up to | Breaks at | Formation error, easiest to hardest |
+|---|---|---|---|
+| Modem delay | 10 s (100%) | 20 s: 77% (59–88%) | 0.84 → 2.77 m |
+| Bit rate | 50 bit/s (100%; TDMA cycle 23 s) | – | 0.83 → 2.38 m |
+| Independent loss | 70% (100%) | – | 0.85 → 1.75 m |
+| The same 30% loss in bursts | bursts of 4 packets (97%) | 8: 53% (36–70%); 16: 23% | 0.93 → 6.68 m |
+| Fleet size | 8 vehicles (100%) | – | 0.82 → 0.92 m |
+| Beacon interval | 20 s (100%) | – | 0.85 → 1.53 m |
+| TDMA against random access | TDMA 100% | random access 0% (0–11%): 1% delivered, channel 151% busy | 0.85 against 24 m |
+
+Burst length matters more than the loss rate: 70% independent loss holds, while 30% loss in bursts of 8 fails half
+the time, because a burst leaves a teammate unheard for a whole turn.
+
+**2. A slow modem** (80 bit/s, 4.2 s on the air per beacon: `--modem slow`):
+- **Fleet size breaks it.** The TDMA cycle grows with the fleet: 8.5 s for 2 vehicles, 17 s for 4, 26 s for 6,
+  35 s for 8.
+  - 2–4 vehicles: 100%;
+  - 6: 93% (79–98%);
+  - 8: 3% (1–17%), with beacons 22 s old.
+- **Beacon interval below the cycle changes nothing:** 1–10 s are identical, because the cycle is the real update
+  interval. 20 s: 67%.
+- **Teammate prediction decides it.** Same 30 episodes:
+
+  | Prediction | Success | Formation error |
+  |---|---|---|
+  | Perfect knowledge | 100% | 0.99 m |
+  | The calibrated physics model | 100% | 1.16 m |
+  | Constant velocity | 100% | 1.72 m |
+  | **An uncalibrated physics model** (vehicle_spec defaults; drag 4–5× too low) | **43% (27–61%)** | 3.02 m |
+  | Last reported position | 0% (0–11%) | 3.16 m |
+
+  A wrong model is worse than none: the uncalibrated one loses to constant velocity. The calibrated row is a best
+  case, because the simulated vehicles are that model (LIMITS: "calibrated" in fleet results).
+
+**3. Random access has a sweet spot** (`--mac aloha`, 1 kbit/s, beacon interval varied):
+
+| Beacons every | Success | Delivered | Channel busy |
+|---|---|---|---|
+| 2 s | 0% | 1% | 151% |
+| 5 s | 43% | 33% | 60% |
+| 10 s | 70% | 62% | 30% |
+| 20 s | 67% | 81% | 15% |
+| 40 s | 17% | 89% | 7% |
+
+Too often and packets collide; too rarely and the information is stale. Unlike TDMA, random access also produced
+physical collisions between vehicles (1–2 episodes in 30 at 2–10 s and at 40 s). TDMA at the same modem holds at
+100%.
+
+**What this shows a team:** with the modem, fleet size, strategy and tolerance as inputs, the study finds the
+breaking points before a field trial. It also shows which lever fixes each one:
+- turn-taking instead of random access;
+- fewer vehicles per channel, or a faster modem, when the TDMA cycle is the limit;
+- a calibrated teammate model on slow links;
+- interleaving or redundancy against bursty loss.
 
 ## Honest open items
 

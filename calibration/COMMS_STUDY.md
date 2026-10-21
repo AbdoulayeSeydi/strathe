@@ -157,7 +157,27 @@ The built-in `leader_follower` (in `fleet_coordination.py`) is a reasonable base
 - it pushes away from any teammate believed closer than 4 m;
 - it is a PID with thrust saturation.
 
-## 5. Reading the results honestly
+## 5. An example: what the shipped BlueROV2 fleet shows
+
+Results from PROJECT_STATUS.md #89, 30 paired episodes per value:
+- **At 1 kbit/s with TDMA, the default study:**
+  - coordination holds to 10 s of modem delay, 50 bit/s, 70% independent loss, 8 vehicles and 20 s beacons;
+  - it breaks at 20 s of delay, at the same 30% loss in bursts of 8 packets (53%), and with random access at a 2 s
+    beacon rate (0%).
+- **Burst length matters more than the loss rate.** A burst leaves a teammate unheard through a whole turn.
+- **At 80 bit/s, fleet size breaks it.** The TDMA cycle grows from 17 s with 4 vehicles to 35 s with 8, and success
+  falls to 3% at 8.
+- **Teammate prediction decides slow links.**
+  - With the calibrated physics model: 100% success, 1.16 m.
+  - With constant velocity: 100%, 1.72 m.
+  - With an uncalibrated model: 43%.
+  - With the last reported position: 0%.
+
+  A wrong model is worse than none.
+- **Random access has a sweet spot** (10–20 s beacons: about 70%). Too often and packets collide; too rarely and
+  the information is stale.
+
+## 6. Reading the results honestly
 
 - **The channel model is generic.** It has the effects that break coordination (latency, airtime, collisions, half
   duplex, bursts) at textbook values. For an answer specific to your lab:

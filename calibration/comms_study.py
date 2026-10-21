@@ -64,7 +64,7 @@ AXES = {
     "latency": ("Modem decoding delay", "s", float, [0, 1, 2, 5, 10, 20], True, False),
     "bit_rate": ("Bit rate", "bit/s", float, [INF, 5000, 1000, 300, 100, 50], False, False),
     "loss": ("Packet loss (independent)", "", float, [0, 0.1, 0.2, 0.3, 0.5, 0.7], True, False),
-    "burst": ("Loss in bursts (mean length)", "packets", float, [1, 2, 4, 8, 16], True, False),
+    "burst": ("Mean loss-burst length", "packets", float, [1, 2, 4, 8, 16], True, False),
     "fleet_size": ("Vehicles sharing the channel", "", int, [2, 3, 4, 6, 8], True, False),
     "beacon_interval": ("Time between beacons", "s", float, [1, 2, 5, 10, 20], True, False),
     "spacing": ("Formation spacing", "m", float, [5, 10, 20, 50, 100], True, False),
