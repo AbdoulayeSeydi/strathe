@@ -476,6 +476,8 @@ def stonefish_cli_args(form: dict) -> list:
         if not all(re.fullmatch(r"[a-z_]+=-?[\d.]+(e-?\d+)?", h) for h in holds):
             raise ValueError("Held values are NAME=VALUE, e.g. added_mass_x=10.6.")
         args += ["--hold", *holds]
+    if form.get("no_cg_rerun"):
+        args += ["--no-cg-rerun"]
     return args
 
 
@@ -558,6 +560,8 @@ def sim_cli_args(form: dict, command: str = "fit") -> list:
             args += ["--axisymmetric"]
         if form.get("max_iterations", "").strip():
             args += ["--max-iterations", str(int(_number(form["max_iterations"], "Fit iterations", 1, 200)))]
+        if form.get("no_cg_rerun"):
+            args += ["--no-cg-rerun"]
     if form.get("workers", "").strip():
         args += ["--workers", str(int(_number(form["workers"], "Simulator runs at once", 1, 256)))]
     return args
@@ -811,7 +815,7 @@ you logged)</label>
 <p class=muted>Fits your own Stonefish vehicle's drag, added mass, buoyancy and centre of gravity (one part) to your logs,
 and scores it against the original on recordings it never saw. Writes your vehicle file back with only that part
 changed. Needs the replay tool built against your Stonefish (<code>calibration/stonefish/README.md</code>); an hour
-or more.</p>
+or more, twice that when it fits again with the centre of gravity held.</p>
 <form method=post action=/jobs/fit_stonefish>{tok}
 <label for=sf-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=sf-scn name=scenario required>
 <label for=sf-robot>Robot name in the scenario</label><input type=text id=sf-robot name=robot required>
@@ -840,6 +844,9 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label for=sf-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
 <input type=text id=sf-tool name=replay_tool value="">
 <label for=sf-iter>Fit iterations (optional; default 15)</label><input type=text id=sf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=sf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
+centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
+again with it held (about as long again) and keeps the better of the two.</label>
 <label for=sf-workers>Stonefish runs at once (optional; default all cores but one)</label><input type=text id=sf-workers name=workers value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
@@ -876,7 +883,8 @@ e.g. your URDF's base_link)</label><input type=text id=sx-ref name=reference_poi
 <p class=muted>The same as for Stonefish, for any simulator: tunes your own model's settings by replaying your logs in
 your simulator, scores it against the original on recordings it never saw, and writes your model back with only those
 values changed. Set-up for each simulator: <code>calibration/simulators/README.md</code> (Gazebo: <code>python strathe.py
-setup-sim gazebo</code>; MuJoCo: nothing to set up).</p>
+setup-sim gazebo</code>; MuJoCo: nothing to set up). Gazebo also gets <code>calibrated_world/</code>: your world with the
+calibrated model in it, at a physics step that's safe for the fitted damping, ready for <code>gz sim</code>.</p>
 <form method=post action=/jobs/fit_sim>{tok}
 <label for=simf-sim>Simulator</label><select id=simf-sim name=sim required><option value="gazebo">Gazebo Harmonic</option>
 <option value="mujoco">MuJoCo</option><option value="holoocean">HoloOcean (Fossen torpedo)</option>
@@ -903,6 +911,9 @@ the model file (optional)</label><input type=text id=simf-second name=second val
 <label for=simf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label><input type=text id=simf-cmp name=compare_params value="">
 <label for=simf-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simf-tool name=replay_tool value="">
 <label for=simf-iter>Fit iterations (optional; default 15)</label><input type=text id=simf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=simf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
+centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
+again with it held (about as long again) and keeps the better of the two.</label>
 <label for=simf-workers>Simulator runs at once (optional; default all cores but one)</label><input type=text id=simf-workers name=workers value="">
 <label for=simf-name>Name for this calibration</label><input type=text id=simf-name name=name value="my_sim" required>
 <button>Calibrate the simulator model</button></form></div>

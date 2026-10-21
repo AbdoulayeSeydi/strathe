@@ -258,3 +258,62 @@ def plot(results: dict, path_png: str, title: str = "Unseen recordings: original
     ax.set_xlabel("prediction horizon [s]"); ax.set_ylabel("median position error [m]")
     ax.set_title(title); ax.grid(alpha=0.3); ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(path_png, dpi=120); plt.close(fig)
+
+
+# --- what the drift alone hides (#90, bluerov2_gz) -----------------------------------------------------------------
+def attitude_worse(original: dict, new: dict) -> list:
+    """["pitch 7.8° -> 17.3°", ...]: axes whose median attitude error after 10 s is 25% and 2° worse than the original's."""
+    ao = original.get("10s", {}).get("attitude_error_median_deg")
+    ax = new.get("10s", {}).get("attitude_error_median_deg")
+    if not (ao and ax):
+        return []
+    return [f"{n} {a:.1f}° -> {b:.1f}°" for n, a, b in zip(("roll", "pitch", "yaw"), ao, ax) if b > 1.25 * a and b - a > 2.0]
+
+
+def longest_drift(r: dict):
+    h = next((f"{h}s" for h in reversed(HORIZONS_S) if f"{h}s" in r), None)
+    return r[h]["drift_median_m"] if h else None
+
+
+def prefer_cg_held(original: dict, tuned: dict, held: dict) -> tuple:
+    """(True, why) when the refit with the centre of gravity held is the one to use: attitude no longer worse than the
+    original's (or fewer axes worse), drift within 10% of the tuned fit's, and no more blow-ups."""
+    wt, wh = attitude_worse(original, tuned), attitude_worse(original, held)
+    dt, dh = longest_drift(tuned), longest_drift(held)
+    bt, bh = tuned.get("diverged") or 0, held.get("diverged") or 0
+    if len(wh) >= len(wt):
+        return False, "holding the centre of gravity didn't make the attitude better"
+    if dt is not None and dh is not None and dh > 1.1 * dt:
+        return False, f"holding it costs too much position accuracy ({dh:.2f} m against {dt:.2f} m)"
+    if bh > bt:
+        return False, f"it blew up in more unseen windows ({bh} against {bt})"
+    return True, ("its attitude is no worse than your original's" if not wh else "fewer axes turn or tilt worse") + \
+        (f", and its position error is {dh:.2f} m against {dt:.2f} m" if dt is not None and dh is not None else "")
+
+
+def report_warnings(results, original: str, new: str, what: str) -> list:
+    """What the drift alone hides (#90, bluerov2_gz): attitude that got worse, and standing still doing better."""
+    o, x, L = results[original], results[new], []
+    worse = attitude_worse(o, x)
+    if worse:
+        L.append(f"**Be careful:** {what} turns or tilts worse than your original after 10 s ({', '.join(worse)}). "
+                 f"The fit traded attitude for position: check the centre of gravity and buoyancy it changed, or keep "
+                 f"them (`--fit` without `cg`, or `--hold` your measured values) and compare. (`fit-sim` and "
+                 f"`fit-stonefish` do that comparison by themselves unless `--no-cg-rerun` is given.)\n")
+    if x.get("diverged") and x.get("windows"):
+        n, m = x["diverged"], x["windows"]
+        before = o.get("diverged") or 0
+        L.append(f"**Don't simulate with it as is: it blew up in {n} of {m} unseen windows** (your original: {before}). "
+                 f"The medians above leave those windows out. Some values it found make the simulation unstable in "
+                 f"places: check the report's changes for very large damping on a light axis, and try a smaller "
+                 f"physics step or `--hold` on those values.\n")
+    still = results.get("no motion")
+    if still:
+        beaten = [h for h in HORIZONS_S if f"{h}s" in still and f"{h}s" in x
+                  and still[f"{h}s"]["drift_median_m"] < x[f"{h}s"]["drift_median_m"]]
+        if beaten:
+            L.append(f"**Standing still beats {what} after {beaten[0]} s** ({still[f'{beaten[0]}s']['drift_median_m']:.2f} "
+                     f"m against {x[f'{beaten[0]}s']['drift_median_m']:.2f} m). Usual for logs from a tank or a "
+                     f"station-keeping mission, where the vehicle stays within a few metres; trust the shorter "
+                     f"horizons and the velocity errors there.\n")
+    return L

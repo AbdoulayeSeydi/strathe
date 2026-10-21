@@ -214,6 +214,7 @@ def test_the_web_cards_build_fit_sim_and_export_sim(tmp_path):
     for flag, val in (("--fit", "drag"), ("--hold", "xUabsU=30"), ("--replay-tool", "docker:strathe-gz-replay"),
                       ("--max-iterations", "5"), ("--heldout-dates", "02-01-2030")):
         assert a[a.index(flag) + 1] == val
+    assert "--no-cg-rerun" not in a and "--no-cg-rerun" in web.sim_cli_args({**form, "no_cg_rerun": "1"}, "fit")
     assert "--axisymmetric" in a
     mjcf = tmp_path / "w.xml"
     mjcf.write_text("<mujoco/>")

@@ -46,8 +46,10 @@ no Docker, so route A is the one that's been run.
 - **The physics step must divide the logs' sample time:** `<max_step_size>0.01</max_step_size>` for 10 Hz logs. The
   tool refuses other steps with a plain message.
 - **It must also be short enough for the damping.** Gazebo applies the Hydrodynamics forces step by step, so a step
-  longer than about half an axis's damping time constant (inertia ÷ damping) can blow up. A light vehicle with
-  stiff fitted roll or pitch damping can need 0.005 s. The report checks this after the fit and names the step to use.
+  longer than about half an axis's damping time constant (inertia ÷ damping) can blow up. A light vehicle with stiff
+  fitted roll or pitch damping can need 0.005 s. Strathe checks this after the fit. When your step is too long, it
+  scores the models at a safe step and names the axes and the step in the report. Then `calibrated_world/` (below)
+  uses that step.
 - **A worked example:** [`example/world.sdf`](example/world.sdf), a 10 kg neutral vehicle. The tests run on it.
 
 ## 3. Run it
@@ -91,6 +93,11 @@ python strathe.py fit-sim --sim gazebo --world my_world.sdf --model-file models/
 
 **What you get, in `--out`:**
 - `<your model file>_calibrated.sdf` (or `_strathe.sdf` from `export-sim`), with only those numbers changed;
+- `calibrated_world/` (`fit-sim`): a copy of your world with the calibrated model in it, ready to run with
+  `gz sim calibrated_world/<your world>.sdf`. An included model folder is copied in. When your world's physics step is
+  too long for the fitted damping, this copy uses a safe one. Your own files aren't changed;
+- when the first fit made the attitude worse and Strathe fitted again with the centre of gravity held, the other model
+  as `<your model file>_calibrated_cg_tuned.sdf` or `_cg_held.sdf` (`--no-cg-rerun` skips the second fit);
 - `gazebo_fit_report.md`, `gazebo_fit.yaml` and `drift.png`.
 
 ## Frames

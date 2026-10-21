@@ -62,6 +62,7 @@ class GazeboAdapter:
         self.model_text = open(self.model_path, encoding="utf-8").read() if self.separate else self.world_text
         self.model_name, self.ref = model_name, tuple(ref)
         self.notes, self.base, self.dt = [], None, 0.1
+        self.step_override = None   # a physics step to run at instead of the world's (safe_step, #90)
         self._discover(link)
         extra = ["--depth", f"{depth:g}"] + (["--model-name", model_name] if model_name else []) + ["--link", self.link]
         self.tool = ReplayTool(tool or [DEFAULT_TOOL], tuple(ref), extra=extra, name="Gazebo")
@@ -242,7 +243,7 @@ class GazeboAdapter:
     def write_runnable(self, values, folder: str, rho=None) -> str:
         os.makedirs(folder, exist_ok=True)
         p = os.path.join(folder, os.path.basename(self.world_path))
-        open(p, "w", encoding="utf-8").write(self._world_for(self._edit(values), folder, rho))
+        open(p, "w", encoding="utf-8").write(self._with_step(self._world_for(self._edit(values), folder, rho)))
         return p
 
     def replay(self, model: str, rows_by_window: list, folder: str) -> list:
@@ -310,15 +311,18 @@ class GazeboAdapter:
         quad = abs(get(f"{self.plugin}/{a}{v}abs{v}", 0.0))
         return quad * s if quad > 1e-3 else (2.0 * inertia if rot else 1.0 * mass)
 
-    def after_fit_notes(self, values) -> list:
-        """#90, bluerov2_gz: the fit found roll and pitch damping so stiff for a light vehicle that Gazebo's 0.01 s
-        step blew up in 35 of 712 unseen windows (0 at 0.005 s). Gazebo applies the Hydrodynamics forces step by
-        step, so a step longer than about half an axis's damping time constant (inertia / damping at a typical speed)
-        is a warning."""
+    def world_step(self) -> float:
         try:
-            step = float(XmlFile(self.world_text).get("//physics/max_step_size"))
+            return float(XmlFile(self.world_text).get("//physics/max_step_size"))
         except Exception:
-            return []
+            return 0.001   # SDF's default
+
+    def stiff_axes(self, values, step: float) -> tuple:
+        """([axis names], shortest time constant s) for the axes whose damping is too stiff for `step`.
+
+        #90, bluerov2_gz: the fit found roll and pitch damping so stiff for a light vehicle that Gazebo's 0.01 s step
+        blew up in 35 of 712 unseen windows (0 at 0.005 s). Gazebo applies the Hydrodynamics forces step by step, so a
+        step longer than about half an axis's damping time constant (inertia / damping at a typical speed) is unsafe."""
         ed = XmlFile(self._edit(values))
 
         def get(path, default=0.0):
@@ -336,17 +340,62 @@ class GazeboAdapter:
             if k <= 0:
                 continue
             m = get(f"{self.link_path}/inertial/inertia/{inertia[a]}", 0.1) if a in inertia else mass + added[a]
-            tau = m / k
-            if step > 0.5 * tau:
-                stiff.append((tau, AXIS_NAMES.get(a, a)))
+            if step > 0.5 * (m / k):
+                stiff.append((m / k, AXIS_NAMES.get(a, a)))
         if not stiff:
+            return [], None
+        return [n for _, n in sorted(stiff)], min(t for t, _ in stiff)
+
+    def safe_step(self, values, step=None):
+        """The physics step to run these values at, or None when `step` (default: the one in use) is safe. It divides
+        the logs' sample time."""
+        axes, tau = self.stiff_axes(values, step or self.step_override or self.world_step())
+        if not axes:
+            return None
+        ok = [st for st in (0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001)
+              if st <= 0.5 * tau and abs(self.dt / st - round(self.dt / st)) < 1e-9]
+        return ok[0] if ok else 0.0001
+
+    def after_fit_notes(self, values) -> list:
+        step = self.world_step()
+        axes, tau = self.stiff_axes(values, step)
+        if not axes:
             return []
-        tau = min(t for t, _ in stiff)
-        ok = [s for s in (0.01, 0.005, 0.002, 0.001, 0.0005) if s <= 0.5 * tau and abs(self.dt / s - round(self.dt / s)) < 1e-9]
-        return [f"Your world's physics step ({step:g} s) is long for the {', '.join(n for _, n in sorted(stiff))} "
-                f"damping now in the model (time constant {tau * 1000:.0f} ms): Gazebo applies it step by step, and "
-                f"it can blow up. Use `<max_step_size>{ok[0] if ok else 0.001:g}</max_step_size>` in your world, or "
-                f"`--hold` those damping values."]
+        safe = self.safe_step(values, step)
+        return [f"Your world's physics step ({step:g} s) is too long for the {', '.join(axes)} damping now in the "
+                f"model (time constant {tau * 1000:.0f} ms): Gazebo applies it step by step, and it can blow up. Strathe "
+                f"scored the models at {safe:g} s, and `calibrated_world/` runs at it "
+                f"(`<max_step_size>{safe:g}</max_step_size>`). To keep your own step, `--hold` those damping values."]
+
+    def write_deliverable(self, values, out_dir: str) -> str:
+        """`calibrated_world/` in out_dir: a copy of the lab's world with the calibrated model in it (copied, not
+        linked), at the safe physics step when the world's is too long. `gz sim calibrated_world/<world>.sdf` runs it."""
+        import shutil
+        dest = os.path.join(out_dir, "calibrated_world")
+        if os.path.isdir(dest):
+            shutil.rmtree(dest)
+        os.makedirs(dest)
+        model_text = self._edit(values)
+        if self.separate:
+            src = os.path.dirname(self.model_path)
+            dst = os.path.join(dest, os.path.basename(src))
+            shutil.copytree(src, dst, symlinks=False)
+            open(os.path.join(dst, os.path.basename(self.model_path)), "w", encoding="utf-8").write(model_text)
+            world = self._include(self.world_text, src, dst)
+        else:
+            world = model_text
+        p = os.path.join(dest, os.path.basename(self.world_path))
+        open(p, "w", encoding="utf-8").write(self._with_step(world))
+        return p
+
+    def _with_step(self, world: str) -> str:
+        if not self.step_override:
+            return world
+        w = XmlFile(world)
+        if w.exists("//physics/max_step_size"):
+            w.set("//physics/max_step_size", self.step_override)
+            return w.text
+        return world
 
     def write_calibrated(self, values, out_dir: str, suffix: str) -> str:
         stem, ext = os.path.splitext(os.path.basename(self.model_path))

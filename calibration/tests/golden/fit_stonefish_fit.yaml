@@ -80,6 +80,7 @@ after:
   buoyancy_scale: 1.2344904169290052
 stonefish_patched: true
 calibrated_vehicle_file: <tmp>/out/vehicle_calibrated.scn
+cg_rerun: null
 heldout:
   Stonefish, original:
     windows: 4

@@ -148,7 +148,13 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 **From the optional steps:**
 - **`free-decay`:** `free_decay.yaml` and a short report: the roll/pitch swing period, damping and righting.
 - **`fit-link`:** `link_calibration.yaml`, a report and plots: delivery against range and latency for each link.
-- **`fit-stonefish`:** your Stonefish vehicle file with the tuned part changed, and a report comparing it with the original on unseen recordings.
+- **`fit-stonefish` / `fit-sim`:** your simulator model with the tuned values changed, and a report comparing it with the original on unseen recordings.
+  - **Read the bottom line first.** It says when the calibrated model turns or tilts worse, blows up somewhere, or
+    loses to standing still.
+  - **When the fit made the attitude worse** by moving the centre of gravity, Strathe fitted again with it held and
+    kept the better model. The other is next to it (`..._cg_tuned` or `..._cg_held`), and the report says why.
+  - **Gazebo:** `calibrated_world/` runs the result as it is: `gz sim calibrated_world/<your world>.sdf`. It uses a
+    shorter physics step when the fitted damping needs one.
 - **`export-stonefish`:** your Stonefish vehicle file with your calibration's values in it, the same comparison, and what Stonefish can't carry.
 - **`arena` / `fleet`:** a report each, with confidence intervals, comparing your calibrated model against generic physics.
 

@@ -63,6 +63,9 @@ def add_fit_arguments(ap) -> None:
     ap.add_argument("--from-strathe", metavar="CALIBRATION",
                     help="start from your Strathe calibration's values put into the model (as export-sim), then fit")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
+    ap.add_argument("--no-cg-rerun", action="store_true",
+                    help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
+                         "(by default it does, and keeps the better of the two)")
 
 
 def _densities(a) -> dict:
@@ -113,34 +116,7 @@ def _bottom_line(results, original: str, new: str, held_groups, what: str) -> li
     return L + _warnings(results, original, new, what)
 
 
-def _warnings(results, original: str, new: str, what: str) -> list:
-    """What the drift alone hides (#90, bluerov2_gz): attitude that got worse, and standing still doing better."""
-    o, x, L = results[original], results[new], []
-    ao, ax = o.get("10s", {}).get("attitude_error_median_deg"), x.get("10s", {}).get("attitude_error_median_deg")
-    if ao and ax:
-        worse = [f"{n} {a:.1f}° -> {b:.1f}°" for n, a, b in zip(("roll", "pitch", "yaw"), ao, ax)
-                 if b > 1.25 * a and b - a > 2.0]
-        if worse:
-            L.append(f"**Be careful:** {what} turns or tilts worse than your original after 10 s ({', '.join(worse)}). "
-                     f"The fit traded attitude for position: check the centre of gravity and buoyancy it changed, or "
-                     f"keep them (`--fit` without `cg`, or `--hold` your measured values) and compare.\n")
-    if x.get("diverged") and x.get("windows"):
-        n, m = x["diverged"], x["windows"]
-        before = o.get("diverged") or 0
-        L.append(f"**Don't simulate with it as is: it blew up in {n} of {m} unseen windows** (your original: {before}). "
-                 f"The medians above leave those windows out. Some values it found make the simulation unstable in "
-                 f"places: check the report's changes for very large damping on a light axis, and try a smaller "
-                 f"physics step or `--hold` on those values.\n")
-    still = results.get("no motion")
-    if still:
-        beaten = [h for h in HORIZONS_S if f"{h}s" in still and f"{h}s" in x
-                  and still[f"{h}s"]["drift_median_m"] < x[f"{h}s"]["drift_median_m"]]
-        if beaten:
-            L.append(f"**Standing still beats {what} after {beaten[0]} s** ({still[f'{beaten[0]}s']['drift_median_m']:.2f} "
-                     f"m against {x[f'{beaten[0]}s']['drift_median_m']:.2f} m). Usual for logs from a tank or a "
-                     f"station-keeping mission, where the vehicle stays within a few metres; trust the shorter "
-                     f"horizons and the velocity errors there.\n")
-    return L
+_warnings = core.report_warnings  # moved to simfit.core (#90): fit-stonefish uses it too
 
 
 def _compare_section(results) -> list:
@@ -205,60 +181,137 @@ def run_fit(adapter, a) -> int:
         for n in notes:
             print("  note: " + n, flush=True)
 
-        def simulate(x, i, run, rows, d):
-            model = adapter.write_runnable(knobs.values(x), os.path.join(d, f"m{i}"), densities.get(run.date))
-            return adapter.replay(model, rows, os.path.join(d, f"r{i}"))
-        f = core.fit(simulate, train, knobs, work, a.workers, a.max_iterations, log=lambda s: print(s, flush=True),
-                     weighting=a.weighting)
+        def fit_with(kn):
+            def simulate(x, i, run, rows, d):
+                model = adapter.write_runnable(kn.values(x), os.path.join(d, f"m{i}"), densities.get(run.date))
+                return adapter.replay(model, rows, os.path.join(d, f"r{i}"))
+            return core.fit(simulate, train, kn, work, a.workers, a.max_iterations, log=lambda s: print(s, flush=True),
+                            weighting=a.weighting)
+
+        def check_step(values):
+            """Gazebo (#90): if the fitted damping is too stiff for the world's step, score at a safe one."""
+            if not hasattr(adapter, "safe_step"):
+                return False
+            step = adapter.safe_step(values)
+            if step is None or (adapter.step_override and step >= adapter.step_override):
+                return False
+            for n in adapter.after_fit_notes(values):
+                if n not in notes:
+                    notes.append(n)
+                    print("  note: " + n, flush=True)
+            adapter.step_override = step
+            return True
+
+        f = fit_with(knobs)
         values = f["values"]
-        model_out = adapter.write_calibrated(values, out, "calibrated")
-        for n in (adapter.after_fit_notes(values) if hasattr(adapter, "after_fit_notes") else []):
-            notes.append(n)
-            print("  note: " + n, flush=True)
+        check_step(values)
+
+        def score(models):
+            base = adapter.base
+            out_ = {}
+            for label, vals in models:
+                adapter.set_base(None if vals == "original" else base)  # "original" is the lab's own model
+                out_.update(_score_models(adapter, held, [(label, None if vals in ("original", "base") else vals)],
+                                          work, densities)[0])
+            adapter.set_base(base)
+            return out_
 
         print("Scoring the original and calibrated models on the held-out recordings...", flush=True)
         orig, cal = f"{adapter.label}, original", f"{adapter.label}, calibrated by Strathe"
-        base = adapter.base
-        adapter.set_base(None)  # "original" is the lab's own model, not the --from-strathe start
-        results, runs_wins = _score_models(adapter, held, [(orig, None)], work, densities)
-        adapter.set_base(base)
-        later = ([(f"{adapter.label} with Strathe's values", None)] if exported else []) + [(cal, values)]
-        results.update(_score_models(adapter, held, later, work, densities)[0])
+        models = [(orig, "original")] + ([(f"{adapter.label} with Strathe's values", "base")] if exported else []) + \
+            [(cal, values)]
+        results = score(models)
+        runs_wins = [(run, core.windows(run, EVAL_WINDOW_S, EVAL_STRIDE_S)) for run in held]
+
+        # #90: the first fit traded attitude for position (it moved the centre of gravity): fit again with it held,
+        # starting from the first fit's other values, and keep the better of the two
+        rerun = None
+        cg_tuned = [sp.name for sp in specs if sp.group == "cg" and sp.name not in knobs.held]
+        worse = core.attitude_worse(results[orig], results[cal])
+        if worse and cg_tuned and not a.no_cg_rerun:
+            print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
+                  f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
+                  f"this)...", flush=True)
+            from dataclasses import replace
+            specs_b = [replace(sp, start=float(values[sp.name])) if sp.transform != "linear" and sp.name in values
+                       and float(values[sp.name]) > 0 else sp for sp in specs if sp.group != "cg"]
+            knobs_b = Knobs(specs_b, {k: v for k, v in knobs.held.items() if k in {sp.name for sp in specs_b}})
+            fb = fit_with(knobs_b)
+            values_b = fb["values"]
+            tuned_label, held_label = cal + " (centre of gravity tuned)", cal + " (centre of gravity held)"
+            if check_step(values_b):   # a shorter step: score everything again at it, so the rows compare
+                results = score(models)
+            results[tuned_label] = results.pop(cal)
+            results.update(score([(held_label, values_b)]))
+            use_held, why = core.prefer_cg_held(results[orig], results[tuned_label], results[held_label])
+            rerun = {"held_values": values_b, "fit": {k: fb[k] for k in ("start_cost", "cost", "evaluations", "status")},
+                     "chosen": "held" if use_held else "tuned", "why": why, "attitude_worse": worse}
+            cal = held_label if use_held else tuned_label
+            other_values, values = (values, values_b) if use_held else (values_b, values)
+            if use_held:
+                f = fb
+        model_out = adapter.write_calibrated(values, out, "calibrated")
+        other_out = None
+        if rerun:
+            other_out = adapter.write_calibrated(other_values, out, "calibrated_cg_tuned" if rerun["chosen"] == "held"
+                                                 else "calibrated_cg_held")
+        world_out = adapter.write_deliverable(values, out) if hasattr(adapter, "write_deliverable") else None
         if a.compare_params:
             _strathe_own(results, runs_wins, a.compare_params, a.compare_mass)
         results.update(core.baselines(runs_wins))
 
-        start = {s.name: s.start for s in specs}
+        start = {sp.name: sp.start for sp in specs}
         summary = {"simulator": adapter.sim, "model": adapter.model_path, "reference_point_m": list(a.reference_point),
-                   "fitted": sorted({s.group for s in specs}, key=groups.index), "axisymmetric": bool(a.axisymmetric),
+                   "fitted": sorted({sp.group for sp in specs}, key=groups.index), "axisymmetric": bool(a.axisymmetric),
                    "held": knobs.held, "weighting": a.weighting, "notes": notes,
                    "from_strathe": exported, "axis_scales": f["axis_scales"],
                    "before": start, "after": values, "train_dates": split.train_groups,
                    "heldout_dates": split.heldout_groups,
                    "fit": {k: f[k] for k in ("start_cost", "cost", "evaluations", "status")},
+                   "cg_rerun": None if not rerun else {**rerun, "other_model_file": other_out},
+                   "physics_step_s": getattr(adapter, "step_override", None),
+                   "calibrated_world": world_out,
                    "info": info, "calibrated_model_file": model_out, "heldout": results}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, f"{adapter.sim}_fit.yaml"), "w"),
                        sort_keys=False)
         core.plot(results, os.path.join(out, "drift.png"), f"Unseen recordings: original vs calibrated {adapter.label} model")
         L = [f"# {adapter.label} model calibrated from your logs: {os.path.basename(adapter.model_path)}\n",
-             "## Bottom line\n", *_bottom_line(results, orig, cal, split.heldout_groups, "the calibrated model"),
-             *_compare_section(results), "## What changed in your model\n",
-             f"`{os.path.basename(model_out)}` is `{os.path.basename(adapter.model_path)}` with only these values "
-             f"changed:\n", *adapter.changes(values)]
+             "## Bottom line\n", *_bottom_line(results, orig, cal, split.heldout_groups, "the calibrated model")]
+        if rerun:
+            L.append(f"**Two fits were run.** The first moved the centre of gravity and made the attitude worse "
+                     f"({', '.join(rerun['attitude_worse'])}), so Strathe fitted again with the centre of gravity held. "
+                     + (f"`{os.path.basename(model_out)}` is the one with it held: {rerun['why']}. The first is "
+                        f"`{os.path.basename(other_out)}`." if rerun["chosen"] == "held" else
+                        f"`{os.path.basename(model_out)}` is still the first fit: {rerun['why']}. The one with it held is "
+                        f"`{os.path.basename(other_out)}`.") + " Both are in the table below.\n")
+        if world_out:
+            step = getattr(adapter, "step_override", None)
+            L.append(f"**To run it:** `gz sim {os.path.relpath(world_out, out)}` from this folder (`-s` without the "
+                     f"window). `calibrated_world/` is a copy of your world with the calibrated model in it"
+                     + (f", at a {step:g} s physics step (your world's is too long for the fitted damping; see the notes)"
+                        if step else "") + ". Your own files are unchanged.\n")
+        L += [*_compare_section(results), "## What changed in your model\n",
+              f"`{os.path.basename(model_out)}` is `{os.path.basename(adapter.model_path)}` with only these values "
+              f"changed:\n", *adapter.changes(values)]
         if knobs.held:
             L.append("- held at your values: " + ", ".join(f"{n} = {v:g}" for n, v in knobs.held.items()))
         if exported:
             L.append(f"- started from your Strathe calibration (`{exported['calibration']}`), put into the model as "
                      f"export-sim does; the fit tuned the rest from there")
         L += ["", "## How the fit went\n",
-              f"Fitted {len(knobs.names())} values on {', '.join(split.train_groups)}. Cost {f['start_cost']:.3f} -> "
-              f"{f['cost']:.3f} after {f['evaluations']} evaluations ({f['status']})."]
+              f"Fitted {len(knobs.names())} values on {', '.join(split.train_groups)}. Cost {summary['fit']['start_cost']:.3f} -> "
+              f"{summary['fit']['cost']:.3f} after {summary['fit']['evaluations']} evaluations ({summary['fit']['status']})."]
+        if rerun:
+            rf = rerun["fit"]
+            L.append(f"The refit with the centre of gravity held: cost {rf['start_cost']:.3f} -> {rf['cost']:.3f} after "
+                     f"{rf['evaluations']} evaluations ({rf['status']}).")
         L += [f"- {n}" for n in notes]
         L += ["", "Fitting can trade one axis for another, or tailor values to the training sessions: odd values (a "
               "drag far from the shape's, a value at its limit) mean the logs don't pin them down. More varied "
               "manoeuvres at several speeds help."]
         open(os.path.join(out, f"{adapter.sim}_fit_report.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
-        print(f"Wrote {model_out}, {adapter.sim}_fit.yaml and {adapter.sim}_fit_report.md in {out}")
+        print(f"Wrote {model_out}, {adapter.sim}_fit.yaml and {adapter.sim}_fit_report.md in {out}"
+              + (f"; {os.path.relpath(world_out, out)} runs it" if world_out else ""))
         _print_results(results)
         return 0
     finally:

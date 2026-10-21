@@ -161,6 +161,12 @@ def test_fit_sim_gazebo_recovers_the_drag_from_logs(tmp_path):
     assert held["Gazebo, calibrated by Strathe"]["30s"]["drift_median_m"] < 0.5 * held["Gazebo, original"]["30s"]["drift_median_m"]
     assert abs(np.log(s["after"]["xUabsU"] / 30)) < abs(np.log(10 / 30))
     assert "<xUabsU>-" in (out / "world_calibrated.sdf").read_text()
+    # #90: the run-ready copy of the world, which Gazebo loads as it is
+    world = out / "calibrated_world" / "world.sdf"
+    assert world.exists() and s["calibrated_world"] == str(world)
+    info = GazeboAdapter(str(world), tool=[TOOL]).tool.info(str(world))
+    assert info["mass"] == pytest.approx(10.0)
+    assert "To run it:** `gz sim calibrated_world/world.sdf`" in (out / "gazebo_fit_report.md").read_text()
 
 
 def test_the_rigid_inertia_is_always_a_rigid_bodys():
@@ -208,3 +214,35 @@ def test_a_physics_step_too_long_for_the_fitted_damping_is_flagged(tmp_path):
     assert ad.after_fit_notes({}) == []                       # the example's own damping is fine at its step
     note = ad.after_fit_notes({"kP": 400.0, "mQ": 400.0})[0]   # stiff roll and pitch on a 10 kg vehicle
     assert "roll" in note and "pitch" in note and "max_step_size>" in note
+
+
+def test_the_safe_step_and_the_run_ready_world(tmp_path):
+    """#90: a step too long for the fitted damping is replaced in the scored worlds and in calibrated_world/."""
+    ad = GazeboAdapter(WORLD, tool=["unused"])
+    assert ad.safe_step({}) is None and ad.world_step() == 0.01
+    step = ad.safe_step({"kP": 400.0})                 # roll time constant 0.2 / 400 = 0.5 ms
+    assert step <= 0.00025 and abs(0.1 / step - round(0.1 / step)) < 1e-9
+    ad.step_override = step
+    assert f"<max_step_size>{step:g}</max_step_size>" in open(ad.write_runnable({"kP": 400.0}, str(tmp_path / "r"))).read()
+    p = ad.write_deliverable({"kP": 400.0}, str(tmp_path / "out"))
+    text = open(p).read()
+    assert f"<max_step_size>{step:g}</max_step_size>" in text and "<kP>-400</kP>" in text
+    assert "scored the models at" in ad.after_fit_notes({"kP": 400.0})[0]
+
+
+def test_the_run_ready_world_copies_an_included_model_folder(tmp_path):
+    models = tmp_path / "models" / "auv"
+    (models / "meshes").mkdir(parents=True)
+    (models / "meshes" / "hull.dae").write_text("<mesh/>")
+    src = open(WORLD).read()
+    start, end = src.index("<model name="), src.index("</model>") + len("</model>")
+    (models / "model.sdf").write_text('<?xml version="1.0"?>\n<sdf version="1.9">' + src[start:end] + "</sdf>\n")
+    (models / "model.config").write_text("<model><name>auv</name><sdf>model.sdf</sdf></model>")
+    (tmp_path / "world.sdf").write_text(src[:start] + "<include><uri>model://auv</uri></include>" + src[end:])
+    ad = GazeboAdapter(str(tmp_path / "world.sdf"), model_file=str(models / "model.sdf"), tool=["unused"])
+    p = ad.write_deliverable({"xUabsU": 45.0}, str(tmp_path / "out"))
+    copy = tmp_path / "out" / "calibrated_world" / "auv"
+    assert not os.path.islink(copy / "meshes") and (copy / "meshes" / "hull.dae").read_text() == "<mesh/>"
+    assert "<xUabsU>-45</xUabsU>" in (copy / "model.sdf").read_text()
+    assert str(copy) in open(p).read() and "model://auv" not in open(p).read()
+    assert "<xUabsU>-30</xUabsU>" in (models / "model.sdf").read_text()   # the lab's own files are unchanged

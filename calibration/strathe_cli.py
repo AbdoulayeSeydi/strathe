@@ -1092,6 +1092,8 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
         argv += ["--axisymmetric"]
     if args.weighting != "variation":
         argv += ["--weighting", args.weighting]
+    if getattr(args, "no_cg_rerun", False):
+        argv += ["--no-cg-rerun"]
     return argv
 
 
@@ -1408,6 +1410,9 @@ def build_parser() -> argparse.ArgumentParser:
                                                        "else Stonefish's)")
     sf.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
     sf.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (default 15)")
+    sf.add_argument("--no-cg-rerun", action="store_true",
+                    help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
+                         "(by default it does, and keeps the better of the two)")
     sf.add_argument("--workers", type=int, default=default_workers(), help="Stonefish runs at once")
     sf.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")

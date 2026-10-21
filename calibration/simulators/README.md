@@ -81,7 +81,36 @@ You choose; each guide shows both.
 - **Holding values you measured:** `--hold NAME=VALUE` keeps a value fixed (from a tank test or CAD). Surge added mass
   is the usual one: ordinary missions can't pin it down (#73).
 - **Outputs:** `<model>_calibrated.<ext>` (or `_strathe` from export), `<sim>_fit_report.md`, `<sim>_fit.yaml`,
-  `drift.png`.
+  `drift.png`. Gazebo also writes `calibrated_world/`.
+
+## What the fit does for you (#90)
+
+**Reading the report: the bottom line says up front what drift alone would hide:**
+- **Worse attitude:** the calibrated model turns or tilts worse than your original. It names the axes, e.g. "pitch
+  7.8° -> 17.3°".
+- **Blow-ups:** it blew up in some unseen windows. The medians leave those out, so don't simulate with it as it is.
+- **Standing still:** "no motion" beats it at some horizon. That's usual in a tank or on station-keeping, where the
+  vehicle stays within a few metres; trust the shorter horizons there.
+
+**A second fit when attitude gets worse.** A fit can trade attitude for position by moving the centre of gravity: on
+the public bluerov2_gz, pitch error went from 7.8° to 17.3°. When that happens and the centre of gravity was tuned, not
+held, `fit-sim` and `fit-stonefish` fit again with it held. Both are scored, and the better one is kept:
+- **The one kept:** the refit, if its attitude is no worse than your original's (or fewer axes are worse), its drift is
+  within 10% of the first fit's, and it doesn't blow up more often. Otherwise the first fit is kept.
+- **The files:** the kept one is `<model>_calibrated.<ext>`. The other is next to it as `<model>_calibrated_cg_tuned`
+  or `_cg_held`. Both are rows in the report's table, and the report says which was kept and why.
+- **The time:** about as long again. The refit starts from the first fit's other values (Stonefish: from your model as
+  it is).
+- **To skip it:** `--no-cg-rerun`, or the checkbox on the web cards. Holding the centre of gravity yourself (`--fit`
+  without `cg`, or `--hold`) also skips it.
+
+**Gazebo: a world that runs the result.**
+- **What it is:** `calibrated_world/` is a copy of your world with the calibrated model in it. An included model folder
+  is copied, not linked. Run it from the output folder with `gz sim calibrated_world/<your world>.sdf`. Your own files
+  aren't changed.
+- **The physics step:** a fit can find damping too stiff for your world's step. Gazebo applies it step by step, so it
+  blows up. Strathe checks each axis's damping time constant against the step. When the step is too long, it scores
+  the models at a safe step, writes `calibrated_world/` with it, and says which axes and which step in the report.
 
 These are open-loop replays: your controller's commands react to the real vehicle, so any model's error grows over a
 minute. The scores rank models against each other on the same windows. They aren't minute-ahead forecasts

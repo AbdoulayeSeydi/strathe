@@ -565,25 +565,59 @@ def run_fit_stonefish(a) -> int:
         f = fit(scenario, replay, train, knobs, work, densities, a.workers, a.max_iterations,
                 log=lambda s: print(s, flush=True), weighting=a.weighting)
         s = f["settings"]
-        vehicle_out = os.path.join(out, os.path.splitext(os.path.basename(scenario.vehicle_file))[0] + "_calibrated.scn")
-        scenario.write_calibrated_vehicle(vehicle_out, s)
+        stem = os.path.splitext(os.path.basename(scenario.vehicle_file))[0]
 
         print("Scoring the original and calibrated models on the held-out recordings...", flush=True)
         runs_wins = [(run, windows(run, EVAL_WINDOW_S, EVAL_STRIDE_S)) for run in held]
         results = {}
         base = scenario.base
-        models = [("Stonefish, original", None, None)]
+        counter = {"m": 0}
+
+        def score_models(models):
+            for label, under, settings in models:
+                counter["m"] += 1
+                m = counter["m"]
+                scenario.base = under
+                preds = []
+                for i, (run, wins) in enumerate(runs_wins):
+                    scn = scenario.write_runnable(os.path.join(work, f"eval{m}_scn{i}"), settings, densities.get(run.date))
+                    preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
+                results[label] = score(runs_wins, preds)
+            scenario.base = base
+        orig_label, cal_label = "Stonefish, original", "Stonefish, calibrated by Strathe"
+        models = [(orig_label, None, None)]
         if base is not None:
             models.append(("Stonefish with Strathe's values", base, None))
-        models.append(("Stonefish, calibrated by Strathe", base, s))
-        for m, (label, under, settings) in enumerate(models):
-            scenario.base = under
-            preds = []
-            for i, (run, wins) in enumerate(runs_wins):
-                scn = scenario.write_runnable(os.path.join(work, f"eval{m}_scn{i}"), settings, densities.get(run.date))
-                preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
-            results[label] = score(runs_wins, preds)
-        scenario.base = base
+        models.append((cal_label, base, s))
+        score_models(models)
+
+        # #90: the fit made the attitude worse by moving the centre of gravity: fit again with it held (from the
+        # model as it is), and keep the better of the two
+        rerun = None
+        worse = core.attitude_worse(results[orig_label], results[cal_label])
+        cg_holds = [n for n in holds if n.startswith("cg_shift")]
+        if worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun:
+            print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
+                  f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
+                  f"this)...", flush=True)
+            knobs_b = Knobs(tuple(k for k in fit_knobs if k != "cg"), parts[a.part], a.axisymmetric, holds)
+            fb = fit(scenario, replay, train, knobs_b, work, densities, a.workers, a.max_iterations,
+                     log=lambda s_: print(s_, flush=True), weighting=a.weighting)
+            tuned_label, held_label = cal_label + " (centre of gravity tuned)", cal_label + " (centre of gravity held)"
+            results[tuned_label] = results.pop(cal_label)
+            score_models([(held_label, base, fb["settings"])])
+            use_held, why = core.prefer_cg_held(results[orig_label], results[tuned_label], results[held_label])
+            rerun = {"chosen": "held" if use_held else "tuned", "why": why, "attitude_worse": worse,
+                     "fit": {k: fb[k] for k in ("start_cost", "cost", "evaluations", "status")}}
+            other = s if use_held else fb["settings"]
+            if use_held:
+                f, s, knobs = fb, fb["settings"], knobs_b
+                fit_knobs = tuple(k for k in fit_knobs if k != "cg")
+            cal_label = held_label if use_held else tuned_label
+            rerun["other_vehicle_file"] = os.path.join(out, f"{stem}_calibrated_cg_{'tuned' if use_held else 'held'}.scn")
+            scenario.write_calibrated_vehicle(rerun["other_vehicle_file"], other)
+        vehicle_out = os.path.join(out, f"{stem}_calibrated.scn")
+        scenario.write_calibrated_vehicle(vehicle_out, s)
         if a.compare_params:
             from dynamics_model import CalibrationParameters, VehicleConstants
             doc = yaml.safe_load(open(a.compare_params, encoding="utf-8"))
@@ -605,11 +639,11 @@ def run_fit_stonefish(a) -> int:
                    "before": {k: parts[a.part][k] for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia")},
                    "after": {k: v for k, v in s.__dict__.items() if v is not None},
                    "stonefish_patched": bool(info.get("patched")),
-                   "calibrated_vehicle_file": vehicle_out, "heldout": results}
+                   "calibrated_vehicle_file": vehicle_out, "cg_rerun": rerun, "heldout": results}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, "stonefish_fit.yaml"), "w"), sort_keys=False)
         _plot(results, os.path.join(out, "drift.png"))
-        orig = results["Stonefish, original"].get("60s", results["Stonefish, original"].get("30s", {}))
-        cal = results["Stonefish, calibrated by Strathe"].get("60s", results["Stonefish, calibrated by Strathe"].get("30s", {}))
+        orig = results[orig_label].get("60s", results[orig_label].get("30s", {}))
+        cal = results[cal_label].get("60s", results[cal_label].get("30s", {}))
         L = [f"# Stonefish model calibrated from your logs: {os.path.basename(scenario.vehicle_file)}\n",
              "## Bottom line\n"]
         if orig and cal:
@@ -618,6 +652,14 @@ def run_fit_stonefish(a) -> int:
                      f"error after the longest horizon is **{cal['drift_median_m']:.2f} m against "
                      f"{orig['drift_median_m']:.2f} m** for the original ({change:+.0f}%). Check every horizon below: "
                      f"a calibration can help over a minute and cost over seconds.\n")
+            L += core.report_warnings(results, orig_label, cal_label, "the calibrated model")
+        if rerun:
+            L.append(f"**Two fits were run.** The first moved the centre of gravity and made the attitude worse "
+                     f"({', '.join(rerun['attitude_worse'])}), so Strathe fitted again with the centre of gravity held. "
+                     + (f"`{os.path.basename(vehicle_out)}` is the one with it held: {rerun['why']}. The first is "
+                        if rerun["chosen"] == "held" else
+                        f"`{os.path.basename(vehicle_out)}` is still the first fit: {rerun['why']}. The one with it held "
+                        f"is ") + f"`{os.path.basename(rerun['other_vehicle_file'])}`. Both are in the table below.\n")
         L += ["## How the models compare on unseen recordings\n",
               f"Windows of {EVAL_WINDOW_S:g} s every {EVAL_STRIDE_S:g} s; each starts from the logged state and is "
               f"driven by the logged forces, the model turning and tilting on its own, in still water. Medians.\n"]
@@ -651,6 +693,10 @@ def run_fit_stonefish(a) -> int:
         L += ["", "## How the fit went\n",
               f"Fitted: {', '.join(fit_knobs)} ({len(knobs.names())} values) on {', '.join(split.train_groups)}. Cost "
               f"{f['start_cost']:.3f} -> {f['cost']:.3f} after {f['evaluations']} evaluations ({f['status']})."]
+        if rerun:
+            rf = rerun["fit"]
+            L.append(f"The refit with the centre of gravity held: cost {rf['start_cost']:.3f} -> {rf['cost']:.3f} after "
+                     f"{rf['evaluations']} evaluations ({rf['status']}).")
         L += [f"- {n}" for n in notes]
         L += ["", "Fitting can trade one axis for another, or tailor values to the training sessions: odd values "
               "(drag far from the shape's, added mass at a limit) mean the logs don't pin them down. More varied "
@@ -705,6 +751,9 @@ def add_arguments(ap) -> None:
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
     ap.add_argument("--physics-hz", type=float, default=200.0, help="Stonefish's physics rate (default 200 Hz)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
+    ap.add_argument("--no-cg-rerun", action="store_true",
+                    help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
+                         "(by default it does, and keeps the better of the two)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="Stonefish runs at once")
     ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
     ap.add_argument("--out", default="stonefish_fit", help="output folder")

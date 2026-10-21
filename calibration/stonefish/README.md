@@ -113,6 +113,12 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `stonefish_fit_report.md`: the held-out comparison (drift after 10, 30 and 60 s, velocity and attitude error), with
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
+- **Read the report's bottom line first.** It says when the calibrated model turns or tilts worse than your original,
+  blows up in some unseen windows, or loses to standing still.
+- **When the fit made the attitude worse by moving the centre of gravity,** Strathe fits again with it held, scores
+  both and keeps the better (`calibration/simulators/README.md`, "What the fit does for you"). The other is next to it
+  as `<your vehicle file>_calibrated_cg_tuned.scn` or `_cg_held.scn`. The second fit starts from your model as it is
+  and takes about as long as the first. `--no-cg-rerun` (or the web card's checkbox) skips it.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash

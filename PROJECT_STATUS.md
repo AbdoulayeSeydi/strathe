@@ -2502,6 +2502,31 @@ cost of 874):
     the axes and the step to use: here roll and pitch, 0.005 s. It is silent for the first run and for the published
     model, which never blew up.
 - **The guide** says the step must be short enough for the damping.
+
+**From warnings to fixes (2026-10-21).** The lab no longer has to act on the two warnings by hand:
+- **A second fit when the attitude gets worse.** When the first fit makes the vehicle turn or tilt worse (an axis 25%
+  and 2° worse after 10 s) and the centre of gravity was tuned, `fit-sim` and `fit-stonefish` fit again with it held.
+  - **Warm start:** `fit-sim` starts the refit from the first fit's other values; Stonefish starts from the model.
+  - **The choice:** the refit is kept if its attitude is no worse than the original's (or fewer axes are), its drift
+    is within 10% and it doesn't blow up more often (`simfit.core.prefer_cg_held`).
+  - **The files:** the kept model is `<model>_calibrated`; the other is `_cg_tuned` or `_cg_held`. Both are rows in
+    the report, which says which was kept and why.
+  - **Skipping it:** `--no-cg-rerun`, or a checkbox on both web cards.
+  - **On bluerov2_gz** this is exactly the two runs above, as one command.
+- **Gazebo: a safe step, used.** When the fitted damping is too stiff for the world's step, the models are scored at a
+  safe step (the longest dividing the logs' sample time, under half the shortest damping time constant).
+  `calibrated_world/` is written with it: a copy of the lab's world with the calibrated model in it, the model folder
+  copied rather than linked, ready for `gz sim`. The report says how to run it.
+- **The warnings moved to `simfit.core`** (`attitude_worse`, `report_warnings`), so `fit-stonefish`'s report has them
+  too.
+- **Tests:**
+  - `tests/test_simfit_cg_rerun.py`: the choice rule, and the rerun's files, report and skips through `run_fit`;
+  - `test_attitude_worse_with_the_cg_tuned_refits_with_it_held` (Stonefish);
+  - the safe step and both kinds of world copy, one of them loaded by the real Gazebo tool;
+  - the web checkboxes and the CLI pass-through.
+  - The Stonefish golden file gains one line, `cg_rerun: null`.
+- **Docs:** `calibration/simulators/README.md` ("What the fit does for you"), the Gazebo and Stonefish guides,
+  LAB_GUIDE section 6, the README command table and the example's guide.
 - **Still to do:** a long simulator fit can't be finished from its best point the way `strathe calibrate --finish`
   can.
 

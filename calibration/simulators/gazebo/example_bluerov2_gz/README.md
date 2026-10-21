@@ -64,6 +64,9 @@ Drift on the two held-out days (16 and 19 February, 712 windows of 60 s), median
   turns or tilts worse").
 - **In a tank, standing still beats both models after 30 s,** because the vehicle stays within a few metres. The report
   says this too. Trust the 10 s horizon and the velocity errors.
+- **One command now does both runs.** `fit-sim` sees the attitude get worse after the first fit and fits again with the
+  centre of gravity held. It keeps that one, since its attitude is no worse and its drift is lower, and writes
+  `calibrated_world/` at the 0.005 s step. The table's two calibrated rows are what it compares.
 - **Holding the centre of gravity** keeps the gains and fixes the attitude: drift falls 55% at 60 s, and roll and pitch
   are slightly better than the published model's. Its training cost is also lower (874 against 996), because the first
   run hadn't finished at the 15-evaluation default. Run it so:
