@@ -120,22 +120,44 @@ def test_when_no_start_converges_the_finished_result_still_lists_each_starts_cos
     assert calibration_report.restart_costs(str(tmp_path), m) == [2.3, 2.6]
 
 
-def test_restarts_every_round_reach_every_fit(tmp_path, capsys):
-    """B8 on URI's data: the good/bad split happens in a later current round, which one start can't fix."""
+def test_restart_whole_fit_runs_every_round_from_each_start_and_keeps_the_lowest_final_cost(tmp_path, capsys):
+    """URI's B8: the start with the LOWER round-1 cost ended worse (final 4.17 against 3.86), so the choice has to wait
+    for the final fit."""
     calls = []
-    assert cli.main(["calibrate", "--data", str(tmp_path), "--out", str(tmp_path / "o"), "--estimate-current",
-                     "--current-rounds", "2", "--restarts", "4", "--restarts-every-round", "--seed", "7"],
-                    runner=lambda c: calls.append(c) or 0) == 0
+    final = {7: 4.17, 8: 3.86, 9: 4.02}
+
+    def runner(c):
+        calls.append(c)
+        if os.path.basename(c[1]) == "run_calibration.py":
+            od = c[c.index("--output-dir") + 1]
+            seed = int(c[c.index("--seed") + 1])
+            os.makedirs(od, exist_ok=True)
+            cost = final[seed] + (0.0 if os.path.basename(od).startswith("start") else 0.6)
+            cost = 4.76 - (seed == 7) * 0.02 if "current_round1" in od else cost   # seed 7 leads after round 1
+            with open(os.path.join(od, "metrics.json"), "w") as f:
+                json.dump({"optimizer": {"cost": cost, "restart_costs": [cost]}}, f)
+        return 0
+    out = tmp_path / "o"
+    assert cli.main(["calibrate", "--data", str(tmp_path), "--out", str(out), "--estimate-current",
+                     "--current-rounds", "2", "--restarts", "3", "--restart-whole-fit", "--seed", "7"],
+                    runner=runner) == 0
     fits = _fits(calls)
-    assert [_restarts(f) for f in fits] == [4, 4, 4]  # round 1, round 2, the final fit
-    assert "every round takes about 4x" in capsys.readouterr().out
+    assert len(fits) == 9 and all(_restarts(f) == 1 for f in fits)   # 3 starts x (round 1, round 2, final)
+    assert sorted({f[f.index("--seed") + 1] for f in fits}) == ["7", "8", "9"]
+    names = [os.path.basename(c[1]) for c in calls]
+    assert names.count("validation.py") == 1 and names.count("calibration_report.py") == 1   # once, on the chosen
+    record = json.load(open(out / "whole_fit_starts.json"))
+    assert record["chosen"] == 2 and [s["final_cost"] for s in record["starts"]] == [4.17, 3.86, 4.02]
+    assert record["starts"][0]["round_costs"][0] < record["starts"][1]["round_costs"][0]   # 7 led after round 1
+    assert json.load(open(out / "metrics.json"))["optimizer"]["cost"] == 3.86             # the chosen one, copied
+    assert "Keeping start 2" in capsys.readouterr().out
+    assert cli.main(["calibrate", "--data", str(tmp_path), "--restart-whole-fit"], runner=lambda c: 0) == 2
+    assert "needs --restarts 2 or more" in capsys.readouterr().out
     calls.clear()
     assert cli.main(["calibrate", "--data", str(tmp_path), "--out", str(tmp_path / "o2"), "--restarts", "3",
-                     "--restarts-every-round"], runner=lambda c: calls.append(c) or 0) == 0
-    assert [_restarts(f) for f in _fits(calls)] == [3]
+                     "--restart-whole-fit"], runner=lambda c: calls.append(c) or 0) == 0
+    assert [_restarts(f) for f in _fits(calls)] == [3]   # one round: plain --restarts
     assert "only matters with --estimate-current" in capsys.readouterr().out
-    assert cli.main(["calibrate", "--data", str(tmp_path), "--restarts-every-round"], runner=lambda c: 0) == 2
-    assert "needs --restarts 2 or more" in capsys.readouterr().out
 
 
 def test_a_warm_start_keeps_the_previous_result_as_its_first_point(monkeypatch):
@@ -159,17 +181,16 @@ def test_a_warm_start_keeps_the_previous_result_as_its_first_point(monkeypatch):
     assert not np.allclose(seen[0], prev[free])  # one start behaves as before: perturbed around it
 
 
-def test_the_report_lists_later_rounds_starts(tmp_path):
-    for k, costs in ((1, [3.0, 2.9]), (2, [2.5, 2.4, 2.6]), (3, [2.2, 2.2001])):
-        (tmp_path / f"current_round{k}").mkdir()
-        (tmp_path / f"current_round{k}" / "metrics.json").write_text(json.dumps({"optimizer": {"restart_costs": costs}}))
-    (tmp_path / "metrics.json").write_text(json.dumps({"optimizer": {"restart_costs": [2.1, 2.3]}}))
-    rounds = calibration_report.later_round_restart_costs(str(tmp_path))
-    assert rounds == [("round 2", [2.5, 2.4, 2.6]), ("round 3", [2.2, 2.2001]), ("the final fit", [2.1, 2.3])]
+def test_the_report_lists_each_whole_fit_start(tmp_path):
+    record = {"chosen": 2, "starts": [
+        {"start": 1, "seed": 11, "round_costs": [4.7598, 4.2372, 4.1704], "final_cost": 4.1704},
+        {"start": 2, "seed": 12, "round_costs": [4.7809, 3.9306, 3.8599], "final_cost": 3.8599}]}
+    (tmp_path / "whole_fit_starts.json").write_text(json.dumps(record))
+    assert calibration_report.whole_fit_starts(str(tmp_path)) == record
     p = tmp_path / "r.md"
-    calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=5,
-                                    restarts=[3.0, 2.9], later_restarts=rounds)
+    calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=12,
+                                    restarts=[3.8599], whole_fit=record)
     text = p.read_text()
-    assert "round 2: 2.5, 2.4, 2.6, a point around it found a lower cost" in text
-    assert "round 3: 2.2, 2.2, the previous result stayed best" in text
-    assert calibration_report.later_round_restart_costs(str(tmp_path / "nowhere")) == []
+    assert "ran from 2 starting points" in text and "(seed 12)" in text
+    assert "seed 11: 4.76 -> 4.237 -> 4.17" in text and "depends on where the fit starts" in text
+    assert calibration_report.whole_fit_starts(str(tmp_path / "nowhere")) is None

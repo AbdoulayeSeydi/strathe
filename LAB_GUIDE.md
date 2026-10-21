@@ -129,10 +129,10 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 - **A hard calibration:** add `--restarts 3` (or 4). The fit starts from that many points and keeps the one that fits
   your training recordings best; the first fit takes that many times as long. The report lists each start's result,
   so you can see whether the starting point mattered.
-  - **With `--estimate-current`,** only the first round restarts; later rounds start from its result. If your result
-    changes in a later round (the report's later rounds disagree with the first), add `--restarts-every-round`: every
-    round then starts from the previous round's result and points around it. Every round takes that many times as
-    long.
+  - **With `--estimate-current`,** only the first round restarts, and the start with the lowest round-1 cost isn't
+    always the one that ends best. Add `--restart-whole-fit` to run the whole fit, every round, from each starting
+    point and keep the lowest *final* training cost. It takes that many times as long; each start's result is kept
+    in its `startN` folder, and the report lists their costs round by round.
 
 ## 6. What you get back
 

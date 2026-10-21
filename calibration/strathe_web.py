@@ -630,9 +630,9 @@ current field above empty.</label>
 <label for=cal-restarts>Starting points (optional; default 1): start the fit from this many points and keep the
 lowest training cost. 3-4 for a hard calibration; the first fit takes that many times as long</label>
 <input type=text id=cal-restarts name=restarts value="">
-<label class=inline><input type=checkbox id=cal-restarts-every name=restarts_every_round value=1 aria-label="Every current round starts from that many points"> With current estimation:
-every round starts from that many points (the previous round's result and points around it), not only the first.
-For a calibration whose result changes in a later round; every round takes that many times as long</label>
+<label class=inline><input type=checkbox id=cal-restart-whole name=restart_whole_fit value=1 aria-label="Run the whole fit from that many starting points"> With current estimation:
+run the whole fit (every round) from that many starting points and keep the lowest final training cost, instead of
+choosing after the first round. For a calibration whose rounds can go two ways; that many times as long</label>
 <label for=cal-seed>Starting-point seed (optional): a calibration's seed, from its report, repeats it exactly</label>
 <input type=text id=cal-seed name=seed value="">
 <label for=cal-torque>Advanced: re-express logged torques about another point, <code>x y z</code> in m (optional)</label>
@@ -949,8 +949,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--seed", str(int(_number(form["seed"], "Seed", 0, 2 ** 31 - 1)))]
             if form.get("restarts", "").strip():
                 args += ["--restarts", str(int(_number(form["restarts"], "Starting points", 1, 20)))]
-            if form.get("restarts_every_round"):
-                args += ["--restarts-every-round"]
+            if form.get("restart_whole_fit"):
+                args += ["--restart-whole-fit"]
             if form.get("torque_offset", "").strip():
                 parts = form["torque_offset"].replace(",", " ").split()
                 if len(parts) != 3:

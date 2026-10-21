@@ -334,8 +334,8 @@ def _initialize_x0(x0_base, lb, ub, rng, strategy, perturbation_frac):
 
 def _starting_points(x0_base, lb, ub, rng, config) -> list:
     """Each restart's starting point. A warm start (config.x0_override: the previous round's result) with several
-    starts keeps that result, unperturbed, as the first one and spreads the others around it, so restarting a later
-    round can only find a lower training cost than staying put (#79, --restarts-every-round)."""
+    starts keeps that result, unperturbed, as the first one and spreads the others around it, so restarting from a
+    warm start can only find a lower training cost than staying put (#79)."""
     points = [_initialize_x0(x0_base, lb, ub, rng, config.initialization_strategy, config.perturbation_frac)
               for _ in range(config.n_restarts)]
     if config.x0_override is not None and config.n_restarts > 1:

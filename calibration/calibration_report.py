@@ -210,26 +210,13 @@ def restart_costs(result_dir, metrics):
     return ((metrics or {}).get("optimizer") or {}).get("restart_costs")
 
 
-def later_round_restart_costs(result_dir):
-    """With --restarts-every-round: [(round label, costs)] for the rounds after the first and the final fit, whose
-    first start is the previous round's result unchanged."""
-    out = []
-    k = 2
-    while os.path.isdir(os.path.join(result_dir, f"current_round{k}")):
-        out.append((f"round {k}", os.path.join(result_dir, f"current_round{k}", "metrics.json")))
-        k += 1
-    if k > 2 or os.path.isdir(os.path.join(result_dir, "current_round1")):
-        out.append(("the final fit", os.path.join(result_dir, "metrics.json")))
-    rounds = []
-    for label, path in out:
-        try:
-            with open(path, encoding="utf-8") as f:
-                costs = ((json.load(f).get("optimizer") or {}).get("restart_costs")) or []
-        except (OSError, ValueError):
-            continue
-        if len(costs) > 1:
-            rounds.append((label, costs))
-    return rounds
+def whole_fit_starts(result_dir) -> Optional[dict]:
+    """--restart-whole-fit's record (strathe_cli.WHOLE_FIT_FILE): each start's seed and round-by-round costs."""
+    try:
+        with open(os.path.join(result_dir, "whole_fit_starts.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def vehicle_description_note(spec, data_dir: Optional[str]) -> Optional[str]:
@@ -478,7 +465,7 @@ def validation_section(v: dict) -> list:
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 later_restarts=None):
+                 whole_fit=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
@@ -561,7 +548,21 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
     for i, s in enumerate(steps, 1):
         L.append(f"{i}. {s}")
     L.append("")
-    if restarts and len(restarts) > 1:
+    if whole_fit and whole_fit.get("starts"):
+        done = [st for st in whole_fit["starts"] if st.get("final_cost") is not None]
+        parts = [f"seed {st['seed']}: " + " -> ".join("?" if c is None else f"{c:.4g}" for c in st["round_costs"])
+                 for st in done]
+        finals = [st["final_cost"] for st in done]
+        spread = (max(finals) - min(finals)) / max(min(finals), 1e-12) if finals else 0.0
+        chosen = next((st for st in done if st["start"] == whole_fit.get("chosen")), None)
+        L.append(f"The whole fit (every current round) ran from {len(whole_fit['starts'])} starting points and kept "
+                 f"the lowest final training cost"
+                 + (f" (seed {chosen['seed']})" if chosen else "") + ". Training cost by round: " + "; ".join(parts)
+                 + ". " + ("They ended within 1% of each other: where the fit starts doesn't matter for this "
+                           "calibration." if spread < 0.01 else
+                           "They ended in different places: this calibration depends on where the fit starts. Each "
+                           "start's full result is in its startN folder.") + "\n")
+    elif restarts and len(restarts) > 1:
         costs = ", ".join(f"{c:.4g}" for c in restarts)
         spread = (max(restarts) - min(restarts)) / max(min(restarts), 1e-12)
         L.append(f"The fit started from {len(restarts)} points (seed {seed}) and kept the lowest training cost. Their "
@@ -570,14 +571,6 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                     if spread < 0.01 else
                     "They ended in different places: this calibration depends on where the fit starts. More starts "
                     "(--restarts) make it more likely the best one is found.") + "\n")
-        if later_restarts:
-            parts = []
-            for label, costs in later_restarts:
-                moved = min(costs) < costs[0] * (1 - 1e-3)
-                parts.append(f"{label}: {', '.join(f'{c:.4g}' for c in costs)}, "
-                             + ("a point around it found a lower cost" if moved else "the previous result stayed best"))
-            L.append("Later rounds also started from several points, the first being the previous round's result "
-                     "unchanged (--restarts-every-round). " + "; ".join(parts) + ".\n")
     elif seed is not None:
         L.append(f"The fit started from a randomly perturbed point (seed {seed}): `strathe calibrate ... --seed {seed}` "
                  f"repeats it exactly. On a hard calibration another seed can land elsewhere; `--restarts 3` starts "
@@ -642,7 +635,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
                  diverged_note(metrics), load_validation(result_dir), vehicle_note,
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
-                 later_round_restart_costs(result_dir))
+                 whole_fit_starts(result_dir))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 

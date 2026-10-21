@@ -2092,18 +2092,40 @@ So the choice never needs the held-out data.
   start's cost. `optimizer.RestartsFailed` now carries the costs; `run_calibration.py` adds them to the checkpoint, and
   `finalize_checkpoint.py` puts them in `metrics.json`. Tested in `tests/test_multi_start.py`.
 
-**`--restarts-every-round`, for B8's case.** With `--estimate-current` and `--restarts N`, every round (and the final
-fit) starts from N points, not only the first:
-- **The points:** the previous round's result, unchanged, plus N−1 points around it (the usual ±10% of each range).
-  Keeping the previous result as a start means a restarted round can only find a lower training cost than staying put.
-  One start behaves as before.
-- **Cost:** every round takes N times as long.
-- **Where it shows:** the web form has a checkbox, the report lists each later round's costs and says whether a point
-  around the previous result found a lower cost, and LAB_GUIDE, README and LIMITS say when to use it.
-- **Tests:** the flag reaches every fit; a refusal without `--restarts 2` or more; a note without `--estimate-current`;
-  a warm start keeps its first point unchanged; the report's lines; the web checkbox.
-- **Validation on URI's data:** B8 with the pond held out, 4 starts every round, seed 11 (round 1 identical to M_B8's);
-  running. Results will be added here.
+**B8, restarting later rounds: tried, didn't help, replaced.**
+- **What was tried:** `--restarts-every-round` restarted every current round from the previous round's result plus
+  three points around it.
+- **The result on B8** (pond held out, seed 11): all four starts in round 2 and in the final fit ended at the same
+  cost (4.2372, then 4.1704): +0.062, 10.6 m at 60 s, the bad result. Nothing reachable around round 1's result
+  leads elsewhere.
+- **Where the split really is:** in round 1, by a hair.
+
+  | Run | Round 1 cost | Round 2 cost | Final cost | Mean skill on the unseen mission |
+  |---|---|---|---|---|
+  | B8r2, B8r3 (good) | 4.7809 (net buoyancy 25.4 N) | 3.9306 | **3.8599** | +0.236 |
+  | B8r4, M_B8, M_B8e (bad) | **4.7598** (16.5 N) | 4.2372 | 4.1704 | +0.062 |
+
+  The two round-1 results lead to different estimated currents, and the start with the *lower* round-1 cost ends
+  worse. Choosing the lowest cost after round 1 is too early, and it is what four first-round starts did. The rule
+  "the lower training cost is the better result" still holds at the end: 3.86 against 4.17.
+- **The replacement, `--restart-whole-fit`.** With `--estimate-current` and `--restarts N`, the whole fit (every
+  round) runs N times, with seeds S..S+N−1, each in `startK/`, and the lowest *final* training cost is kept.
+  - The check against unseen recordings and the report run once, on the chosen start.
+  - `whole_fit_starts.json` records every start's costs round by round, and the report lists them.
+  - It takes N times as long.
+  - It has a web checkbox and is in LAB_GUIDE, README and LIMITS.
+  - `--restarts-every-round` is removed.
+  - The optimizer keeps one change from it: a warm start with several starts keeps the warm point, unperturbed, as
+    its first.
+- **Tests:**
+  - three starts × three fits, with the choice made on the final cost, not round 1's;
+  - the check and the report run once;
+  - the record;
+  - the refusals and notes;
+  - the report's paragraph;
+  - the web checkbox.
+- **Validation on URI's data:** B8, pond held out, `--restarts 4 --restart-whole-fit --seed 11` (seeds 11–14); running.
+  Results will be added here.
 
 ## Honest open items
 
