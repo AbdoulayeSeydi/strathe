@@ -2488,7 +2488,22 @@ The full table is in the example's guide.
   to try;
 - standing still beating it at some horizon, which is usual for tank or station-keeping logs.
 
-**Second run: centre of gravity held** (`--fit drag added_mass buoyancy`, 30 evaluations, 7 cores): running.
+**Second run: centre of gravity held** (`--fit drag added_mass buoyancy`, converged after 27 evaluations at a training
+cost of 874):
+- **Better everywhere it was scored:** drift 1.89 / 3.69 / 5.37 m (−55% at 60 s). Roll, pitch and yaw errors are
+  3.5° / 6.2° / 41°, slightly better than the published model's.
+- **But it blew up in 35 of 712 unseen windows** at the world's 0.01 s step; the medians leave those out.
+  - **Rescored at 0.005 s:** 0 of 712, with the same medians (1.90 / 3.73 / 5.46 m).
+  - **Why:** the fitted roll and pitch damping (kP 17, mQ 14 N·m·s on 0.26 and 0.23 kg·m²) has an 11 ms time
+    constant, and Gazebo applies the Hydrodynamics forces step by step.
+- **Two report fixes from it** (both tested):
+  - the bottom line says when the calibrated model blew up in unseen windows, and how many;
+  - the Gazebo adapter checks, after the fit, each axis's damping time constant against the world's step. It names
+    the axes and the step to use: here roll and pitch, 0.005 s. It is silent for the first run and for the published
+    model, which never blew up.
+- **The guide** says the step must be short enough for the damping.
+- **Still to do:** a long simulator fit can't be finished from its best point the way `strathe calibrate --finish`
+  can.
 
 ## Honest open items
 

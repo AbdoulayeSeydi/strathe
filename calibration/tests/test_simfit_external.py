@@ -241,6 +241,9 @@ def test_the_bottom_line_warns_what_drift_alone_hides():
     assert "6.02 m" in text and "-50%" in text
     assert "roll 3.9° -> 7.3°, pitch 7.8° -> 17.3°" in text and "yaw" not in text.split("Be careful")[1].split("The fit")[0]
     assert "Standing still beats the calibrated model after 30 s" in text
+    res["cal"].update(diverged=35, windows=712)
+    text = "".join(_bottom_line(res, "orig", "cal", ["16-02-2024"], "the calibrated model"))
+    assert "blew up in 35 of 712 unseen windows" in text
     res["cal"] = r(1.0, 2.0, 3.0, [4.0, 8.0, 42.0])
     text = "".join(_bottom_line(res, "orig", "cal", ["16-02-2024"], "the calibrated model"))
     assert "Be careful" not in text and "Standing still" not in text

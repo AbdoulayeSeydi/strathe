@@ -45,6 +45,9 @@ no Docker, so route A is the one that's been run.
   collision shapes. To tune or export buoyancy, use boxes, cylinders or spheres; a mesh's volume isn't known.
 - **The physics step must divide the logs' sample time:** `<max_step_size>0.01</max_step_size>` for 10 Hz logs. The
   tool refuses other steps with a plain message.
+- **It must also be short enough for the damping.** Gazebo applies the Hydrodynamics forces step by step, so a step
+  longer than about half an axis's damping time constant (inertia ÷ damping) can blow up. A light vehicle with
+  stiff fitted roll or pitch damping can need 0.005 s. The report checks this after the fit and names the step to use.
 - **A worked example:** [`example/world.sdf`](example/world.sdf), a 10 kg neutral vehicle. The tests run on it.
 
 ## 3. Run it

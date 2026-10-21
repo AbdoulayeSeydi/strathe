@@ -124,6 +124,13 @@ def _warnings(results, original: str, new: str, what: str) -> list:
             L.append(f"**Be careful:** {what} turns or tilts worse than your original after 10 s ({', '.join(worse)}). "
                      f"The fit traded attitude for position: check the centre of gravity and buoyancy it changed, or "
                      f"keep them (`--fit` without `cg`, or `--hold` your measured values) and compare.\n")
+    if x.get("diverged") and x.get("windows"):
+        n, m = x["diverged"], x["windows"]
+        before = o.get("diverged") or 0
+        L.append(f"**Don't simulate with it as is: it blew up in {n} of {m} unseen windows** (your original: {before}). "
+                 f"The medians above leave those windows out. Some values it found make the simulation unstable in "
+                 f"places: check the report's changes for very large damping on a light axis, and try a smaller "
+                 f"physics step or `--hold` on those values.\n")
     still = results.get("no motion")
     if still:
         beaten = [h for h in HORIZONS_S if f"{h}s" in still and f"{h}s" in x
@@ -205,6 +212,9 @@ def run_fit(adapter, a) -> int:
                      weighting=a.weighting)
         values = f["values"]
         model_out = adapter.write_calibrated(values, out, "calibrated")
+        for n in (adapter.after_fit_notes(values) if hasattr(adapter, "after_fit_notes") else []):
+            notes.append(n)
+            print("  note: " + n, flush=True)
 
         print("Scoring the original and calibrated models on the held-out recordings...", flush=True)
         orig, cal = f"{adapter.label}, original", f"{adapter.label}, calibrated by Strathe"

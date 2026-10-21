@@ -34,6 +34,7 @@ CAL = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_TOOL = os.path.join(CAL, "simulators", "gazebo", "build", "strathe_gz_replay")
 AX = "xyzkmn"
 VEL = "UVWPQR"
+AXIS_NAMES = {"x": "surge", "y": "sway", "z": "heave", "k": "roll", "m": "pitch", "n": "yaw"}
 STRATHE_LIN = ("Xu", "Yv", "Zw", "Kp", "Mq", "Nr")
 STRATHE_QUAD = ("Xuu", "Yvv", "Zww", "Kpp", "Mqq", "Nrr")
 TIES = {"y": "yz", "z": "yz", "m": "mn", "n": "mn"}  # --axisymmetric: sway = heave, pitch = yaw
@@ -308,6 +309,44 @@ class GazeboAdapter:
             return lin / s if lin > 1e-3 else (5.0 * inertia if rot else 2.0 * mass)
         quad = abs(get(f"{self.plugin}/{a}{v}abs{v}", 0.0))
         return quad * s if quad > 1e-3 else (2.0 * inertia if rot else 1.0 * mass)
+
+    def after_fit_notes(self, values) -> list:
+        """#90, bluerov2_gz: the fit found roll and pitch damping so stiff for a light vehicle that Gazebo's 0.01 s
+        step blew up in 35 of 712 unseen windows (0 at 0.005 s). Gazebo applies the Hydrodynamics forces step by
+        step, so a step longer than about half an axis's damping time constant (inertia / damping at a typical speed)
+        is a warning."""
+        try:
+            step = float(XmlFile(self.world_text).get("//physics/max_step_size"))
+        except Exception:
+            return []
+        ed = XmlFile(self._edit(values))
+
+        def get(path, default=0.0):
+            try:
+                return float(ed.get(path))
+            except Exception:
+                return default
+        mass = get(f"{self.link_path}/inertial/mass", 10.0)
+        added = {a: (get(f"{self.link_path}/inertial/fluid_added_mass/{a}{a}") if self.fluid_added
+                     else abs(get(f"{self.plugin}/{a}Dot{v}"))) for a, v in zip("xyz", "UVW")}
+        inertia = {"k": "ixx", "m": "iyy", "n": "izz"}
+        stiff = []
+        for a, v in zip(AX, VEL):
+            k = abs(get(f"{self.plugin}/{a}{v}")) + abs(get(f"{self.plugin}/{a}{v}abs{v}")) * self.TYPICAL_SPEED[a]
+            if k <= 0:
+                continue
+            m = get(f"{self.link_path}/inertial/inertia/{inertia[a]}", 0.1) if a in inertia else mass + added[a]
+            tau = m / k
+            if step > 0.5 * tau:
+                stiff.append((tau, AXIS_NAMES.get(a, a)))
+        if not stiff:
+            return []
+        tau = min(t for t, _ in stiff)
+        ok = [s for s in (0.01, 0.005, 0.002, 0.001, 0.0005) if s <= 0.5 * tau and abs(self.dt / s - round(self.dt / s)) < 1e-9]
+        return [f"Your world's physics step ({step:g} s) is long for the {', '.join(n for _, n in sorted(stiff))} "
+                f"damping now in the model (time constant {tau * 1000:.0f} ms): Gazebo applies it step by step, and "
+                f"it can blow up. Use `<max_step_size>{ok[0] if ok else 0.001:g}</max_step_size>` in your world, or "
+                f"`--hold` those damping values."]
 
     def write_calibrated(self, values, out_dir: str, suffix: str) -> str:
         stem, ext = os.path.splitext(os.path.basename(self.model_path))

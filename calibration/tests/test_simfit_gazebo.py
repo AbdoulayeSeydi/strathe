@@ -198,3 +198,13 @@ def test_the_generic_adapter_refuses_a_zero_it_cant_scale(tmp_path):
         ad.knob_specs({}, ("drag",), False)
     ad = FileAdapter("external", "Mine", str(m), ["unused"], [KnobDef("drag", "drag", "/drag", if_zero=5.0)], fmt="json")
     assert ad.knob_specs({}, ("drag",), False)[0].if_zero == 5.0
+
+
+def test_a_physics_step_too_long_for_the_fitted_damping_is_flagged(tmp_path):
+    """#90: bluerov2_gz's fit found roll/pitch damping stiff enough that a 0.01 s step blew up (0 at 0.005 s)."""
+    w = tmp_path / "w.sdf"
+    w.write_text(open(WORLD).read())
+    ad = GazeboAdapter(str(w), tool=["unused"])
+    assert ad.after_fit_notes({}) == []                       # the example's own damping is fine at its step
+    note = ad.after_fit_notes({"kP": 400.0, "mQ": 400.0})[0]   # stiff roll and pitch on a 10 kg vehicle
+    assert "roll" in note and "pitch" in note and "max_step_size>" in note
