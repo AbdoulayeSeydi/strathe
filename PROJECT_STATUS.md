@@ -2437,6 +2437,59 @@ calibrations, with every option varied. The writeup is `~/strathe_uri_lab_v3/URI
 - the Docker images (no Docker here);
 - a public Gazebo model (bluerov2_gz).
 
+### 90. A public Gazebo model on public logs: bluerov2_gz, and values a model has at zero (2026-10-21)
+
+**Why.** Everything in #88 was URI's vehicle and models converted from URI's Stonefish model. A lab's first try will
+often be a public model, so the Gazebo path was run on public parts end to end:
+- **The model:** [bluerov2_gz](https://github.com/clydemcqueen/bluerov2_gz), a BlueROV2 Heavy for Gazebo Harmonic. Its
+  licence is MIT (in `package.xml`; #88's plan wrongly said it was unstated).
+- **The logs:** oceansystemslab's BlueROV2 Heavy dataset, Strathe's reference data. 39 recordings on 4 days; 16 and
+  19 February held out.
+
+**A bug it found, fixed: a value the model has at 0 was never tuned.**
+- **What happened:** a `log_factor` knob scales its starting value by up to 30× either way, and a 0 started from a
+  1e-9 floor. The comment said "a zero drag still gets tuned"; it didn't.
+- **What it hid on bluerov2_gz:** it has quadratic drag only, no linear drag and no added mass, so 9 of its 18 tuned
+  values were stuck at zero.
+- **The fix:**
+  - **Gazebo:** a term at 0 now starts from a value sized from the vehicle, and the report notes it:
+    - added mass: 0.3 × the mass;
+    - linear drag: the same axis's quadratic drag × a typical speed (0.2 m/s, 0.5 rad/s);
+    - quadratic drag: the linear drag ÷ that speed;
+    - without either: from the mass or inertia.
+  - **The generic adapter (`external`)** refuses a zero with a plain message unless the knob has `if_zero: VALUE`
+    (documented in SIMULATOR_PROTOCOL.md).
+  - **Tests:** `test_a_term_the_model_has_at_zero_still_gets_tuned` and `test_the_generic_adapter_refuses_a_zero_it_cant_scale`.
+
+**Preparing the logs.** The dataset is in ROS axes, so `example_bluerov2_gz/prepare_logs.py` converts it to
+forward-right-down exactly as `frame: flu` ingestion does. It applies the 8.5 cm torque shift Strathe's calibration uses
+for this dataset, which puts the torques at the horizontal-thruster plane: bluerov2_gz's `base_link` origin, so
+`--reference-point 0 0 0`.
+- **Check:** each force correlates with motion on its own axis (+0.88 surge, +0.81 sway and heave, +0.68 yaw).
+- **Buoyancy:** mean Fz is +1.4 N downward, a slightly buoyant vehicle holding depth.
+
+**Worked example:** `calibration/simulators/gazebo/example_bluerov2_gz/`:
+- `world.sdf`: physics, buoyancy and the vehicle, without bluerov2_gz's network includes;
+- `prepare_logs.py`;
+- the guide.
+
+**Results, the first run** (all 18 values, the default 15 evaluations, 2 cores). Held-out drift falls from
+3.51 / 8.11 / 11.99 m to **1.87 / 4.17 / 6.02 m** at 10 / 30 / 60 s, and velocity errors from 0.33 / 0.30 / 0.20 to
+0.22 / 0.10 / 0.08 m/s.
+- **But attitude got worse:** pitch error 7.8° → 17.3° after 10 s. The fit raised the centre of gravity (1.1 → 2.7
+  cm), shortening the righting arm to the buoyancy box.
+- **Standing still** beats both models after 30 s, because in a tank the vehicle stays within a few metres.
+- **The fit hadn't finished:** its cost was still falling at 15 evaluations.
+
+The full table is in the example's guide.
+
+**The report now warns what drift alone hides** (`simfit/runner.py` `_warnings`, tested):
+- the calibrated model turning or tilting worse than the original (an axis 25% and 2° worse after 10 s), with what
+  to try;
+- standing still beating it at some horizon, which is usual for tank or station-keeping logs.
+
+**Second run: centre of gravity held** (`--fit drag added_mass buoyancy`, 30 evaluations, 7 cores): running.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

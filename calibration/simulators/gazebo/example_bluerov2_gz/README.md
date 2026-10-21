@@ -42,4 +42,27 @@ python strathe.py fit-sim --sim gazebo \
 
 ## 3. Results
 
-To be added from the run in PROJECT_STATUS.md.
+Drift on the two held-out days (16 and 19 February, 712 windows of 60 s), medians:
+
+| Model | 10 s | 30 s | 60 s | Velocity error over 10 s, u v w (m/s) | Roll, pitch, yaw after 10 s |
+|---|---|---|---|---|---|
+| bluerov2_gz as published | 3.51 m | 8.11 m | 11.99 m | 0.33, 0.30, 0.20 | 3.9°, 7.8°, 41° |
+| **Calibrated by Strathe** (all 18 values, 15 evaluations) | **1.87 m** | **4.17 m** | **6.02 m** | **0.22, 0.10, 0.08** | 7.3°, 17.3°, 50° |
+| No motion | 3.06 m | 3.58 m | 3.29 m | | |
+| Keeps its starting velocity | 4.64 m | 14.72 m | 29.53 m | | |
+
+- **What it changed:**
+  - linear drag on every axis, from 0 (surge 29.7, sway 19.0, heave 55.2 N·s/m);
+  - quadratic drag about 5× the published values on the translational axes;
+  - added mass, from 0, to 10.1 / 8.8 / 3.6 kg;
+  - the centre of gravity, raised from 1.1 to 2.7 cm;
+  - the buoyant volume, ×0.963.
+- **Velocity and position** improve a lot: drift halves at every horizon.
+- **Attitude gets worse.** Pitch error more than doubles. Raising the centre of gravity shortens the righting arm
+  (the buoyancy box is at 6 cm), so the vehicle tilts more. The report now says so at the top ("Be careful: ...
+  turns or tilts worse").
+- **In a tank, standing still beats both models after 30 s,** because the vehicle stays within a few metres. The report
+  says this too. Trust the 10 s horizon and the velocity errors.
+- **The fit hadn't finished.** Its cost was still falling at the 15-evaluation default (2,607 → 996). Three trial
+  points blew up, and the optimizer stepped back from them.
+- **Time:** 9 h on 2 cores, while another calibration used the other 6.

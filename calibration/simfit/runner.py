@@ -107,9 +107,33 @@ def _bottom_line(results, original: str, new: str, held_groups, what: str) -> li
     if not h:
         return ["Not scored: no held-out recording is long enough for a 60 s window.\n"]
     ch = 100 * (x[h]["drift_median_m"] - o[h]["drift_median_m"]) / max(o[h]["drift_median_m"], 1e-9)
-    return [f"On recordings it never saw ({', '.join(held_groups)}), {what} has **{x[h]['drift_median_m']:.2f} m** of "
-            f"position error after {h[:-1]} s, against **{o[h]['drift_median_m']:.2f} m** for your original model "
-            f"({ch:+.0f}%). Check every horizon below: a change can help over a minute and cost over seconds.\n"]
+    L = [f"On recordings it never saw ({', '.join(held_groups)}), {what} has **{x[h]['drift_median_m']:.2f} m** of "
+         f"position error after {h[:-1]} s, against **{o[h]['drift_median_m']:.2f} m** for your original model "
+         f"({ch:+.0f}%). Check every horizon below: a change can help over a minute and cost over seconds.\n"]
+    return L + _warnings(results, original, new, what)
+
+
+def _warnings(results, original: str, new: str, what: str) -> list:
+    """What the drift alone hides (#90, bluerov2_gz): attitude that got worse, and standing still doing better."""
+    o, x, L = results[original], results[new], []
+    ao, ax = o.get("10s", {}).get("attitude_error_median_deg"), x.get("10s", {}).get("attitude_error_median_deg")
+    if ao and ax:
+        worse = [f"{n} {a:.1f}° -> {b:.1f}°" for n, a, b in zip(("roll", "pitch", "yaw"), ao, ax)
+                 if b > 1.25 * a and b - a > 2.0]
+        if worse:
+            L.append(f"**Be careful:** {what} turns or tilts worse than your original after 10 s ({', '.join(worse)}). "
+                     f"The fit traded attitude for position: check the centre of gravity and buoyancy it changed, or "
+                     f"keep them (`--fit` without `cg`, or `--hold` your measured values) and compare.\n")
+    still = results.get("no motion")
+    if still:
+        beaten = [h for h in HORIZONS_S if f"{h}s" in still and f"{h}s" in x
+                  and still[f"{h}s"]["drift_median_m"] < x[f"{h}s"]["drift_median_m"]]
+        if beaten:
+            L.append(f"**Standing still beats {what} after {beaten[0]} s** ({still[f'{beaten[0]}s']['drift_median_m']:.2f} "
+                     f"m against {x[f'{beaten[0]}s']['drift_median_m']:.2f} m). Usual for logs from a tank or a "
+                     f"station-keeping mission, where the vehicle stays within a few metres; trust the shorter "
+                     f"horizons and the velocity errors there.\n")
+    return L
 
 
 def _compare_section(results) -> list:

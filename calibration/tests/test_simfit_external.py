@@ -225,3 +225,22 @@ def test_the_web_cards_build_fit_sim_and_export_sim(tmp_path):
                      ({**form, "data": "", "ingest_spec": ""}, "Give the logs")):
         with pytest.raises(ValueError, match=msg):
             web.sim_cli_args(bad, "fit")
+
+
+def test_the_bottom_line_warns_what_drift_alone_hides():
+    """#90, bluerov2_gz: the calibrated model halved drift but pitched twice as badly, and standing still beat it
+    after 30 s in a tank. Both are now said up front."""
+    from simfit.runner import _bottom_line
+
+    def r(d10, d30, d60, att):
+        return {"10s": {"drift_median_m": d10, "attitude_error_median_deg": att}, "30s": {"drift_median_m": d30},
+                "60s": {"drift_median_m": d60}}
+    res = {"orig": r(3.51, 8.11, 11.99, [3.9, 7.8, 41.4]), "cal": r(1.87, 4.17, 6.02, [7.3, 17.3, 49.6]),
+           "no motion": r(3.06, 3.58, 3.29, [3.9, 6.3, 95.1])}
+    text = "".join(_bottom_line(res, "orig", "cal", ["16-02-2024"], "the calibrated model"))
+    assert "6.02 m" in text and "-50%" in text
+    assert "roll 3.9° -> 7.3°, pitch 7.8° -> 17.3°" in text and "yaw" not in text.split("Be careful")[1].split("The fit")[0]
+    assert "Standing still beats the calibrated model after 30 s" in text
+    res["cal"] = r(1.0, 2.0, 3.0, [4.0, 8.0, 42.0])
+    text = "".join(_bottom_line(res, "orig", "cal", ["16-02-2024"], "the calibrated model"))
+    assert "Be careful" not in text and "Standing still" not in text
