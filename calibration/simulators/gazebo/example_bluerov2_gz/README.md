@@ -65,4 +65,4 @@ Drift on the two held-out days (16 and 19 February, 712 windows of 60 s), median
   says this too. Trust the 10 s horizon and the velocity errors.
 - **The fit hadn't finished.** Its cost was still falling at the 15-evaluation default (2,607 → 996). Three trial
   points blew up, and the optimizer stepped back from them.
-- **Time:** 9 h on 2 cores, while another calibration used the other 6.
+- **Time:** about 7.5 h on 2 cores, while another calibration used the other 6.
