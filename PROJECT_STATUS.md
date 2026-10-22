@@ -1660,7 +1660,7 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
 - **The warning:** it fires for a custom layout with the default spec, and not for the BlueROV2 preset, a given
   `--spec` or logged forces. The report section and next step appear only then.
 
-**Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; ~~a sensor
+**Still open, from the same run** (each in the run's friction log): ~~per-thruster thrust curves and limits~~ (fixed, #91); ~~a sensor
 mount rotation in ingest specs~~ (fixed, #91); ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
 (formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
 receive timestamps in re-recorded bags; and session dates from header stamps~~ (fixed, #91).
@@ -2876,6 +2876,17 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
   - **On URI's raw DVL:** heave goes from −0.48 (refused) to +0.48.
   - **Tested:** a DVL rolled 180° and a gyro yawed 90° come back exactly.
   - **Not handled:** a DVL's lever arm (its velocity includes ω × r at its position).
+- **Per-thruster thrust curves and limits** (open since the first URI run). Every thruster shared one curve and its
+  maxima.
+  - **New per-entry keys in a `layout:`:**
+    - `curve_csv`: the thruster's own table;
+    - `thrust_scale`: a multiplier on the curve;
+    - `max_forward_n` / `max_reverse_n`: caps.
+  - **What uses them:** `ThrusterConfig` applies them in thrust, battery-voltage rescaling and `achievable_wrench`
+    (what the simulators deliver), and they survive `for_simulation`.
+  - **Refused, with a plain message:** battery-voltage rescaling of a thruster with its own table, which would need T200
+    data; mixed curve units; unknown or non-positive keys.
+  - **Tested** in `tests/test_per_thruster.py`. All existing thruster tests are unchanged.
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 

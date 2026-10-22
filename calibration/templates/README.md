@@ -70,6 +70,13 @@ is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
     horizontal thrusters.
   - `direction`: the way it pushes the vehicle for positive thrust.
   - `reversed`: ArduSub `MOT_n_DIRECTION = -1`.
+  - **When thrusters differ** (optional, per entry):
+    - `curve_csv`: that thruster's own command-to-thrust table;
+    - `thrust_scale`: a multiplier on the shared curve, e.g. 0.5 for a smaller thruster or a 50% software limit;
+    - `max_forward_n` / `max_reverse_n`: a cap in newtons.
+
+    Thrust, the force limits and what the simulators can deliver then use each thruster's own. A thruster with its
+    own `curve_csv` can't be rescaled by battery voltage (`voltage_column`); Strathe says so.
 
   The custom-thrusters template is a BlueROV2 Heavy written this way, as an
   example. A test checks it matches the preset exactly. For ArduSub, "positive
