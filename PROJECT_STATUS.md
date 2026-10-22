@@ -2900,6 +2900,29 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
   - **Web forms** have the fields.
   - **Tested:** a short training run with a 6 m geometry, the refusal, the flags passed through, the arena environment
     and text, the caution, and the web forms.
+- **The `Mq`/`Mqq` identifiability re-check** ("what's next" item 6, flagged in #10, done for `Zww` and `Nrr` in #29
+  but never for this pair). The method: the current production calibration (`calibration_output_armfix` = the fleet's
+  `calibrated_parameters_fleet_truth.yaml`) through `automated_identifiability_report.py`, against the raw-data
+  baseline from `check_damping_identifiability.py` (reference data, 10 Hz, 16/19 Feb held out).
+  Linear-against-quadratic damping correlation, absolute values:
+
+  | Pair | Raw data (baseline) | Fitted model's Jacobian now | Excess over the data |
+  |---|---|---|---|
+  | `Xu`/`Xuu` | 0.948 | 0.922 | −0.026 |
+  | `Yv`/`Yvv` | 0.887 | 0.907 | +0.020 |
+  | `Zw`/`Zww` | 0.918 | 0.826 | −0.092 (as #29) |
+  | `Kp`/`Kpp` | 0.795 | under 0.8 | – |
+  | **`Mq`/`Mqq`** | **0.764** | **0.834** (0.93 before Coriolis) | **+0.070** (+0.166 before) |
+  | `Nr`/`Nrr` | 0.864 | 0.875 | +0.011 (as #29) |
+
+  - **Coriolis removed more than half of `Mq`/`Mqq`'s excess:** 0.166 → 0.070. That's what the Coriolis fix was
+    hoped to do.
+  - **It is still the largest excess of any pair.** For the other pairs, the fitted correlation is about what the
+    data's speeds allow. For pitch, the model still couples the two terms more than the data does. That fits the
+    known gap in thruster-driven pitch (#50, #64): it's a model-structure symptom, not only data coverage.
+  - **Also in the report:** the added-mass terms are correlated with each other (`Xu_dot`–`Yv_dot` 0.92, `–Zw_dot`
+    0.91, `Yv_dot`–`Zw_dot` 0.89), and `Ieff_roll` and `Ieff_pitch` are the barely-pinned directions. Both are
+    known (#18, #28, #29).
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 
@@ -2934,5 +2957,5 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
 4. **Thruster lag against inertia** (#66): the full refit with the lag free trades it against yaw inertia and added mass, which go to their bounds. Pin one of them (a bench measurement of thruster spin-up, or CAD/pendulum inertia), then refit; only then decide on making `thruster_dynamics` part of the default spec.
 5. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
-6. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
+6. ~~Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian~~: done (#91). Coriolis cut the excess correlation from 0.166 to 0.070 over the data's 0.764; still the largest of any pair, consistent with the thruster-driven pitch gap (item 3).
 7. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.
