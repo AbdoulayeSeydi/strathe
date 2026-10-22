@@ -94,7 +94,9 @@ python strathe.py fit-sim --sim gazebo --world my_world.sdf --model-file models/
 **What you get, in `--out`:**
 - `<your model file>_calibrated.sdf` (or `_strathe.sdf` from `export-sim`), with only those numbers changed;
 - `calibrated_world/` (`fit-sim`): a copy of your world with the calibrated model in it, ready to run with
-  `gz sim calibrated_world/<your world>.sdf`. An included model folder is copied in. When your world's physics step is
+  the command in `calibrated_world/RUN_ME.md` (for an included model:
+  `GZ_SIM_RESOURCE_PATH=calibrated_world:$GZ_SIM_RESOURCE_PATH gz sim calibrated_world/<your world>.sdf`). An included
+  model folder is copied in, and the world refers to it as `model://`, so the folder still runs when moved or shared. When your world's physics step is
   too long for the fitted damping, this copy uses a safe one. Your own files aren't changed;
 - when the first fit made the attitude worse and Strathe fitted again with the centre of gravity held, the other model
   as `<your model file>_calibrated_cg_tuned.sdf` or `_cg_held.sdf` (`--no-cg-rerun` skips the second fit);

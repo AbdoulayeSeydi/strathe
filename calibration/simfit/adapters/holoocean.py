@@ -89,6 +89,9 @@ class HolooceanAdapter:
         self.ref, self.depth, self.hz = np.array(ref, dtype=float), float(depth), float(hz)
         self.notes, self.base, self.dt = [], None, 0.1
         self._defaults = self._vehicle(self.scenario)
+        bare = json.loads(json.dumps(self.scenario))
+        bare["agents"][self.index]["dynamics"] = {}
+        self._class_defaults = self._vehicle(bare)   # the class's own values, before the scenario's (zero starts)
 
     # --- the model -------------------------------------------------------------------------------------------------
     def _vehicle(self, scenario):
@@ -166,7 +169,18 @@ class HolooceanAdapter:
             elif grp == "mass":
                 specs.append(KnobSpec(k, grp, v, "log_factor", 1.25, 1.25))
             else:
-                specs.append(KnobSpec(k, grp, abs(v), "log_factor", floor=1e-4))
+                if_zero = None
+                if abs(v) <= 1e-4:   # a factor of 0 stays 0 (#90): start from the Fossen class's own value
+                    d = next((getattr(self._class_defaults, a) for a in ATTR.get(k.split("/")[0], ()) if
+                              hasattr(self._class_defaults, a)), None)
+                    d = abs(float(np.asarray(d, dtype=float).ravel()[0])) if d is not None else 0.0
+                    if d <= 1e-4:
+                        raise SimFitError(f"{k} is 0 in your scenario and in the Fossen class, and a factor of 0 stays "
+                                          f"0: give it a starting value in the scenario's dynamics, or leave "
+                                          f"{grp} out of --fit")
+                    if_zero = d
+                specs.append(KnobSpec(k, grp, abs(v), "log_factor", floor=1e-4, if_zero=if_zero,
+                                      note=f"0 in your scenario; tuned from the class's {if_zero:g}" if if_zero else ""))
         return specs
 
     def write_runnable(self, values, folder, rho=None) -> str:

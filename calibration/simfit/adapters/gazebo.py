@@ -369,24 +369,47 @@ class GazeboAdapter:
 
     def write_deliverable(self, values, out_dir: str) -> str:
         """`calibrated_world/` in out_dir: a copy of the lab's world with the calibrated model in it (copied, not
-        linked), at the safe physics step when the world's is too long. `gz sim calibrated_world/<world>.sdf` runs it."""
+        linked, and included as model:// so it runs when moved), at the safe physics step when the world's is too long.
+        calibrated_world/RUN_ME.md says how to run it (run_instructions)."""
         import shutil
         dest = os.path.join(out_dir, "calibrated_world")
         if os.path.isdir(dest):
             shutil.rmtree(dest)
         os.makedirs(dest)
         model_text = self._edit(values)
+        name = os.path.basename(self.world_path)
         if self.separate:
             src = os.path.dirname(self.model_path)
             dst = os.path.join(dest, os.path.basename(src))
             shutil.copytree(src, dst, symlinks=False)
             open(os.path.join(dst, os.path.basename(self.model_path)), "w", encoding="utf-8").write(model_text)
-            world = self._include(self.world_text, src, dst)
+            # model://, not an absolute path, so the folder still runs when it's moved or shared (gz sim finds it
+            # through GZ_SIM_RESOURCE_PATH, with this folder first so the calibrated copy wins over your original)
+            world = self._include(self.world_text, src, f"model://{os.path.basename(src)}")
         else:
             world = model_text
-        p = os.path.join(dest, os.path.basename(self.world_path))
+        p = os.path.join(dest, name)
         open(p, "w", encoding="utf-8").write(self._with_step(world))
+        open(os.path.join(dest, "RUN_ME.md"), "w", encoding="utf-8").write(self.run_instructions(name) + "\n")
         return p
+
+    def run_command(self, world_name: str, folder: str = "calibrated_world") -> str:
+        """The macOS / Linux command that runs the world copy, from the folder that contains it."""
+        if not self.separate:
+            return f"gz sim {folder}/{world_name}"
+        return f"GZ_SIM_RESOURCE_PATH={folder}:$GZ_SIM_RESOURCE_PATH gz sim {folder}/{world_name}"
+
+    def run_instructions(self, world_name: str, folder: str = "calibrated_world") -> str:
+        """How to run the world copy, from the folder that contains it."""
+        if not self.separate:
+            return (f"Run it from the folder that contains `{folder}/`:\n\n    {self.run_command(world_name, folder)}\n\n"
+                    f"(`-s` runs it without the window.)")
+        return (f"Run it from the folder that contains `{folder}/` (the model folder in it must come first on Gazebo's "
+                f"resource path, so the calibrated copy is used and not your original):\n\n"
+                f"macOS / Linux:\n\n    {self.run_command(world_name, folder)}\n\n"
+                f"Windows (PowerShell):\n\n    $env:GZ_SIM_RESOURCE_PATH=\"{folder};$env:GZ_SIM_RESOURCE_PATH\"; "
+                f"gz sim {folder}/{world_name}\n\n"
+                f"(`-s` runs it without the window.) The folder can be moved or shared: nothing in it points elsewhere.")
 
     def _with_step(self, world: str) -> str:
         if not self.step_override:

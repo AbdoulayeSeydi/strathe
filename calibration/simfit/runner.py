@@ -315,10 +315,11 @@ def run_fit(adapter, a) -> int:
                         f"`{os.path.basename(other_out)}`.") + " Both are in the table below.\n")
         if world_out:
             step = getattr(adapter, "step_override", None)
-            L.append(f"**To run it:** `gz sim {os.path.relpath(world_out, out)}` from this folder (`-s` without the "
-                     f"window). `calibrated_world/` is a copy of your world with the calibrated model in it"
+            L.append(f"**To run it:** `calibrated_world/` is a copy of your world with the calibrated model in it"
                      + (f", at a {step:g} s physics step (your world's is too long for the fitted damping; see the notes)"
-                        if step else "") + ". Your own files are unchanged.\n")
+                        if step else "") + f". Your own files are unchanged. From this folder: "
+                     f"`{adapter.run_command(os.path.basename(world_out))}` (`calibrated_world/RUN_ME.md` has the "
+                     f"Windows line).\n")
         L += [*_compare_section(results), "## What changed in your model\n",
               f"`{os.path.basename(model_out)}` is `{os.path.basename(adapter.model_path)}` with only these values "
               f"changed:\n", *adapter.changes(values)]

@@ -11,6 +11,7 @@ import yaml
 from simfit import cli
 from simfit.adapters.mujoco import MujocoAdapter
 from simfit.core import SimFitError
+from simfit.knobs import Knobs
 from simfit.editors import XmlFile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -144,3 +145,17 @@ def test_a_held_out_date_the_logs_dont_have_is_a_plain_message(tmp_path):
                                                  "qx", "qy", "qz", "qw"]).to_csv(tmp_path / f"auv-{date}-run1.csv", index=False)
     with pytest.raises(SimFitError, match="02-01-2030"):
         core.load_runs(str(tmp_path), ["01-01-1999"])
+
+
+def test_a_coefficient_the_model_has_at_zero_still_gets_tuned(tmp_path):
+    """#90 (bluerov2_gz in Gazebo first): a factor of 0 stays 0, so a zero fluid coefficient starts from MuJoCo's own
+    default."""
+    m = tmp_path / "auv.xml"
+    m.write_text(open(MODEL).read().replace('fluidcoef="0.5 0.25 1.5 1.0 1.0"', 'fluidcoef="0 0.25 1.5 0 1.0"'))
+    specs = {s.name: s for s in MujocoAdapter(str(m)).knob_specs({}, ("drag", "lift"), False)}
+    blunt = next(s for n, s in specs.items() if n.endswith("blunt_drag"))
+    kutta = next(s for n, s in specs.items() if n.endswith("kutta_lift"))
+    assert blunt.if_zero == 0.5 and kutta.if_zero == 1.0 and "0 in your model" in blunt.note
+    assert next(s for n, s in specs.items() if n.endswith("slender_drag")).if_zero is None
+    k = Knobs([blunt])
+    assert k.values(k.x0())[blunt.name] == 0.5

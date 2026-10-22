@@ -994,7 +994,8 @@ e.g. your URDF's base_link)</label><input type=text id=sx-ref name=reference_poi
 your simulator, scores it against the original on recordings it never saw, and writes your model back with only those
 values changed. Set-up for each simulator: <code>calibration/simulators/README.md</code> (Gazebo: <code>python strathe.py
 setup-sim gazebo</code>; MuJoCo: nothing to set up). Gazebo also gets <code>calibrated_world/</code>: your world with the
-calibrated model in it, at a physics step that's safe for the fitted damping, ready for <code>gz sim</code>.</p>
+calibrated model in it, at a physics step that's safe for the fitted damping, ready to run (its <code>RUN_ME.md</code> has
+the command).</p>
 <form method=post action=/jobs/fit_sim>{tok}
 <label for=simf-sim>Simulator</label><select id=simf-sim name=sim required><option value="gazebo">Gazebo Harmonic</option>
 <option value="mujoco">MuJoCo</option><option value="holoocean">HoloOcean (Fossen torpedo)</option>

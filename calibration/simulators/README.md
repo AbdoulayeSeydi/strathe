@@ -117,7 +117,8 @@ held, `fit-sim` and `fit-stonefish` fit again with it held. Both are scored, and
 
 **Gazebo: a world that runs the result.**
 - **What it is:** `calibrated_world/` is a copy of your world with the calibrated model in it. An included model folder
-  is copied, not linked. Run it from the output folder with `gz sim calibrated_world/<your world>.sdf`. Your own files
+  is copied, not linked, and referred to as `model://`, so the folder still runs when you move or share it.
+  `calibrated_world/RUN_ME.md` has the one-line command (macOS, Linux, Windows). Your own files
   aren't changed.
 - **The physics step:** a fit can find damping too stiff for your world's step. Gazebo applies it step by step, so it
   blows up. Strathe checks each axis's damping time constant against the step. When the step is too long, it scores

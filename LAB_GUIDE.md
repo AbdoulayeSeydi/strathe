@@ -146,7 +146,8 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 **Timing:**
 - **Calibration:** a few minutes on a small log set, about an hour on large ones.
 - **Keep it awake:** the machine is kept awake, but closing a laptop lid still sleeps it, so keep it on mains power.
-- **If it was interrupted:** run the same command again with `--finish` to keep the best result so far.
+- **If it was interrupted:** run the same command again with `--finish` to keep the best result so far. With
+  `--estimate-current` it finishes the step that was running, and the report says which.
 - **To repeat a calibration exactly:** add `--seed N` with the seed it printed (also in its report).
 - **A hard calibration:** add `--restarts 3` (or 4). The fit starts from that many points and keeps the one that fits
   your training recordings best; the first fit takes that many times as long. The report lists each start's result,
@@ -176,7 +177,7 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
     loses to standing still.
   - **When the fit made the attitude worse** by moving the centre of gravity, Strathe fitted again with it held and
     kept the better model. The other is next to it (`..._cg_tuned` or `..._cg_held`), and the report says why.
-  - **Gazebo:** `calibrated_world/` runs the result as it is: `gz sim calibrated_world/<your world>.sdf`. It uses a
+  - **Gazebo:** `calibrated_world/` runs the result as it is; its `RUN_ME.md` has the one-line command. It uses a
     shorter physics step when the fitted damping needs one.
   - **If it was interrupted:** run the same command again with `--finish`, as for `calibrate`. It finishes from the
     best point so far in minutes, and the report says it isn't converged.

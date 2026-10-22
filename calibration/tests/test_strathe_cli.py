@@ -572,8 +572,45 @@ def test_calibrate_finish_turns_an_interrupted_fit_into_a_result(tmp_path, capsy
     assert "interrupted" in fin[fin.index("--reason") + 1]
     import finalize_checkpoint
     finalize_checkpoint.build_parser().parse_args(fin[2:])
-    assert cli.main(["calibrate", "--data", str(logs), "--out", str(out), "--finish", "--estimate-current"],
-                    runner=run) == 2
+
+
+
+def test_finish_with_current_estimation_finishes_the_step_that_was_interrupted(tmp_path, capsys):
+    """F21: --finish refused --estimate-current runs, the longest calibrations (B8: 5-20 h)."""
+    logs, out = tmp_path / "logs", tmp_path / "out"
+    logs.mkdir()
+    calls = []
+    run = lambda cmd: calls.append(cmd) or 0
+    args = ["calibrate", "--data", str(logs), "--out", str(out), "--estimate-current", "--current-rounds", "2",
+            "--finish"]
+    assert cli.main(args, runner=run) == 2 and "nothing to finish" in capsys.readouterr().out
+    # interrupted in round 1: finished from round 1's checkpoint, into the output folder, in still water
+    (out / "current_round1").mkdir(parents=True)
+    (out / "current_round1" / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    assert cli.main(args, runner=run) == 0
+    fin = calls[0]
+    assert fin[1] == "finalize_checkpoint.py" and fin[fin.index("--checkpoint") + 1] == str(out / "current_round1" /
+                                                                                          "checkpoint.yaml")
+    assert fin[fin.index("--output-dir") + 1] == str(out) and "--currents-file" not in fin
+    assert "current round 1 of 2" in fin[fin.index("--reason") + 1]
+    assert not any(c[1] in ("run_calibration.py", "estimate_current.py") for c in calls)   # no new fitting
+    # interrupted in round 2, but round 1's currents are missing: a plain message
+    calls.clear()
+    (out / "current_round2").mkdir()
+    (out / "current_round2" / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    assert cli.main(args, runner=run) == 2 and "currents aren't known" in capsys.readouterr().out
+    (out / "current_round1" / "currents.csv").write_text("file,vx_mps\n")
+    assert cli.main(args, runner=run) == 0
+    assert calls[0][calls[0].index("--currents-file") + 1] == str(out / "current_round1" / "currents.csv")
+    # interrupted in the final fit: finished from its checkpoint with the last round's currents
+    calls.clear()
+    (out / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    (out / "current_round2" / "currents.csv").write_text("file,vx_mps\n")
+    assert cli.main(args, runner=run) == 0
+    fin = calls[0]
+    assert fin[fin.index("--checkpoint") + 1] == str(out / "checkpoint.yaml") and "--output-dir" not in fin
+    assert fin[fin.index("--currents-file") + 1] == str(out / "current_round2" / "currents.csv")
+    assert "final fit" in fin[fin.index("--reason") + 1]
 
 
 def test_calibrate_without_a_checkpoint_still_fails_clearly(tmp_path, capsys):
