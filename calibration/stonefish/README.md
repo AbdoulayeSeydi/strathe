@@ -3,10 +3,10 @@
 Two commands put Strathe's calibration into the simulator you already use:
 - **`strathe fit-stonefish`** fits your Stonefish model's own settings by replaying your logs in Stonefish (an hour or
   more). This is the one that improves Stonefish (53–66% less error after a minute on ALPHA RISE, #73).
-- **`strathe export-stonefish`** converts your Strathe calibration's values into your Stonefish model's settings
-  (minutes), checks each one, and scores the result. It helps over a minute and hurts over seconds (see
-  [Why converting isn't enough](#why-converting-isnt-enough)): use it to see how far your model is from your
-  calibration, not as the calibrated model.
+- **`strathe export-stonefish`** puts your Strathe calibration into your Stonefish model (minutes), checks each value,
+  and scores the result. With Stonefish built with the patch (section 1), Strathe's damping goes in as it is and the
+  model behaves like Strathe's (#80). Without it, the drag has to be converted, which hurts over seconds (see
+  [Why converting isn't enough](#why-converting-isnt-enough)).
 
 `fit-stonefish` makes the simulator you already use match your real vehicle.
 - **What it fits:** your own Stonefish model's settings on one part of the vehicle (usually the hull):
@@ -21,14 +21,33 @@ Two commands put Strathe's calibration into the simulator you already use:
 On URI's ALPHA RISE, Stonefish calibrated this way had 53–66% less position error after 60 s on unseen missions than
 URI's original model, holding the surge added mass at a slender-body estimate (PROJECT_STATUS.md #71–#73).
 
+## 0. The quick way
+- **One command:** `python strathe.py setup-sim stonefish` clones the Stonefish fork the patch is made for
+  (GSO-soslab/stonefish @ 7d52673), applies the patch, builds and installs Stonefish into `~/.strathe/stonefish` and
+  builds the replay tool. It finishes with the `strathe check` line. Your own checkout: `--source PATH`. Elsewhere:
+  `--prefix PATH`.
+  - **Dependencies:** git, cmake, a C++ compiler, GLM, SDL2, Freetype and OpenGL. On macOS also Homebrew's `libomp`,
+    whose flags are added for you.
+- **Nothing to build, with Docker:**
+  `docker build -t strathe-stonefish-replay -f calibration/stonefish/Dockerfile calibration/stonefish` once, then
+  `--replay-tool docker:strathe-stonefish-replay`. **Not yet tested:** the development machine had no Docker.
+
+Sections 1 and 2 below do the same steps by hand.
+
 ## 1. Build Stonefish with the added-mass patch (recommended)
 Stonefish gives a body one added mass: the average of its three axes. A slender vehicle carries far less water moving
 forward than sideways (ALPHA RISE: about 11 kg forward, about 120 kg sideways), so the average makes its surge
-response wrong. `stonefish_added_mass.patch` (about 100 lines) adds two things:
-- **Per-part settings in the scenario:** `<hydrodynamics added_mass="x y z" added_inertia="x y z"
-  anisotropic_added_mass="true"/>`.
-- **Per-axis added mass, applied each step:** the difference from the average, and the Munk moment, as forces. It's
-  off unless asked for, so other scenarios behave exactly as before.
+response wrong. Stonefish's drag also can't take a calibration's values (below: it grows with speed cubed and couples
+the axes). `stonefish_added_mass.patch` (about 200 lines) adds:
+- **Per-axis added mass:** `<hydrodynamics added_mass="x y z" added_inertia="x y z" anisotropic_added_mass="true"/>`
+  on a part. The difference from the average, and the Munk moment, are applied as forces each step.
+- **Per-axis damping, the same law Strathe calibrates** (#80): `<hydrodynamics damping_linear="Xu Yv Zw"
+  damping_linear_rot="Kp Mq Nr" damping_quadratic="Xuu Yvv Zww" damping_quadratic_rot="Kpp Mqq Nrr"
+  damping_point="x y z"/>`. Force per axis = (linear + quadratic·|v|)·v, at `damping_point` (in the robot's frame), in
+  place of the whole vehicle's mesh drag. `export-stonefish` writes it.
+
+Both are off unless a vehicle file asks for them, so other scenarios behave exactly as before. Stonefish without the
+patch ignores the extra settings.
 
 ```bash
 cd stonefish                                  # your Stonefish checkout (e.g. github.com/patrykcieslak/stonefish)
@@ -44,6 +63,9 @@ and says so.
 cmake -S calibration/stonefish -B calibration/stonefish/build -DCMAKE_PREFIX_PATH=<your Stonefish install prefix>
 cmake --build calibration/stonefish/build
 ```
+**Check what your build supports:** `python strathe.py check` reports the replay tool and whether its Stonefish has the
+patch's added mass and damping. Updated the patch? Re-apply it to a clean Stonefish checkout, rebuild and reinstall
+Stonefish, then rebuild this tool.
 (Built it before #76? Rebuild it: `export-stonefish` needs the mesh areas, inertia and centres it reports (#74), and until
 #76 a tool built against unpatched Stonefish listed no parts, so neither command could run without the patch.)
 This builds `calibration/stonefish/build/strathe_stonefish_replay`, which `fit-stonefish` finds on its own
@@ -91,6 +113,56 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `stonefish_fit_report.md`: the held-out comparison (drift after 10, 30 and 60 s, velocity and attitude error), with
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
+- **Read the report's bottom line first.** It says when the calibrated model turns or tilts worse than your original,
+  blows up in some unseen windows, or loses to standing still.
+- **When the fit made the attitude worse by moving the centre of gravity,** Strathe fits again with it held, scores
+  both and keeps the better (`calibration/simulators/README.md`, "What the fit does for you"). The other is next to it
+  as `<your vehicle file>_calibrated_cg_tuned.scn` or `_cg_held.scn`. The second fit starts from your model as it is
+  and takes about as long as the first. `--no-cg-rerun` (or the web card's checkbox) skips it.
+- **Interrupted?** The best point so far is in `stonefish_fit_checkpoint.json`. Run the same command again with
+  `--finish` to score it and write the vehicle file and report, without fitting again.
+
+## Describe your vehicle for Strathe from your Stonefish model: `describe-stonefish`
+
+```bash
+python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 \
+    --mass 33 --find my_stonefish_pkg=/path/to/my_stonefish_pkg --out my_vehicle_spec.yaml
+```
+
+It writes the vehicle description `strathe calibrate --spec` needs, from what your model already says, so you don't
+fill in `templates/vehicle_spec_template.yaml` by hand. It takes:
+- **mass:** the model's, or `--mass` (weigh it: the model's can differ, and its rigid inertia is scaled to it);
+- **inertia:** roll, pitch and yaw, rigid plus added, about the logs' reference point;
+- **added mass** per axis: Stonefish's geometric estimate for each external part;
+- **drag** per axis: from the parts' coefficients and mesh areas, Stonefish's cubic law matched at `--cruise-speed`;
+- **pitch and yaw damping:** from the hull's length and diameter;
+- **net buoyancy:** the model's trim;
+- **the centre of gravity's offset** below the centre of buoyancy;
+- **the hull-lift terms:** with `--hull-lift`, for a slender hull.
+
+**Limits** come from the hull's size, not the model's values:
+- **inertia:** the model's rigid inertia plus slender-body added inertia, 1/5 to 3× (roll 1/5 to 10×);
+- **added mass:** surge up to the displaced mass, sway and heave up to 2× strip theory (ρπr²L);
+- **drag:** a drag coefficient of 0.05–8 on the frontal area (surge) and 0.03–2.5 on the side area (sway, heave,
+  and pitch and yaw by strip theory, up to 3× for fins); linear drag up to 1 m/s × the quadratic limit. Damping is
+  kept generous on purpose: in an open-loop replay it also absorbs what the model leaves out;
+- **net buoyancy:** ±12% of the weight around the model's trim; **CG below CB:** within the hull's radius.
+
+The model's values can be far off either way. ALPHA RISE's sway and heave added mass are 3× strip theory, and its nose
+drag is 20× smaller than the fitted one. With limits sized around those values (5× either way), the fit landed
+somewhere that matched the training mission and drifted 64 m on the unseen one. A model value outside the limits
+starts just inside them, and the command lists it.
+
+**Calibrate it with `--restarts 4`.** Limits sized from the hull are wide, so where the fit ends up depends on where it
+starts. On URI's ALPHA RISE (PROJECT_STATUS.md #77, #79), mean skill on the unseen mission:
+
+| Mission held out | One start | 4 starts | Hand-written description |
+|---|---|---|---|
+| Bay | −3.18 (blew up: 66 m drift at 60 s) | +0.191, 4.0 m at 60 s | +0.183, 4.0 m |
+| Pond | +0.159 | +0.205, 5.3 m at 60 s | +0.227, 3.5 m |
+
+Four starts take about four times as long. Strathe keeps the start with the lowest training cost, so the choice never
+uses the unseen mission, and the report lists each start's cost.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash
@@ -105,8 +177,9 @@ mass (calibrations from before #74 need `--mass`). It then sets, on the one part
 - **inertia:** roll, pitch and yaw, rigid plus added. It uses added inertia first, then the part's rigid `<inertia>`
   where that isn't enough, never below 5% of Stonefish's own;
 - **added mass per axis** (needs the patch);
-- **drag per axis:** Cd and Cf fitted to Strathe's drag over the speeds your logs cover, after what the other parts
-  already give.
+- **drag:** with the patch, Strathe's per-axis damping as it is, all six axes, at `--reference-point`, replacing the
+  vehicle's mesh drag. Without it, Cd and Cf fitted to Strathe's drag over the speeds your logs cover, after what the
+  other parts already give (an approximation: see below).
 
 Each value is checked by reloading your vehicle in Stonefish (the report's "before and after" table). You get
 `<your vehicle file>_strathe.scn`, `stonefish_export_report.md` (with what can't be carried, and why) and
@@ -131,12 +204,39 @@ Measured on Stonefish's code and in the replay (PROJECT_STATUS.md #74):
   returns to the original's. **Pitch** is partly the CG (pond: 24° → 16° when it's kept) and partly the rotational
   drag. The export report lists, per axis, what got better and worse.
 
-So values can't be copied into Stonefish; they have to be fitted through it. `fit-stonefish` does that. Starting it
-from the converted values (`--from-strathe`) didn't help on ALPHA RISE (#74); start from your own model.
+So with Stonefish's own drag, values can't be copied in; they have to be fitted through it. `fit-stonefish` does that.
+Starting it from the converted values (`--from-strathe`) didn't help on ALPHA RISE (#74); start from your own model.
+
+**With the patch's damping (#80), they can.** Stonefish then applies Strathe's damping law itself. Strathe's model is
+written about the logs' reference point, so the export also puts the vehicle's centre of gravity there and moves the
+buoyancy part to put the centre of buoyancy at the calibrated offset from it (`--buoyancy-part` needed). Otherwise the
+logged thrust, acting about 10 cm from Stonefish's own CG, pitches the vehicle. On URI's ALPHA RISE (the baseline
+calibration, position error after 10 / 30 / 60 s on the unseen mission):
+
+| Model | Pond held out | Bay held out |
+|---|---|---|
+| URI's Stonefish model | 2.40 / 15.9 / 47.6 m | 1.92 / 11.4 / 37.4 m |
+| Strathe's values, drag converted | 4.16 / 14.8 / 34.3 m | 4.48 / 13.9 / 30.9 m |
+| **Strathe's values, with the patch's damping** | **1.85 / 10.1 / 36.0 m** | **1.44 / 5.6 / 17.6 m** |
+| Strathe's own model | 1.74 / 10.3 / 26.4 m | 1.47 / 9.1 / 30.6 m |
+| `fit-stonefish`, surge added mass held | 2.89 / 9.7 / 21.6 m | 2.48 / 7.2 / 13.8 m |
+
+- **Speeds match Strathe's model** (forward speed error after 10 s: 0.44 → 0.09 m/s and 0.42 → 0.13 m/s; Strathe's
+  0.09 and 0.12), and the error after 10 s falls 56–68% against the conversion.
+- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°.
+  That was the water density: these runs used `--density-by-date`. Scored without it, the pond export reproduces
+  Strathe's own model (pitch 11.2° against 10.9°, identical velocity errors, #88).
+- **`--density-by-date`:** give it only when the vehicle kept the same ballast in both waters. URI's ALPHA RISE scored
+  better without it, so it was probably re-trimmed for the pond, as vehicles usually are for fresh water.
+- **The steps that got here:** carrying the damping alone left pitch at 36° / 23°; carrying Strathe's fore-aft offset
+  27° / 14°; the CG at the reference point 19° / 4°.
+- **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute
+  matters (better on the pond).
 
 ## Limits
-- **One part is tuned,** with diagonal (per-axis) drag and added mass. Stonefish computes the rotational drag from the
-  same coefficients over the part's mesh; it can't be set on its own.
+- **One part is tuned,** with diagonal (per-axis) drag and added mass. Without the patch's damping, Stonefish computes
+  the rotational drag from the same coefficients over the part's mesh, so it can't be set on its own. (`fit-stonefish`
+  fits the mesh coefficients; it doesn't use the patch's damping yet.)
 - **No hull lift.** Stonefish has no lift term for a hull; the fit may raise sideways drag to stand in for it.
 - **The replay is open loop:** logged forces, still water, the vehicle at `--start-depth` (default 3 m), so the
   surface isn't modelled. Over a closed-loop mission, "keep the starting velocity" is a hard baseline; the report

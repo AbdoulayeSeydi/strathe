@@ -20,7 +20,6 @@ Outputs, in the output folder:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import csv
 import json
 import math
@@ -35,17 +34,19 @@ from typing import Optional
 
 import numpy as np
 import yaml
-from scipy.spatial.transform import Rotation
+
+from simfit import core
+from simfit.core import (ANGULAR_FLOOR, EVAL_STRIDE_S, EVAL_WINDOW_S, FIT_STRIDE_S, FIT_WINDOW_S,  # noqa: F401
+                         HORIZONS_S, LINEAR_FLOOR, SimFitError, axis_scales, baselines, path, score,
+                         strathe_free_run, window_rows, windows)
+from simfit.core import load_runs as _load_runs, table as _table  # noqa: F401
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TOOL = os.path.join(HERE, "stonefish", "build", "strathe_stonefish_replay")
 KNOBS = ("drag", "added_mass", "buoyancy", "cg")
-FIT_WINDOW_S, FIT_STRIDE_S = 30.0, 30.0
-EVAL_WINDOW_S, EVAL_STRIDE_S, HORIZONS_S = 60.0, 10.0, (10, 30, 60)
 
 
-class StonefishFitError(RuntimeError):
-    """A plain message for the lab: what is wrong and what to do."""
+StonefishFitError = SimFitError  # a plain message for the lab: what is wrong and what to do (one class for every simulator)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -106,8 +107,12 @@ class PartSettings:
     anisotropic: bool = False
     cg_shift: Optional[list] = None          # metres added to the part's <cg xyz> (x, y, z)
     buoyancy_scale: Optional[float] = None   # volume factor for the buoyancy part
+    buoyancy_shift: Optional[list] = None    # metres added to the buoyancy part's <compound_transform xyz> (#80)
     mass: Optional[float] = None             # the part's <mass value>, kg
     inertia: Optional[list] = None           # the part's <inertia xyz>, kg m2 (rigid, about its CG)
+    # Strathe's per-axis damping, replacing the vehicle's mesh drag (needs the patch's STONEFISH_AXIS_DAMPING_PATCH):
+    # {"linear": [Xu, Yv, Zw], "linear_rot": [Kp, Mq, Nr], "quadratic": [Xuu, ...], "quadratic_rot": [...], "point": xyz}
+    axis_damping: Optional[dict] = None
 
 
 def _search(pattern: str, text: str):
@@ -139,7 +144,7 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
     if base is None or top is None:
         return top if base is None else base
     out = PartSettings(**base.__dict__)
-    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia"):
+    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
         if getattr(top, k) is not None:
             setattr(out, k, getattr(top, k))
     if top.added_mass is not None:
@@ -148,6 +153,8 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
         out.cg_shift = [a + b for a, b in zip(base.cg_shift or [0.0, 0.0, 0.0], top.cg_shift)]
     if top.buoyancy_scale is not None:
         out.buoyancy_scale = (base.buoyancy_scale or 1.0) * top.buoyancy_scale
+    if top.buoyancy_shift is not None:
+        out.buoyancy_shift = [a + b for a, b in zip(base.buoyancy_shift or [0.0, 0.0, 0.0], top.buoyancy_shift)]
     return out
 
 
@@ -170,6 +177,9 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
             hydro["added_mass"] = _fmt(s.added_mass)
             hydro["added_inertia"] = _fmt(s.added_inertia if s.added_inertia is not None else [0, 0, 0])
             hydro["anisotropic_added_mass"] = "true" if s.anisotropic else "false"
+        if s.axis_damping is not None:
+            for k in ("linear", "linear_rot", "quadratic", "quadratic_rot", "point"):
+                hydro[f"damping_{k}"] = _fmt(s.axis_damping[k])
         if hydro:
             m = _search(r"<hydrodynamics\b[^>]*/>", body)
             if m:
@@ -195,6 +205,16 @@ def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Op
             xyz = [float(x) + d for x, d in zip(m.group(1).split(), s.cg_shift)]
             body = body[:m.start(1)] + _fmt(xyz) + body[m.end(1):]
         text = text[:a] + body + text[b:]
+    if buoyancy_part and s.buoyancy_shift is not None and any(s.buoyancy_shift):
+        span = _part_span(text, buoyancy_part)
+        if span:
+            a, b = span
+            body = text[a:b]
+            m = _search(r'<compound_transform\b[^>]*\bxyz="([^"]*)"', body)
+            if not m:
+                raise StonefishFitError(f"buoyancy part '{buoyancy_part}' has no <compound_transform xyz=...> to move")
+            xyz = [float(x) + d for x, d in zip(m.group(1).split(), s.buoyancy_shift)]
+            text = text[:a] + body[:m.start(1)] + _fmt(xyz) + body[m.end(1):] + text[b:]
     if buoyancy_part and s.buoyancy_scale is not None:
         span = _part_span(text, buoyancy_part)
         if span:
@@ -299,13 +319,23 @@ class Replay:
     hz: float = 200.0
     dt: float = 0.1
 
-    def _argv(self, scenario):
-        return self.tool + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
+    def _argv(self, scenario, folders=()):
+        if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86)
+            dirs = sorted({os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders})
+            prefix = ["docker", "run", "--rm", *[x for d in dirs for x in ("-v", f"{d}:{d}")], self.tool[0][7:]]
+        else:
+            prefix = self.tool
+        return prefix + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
                             "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
                             "--dt", f"{self.dt:g}"]
 
     def info(self, scenario: str) -> dict:
-        r = subprocess.run(self._argv(scenario) + ["--info"], capture_output=True, text=True, timeout=600)
+        try:
+            r = subprocess.run(self._argv(scenario) + ["--info"], capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise StonefishFitError("the Stonefish replay tool didn't load the scenario within 10 minutes. Check it "
+                                    "runs on its own (calibration/stonefish/README.md step 2); if the computer slept or "
+                                    "the run was paused meanwhile, run the command again")
         js = [ln for ln in r.stdout.splitlines() if ln.startswith("{")]
         if r.returncode or not js:
             raise StonefishFitError(f"the Stonefish replay tool couldn't load the scenario: {r.stderr.strip()[-800:]}")
@@ -320,8 +350,12 @@ class Replay:
             for i, rows in enumerate(rows_by_window):
                 for k, row in enumerate(rows):
                     f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
-        r = subprocess.run(self._argv(scenario) + ["--windows", fin, "--out", fout], capture_output=True, text=True,
-                           timeout=24 * 3600)
+        try:
+            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+                               capture_output=True, text=True, timeout=24 * 3600)
+        except subprocess.TimeoutExpired:
+            raise StonefishFitError("the Stonefish replay didn't finish within 24 hours; try fewer recordings or "
+                                    "--workers to run them in parallel")
         if r.returncode:
             raise StonefishFitError(f"the Stonefish replay failed: {r.stderr.strip()[-800:]}")
         got = {}
@@ -340,104 +374,15 @@ class Replay:
 
 def find_tool(path: Optional[str]) -> list:
     p = path or os.environ.get("STRATHE_STONEFISH_REPLAY") or DEFAULT_TOOL
+    if p.startswith("docker:"):
+        if not shutil.which("docker"):
+            raise StonefishFitError("--replay-tool docker:... needs Docker (docker.com), or build the tool: "
+                                    "python strathe.py setup-sim stonefish")
+        return [p]
     if not (os.path.exists(p) and os.access(p, os.X_OK)):
         raise StonefishFitError(f"the Stonefish replay tool isn't built ({p}). Build it against your Stonefish: "
                                 f"calibration/stonefish/README.md, or give its path with --replay-tool")
     return [p]
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Windows and scores
-# ---------------------------------------------------------------------------------------------------------------------
-
-def windows(run, length_s: float, stride_s: float) -> list:
-    n = int(round(length_s / run.dt)) + 1
-    return [(a, n) for a in range(0, len(run.real_nu) - n + 1, max(1, int(round(stride_s / run.dt))))]
-
-
-def window_rows(run, wins) -> list:
-    return [np.hstack([run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
-            for a, n in wins]
-
-
-def path(V, Q, dt):
-    R = Rotation.from_quat(np.nan_to_num(Q) + np.array([0, 0, 0, 1e-12]))
-    return np.vstack([np.zeros(3), np.cumsum(R.apply(V[:, :3]) * dt, axis=0)[:-1]])
-
-
-def score(runs_wins: list, preds: list, horizons=HORIZONS_S) -> dict:
-    """Median drift, velocity RMSE per axis and attitude error per horizon, over all windows of all recordings."""
-    vel = {h: [] for h in horizons}
-    drift = {h: [] for h in horizons}
-    att = {h: [] for h in horizons}
-    total = diverged = 0
-    for (run, wins), pr in zip(runs_wins, preds):
-        for (a, n), (V, Q) in zip(wins, pr):
-            total += 1
-            if np.isnan(V).any():
-                diverged += 1
-                continue
-            rv, rq = run.real_nu[a:a + n], run.orientation_quat[a:a + n]
-            Pp, Pr = path(V, Q, run.dt), path(rv, rq, run.dt)
-            e = np.degrees(np.abs((Rotation.from_quat(Q).as_euler("xyz") - Rotation.from_quat(rq).as_euler("xyz")
-                                   + np.pi) % (2 * np.pi) - np.pi))
-            for h in horizons:
-                m = int(round(h / run.dt))
-                if m >= n:
-                    continue
-                vel[h].append((V[1:m + 1] - rv[1:m + 1]) ** 2)
-                drift[h].append(float(np.linalg.norm(Pp[m] - Pr[m])))
-                att[h].append(e[m])
-    out = {"windows": total, "diverged": diverged}
-    for h in horizons:
-        if drift[h]:
-            out[f"{h}s"] = {"drift_median_m": round(float(np.median(drift[h])), 3),
-                            "drift_p90_m": round(float(np.percentile(drift[h], 90)), 3),
-                            "velocity_rmse": np.sqrt(np.concatenate(vel[h]).mean(axis=0)).round(4).tolist(),
-                            "attitude_error_median_deg": np.median(np.array(att[h]), axis=0).round(2).tolist()}
-    return out
-
-
-def strathe_free_run(params, vehicle, run, a: int, n: int):
-    """Strathe's own model over the same window: its physics step, its own attitude (as validation.free_run)."""
-    from dynamics_model import SimulationConfig
-    from fast_dynamics import FastDynamics
-    acc = FastDynamics(params, vehicle).acceleration_trig
-    cfg = SimulationConfig(dt=run.dt)
-    sub, h = cfg.n_substeps, cfg.sub_dt
-    qx, qy, qz, qw = (float(x) for x in run.orientation_quat[a])
-    v = [float(x) for x in run.real_nu[a]]
-    V, Q = np.full((n, 6), np.nan), np.full((n, 4), np.nan)
-    for k in range(n):
-        V[k], Q[k] = v, (qx, qy, qz, qw)
-        if k + 1 == n:
-            break
-        tau = run.forces_torques[a + k].tolist()
-        for _ in range(sub):
-            r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
-            vd = acc(v, tau, r21, r22, -r20, 1.0)
-            v = [v[j] + vd[j] * h for j in range(6)]
-            if not all(math.isfinite(x) and abs(x) < 1e3 for x in v):
-                return V, Q
-            wx, wy, wz = v[3] * h, v[4] * h, v[5] * h
-            th = math.sqrt(wx * wx + wy * wy + wz * wz)
-            if th > 1e-12:
-                c, s_ = math.cos(th / 2), math.sin(th / 2) / th
-                dx, dy, dz = wx * s_, wy * s_, wz * s_
-                qw, qx, qy, qz = (qw * c - qx * dx - qy * dy - qz * dz, qw * dx + qx * c + qy * dz - qz * dy,
-                                  qw * dy - qx * dz + qy * c + qz * dx, qw * dz + qx * dy - qy * dx + qz * c)
-        nq = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
-        qx, qy, qz, qw = qx / nq, qy / nq, qz / nq, qw / nq
-    return V, Q
-
-
-def baselines(runs_wins: list) -> dict:
-    zero, keep = [], []
-    for run, wins in runs_wins:
-        zero.append([(np.zeros((n, 6)), np.repeat(run.orientation_quat[a:a + 1], n, axis=0)) for a, n in wins])
-        keep.append([(np.repeat(run.real_nu[a:a + 1], n, axis=0), np.repeat(run.orientation_quat[a:a + 1], n, axis=0))
-                     for a, n in wins])
-    return {"no motion": score(runs_wins, zero), "keeps its starting velocity": score(runs_wins, keep)}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -546,138 +491,26 @@ class Knobs:
         return s
 
 
-LINEAR_FLOOR, ANGULAR_FLOOR = 0.05, 0.02  # m/s, rad/s: an axis that barely varies isn't weighted without limit
-
-
-def axis_scales(velocities: np.ndarray, weighting: str = "variation") -> np.ndarray:
-    """What each axis's velocity error is divided by in the fit. 'variation' (default): the axis's standard deviation
-    over the training recordings, floored, so a vehicle cruising steadily at 0.7 m/s weighs surge errors by how much
-    surge actually changes. 'magnitude': its RMS (Strathe's own objective's scale; #72's first runs), which makes
-    surge errors cheap during a cruise and let the fit trade surge for pitch and yaw (#73)."""
-    if weighting == "magnitude":
-        sc = np.sqrt(np.mean(velocities ** 2, axis=0))
-    elif weighting == "variation":
-        sc = np.std(velocities, axis=0)
-    else:
-        raise StonefishFitError(f"unknown weighting {weighting!r}: use variation or magnitude")
-    return np.maximum(sc, np.array([LINEAR_FLOOR] * 3 + [ANGULAR_FLOOR] * 3))
-
-
 def fit(scenario: Scenario, replay: Replay, train: list, knobs: Knobs, work: str, densities: dict,
         workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0, log=print,
-        weighting: str = "variation") -> dict:
-    """Least squares over Stonefish's own settings on the training recordings (30 s free-running windows every 30 s;
-    velocity error per axis scaled by axis_scales, plus end-of-window drift scaled by the no-motion drift). The
-    Jacobian's Stonefish runs go in parallel."""
-    from scipy.optimize import least_squares
-    runs_wins = [(run, windows(run, FIT_WINDOW_S, FIT_STRIDE_S)) for run in train]
-    if not any(w for _, w in runs_wins):
-        raise StonefishFitError(f"the training recordings are shorter than one {FIT_WINDOW_S:g} s window")
-    rows = [window_rows(run, w) for run, w in runs_wins]
-    scale = axis_scales(np.vstack([run.real_nu for run in train]), weighting)
-    real_paths = [[path(run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.dt) for a, n in w] for run, w in runs_wins]
-    d0 = max(float(np.median([np.linalg.norm(P[-1]) for ps in real_paths for P in ps])), 0.1)
-    counter = {"n": 0}
-
-    def residuals_at(x, tag):
-        d = os.path.join(work, f"eval_{tag}")
-        out = []
-        for i, ((run, wins), rw, rp) in enumerate(zip(runs_wins, rows, real_paths)):
-            scn = scenario.write_runnable(os.path.join(d, f"scn{i}"), knobs.settings(x), densities.get(run.date))
-            preds = replay.run(scn, rw, os.path.join(d, f"run{i}"))
-            for (a, n), (V, Q), Pr in zip(wins, preds, rp):
-                if np.isnan(V).any():
-                    out.append(np.full(6 * (n - 1) + 1, 10.0))
-                    continue
-                e = ((V[1:] - run.real_nu[a + 1:a + n]) / scale).ravel() / math.sqrt(n - 1)
-                dr = np.linalg.norm(path(V, Q, run.dt)[-1] - Pr[-1]) / d0
-                out.append(np.append(e, math.sqrt(drift_weight) * dr))
-        shutil.rmtree(d, ignore_errors=True)
-        return np.concatenate(out)
-
-    cache = {}
-
-    def fun(x):
-        key = tuple(np.round(x, 12))
-        if key in cache:
-            return cache[key]
-        counter["n"] += 1
-        r = residuals_at(x, f"f{counter['n']}")
-        log(f"  evaluation {counter['n']}: cost {0.5 * float(r @ r):.4f}")
-        cache.clear()
-        cache[key] = r
-        return r
-
-    lo, hi = knobs.bounds()
-    h = 0.05
-
-    def jac(x):
-        f0 = fun(x)
-        cols = [None] * len(x)
-
-        def col(j):
-            xj = x.copy()
-            step = h if x[j] + h <= hi[j] else -h
-            xj[j] += step
-            return j, (residuals_at(xj, f"j{counter['n']}_{j}") - f0) / step
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-            for j, c in ex.map(col, range(len(x))):
-                cols[j] = c
-        return np.column_stack(cols)
-
-    x0 = knobs.x0()
-    r0 = fun(x0)  # cached: least_squares' first evaluation reuses it
-    res = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf", max_nfev=max_iterations, x_scale=1.0)
-    best = res.x
-    return {"x": best.tolist(), "names": knobs.names(), "values": knobs.values(best), "axis_scales": scale.tolist(),
-            "start_cost": 0.5 * float(r0 @ r0),
-            "cost": float(res.cost), "evaluations": counter["n"], "status": res.message,
-            "settings": knobs.settings(best)}
+        weighting: str = "variation", checkpoint: str = None, fingerprint: dict = None) -> dict:
+    """Least squares over Stonefish's own settings on the training recordings (simfit.core.fit, with the tuned part's
+    settings written into the lab's scenario and the windows replayed in Stonefish)."""
+    def simulate(x, i, run, rows, d):
+        scn = scenario.write_runnable(os.path.join(d, f"scn{i}"), knobs.settings(x), densities.get(run.date))
+        return replay.run(scn, rows, os.path.join(d, f"run{i}"))
+    f = core.fit(simulate, train, knobs, work, workers, max_iterations, drift_weight, log, weighting,
+                 checkpoint=checkpoint, fingerprint=fingerprint)
+    f["settings"] = knobs.settings(np.array(f["x"]))
+    return f
 
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The command
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _load_runs(data_dir: str, heldout_dates: Optional[list]):
-    from data_split import discover_csv_files, split_by_date
-    from objective import DatasetConfig, load_run
-    files = discover_csv_files(data_dir)[0]
-    split = split_by_date(files, heldout_dates=heldout_dates)
-    rate = None
-    rp = os.path.join(data_dir, "ingest_report.json")
-    if os.path.exists(rp):
-        rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
-    cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
-    return [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files], split
-
-
-def _table(results: dict, horizons=HORIZONS_S) -> list:
-    L = ["| Model | " + " | ".join(f"drift {h} s" for h in horizons) + " | velocity error over 10 s, u v w (m/s) "
-         "| roll, pitch, yaw after 10 s | diverged |", "|---|" + "---|" * (len(horizons) + 3)]
-    for name, r in results.items():
-        cells = [f"{r[f'{h}s']['drift_median_m']:.2f} m" if f"{h}s" in r else "n/a" for h in horizons]
-        v = r.get("10s", {}).get("velocity_rmse")
-        a = r.get("10s", {}).get("attitude_error_median_deg")
-        L.append(f"| {name} | " + " | ".join(cells) + f" | {', '.join(f'{x:.3f}' for x in v[:3]) if v else 'n/a'} "
-                 f"| {', '.join(f'{x:.1f}°' for x in a) if a else 'n/a'} | {r['diverged']}/{r['windows']} |")
-    return L
-
-
 def _plot(results: dict, path_png: str) -> None:
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return
-    fig, ax = plt.subplots(figsize=(7, 4))
-    for name, r in results.items():
-        hs = [h for h in HORIZONS_S if f"{h}s" in r]
-        ax.plot(hs, [r[f"{h}s"]["drift_median_m"] for h in hs], marker="o", label=name)
-    ax.set_xlabel("prediction horizon [s]"); ax.set_ylabel("median position error [m]")
-    ax.set_title("Unseen recordings: original vs calibrated Stonefish model"); ax.grid(alpha=0.3); ax.legend(fontsize=8)
-    fig.tight_layout(); fig.savefig(path_png, dpi=120); plt.close(fig)
+    core.plot(results, path_png, "Unseen recordings: original vs calibrated Stonefish model")
 
 
 def run_fit_stonefish(a) -> int:
@@ -738,28 +571,91 @@ def run_fit_stonefish(a) -> int:
               f"{len(train)} training recording(s); {len(held)} held out ({', '.join(split.heldout_groups)}).", flush=True)
         for n in notes:
             print("  note: " + n, flush=True)
-        f = fit(scenario, replay, train, knobs, work, densities, a.workers, a.max_iterations,
-                log=lambda s: print(s, flush=True), weighting=a.weighting)
+        fingerprint = {"simulator": "stonefish", "model": os.path.abspath(a.scenario), "part": a.part,
+                       "data": os.path.abspath(a.data), "heldout": list(split.heldout_groups)}
+        checkpoints = {"first": os.path.join(out, "stonefish_fit_checkpoint.json"),
+                       "cg_held": os.path.join(out, "stonefish_fit_checkpoint_cg_held.json")}
+        finished = []
+        if not a.finish:
+            for c in checkpoints.values():   # a new fit: last run's checkpoints no longer apply
+                if os.path.exists(c):
+                    os.remove(c)
+
+        def fit_or_finish(kn, which):
+            if a.finish:
+                try:
+                    r = core.finish_from_checkpoint(checkpoints[which], kn, fingerprint)
+                except core.SimFitError as e:
+                    raise StonefishFitError(str(e))
+                r["settings"] = kn.settings(np.array(r["x"]))
+                if r.get("finished_from_checkpoint"):
+                    finished.append(which)
+                print(f"Finishing from {os.path.basename(checkpoints[which])}: the best of {r['evaluations']} evaluations "
+                      f"(cost {r['cost']:.4f}).", flush=True)
+                return r
+            print(f"  (the best point so far is saved to {checkpoints[which]}: if this is interrupted, run the same "
+                  f"command with --finish)", flush=True)
+            return fit(scenario, replay, train, kn, work, densities, a.workers, a.max_iterations,
+                       log=lambda s_: print(s_, flush=True), weighting=a.weighting, checkpoint=checkpoints[which],
+                       fingerprint=fingerprint)
+        f = fit_or_finish(knobs, "first")
         s = f["settings"]
-        vehicle_out = os.path.join(out, os.path.splitext(os.path.basename(scenario.vehicle_file))[0] + "_calibrated.scn")
-        scenario.write_calibrated_vehicle(vehicle_out, s)
+        stem = os.path.splitext(os.path.basename(scenario.vehicle_file))[0]
 
         print("Scoring the original and calibrated models on the held-out recordings...", flush=True)
         runs_wins = [(run, windows(run, EVAL_WINDOW_S, EVAL_STRIDE_S)) for run in held]
         results = {}
         base = scenario.base
-        models = [("Stonefish, original", None, None)]
+        counter = {"m": 0}
+
+        def score_models(models):
+            for label, under, settings in models:
+                counter["m"] += 1
+                m = counter["m"]
+                scenario.base = under
+                preds = []
+                for i, (run, wins) in enumerate(runs_wins):
+                    scn = scenario.write_runnable(os.path.join(work, f"eval{m}_scn{i}"), settings, densities.get(run.date))
+                    preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
+                results[label] = score(runs_wins, preds)
+            scenario.base = base
+        orig_label, cal_label = "Stonefish, original", "Stonefish, calibrated by Strathe"
+        models = [(orig_label, None, None)]
         if base is not None:
             models.append(("Stonefish with Strathe's values", base, None))
-        models.append(("Stonefish, calibrated by Strathe", base, s))
-        for m, (label, under, settings) in enumerate(models):
-            scenario.base = under
-            preds = []
-            for i, (run, wins) in enumerate(runs_wins):
-                scn = scenario.write_runnable(os.path.join(work, f"eval{m}_scn{i}"), settings, densities.get(run.date))
-                preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
-            results[label] = score(runs_wins, preds)
-        scenario.base = base
+        models.append((cal_label, base, s))
+        score_models(models)
+
+        # #90: the fit made the attitude worse by moving the centre of gravity: fit again with it held (from the
+        # model as it is), and keep the better of the two
+        rerun = None
+        worse = core.attitude_worse(results[orig_label], results[cal_label])
+        cg_holds = [n for n in holds if n.startswith("cg_shift")]
+        skipped_rerun = False
+        if worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun and a.finish \
+                and not os.path.exists(checkpoints["cg_held"]):
+            skipped_rerun = True   # finishing doesn't start a new fit; the report says how to get the second one
+        elif worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun:
+            print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
+                  f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
+                  f"this)...", flush=True)
+            knobs_b = Knobs(tuple(k for k in fit_knobs if k != "cg"), parts[a.part], a.axisymmetric, holds)
+            fb = fit_or_finish(knobs_b, "cg_held")
+            tuned_label, held_label = cal_label + " (centre of gravity tuned)", cal_label + " (centre of gravity held)"
+            results[tuned_label] = results.pop(cal_label)
+            score_models([(held_label, base, fb["settings"])])
+            use_held, why = core.prefer_cg_held(results[orig_label], results[tuned_label], results[held_label])
+            rerun = {"chosen": "held" if use_held else "tuned", "why": why, "attitude_worse": worse,
+                     "fit": {k: fb[k] for k in ("start_cost", "cost", "evaluations", "status")}}
+            other = s if use_held else fb["settings"]
+            if use_held:
+                f, s, knobs = fb, fb["settings"], knobs_b
+                fit_knobs = tuple(k for k in fit_knobs if k != "cg")
+            cal_label = held_label if use_held else tuned_label
+            rerun["other_vehicle_file"] = os.path.join(out, f"{stem}_calibrated_cg_{'tuned' if use_held else 'held'}.scn")
+            scenario.write_calibrated_vehicle(rerun["other_vehicle_file"], other)
+        vehicle_out = os.path.join(out, f"{stem}_calibrated.scn")
+        scenario.write_calibrated_vehicle(vehicle_out, s)
         if a.compare_params:
             from dynamics_model import CalibrationParameters, VehicleConstants
             doc = yaml.safe_load(open(a.compare_params, encoding="utf-8"))
@@ -781,11 +677,12 @@ def run_fit_stonefish(a) -> int:
                    "before": {k: parts[a.part][k] for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia")},
                    "after": {k: v for k, v in s.__dict__.items() if v is not None},
                    "stonefish_patched": bool(info.get("patched")),
-                   "calibrated_vehicle_file": vehicle_out, "heldout": results}
+                   "calibrated_vehicle_file": vehicle_out, "cg_rerun": rerun,
+                   "finished_from_checkpoint": finished, "heldout": results}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, "stonefish_fit.yaml"), "w"), sort_keys=False)
         _plot(results, os.path.join(out, "drift.png"))
-        orig = results["Stonefish, original"].get("60s", results["Stonefish, original"].get("30s", {}))
-        cal = results["Stonefish, calibrated by Strathe"].get("60s", results["Stonefish, calibrated by Strathe"].get("30s", {}))
+        orig = results[orig_label].get("60s", results[orig_label].get("30s", {}))
+        cal = results[cal_label].get("60s", results[cal_label].get("30s", {}))
         L = [f"# Stonefish model calibrated from your logs: {os.path.basename(scenario.vehicle_file)}\n",
              "## Bottom line\n"]
         if orig and cal:
@@ -794,6 +691,14 @@ def run_fit_stonefish(a) -> int:
                      f"error after the longest horizon is **{cal['drift_median_m']:.2f} m against "
                      f"{orig['drift_median_m']:.2f} m** for the original ({change:+.0f}%). Check every horizon below: "
                      f"a calibration can help over a minute and cost over seconds.\n")
+            L += core.report_warnings(results, orig_label, cal_label, "the calibrated model")
+        if rerun:
+            L.append(f"**Two fits were run.** The first moved the centre of gravity and made the attitude worse "
+                     f"({', '.join(rerun['attitude_worse'])}), so Strathe fitted again with the centre of gravity held. "
+                     + (f"`{os.path.basename(vehicle_out)}` is the one with it held: {rerun['why']}. The first is "
+                        if rerun["chosen"] == "held" else
+                        f"`{os.path.basename(vehicle_out)}` is still the first fit: {rerun['why']}. The one with it held "
+                        f"is ") + f"`{os.path.basename(rerun['other_vehicle_file'])}`. Both are in the table below.\n")
         L += ["## How the models compare on unseen recordings\n",
               f"Windows of {EVAL_WINDOW_S:g} s every {EVAL_STRIDE_S:g} s; each starts from the logged state and is "
               f"driven by the logged forces, the model turning and tilting on its own, in still water. Medians.\n"]
@@ -827,6 +732,17 @@ def run_fit_stonefish(a) -> int:
         L += ["", "## How the fit went\n",
               f"Fitted: {', '.join(fit_knobs)} ({len(knobs.names())} values) on {', '.join(split.train_groups)}. Cost "
               f"{f['start_cost']:.3f} -> {f['cost']:.3f} after {f['evaluations']} evaluations ({f['status']})."]
+        if rerun:
+            rf = rerun["fit"]
+            L.append(f"The refit with the centre of gravity held: cost {rf['start_cost']:.3f} -> {rf['cost']:.3f} after "
+                     f"{rf['evaluations']} evaluations ({rf['status']}).")
+        if finished:
+            L.append(f"**Finished from a checkpoint (`--finish`):** the {' and the '.join('first fit' if w == 'first' else 'refit with the centre of gravity held' for w in finished)} "
+                     f"stopped before converging, and this is its best point so far. Run the command again without "
+                     f"`--finish` for a converged fit.")
+        if skipped_rerun:
+            L.append("**The refit with the centre of gravity held wasn't run** (`--finish` doesn't start a fit): run the "
+                     "command again without `--finish` to get it.")
         L += [f"- {n}" for n in notes]
         L += ["", "Fitting can trade one axis for another, or tailor values to the training sessions: odd values "
               "(drag far from the shape's, added mass at a limit) mean the logs don't pin them down. More varied "
@@ -881,6 +797,13 @@ def add_arguments(ap) -> None:
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
     ap.add_argument("--physics-hz", type=float, default=200.0, help="Stonefish's physics rate (default 200 Hz)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
+    ap.add_argument("--no-cg-rerun", action="store_true",
+                    help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
+                         "(by default it does, and keeps the better of the two)")
+    ap.add_argument("--finish", action="store_true",
+                    help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
+                         "score it and write the vehicle file and report as usual. Give the same command as the "
+                         "interrupted run")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="Stonefish runs at once")
     ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
     ap.add_argument("--out", default="stonefish_fit", help="output folder")

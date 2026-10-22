@@ -140,6 +140,7 @@ class OptimizerSummary:
     n_restarts: int
     n_converged: int
     convergence_rate: float
+    restart_costs: Optional[list] = None  # each starting point's training cost, in order (#79)
 
 
 @dataclass
@@ -594,6 +595,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             n_restarts=config.calibration_config.n_restarts,
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
+            restart_costs=[float(r.cost) for r in cal_result.restarts],
         )
     else:
         # calibrate_parallel() (config.parallel=True) never populates
@@ -602,7 +604,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         # the best individual restart's own stored fields instead of
         # crashing on scipy_result.nfev. optimality has no substitute
         # (RestartResult doesn't store it) - NaN, not silently omitted.
-        best_restart = min((r for r in cal_result.restarts if r.success), key=lambda r: r.cost)
+        best_restart = min(cal_result.restarts, key=lambda r: r.cost)
         optimizer_summary = OptimizerSummary(
             converged=cal_result.converged,
             cost=cal_result.cost,
@@ -614,6 +616,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             n_restarts=config.calibration_config.n_restarts,
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
+            restart_costs=[float(r.cost) for r in cal_result.restarts],
         )
 
     parameter_deltas = [
@@ -900,6 +903,16 @@ def load_checkpoint_warm_start(checkpoint_path: str) -> np.ndarray:
     return params.to_vector()
 
 
+def note_restart_costs(checkpoint_path: str, error: Exception) -> None:
+    """No start converged: add each start's cost to the checkpoint, so the result finished from it reports them (#79)."""
+    costs = getattr(error, "restart_costs", None)
+    if costs and Path(checkpoint_path).exists():
+        try:
+            write_checkpoint(checkpoint_path, {**read_checkpoint(checkpoint_path), "restart_costs": costs})
+        except (OSError, CheckpointError):
+            pass
+
+
 def main() -> None:
     args = build_arg_parser().parse_args()
 
@@ -984,6 +997,7 @@ def main() -> None:
         report = run_pipeline(pipeline_config)
     except Exception as e:
         logger.error("Pipeline failed: %s", e)
+        note_restart_costs(checkpoint_path, e)
         blew_up = isinstance(e, FloatingPointError) or "NaN/inf" in str(e)
         log_calibration_run(
             script="run_calibration", run_name=f"run_calibration_{_time.strftime('%Y-%m-%d_%H%M')}",

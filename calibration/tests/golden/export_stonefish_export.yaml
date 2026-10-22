@@ -1,0 +1,382 @@
+calibration: <tmp>/cal/calibrated_parameters.yaml
+scenario: <tmp>/lab/world.scn
+robot: auv
+part: Hull
+buoyancy_part: Foam
+mass_kg: 32.0
+water_density: 1000.0
+reference_point_m:
+- 0.0
+- 0.0
+- 0.0
+train_dates:
+- 01-01-2030
+heldout_dates:
+- 02-01-2030
+settings:
+  quadratic_drag:
+  - 0.9606642153485152
+  - 2.0441997065299855
+  - 1.9603346420326553
+  viscous_drag:
+  - 0.028947886031524966
+  - 0.10355833632621858
+  - 0.12012567823977296
+  added_mass:
+  - 6.0
+  - 60.0
+  - 65.0
+  added_inertia:
+  - 0.0
+  - 3.0
+  - 4.0
+  anisotropic: true
+  cg_shift:
+  - 0.0
+  - 0.0
+  - -0.030000000000000002
+  buoyancy_scale: 1.0315706321666738
+  mass: 32.0
+  inertia:
+  - 0.7999999999999999
+  - 3.0
+  - 3.0
+drag_by_axis:
+  x:
+    quadratic_drag: 0.9606642153485152
+    viscous_drag: 0.028947886031524966
+    speeds_m_s:
+    - 0.702
+    - 1.357
+    strathe_force_n:
+    - 30.29
+    - 102.99
+    stonefish_force_n:
+    - 30.69
+    - 103.3
+  y:
+    quadratic_drag: 2.0441997065299855
+    viscous_drag: 0.10355833632621858
+    speeds_m_s:
+    - 0.134
+    - 0.306
+    strathe_force_n:
+    - 8.99
+    - 31.02
+    stonefish_force_n:
+    - 9.35
+    - 30.78
+  z:
+    quadratic_drag: 1.9603346420326553
+    viscous_drag: 0.12012567823977296
+    speeds_m_s:
+    - 0.14
+    - 0.403
+    strathe_force_n:
+    - 10.66
+    - 53.84
+    stonefish_force_n:
+    - 11.2
+    - 54.68
+comparison:
+- quantity: mass
+  strathe: 32.0
+  stonefish_before: 30.0
+  stonefish_after: 32.0
+  unit: kg
+- quantity: "net buoyancy (water 1000 kg/m\xB3)"
+  strathe: 4.0
+  stonefish_before: 13.890239317158716
+  stonefish_after: 3.998336830825167
+  unit: N
+- quantity: "CG \u2212 CB, x"
+  strathe: null
+  stonefish_before: 0.0
+  stonefish_after: 0.0
+  unit: m
+- quantity: "CG \u2212 CB, z"
+  strathe: 0.02
+  stonefish_before: 0.05
+  stonefish_after: 0.020000000000000004
+  unit: m
+- quantity: roll inertia (rigid + added)
+  strathe: 0.8
+  stonefish_before: 1.1
+  stonefish_after: 0.8
+  unit: "kg\xB7m\xB2"
+- quantity: pitch inertia (rigid + added)
+  strathe: 6.0
+  stonefish_before: 5.0
+  stonefish_after: 6.0
+  unit: "kg\xB7m\xB2"
+- quantity: yaw inertia (rigid + added)
+  strathe: 7.0
+  stonefish_before: 5.0
+  stonefish_after: 7.0
+  unit: "kg\xB7m\xB2"
+- quantity: added mass x
+  strathe: 6.0
+  stonefish_before: 28.333333333333332
+  stonefish_after: 6.0
+  unit: kg
+- quantity: added mass y
+  strathe: 60.0
+  stonefish_before: 28.333333333333332
+  stonefish_after: 60.0
+  unit: kg
+- quantity: added mass z
+  strathe: 65.0
+  stonefish_before: 28.333333333333332
+  stonefish_after: 65.0
+  unit: kg
+notes:
+- 'Fore-aft CG offset kept as Stonefish has it: the calibration didn''t fit cg_cb_offset_x
+  (only with the torpedo-hull terms, vehicle_spec.yaml).'
+- 'Drag converted, not carried: Stonefish''s mesh drag grows with speed cubed and
+  couples the axes, and its rotational drag comes from the same coefficients over
+  the part''s mesh. Stonefish built with calibration/stonefish/stonefish_added_mass.patch
+  takes Strathe''s damping as it is.'
+exported_vehicle_file: <tmp>/out/vehicle_strathe.scn
+heldout:
+  Stonefish, original:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 4.685
+      drift_p90_m: 6.737
+      velocity_rmse:
+      - 0.5512
+      - 0.1524
+      - 0.297
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    30s:
+      drift_median_m: 9.113
+      drift_p90_m: 12.388
+      velocity_rmse:
+      - 0.5653
+      - 0.1633
+      - 0.3244
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    60s:
+      drift_median_m: 14.734
+      drift_p90_m: 17.699
+      velocity_rmse:
+      - 0.507
+      - 0.1587
+      - 0.3123
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+  Stonefish with Strathe's values:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 1.283
+      drift_p90_m: 1.986
+      velocity_rmse:
+      - 0.0571
+      - 0.1031
+      - 0.1279
+      - 0.0163
+      - 0.0159
+      - 0.0337
+      attitude_error_median_deg:
+      - 13.77
+      - 5.6
+      - 12.13
+    30s:
+      drift_median_m: 2.475
+      drift_p90_m: 3.687
+      velocity_rmse:
+      - 0.0601
+      - 0.109
+      - 0.1392
+      - 0.016
+      - 0.0158
+      - 0.0309
+      attitude_error_median_deg:
+      - 24.03
+      - 11.68
+      - 8.12
+    60s:
+      drift_median_m: 5.795
+      drift_p90_m: 6.728
+      velocity_rmse:
+      - 0.0487
+      - 0.1056
+      - 0.1389
+      - 0.0175
+      - 0.0158
+      - 0.032
+      attitude_error_median_deg:
+      - 48.38
+      - 33.71
+      - 29.38
+  Strathe's own model:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 4.026
+      drift_p90_m: 7.512
+      velocity_rmse:
+      - 0.4222
+      - 0.0617
+      - 0.1558
+      - 0.4206
+      - 0.2744
+      - 0.2505
+      attitude_error_median_deg:
+      - 97.57
+      - 53.66
+      - 76.68
+    30s:
+      drift_median_m: 10.401
+      drift_p90_m: 11.182
+      velocity_rmse:
+      - 0.4337
+      - 0.0519
+      - 0.1512
+      - 0.3259
+      - 0.2472
+      - 0.2835
+      attitude_error_median_deg:
+      - 128.04
+      - 53.37
+      - 66.51
+    60s:
+      drift_median_m: 18.897
+      drift_p90_m: 21.653
+      velocity_rmse:
+      - 0.3826
+      - 0.0458
+      - 0.1447
+      - 0.3194
+      - 0.2754
+      - 0.2568
+      attitude_error_median_deg:
+      - 98.56
+      - 32.64
+      - 50.38
+  no motion:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 5.571
+      drift_p90_m: 7.411
+      velocity_rmse:
+      - 0.7085
+      - 0.145
+      - 0.2867
+      - 0.2738
+      - 0.1286
+      - 0.1652
+      attitude_error_median_deg:
+      - 64.73
+      - 18.73
+      - 85.06
+    30s:
+      drift_median_m: 8.64
+      drift_p90_m: 10.038
+      velocity_rmse:
+      - 0.7101
+      - 0.1386
+      - 0.2901
+      - 0.2506
+      - 0.1398
+      - 0.1721
+      attitude_error_median_deg:
+      - 117.94
+      - 31.48
+      - 88.1
+    60s:
+      drift_median_m: 14.125
+      drift_p90_m: 18.436
+      velocity_rmse:
+      - 0.6396
+      - 0.1397
+      - 0.2711
+      - 0.2608
+      - 0.2089
+      - 0.1743
+      attitude_error_median_deg:
+      - 95.05
+      - 73.18
+      - 97.78
+  keeps its starting velocity:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 8.132
+      drift_p90_m: 12.118
+      velocity_rmse:
+      - 0.9408
+      - 0.1257
+      - 0.1269
+      - 0.3275
+      - 0.185
+      - 0.2502
+      attitude_error_median_deg:
+      - 64.73
+      - 18.73
+      - 85.06
+    30s:
+      drift_median_m: 19.262
+      drift_p90_m: 30.2
+      velocity_rmse:
+      - 0.9503
+      - 0.1729
+      - 0.2617
+      - 0.3251
+      - 0.1862
+      - 0.2935
+      attitude_error_median_deg:
+      - 117.94
+      - 31.48
+      - 88.1
+    60s:
+      drift_median_m: 39.904
+      drift_p90_m: 56.396
+      velocity_rmse:
+      - 0.7843
+      - 0.1932
+      - 0.2411
+      - 0.3463
+      - 0.2715
+      - 0.2717
+      attitude_error_median_deg:
+      - 95.05
+      - 73.18
+      - 97.78
+axis_verdict_10s:
+  better:
+  - forward speed (surge)
+  - sideways speed (sway)
+  - up/down speed (heave)
+  worse:
+  - roll
+  - pitch
+  - heading (yaw)
+  same: []
+recommendation: 'Strathe''s values are not a calibrated Stonefish model: they balance
+  against Strathe''s own drag and righting, not Stonefish''s. Its mesh drag grows
+  with speed cubed and couples the axes (surge), and its roll and pitch damping come
+  from the same mesh coefficients, so a transplanted centre of gravity no longer balances
+  them (roll, pitch). To calibrate your Stonefish model, run `strathe fit-stonefish`,
+  which fits it through Stonefish itself (on URI''s ALPHA RISE: 53-66% less error
+  after 60 s, against 17-28% for this conversion; PROJECT_STATUS.md #73-#75).'

@@ -332,6 +332,17 @@ def _initialize_x0(x0_base, lb, ub, rng, strategy, perturbation_frac):
     raise ValueError(f"Unknown initialization_strategy: {strategy!r}")
 
 
+def _starting_points(x0_base, lb, ub, rng, config) -> list:
+    """Each restart's starting point. A warm start (config.x0_override: the previous round's result) with several
+    starts keeps that result, unperturbed, as the first one and spreads the others around it, so restarting from a
+    warm start can only find a lower training cost than staying put (#79)."""
+    points = [_initialize_x0(x0_base, lb, ub, rng, config.initialization_strategy, config.perturbation_frac)
+              for _ in range(config.n_restarts)]
+    if config.x0_override is not None and config.n_restarts > 1:
+        points[0] = np.clip(x0_base, lb, ub)
+    return points
+
+
 def _wrap_residual_fn(base_fn: Callable, on_iteration: Optional[Callable],
                       watchdog: Optional[object] = None) -> Callable:
     """Scipy's least_squares has no native callback= — this wraps the
@@ -375,6 +386,28 @@ def _make_fixed_params_wrapper(residual_fn: Callable, full_template: np.ndarray,
         full_x[free_mask] = x_free
         return residual_fn(full_x, *args)
     return wrapped
+
+
+class RestartsFailed(RuntimeError):
+    """No starting point converged. Carries each start's training cost, so a run finished from its checkpoint
+    still reports them (#79)."""
+
+    def __init__(self, n_restarts: int, restarts: list):
+        self.restart_costs = [float(r.cost) for r in restarts]
+        super().__init__(
+            f"All {n_restarts} calibration restart(s) failed to converge. "
+            f"Messages: {[r.message for r in restarts]}. Check vehicle_spec.yaml's "
+            f"bounds, the dataset's sampling rate, or whether the training data "
+            f"actually constrains these parameters (see the identifiability note "
+            f"in vehicle_spec.yaml).")
+
+
+def _best_restart(restarts: list):
+    """The restart with the lowest training cost, converged or not (#79). On hard calibrations restarts land in
+    different minima; on URI's ALPHA RISE re-run the one with the lower training cost was the better one on unseen
+    recordings every time, so choosing never needs the held-out data. A best restart that stopped at its evaluation
+    budget is reported as not converged."""
+    return min(restarts, key=lambda r: r.cost)
 
 
 def _stability_report(all_restarts: list, converged_restarts: list) -> dict:
@@ -525,11 +558,7 @@ def calibrate_parallel(
     x_scale_free = x_scale[free_mask]
 
     rng = np.random.default_rng(config.seed)
-    x0_list = [
-        _initialize_x0(x0_base_free, lb_free, ub_free, rng,
-                        config.initialization_strategy, config.perturbation_frac)
-        for _ in range(config.n_restarts)
-    ]
+    x0_list = _starting_points(x0_base_free, lb_free, ub_free, rng, config)
 
     from concurrent.futures import ProcessPoolExecutor
     start_time = time.monotonic()
@@ -549,14 +578,8 @@ def calibrate_parallel(
 
     converged = [r for r in restarts if r.success]
     if not converged:
-        raise RuntimeError(
-            f"All {config.n_restarts} calibration restart(s) failed to converge. "
-            f"Messages: {[r.message for r in restarts]}. Check vehicle_spec.yaml's "
-            f"bounds, the dataset's sampling rate, or whether the training data "
-            f"actually constrains these parameters (see the identifiability note "
-            f"in vehicle_spec.yaml)."
-        )
-    best = min(converged, key=lambda r: r.cost)
+        raise RestartsFailed(config.n_restarts, restarts)
+    best = _best_restart(restarts)
     best_params = CalibrationParameters.from_vector(best.x)
     stability = _stability_report(restarts, converged)
     train_rmse = mean_run_rmse(best_params, train_runs, vehicle)
@@ -572,7 +595,7 @@ def calibrate_parallel(
 
     return CalibrationResult(
         parameters=best_params,
-        converged=True,
+        converged=bool(best.success),
         cost=best.cost,
         n_iterations=best.nfev,
         train_rmse=train_rmse,
@@ -661,9 +684,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
 
     restarts = []
     start_time = time.monotonic()
-    for _ in range(config.n_restarts):
-        x0_free = _initialize_x0(x0_base_free, lb_free, ub_free, rng,
-                                  config.initialization_strategy, config.perturbation_frac)
+    for x0_free in _starting_points(x0_base_free, lb_free, ub_free, rng, config):
         result = least_squares(
             fun=optimized_residual_fn,
             x0=x0_free,
@@ -697,15 +718,9 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
 
     converged = [r for r in restarts if r.success]
     if not converged:
-        raise RuntimeError(
-            f"All {config.n_restarts} calibration restart(s) failed to converge. "
-            f"Messages: {[r.message for r in restarts]}. Check vehicle_spec.yaml's "
-            f"bounds, the dataset's sampling rate, or whether the training data "
-            f"actually constrains these parameters (see the identifiability note "
-            f"in vehicle_spec.yaml)."
-        )
+        raise RestartsFailed(config.n_restarts, restarts)
 
-    best = min(converged, key=lambda r: r.cost)
+    best = _best_restart(restarts)
     best_params = CalibrationParameters.from_vector(best.x)
     stability = _stability_report(restarts, converged)
 
@@ -722,7 +737,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
 
     return CalibrationResult(
         parameters=best_params,
-        converged=True,
+        converged=bool(best.success),
         cost=best.cost,
         n_iterations=best.nfev,
         train_rmse=train_rmse,
