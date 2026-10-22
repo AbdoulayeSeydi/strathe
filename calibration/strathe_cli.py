@@ -625,22 +625,44 @@ def cmd_calibrate(args, runner=None) -> int:
         steps.append((fit_title, lambda: fit_argv(out, currents_file), fit_hint, True))
     if args.finish:
         # an interrupted fit: keep its best parameters, with the settings this command gives the fit
+        ck_dir, finish_currents = out, currents_file
+        why = "interrupted; finished from its checkpoint with strathe calibrate --finish"
         if args.estimate_current:
-            print("❌ --finish doesn't support --estimate-current runs; re-run them, or use "
-                  "calibration/finalize_checkpoint.py on the last round's checkpoint")
-            return 2
-        if not os.path.exists(os.path.join(out, "checkpoint.yaml")):
+            # the latest step that started: the final fit (with the last round's currents), else the latest round
+            rounds = max(1, args.current_rounds)
+            if os.path.exists(os.path.join(out, "checkpoint.yaml")):
+                finish_currents = os.path.join(out, f"current_round{rounds}", "currents.csv")
+                why = (f"interrupted in the final fit, after {rounds} current round(s); finished from its checkpoint "
+                       f"with strathe calibrate --finish")
+            else:
+                k = next((k for k in range(rounds, 0, -1)
+                          if os.path.exists(os.path.join(out, f"current_round{k}", "checkpoint.yaml"))), None)
+                if k is None:
+                    print(f"❌ --finish: no checkpoint in {out} or its current_round folders; nothing to finish (did "
+                          f"the fit start?)")
+                    return 2
+                ck_dir = os.path.join(out, f"current_round{k}")
+                finish_currents = None if k == 1 else os.path.join(out, f"current_round{k - 1}", "currents.csv")
+                why = (f"interrupted in current round {k} of {rounds}: the later rounds and the final fit didn't run; "
+                       f"finished from round {k}'s checkpoint with strathe calibrate --finish")
+            if finish_currents and not os.path.exists(finish_currents):
+                print(f"❌ --finish: {finish_currents} is missing, so the interrupted step's currents aren't known; "
+                      f"re-run without --finish")
+                return 2
+        elif not os.path.exists(os.path.join(out, "checkpoint.yaml")):
             print(f"❌ --finish: no checkpoint.yaml in {out}; nothing to finish (did the fit start?)")
             return 2
         if args.ingest_spec and os.path.isdir(data):
             steps = [st for st in steps if not st[0].startswith("Converting")]  # already converted
-        steps = [st for st in steps if not st[0].startswith(("Checking your data", "Calibrating"))]
+        steps = [st for st in steps if not st[0].startswith(("Checking your data", "Calibrating", "Current round"))]
+        if args.estimate_current:
+            print(f"ℹ️  Finishing: {why.split(';')[0]}.", flush=True)
 
         def finish_argv():
             rate, extra = settings()
-            cur = ["--currents-file", currents_file] if currents_file else []
-            return finalize_argv(out, data, spec, args.heldout_dates, rate, extra + cur,
-                                 "interrupted; finished from its checkpoint with strathe calibrate --finish")
+            cur = ["--currents-file", finish_currents] if finish_currents else []
+            return finalize_argv(ck_dir, data, spec, args.heldout_dates, rate, extra + cur, why) + \
+                (["--output-dir", _abs(out)] if ck_dir != out else [])
         steps.append(("Turning the interrupted fit's best result into a calibration (marked not converged)",
                       finish_argv, "The checkpoint couldn't be turned into a result; the message above says why.",
                       True))
@@ -730,7 +752,14 @@ def _calibrate_whole_fit_restarts(args, runner, out: str, restarts: int, seed: i
         sub.seed = seed + k
         sub.out = os.path.join(out, f"start{k + 1}")
         print(f"\n{'#' * 70}\n# Start {k + 1} of {restarts} (seed {sub.seed})\n{'#' * 70}", flush=True)
-        rc = cmd_calibrate(sub, runner)
+        if args.finish and os.path.exists(os.path.join(sub.out, "metrics.json")):
+            rc = 0   # this start had finished: keep it as it is
+            print("ℹ️  This start had finished; kept as it is.", flush=True)
+        elif args.finish and not os.path.isdir(sub.out):
+            rc = 2   # never started: nothing to finish
+            print("ℹ️  This start hadn't begun; left out.", flush=True)
+        else:
+            rc = cmd_calibrate(sub, runner)
         starts.append({"start": k + 1, "seed": sub.seed, "folder": sub.out, "exit_code": rc,
                        "round_costs": _round_costs(sub.out), "final_cost": _final_cost(sub.out)})
     done = [s for s in starts if s["final_cost"] is not None]
@@ -1348,7 +1377,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--finish", action="store_true",
                    help="the fit was interrupted (the machine slept, the run was stopped): turn its best result so "
                         "far into a calibration, marked not converged, and write the report. Same command and "
-                        "flags as the interrupted run, plus --finish")
+                        "flags as the interrupted run, plus --finish. With --estimate-current it finishes the step "
+                        "that was running (a round, or the final fit); with --restart-whole-fit it keeps the starts "
+                        "that finished and finishes the interrupted one")
     c.set_defaults(fn=cmd_calibrate)
 
     e = sub.add_parser("estimate-current", help="estimate the water current in each open-water recording")
