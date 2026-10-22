@@ -56,11 +56,15 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 TASKS = ("waypoint", "station_keeping", "docking", "obstacle_avoidance")
 TASK_PLAIN = {
-    "waypoint": "reach a target point (within 0.5 m) that is up to 3 m away in each direction",
-    "station_keeping": "reach a target point and stay within 0.5 m of it for 20 consecutive steps (2 s)",
-    "docking": "reach a target point slowly (under 0.3 m/s) and level (within 0.2 rad)",
-    "obstacle_avoidance": "reach a target point while routing around an obstacle",
+    "waypoint": "reach a target point (within {r:g} m) that is up to {d:g} m away in each direction",
+    "station_keeping": "reach a target point and stay within {r:g} m of it for 20 consecutive steps (2 s)",
+    "docking": "reach a target point (within {r:g} m) slowly (under 0.3 m/s) and level (within 0.2 rad)",
+    "obstacle_avoidance": "reach a target point (within {r:g} m) while routing around an obstacle",
 }
+
+
+def task_plain(meta: dict) -> str:
+    return TASK_PLAIN[meta["task"]].format(r=meta.get("target_radius_m") or 0.5, d=meta.get("target_range_m") or 3.0)
 
 
 # ----------------------------------------------------------------- environment
@@ -91,8 +95,10 @@ def make_env(params, ek: dict, backend: str = "stand_in"):
     if ek.get("buoyancy"):
         from buoyancy import BuoyancyConfig
         buoyancy = BuoyancyConfig.from_dict(ek["buoyancy"])
+    geometry = {k: ek[k] for k in ("waypoint_radius", "waypoint_range") if ek.get(k) is not None}
     return Arena(params, vehicle, task=ek["task"], max_episode_steps=ek["max_episode_steps"], current=current,
-                 thrusters=thrusters, backend=backend, disturbance=disturbance, sensor_noise=noise, buoyancy=buoyancy)
+                 thrusters=thrusters, backend=backend, disturbance=disturbance, sensor_noise=noise, buoyancy=buoyancy,
+                 **geometry)
 
 
 def clean_env_kwargs(ek: dict) -> dict:
@@ -240,7 +246,7 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
     L = [f"# Single-vehicle experiment: {meta['name']}\n",
          f"{datetime.now():%Y-%m-%d %H:%M} · {meta['n_episodes']} evaluation episodes per controller · "
          f"{meta['elapsed_s'] / 60:.1f} min\n", "## What was tested\n",
-         f"One simulated vehicle must {TASK_PLAIN[meta['task']]}, within {meta['max_episode_steps']} steps "
+         f"One simulated vehicle must {task_plain(meta)}, within {meta['max_episode_steps']} steps "
          f"(0.1 s each). **The vehicle** is your calibrated physics (`{os.path.basename(meta['params'])}`, "
          f"`{os.path.basename(meta['spec'])}`)"
          + (f", in a water current: {meta['current_described']}" if meta.get("current_described") else ", in still water")
@@ -386,6 +392,7 @@ def run(args) -> dict:
         raise ValueError("--compare-clean-training compares training with and without sensor noise and roll/pitch "
                          "disturbance, but both are off; add --mode noisy (or --noise / --disturbance)")
     ek = {"spec": os.path.abspath(args.spec), "task": args.task, "max_episode_steps": args.max_episode_steps,
+          "waypoint_radius": args.target_radius, "waypoint_range": args.target_range,
           "current": current, "thrusters": args.thrusters, "disturbance": dist_path,
           "disturbance_scale": args.disturbance_scale, "noise": noise_ref, "noise_scale": args.noise_scale,
           "start_fix": args.start_fix_error if noise_ref is not None else None,
@@ -463,6 +470,7 @@ def run(args) -> dict:
         w.writeheader()
         w.writerows(rows)
     meta = {"name": args.name or os.path.basename(os.path.abspath(args.out)), "task": args.task,
+            "target_radius_m": args.target_radius, "target_range_m": args.target_range,
             "params": params, "spec": os.path.abspath(args.spec), "current": current,
             "current_described": CurrentConfig.from_dict(current).describe(teammates=False) if current else None,
             "thrusters": args.thrusters, "thrusters_described": thr_desc, "seeds": args.seeds,
@@ -512,6 +520,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="training steps per policy (450k: 150k was too short for heavily damped vehicles, #56, #63)")
     ap.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
     ap.add_argument("--max-episode-steps", type=int, default=200)
+    ap.add_argument("--target-radius", type=float, metavar="M",
+                    help="how close to the target counts as reaching it (default 0.5; #91, set it for a bigger vehicle)")
+    ap.add_argument("--target-range", type=float, metavar="M",
+                    help="how far away targets are placed in each direction (default 3)")
     ap.add_argument("--compare-generic", action="store_true",
                     help="also train on the default (uncalibrated) physics and compare")
     ap.add_argument("--policy", help="evaluate this trained policy (.zip; PPO, SAC or TD3, read from the file) "

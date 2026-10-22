@@ -57,7 +57,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Add roll/pitch disturbance (tether, waves) | `--disturbance fitted --disturbance-scale 2` | `--disturbance fitted --disturbance-scale 2` |
 | Test on MuJoCo, or both engines side by side | `--backend mujoco` / `both` | `--backend mujoco` / `both` |
 | See whether calibration matters | `--compare-generic` | the default `calibrated` vs `generic` headline |
-| Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`) | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` |
+| Set the task | `--task station_keeping` (or `waypoint`, `docking`, `obstacle_avoidance`); for a bigger vehicle `--target-radius`, `--target-range` | `--target-separation`, `--tolerance`, `--hold-steps`, `--episode-steps` (and the same on `train-fleet`, with `--separations MIN MAX`) |
 | Set comm and sample size | none (a single vehicle has no link) | `--comm L2 L3a --beacon-interval 1 3 --seeds 5` |
 | Use an optical or hybrid link | none | `--link acoustic hybrid --optical-water coastal harbor`, `--optical-terminals fore_aft_cones --optical-compare-omni` |
 | Calibrate the link from your modems' message logs | none | `fit-link --log messages.csv --out link_cal`, then `--link-calibration link_cal/link_calibration.yaml` (also train-fleet, the web page and the experiment YAML) |

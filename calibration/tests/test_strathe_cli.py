@@ -889,3 +889,24 @@ def test_fleet_modem_delay_and_bandwidth_reach_the_experiment(tmp_path, capsys):
     assert ev["workers"] == 3 and ev["comm_seeds"] == [1, 2]
     assert cli.main(["fleet", "--workers", "0", "--save-config", str(tmp_path / "w0.yaml")]) == 2
     assert cli.main(["fleet", "--bandwidth-bytes", "0", "--save-config", str(tmp_path / "z.yaml")]) == 2
+
+
+def test_the_training_and_arena_forms_pass_task_geometry(server):
+    """#91: geometry for vehicles bigger than a BlueROV2, from the web page."""
+    request, token, started, manager, tmp_path = server
+    params = os.path.join(cli.CAL_DIR, "calibrated_parameters_fleet_truth.yaml")
+    status, _, _ = request("POST", "/jobs/train_fleet", {"token": token, "params": params, "out": str(tmp_path / "p"),
+                                                         "target_separation": "6", "tolerance": "0.6",
+                                                         "collision_radius": "1.5", "separations": "5 9"})
+    assert status == 303
+    cmd = started[-1]
+    assert cmd[cmd.index("--target-separation") + 1] == "6.0" and cmd[cmd.index("--separations") + 1:][:2] == ["5.0", "9.0"]
+    status, _, _ = request("POST", "/jobs/arena", {"token": token, "task": "docking", "target_radius": "1.5",
+                                                   "target_range": "10"})
+    assert status == 303
+    cmd = started[-1]
+    assert cmd[cmd.index("--target-radius") + 1] == "1.5" and cmd[cmd.index("--target-range") + 1] == "10.0"
+    cli.build_parser().parse_args(cmd[3:])
+    status, body, _ = request("POST", "/jobs/train_fleet", {"token": token, "params": params, "out": str(tmp_path / "q"),
+                                                           "separations": "5"})
+    assert status == 400 and "two numbers" in body

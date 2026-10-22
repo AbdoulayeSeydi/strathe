@@ -1117,6 +1117,10 @@ def cmd_arena(args, runner=None) -> int:
         if args.thrusters:
             argv += ["--thrusters", thrusters_arg(args.thrusters)]
         argv += ["--backend", args.backend, "--algorithm", args.algorithm]
+        for flag in ("target_radius", "target_range", "max_episode_steps"):
+            v = getattr(args, flag, None)
+            if v is not None:
+                argv += ["--" + flag.replace("_", "-"), str(v)]
         argv += simulation_argv(args)
         if args.compare_clean_training:
             argv.append("--compare-clean-training")
@@ -1163,6 +1167,12 @@ def cmd_train_fleet(args, runner=None) -> int:
         if args.thrusters:
             argv += ["--thrusters", thrusters_arg(args.thrusters)]
         argv += link_argv(args)
+        for flag in ("target_separation", "tolerance", "collision_radius", "hold_steps", "episode_steps"):
+            v = getattr(args, flag, None)
+            if v is not None:
+                argv += ["--" + flag.replace("_", "-"), str(v)]
+        if getattr(args, "separations", None):
+            argv += ["--separations", *map(str, args.separations)]
     except ValueError as e:
         print(f"❌ {e}")
         return 2
@@ -1531,6 +1541,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--disturbance-scale", type=float, default=1.0, help="0 = off, 1 = as fitted, 2 = twice as rough")
     a.add_argument("--workers", type=int, default=default_workers())
     a.add_argument("--out", help="output folder (default: strathe_jobs/arena_<task>_<time>)")
+    ag = a.add_argument_group("task geometry (default: sized for a BlueROV2; set it for a bigger vehicle)")
+    ag.add_argument("--target-radius", type=float, metavar="M", help="how close to the target counts as reaching it (0.5)")
+    ag.add_argument("--target-range", type=float, metavar="M", help="how far away targets are placed in each direction (3)")
+    ag.add_argument("--max-episode-steps", type=int, metavar="N", help="episode length in 0.1 s ticks (200)")
     a.set_defaults(fn=cmd_arena)
 
     t = sub.add_parser("train-fleet", help="train a fleet (two-vehicle) policy for your vehicle")
@@ -1559,6 +1573,14 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--buoyancy-known-to-beliefs", action="store_true")
     sim_mode.add_link_args(t)
     t.add_argument("--out", required=True, help="policy path without .zip")
+    tg = t.add_argument_group("task geometry (default: sized for a BlueROV2; set it for a bigger vehicle)")
+    tg.add_argument("--target-separation", type=float, metavar="M", help="distance to hold between the vehicles (2)")
+    tg.add_argument("--tolerance", type=float, metavar="M", help="how close to it counts as holding (0.2)")
+    tg.add_argument("--collision-radius", type=float, metavar="M", help="closer than this is a collision (0.5)")
+    tg.add_argument("--hold-steps", type=int, metavar="N", help="0.1 s ticks to hold it for (20)")
+    tg.add_argument("--separations", type=float, nargs=2, metavar=("MIN", "MAX"),
+                    help="starting separations to train on (2 5.5)")
+    tg.add_argument("--episode-steps", type=int, metavar="N", help="episode length in 0.1 s ticks (200)")
     t.set_defaults(fn=cmd_train_fleet)
 
     n = sub.add_parser("fit-noise", help="measure how noisy your vehicle's sensors are, from its logs")

@@ -787,6 +787,10 @@ whether the calibration matters. Roughly 5 minutes per policy at the default bud
 <label for=ar-seeds>Training seeds per condition</label><input type=text id=ar-seeds name=seeds value="2">
 <label for=ar-steps>Training steps per policy</label><input type=text id=ar-steps name=timesteps value="450000">
 <label for=ar-eps>Evaluation episodes</label><input type=text id=ar-eps name=episodes value="100">
+<label for=ar-trad>Bigger vehicle: how close to the target counts as reaching it, m (optional; default 0.5)</label>
+<input type=text id=ar-trad name=target_radius value="">
+<label for=ar-trng>…and how far away targets are placed, m (optional; default 3)</label>
+<input type=text id=ar-trng name=target_range value="">
 {algorithm_select("ar")}
 <label class=inline><input type=checkbox id=ar-cmp name=compare_generic value=1 checked aria-label="Compare with training on default physics"> Compare with training on
 default (uncalibrated) physics</label>
@@ -862,6 +866,11 @@ experiment YAML (CUSTOM_EXPERIMENT.md section 5).</p>
 {algorithm_select("tf")}
 <label for=tf-steps>Training steps (optional; default 3,000,000 for PPO, 1,000,000 for SAC and TD3)</label>
 <input type=text id=tf-steps name=timesteps value="">
+<label for=tf-tsep>Bigger vehicle: distance to hold between the vehicles, m (optional; default 2)</label>
+<input type=text id=tf-tsep name=target_separation value="">
+<label for=tf-tol>…how close to it counts, m (optional; default 0.2)</label><input type=text id=tf-tol name=tolerance value="">
+<label for=tf-coll>…closer than this is a collision, m (optional; default 0.5)</label><input type=text id=tf-coll name=collision_radius value="">
+<label for=tf-seps>…starting separations, m: <code>MIN MAX</code> (optional; default 2 5.5)</label><input type=text id=tf-seps name=separations value="">
 {noise_fields("tf", teammates=True)}
 {link_fields("tf")}
 {disturbance_select("tf")}
@@ -1250,6 +1259,10 @@ class StratheHandler(BaseHTTPRequestHandler):
                     "--out", out]
             if form.get("compare_generic"):
                 args.append("--compare-generic")
+            for key, flag, name in (("target_radius", "--target-radius", "Target radius"),
+                                    ("target_range", "--target-range", "Target range")):
+                if form.get(key, "").strip():
+                    args += [flag, repr(_number(form[key], name, 0.01, 1000))]
             args += algorithm_cli_args(form)
             args += noise_cli_args(form)
             if form.get("compare_clean_training"):
@@ -1270,6 +1283,16 @@ class StratheHandler(BaseHTTPRequestHandler):
                     "--seed", str(int(_number(form.get("seed", "1"), "Seed", 0, 1e9))), "--out", out]
             if form.get("timesteps", "").strip():
                 args += ["--timesteps", str(int(_number(form["timesteps"], "Training steps", 1000, 1e9)))]
+            for key, flag, name in (("target_separation", "--target-separation", "Distance to hold"),
+                                    ("tolerance", "--tolerance", "Tolerance"),
+                                    ("collision_radius", "--collision-radius", "Collision radius")):
+                if form.get(key, "").strip():
+                    args += [flag, repr(_number(form[key], name, 0.01, 1000))]
+            if form.get("separations", "").strip():
+                seps = form["separations"].replace(",", " ").split()
+                if len(seps) != 2:
+                    raise ValueError("Starting separations: two numbers, MIN MAX (m).")
+                args += ["--separations", *[repr(_number(x, "Starting separation", 0.01, 1000)) for x in seps]]
             args += noise_cli_args(form, teammates=True)
             args += link_cli_args(form)
             args += disturbance_cli_args(form)

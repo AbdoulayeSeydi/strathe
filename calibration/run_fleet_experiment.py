@@ -201,6 +201,29 @@ def policies_trained_elsewhere(cfg) -> list:
     return out
 
 
+def trained_geometry_note(cfg) -> Optional[str]:
+    """#91: a policy trained for one task geometry (train-fleet --target-separation ...) tested on another."""
+    out = []
+    for p in cfg.policies:
+        meta_path = os.path.splitext(p.model_path)[0] + ".json"
+        try:
+            with open(meta_path, encoding="utf-8") as f:
+                task = ((json.load(f).get("training_distribution") or {}).get("task")) or {}
+        except (OSError, ValueError):
+            continue
+        trained = task.get("target_separation")
+        if trained is None:
+            continue
+        now = cfg.task.target_separation_m
+        if abs(trained - now) > 0.1 * max(trained, now):
+            out.append(f"{os.path.basename(p.model_path)} was trained to hold {trained:g} m")
+    if not out:
+        return None
+    return (f"**Caution: the policies were trained for another task.** {'; '.join(out)}, and this experiment asks for "
+            f"{cfg.task.target_separation_m:g} m. Train with the same geometry (`strathe train-fleet "
+            f"--target-separation {cfg.task.target_separation_m:g} --tolerance {cfg.task.tolerance_m:g} ...`).\n")
+
+
 def trained_elsewhere_note(cfg) -> Optional[str]:
     other = policies_trained_elsewhere(cfg)
     if not other:
@@ -442,6 +465,9 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
         L.append(f"**Buoyancy changed:** {buoy.describe()}. Every condition sees the same buoyancy.\n")
     if os.path.basename(cfg.vehicle_spec) != "vehicle_spec.yaml" or os.path.dirname(os.path.abspath(cfg.vehicle_spec)) != HERE:
         L.append(f"Vehicle description: `{cfg.vehicle_spec}`.\n")
+    geo = trained_geometry_note(cfg)
+    if geo:
+        L.append(geo)
     note = trained_elsewhere_note(cfg)
     if note:
         L.append(note)

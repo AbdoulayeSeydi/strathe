@@ -1661,8 +1661,8 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
   `--spec` or logged forces. The report section and next step appear only then.
 
 **Still open, from the same run** (each in the run's friction log): ~~per-thruster thrust curves and limits~~ (fixed, #91); ~~a sensor
-mount rotation in ingest specs~~ (fixed, #91); ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
-(formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
+mount rotation in ingest specs~~ (fixed, #91); ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); ~~`train-fleet` and arena task geometry
+(formation spacing, target distance) for vehicles bigger than a BlueROV2~~ (fixed, #91); ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
 receive timestamps in re-recorded bags; and session dates from header stamps~~ (fixed, #91).
 
 ### 71. Torpedo-hull physics, and Strathe against Stonefish on URI's own vehicle model (2026-10-10)
@@ -2887,6 +2887,19 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
   - **Refused, with a plain message:** battery-voltage rescaling of a thruster with its own table, which would need T200
     data; mixed curve units; unknown or non-positive keys.
   - **Tested** in `tests/test_per_thruster.py`. All existing thruster tests are unchanged.
+- **Task geometry for vehicles bigger than a BlueROV2** (open since the first URI run).
+  - **The problem:** `train-fleet` always trained a 2 m ± 0.2 m formation with 0.5 m collisions, and the arena always
+    used 0.5 m targets up to 3 m away. `strathe fleet` could already *test* other geometries, so a 2 m vehicle could be
+    tested on a task it was never trained for.
+  - **`train-fleet`** now takes `--target-separation`, `--tolerance`, `--collision-radius`, `--hold-steps`,
+    `--separations MIN MAX` and `--episode-steps`. The proximity shaping radius grows with the collision radius, a
+    geometry that can't work is refused, and the policy's metadata records it.
+  - **`fleet`** warns when the experiment's separation differs from the one a policy was trained for, and gives the
+    `train-fleet` command.
+  - **The arena** takes `--target-radius` and `--target-range`, and its report states them.
+  - **Web forms** have the fields.
+  - **Tested:** a short training run with a 6 m geometry, the refusal, the flags passed through, the arena environment
+    and text, the caution, and the web forms.
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 
