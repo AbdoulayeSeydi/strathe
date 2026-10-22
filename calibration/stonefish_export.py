@@ -7,7 +7,9 @@ the values `strathe calibrate` already found into Stonefish's own settings on on
 then scores the original and the exported model on the recordings the calibration never saw:
   - mass: the part's <mass> moves so the vehicle weighs the calibration's mass;
   - net buoyancy: the buoyant part (--buoyancy-part, a box, cylinder or sphere) is resized;
-  - drag per axis: Stonefish's mesh drag is cubic in speed (0.5 rho Cd S |v|^3; measured, PROJECT_STATUS.md #74) plus a
+  - drag: with the patch (STONEFISH_AXIS_DAMPING_PATCH, #80), Strathe's own per-axis linear + quadratic damping, all six
+    axes, replacing the vehicle's mesh drag, at the logs' reference point: the same law, so nothing is converted.
+    Without it, Stonefish's mesh drag is cubic in speed (0.5 rho Cd S |v|^3; measured, PROJECT_STATUS.md #74) plus a
     linear skin term (rho Cf T v), so Cd and Cf are fitted to Strathe's linear + quadratic drag over the speeds the
     logs actually cover, after what the other parts already contribute;
   - added mass per axis (needs calibration/stonefish/stonefish_added_mass.patch);
@@ -81,7 +83,7 @@ def axis_speeds(runs: list, axis: int, n_max: int = 4000) -> np.ndarray:
 
 
 def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_part: Optional[str], rho: float,
-                    speeds: list) -> Export:
+                    speeds: list, reference_point=(0.0, 0.0, 0.0)) -> Export:
     """Stonefish settings for the tuned part from a Strathe calibration. `measure(settings)` reloads the vehicle in
     Stonefish with those settings and returns the replay tool's --info (None = as the scenario has it)."""
     i0 = measure(None)
@@ -94,6 +96,7 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
             raise StonefishFitError("the replay tool is older than export-stonefish: rebuild it "
                                     "(cmake --build calibration/stonefish/build)")
     patched = bool(i0.get("patched"))
+    exact_damping = bool(i0.get("axis_damping"))
     e = Export(PartSettings())
     s = e.settings
 
@@ -121,8 +124,13 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
     # Drag per axis, after what the other external parts give.
     others_ext = [p for n, p in parts.items() if p.get("external") and n != part]
     lin, quad = [params.Xu, params.Yv, params.Zw], [params.Xuu, params.Yvv, params.Zww]
+    if exact_damping:
+        # Strathe's damping as it is: the patch applies it at the reference point instead of every part's mesh drag
+        s.axis_damping = {"linear": lin, "linear_rot": [params.Kp, params.Mq, params.Nr], "quadratic": quad,
+                          "quadratic_rot": [params.Kpp, params.Mqq, params.Nrr],
+                          "point": [float(x) for x in reference_point]}
     cd, cf = [], []
-    for i in range(3):
+    for i in range(3 if not exact_damping else 0):
         def others(U, i=i):
             return sum(0.5 * rho * p["quadratic_drag"][i] * p["projected_area"][i] * U ** 3
                        + rho * p["viscous_drag"][i] * p["tangential_area"][i] * U for p in others_ext)
@@ -135,7 +143,8 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
               + others(U))
         e.drag[AXES[i]] = {"quadratic_drag": c_d, "viscous_drag": c_f, "speeds_m_s": U.round(3).tolist(),
                            "strathe_force_n": strathe.round(2).tolist(), "stonefish_force_n": sf.round(2).tolist()}
-    s.quadratic_drag, s.viscous_drag = cd, cf
+    if not exact_damping:
+        s.quadratic_drag, s.viscous_drag = cd, cf
 
     # Added mass per axis (the compound adds up its external parts' values).
     am = [params.Xu_dot, params.Yv_dot, params.Zw_dot]
@@ -151,11 +160,35 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
     # Centre of gravity relative to the centre of buoyancy (x only where the calibration fitted it).
     i1 = measure(s)
     d = np.array(i1["base"]["cg"]) - np.array(i1["base"]["cb"])
-    tx = params.cg_cb_offset_x if params.cg_cb_offset_x else d[0]
-    if not params.cg_cb_offset_x:
+    # With Strathe's damping carried as it is, the whole model is Strathe's, so its fore-aft offset (0 unless fitted) goes
+    # too: Stonefish's own few millimetres, against Strathe's small righting arm, pitched ALPHA RISE 23-36 deg (#80).
+    tx = params.cg_cb_offset_x if (params.cg_cb_offset_x or exact_damping) else d[0]
+    if not params.cg_cb_offset_x and not exact_damping:
         e.notes.append("Fore-aft CG offset kept as Stonefish has it: the calibration didn't fit cg_cb_offset_x "
                        "(only with the torpedo-hull terms, vehicle_spec.yaml).")
     s.cg_shift = [float((tx - d[0]) * mass / s.mass), 0.0, float((params.cg_cb_offset_z - d[2]) * mass / s.mass)]
+    if exact_damping and buoyancy_part:
+        # Strathe's model has its CG at the logs' reference point (its rigid-body terms and restoring moment are written
+        # there), with the CB at the calibrated offset from it. Stonefish's vehicle keeps its own geometry, so the
+        # logged thrust and the damping, both at the reference point, would pitch it about a CG ~10 cm away: ALPHA RISE
+        # pitched 14-27 deg after 10 s against Strathe's 10-11 (#80). So the CG goes to the reference point (the
+        # tuned part's <cg>) and the CB to the calibrated offset from it (the buoyancy part moves).
+        ref = np.array(reference_point, dtype=float)
+        target_cb = ref - np.array([params.cg_cb_offset_x, 0.0, params.cg_cb_offset_z])
+        s.cg_shift, s.buoyancy_shift = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+        for _ in range(3):  # moving one changes the other's mass or volume share slightly
+            info = measure(s)
+            b, bp = info["base"], _parts(info)[buoyancy_part]
+            s.cg_shift = [c + float(x) for c, x in zip(s.cg_shift, (ref - np.array(b["cg"])) * mass / s.mass)]
+            share = max(bp["volume"], 1e-9) / max(b["volume"], 1e-9)
+            s.buoyancy_shift = [c + float(x) for c, x in zip(s.buoyancy_shift, (target_cb - np.array(b["cb"])) / share)]
+        e.notes.append(f"Centre of gravity moved to the reference point and part '{buoyancy_part}' moved to put the "
+                       f"centre of buoyancy at the calibrated offset from it: Strathe's model is written about that "
+                       f"point, so the vehicle's geometry follows it.")
+    elif exact_damping:
+        e.notes.append("Centre of gravity left where Stonefish has it: give --buoyancy-part, so the CG can go to the "
+                       "reference point with the CB at the calibrated offset (what Strathe's model assumes; otherwise "
+                       "pitch drifts, #80).")
 
     # Effective inertia: added inertia first, then the rigid inertia where that isn't enough. Two passes, since moving
     # mass and the CG change the vehicle's inertia about its CG.
@@ -194,7 +227,8 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
         return rho * G * b["volume"] - b["mass"] * G
     e.rows += [["mass", mass, b0["mass"], b2["mass"], "kg"],
                [f"net buoyancy (water {rho:g} kg/m³)", params.net_buoyancy_z, net(b0), net(b2), "N"],
-               ["CG − CB, x", params.cg_cb_offset_x or None, b0["cg"][0] - b0["cb"][0], b2["cg"][0] - b2["cb"][0], "m"],
+               ["CG − CB, x", params.cg_cb_offset_x if (params.cg_cb_offset_x or exact_damping) else None,
+                b0["cg"][0] - b0["cb"][0], b2["cg"][0] - b2["cb"][0], "m"],
                ["CG − CB, z", params.cg_cb_offset_z, b0["cg"][2] - b0["cb"][2], b2["cg"][2] - b2["cb"][2], "m"]]
     for k, n in enumerate(("roll", "pitch", "yaw")):
         e.rows.append([f"{n} inertia (rigid + added)", target[k], b0["inertia_body_axes"][k],
@@ -213,8 +247,10 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
         e.notes.append(f"Thruster lag ({params.thruster_time_constant_s:.2f} s) not carried: set it on your thrusters.")
     if params.Xq_dot or params.Zq_dot:
         e.notes.append("Off-diagonal added mass (Xq_dot, Zq_dot) not carried: Stonefish's added mass is diagonal.")
-    e.notes.append("Rotational drag not carried on its own: Stonefish computes it from the same coefficients over the "
-                   "part's mesh.")
+    if not exact_damping:
+        e.notes.append("Drag converted, not carried: Stonefish's mesh drag grows with speed cubed and couples the axes, "
+                       "and its rotational drag comes from the same coefficients over the part's mesh. Stonefish built "
+                       "with calibration/stonefish/stonefish_added_mass.patch takes Strathe's damping as it is.")
     return e
 
 
@@ -273,7 +309,7 @@ def run_export(a) -> int:
         print(f"Converting {os.path.basename(pfile)} into part '{a.part}' of {os.path.basename(scenario.vehicle_file)} "
               f"(mass {mass:g} kg, water {rho:g} kg/m³)...", flush=True)
         e = export_settings(params, float(mass), measure, a.part, a.buoyancy_part, rho,
-                            [axis_speeds(train or held, i) for i in range(3)])
+                            [axis_speeds(train or held, i) for i in range(3)], a.reference_point)
         s = e.settings
         vehicle_out = os.path.join(out, os.path.splitext(os.path.basename(scenario.vehicle_file))[0] + "_strathe.scn")
         scenario.write_calibrated_vehicle(vehicle_out, s)
@@ -309,7 +345,7 @@ def run_export(a) -> int:
                    "notes": e.notes, "exported_vehicle_file": vehicle_out, "heldout": results,
                    "axis_verdict_10s": axis_verdict(results["Stonefish, original"],
                                                     results["Stonefish with Strathe's values"]) if results else None,
-                   "recommendation": RECOMMENDATION}
+                   "recommendation": recommendation(s)}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, "stonefish_export.yaml"), "w"),
                        sort_keys=False)
         open(os.path.join(out, "stonefish_export_report.md"), "w", encoding="utf-8").write(
@@ -322,7 +358,7 @@ def run_export(a) -> int:
         if o and x:
             v = axis_verdict(o, x)
             print("  after 10 s, by axis: " + "; ".join(f"{k}: {', '.join(n)}" for k, n in v.items() if n))
-        print("  " + RECOMMENDATION)
+        print("  " + recommendation(s))
         for n in e.notes:
             print("  note: " + n)
         return 0
@@ -339,6 +375,18 @@ RECOMMENDATION = ("Strathe's values are not a calibrated Stonefish model: they b
                   "gravity no longer balances them (roll, pitch). To calibrate your Stonefish model, run "
                   "`strathe fit-stonefish`, which fits it through Stonefish itself (on URI's ALPHA RISE: 53-66% less "
                   "error after 60 s, against 17-28% for this conversion; PROJECT_STATUS.md #73-#75).")
+
+
+RECOMMENDATION_EXACT = ("With the patch's damping, Stonefish runs Strathe's own model, with the centre of gravity at the "
+                        "logs' reference point as Strathe's model has it: on URI's ALPHA RISE the speeds matched "
+                        "Strathe's, and the error after 10 s fell 56-68% against the drag conversion (#80). Over a "
+                        "minute `strathe fit-stonefish`, which fits your model through Stonefish itself, can still be "
+                        "better (21.6 and 13.8 m after 60 s on ALPHA RISE, against 36.0 and 17.6 m for this export).")
+
+
+def recommendation(settings) -> str:
+    """What to do next: depends on whether Strathe's damping went in as it is (the patch) or was converted."""
+    return RECOMMENDATION_EXACT if settings.axis_damping is not None else RECOMMENDATION
 
 
 def axis_verdict(original: dict, exported: dict, horizon: str = "10s", margin: float = 0.05) -> dict:
@@ -373,7 +421,7 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
             L.append("After 10 s, by axis: " + "; ".join(f"**{k}**: {', '.join(n)}" for k, n in v.items() if n) + ".\n")
     else:
         L.append("Not scored: no held-out recording is long enough for a 60 s window (or none was held out).\n")
-    L.append(f"**{RECOMMENDATION}**\n")
+    L.append(f"**{recommendation(e.settings)}**\n")
     if h:
         L += ["## How the models compare on unseen recordings\n",
               f"Windows of {EVAL_WINDOW_S:g} s every {EVAL_STRIDE_S:g} s; each starts from the logged state and is "
@@ -387,9 +435,17 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
           "| Quantity | Strathe | Stonefish before | Stonefish after |", "|---|---|---|---|"]
     for q, sv, b, af, unit in e.rows:
         L.append(f"| {q} | {_num(sv, unit)} | {_num(b, unit)} | {_num(af, unit)} |")
-    L += ["", f"**Drag** (Stonefish's mesh drag is cubic in speed, so it's matched to Strathe's over the speeds your "
-              f"logs cover; water {rho:g} kg/m³):\n",
-          "| Axis | Cd | Cf | at speeds (median, 95th pct) | Strathe's force | Stonefish's force |", "|---|---|---|---|---|---|"]
+    if e.settings.axis_damping is not None:
+        d = e.settings.axis_damping
+        L += ["", "**Drag:** Strathe's per-axis damping as it is, replacing the vehicle's mesh drag, at the logs' "
+                  f"reference point ({_fmt(d['point'])} m): linear {_fmt(d['linear'])} / {_fmt(d['linear_rot'])}, "
+                  f"quadratic {_fmt(d['quadratic'])} / {_fmt(d['quadratic_rot'])} (surge, sway, heave / roll, pitch, "
+                  f"yaw).\n"]
+    else:
+        L += ["", f"**Drag** (Stonefish's mesh drag is cubic in speed, so it's matched to Strathe's over the speeds "
+                  f"your logs cover; water {rho:g} kg/m³):\n",
+              "| Axis | Cd | Cf | at speeds (median, 95th pct) | Strathe's force | Stonefish's force |",
+              "|---|---|---|---|---|---|"]
     for ax, d in e.drag.items():
         L.append(f"| {ax} | {d['quadratic_drag']:.4g} | {d['viscous_drag']:.4g} | "
                  f"{', '.join(f'{u:.2f}' for u in d['speeds_m_s'])} m/s | "
@@ -400,7 +456,12 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
           + (f" and the buoyancy part `{a.buoyancy_part}`" if a.buoyancy_part else "") + " changed:\n"]
     s = e.settings
     L.append(f"- mass: {s.mass:.4g} kg")
-    L.append(f"- quadratic drag {_fmt(s.quadratic_drag)}, viscous drag {_fmt(s.viscous_drag)}")
+    if s.axis_damping is not None:
+        L.append("- `damping_linear`, `damping_linear_rot`, `damping_quadratic`, `damping_quadratic_rot`, `damping_point` "
+                 "on its `<hydrodynamics>`: Strathe's damping, used instead of the mesh drag (needs Stonefish with "
+                 "`calibration/stonefish/stonefish_added_mass.patch`; without it they're ignored)")
+    else:
+        L.append(f"- quadratic drag {_fmt(s.quadratic_drag)}, viscous drag {_fmt(s.viscous_drag)}")
     if s.added_mass is not None:
         L.append(f"- added mass {_fmt(s.added_mass)}, added inertia {_fmt(s.added_inertia)}, "
                  f"`anisotropic_added_mass=\"true\"` (needs Stonefish with "
@@ -411,6 +472,9 @@ def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho:
         L.append(f"- centre of gravity moved by {s.cg_shift[0]:+.3f} m (x), {s.cg_shift[2]:+.3f} m (z)")
     if s.buoyancy_scale is not None:
         L.append(f"- buoyant volume of `{a.buoyancy_part}`: x{s.buoyancy_scale:.3f}")
+    if s.buoyancy_shift is not None and any(s.buoyancy_shift):
+        L.append(f"- `{a.buoyancy_part}` moved by {s.buoyancy_shift[0]:+.3f} m (x), {s.buoyancy_shift[2]:+.3f} m (z), "
+                 f"so the centre of buoyancy sits at the calibrated offset from the reference point")
     if e.notes:
         L += ["", "## Not carried, and why\n"] + [f"- {n}" for n in e.notes]
     return L

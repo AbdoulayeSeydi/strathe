@@ -108,7 +108,8 @@ python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yam
 python strathe.py fit-link --log messages.csv --out my_link
 
 # 4. (optional) your own Stonefish model, calibrated from the same logs (calibration/stonefish/README.md);
-#    export-stonefish converts your calibration's values in minutes and shows how far your model is from them
+#    export-stonefish puts your calibration's values into it in minutes; with Stonefish built with
+#    calibration/stonefish/stonefish_added_mass.patch it carries the damping as it is (`check` says if yours has it)
 python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
 python strathe.py export-stonefish --calibration calibration_output_my_rov --scenario my_world.scn --robot my_rov --part Hull --reference-point 0 0 0
 

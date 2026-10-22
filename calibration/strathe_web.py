@@ -769,7 +769,9 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <p class=muted>Converts the values your calibration found (mass, buoyancy, centre of gravity, inertia, drag, added mass)
 into your own Stonefish vehicle's settings on one part, and scores the original and the converted model on the
 recordings the calibration never saw. Minutes, not hours. Needs the replay tool (<code>calibration/stonefish/README.md
-</code>).</p>
+</code>). With Stonefish built with <code>calibration/stonefish/stonefish_added_mass.patch</code>, the drag goes in as
+Strathe's own damping and the model behaves like Strathe's over seconds; <code>python strathe.py check</code> says
+whether yours has it. For the best model over a minute, use "Calibrate your Stonefish model".</p>
 <form method=post action=/jobs/export_stonefish>{tok}
 <label for=sx-cal>Your calibration's output folder (from Calibrate, full path)</label>
 <input type=text id=sx-cal name=calibration required>

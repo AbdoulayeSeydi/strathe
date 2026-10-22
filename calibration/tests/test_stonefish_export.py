@@ -79,7 +79,34 @@ def test_the_export_reaches_strathes_values_in_stonefish(tmp_path):
     assert e.settings.anisotropic and e.settings.added_mass[0] == pytest.approx(6.0)
     for d in e.drag.values():
         assert np.allclose(d["stonefish_force_n"], d["strathe_force_n"], rtol=0.1, atol=0.5)
-    assert any("Rotational drag" in n for n in e.notes)
+    assert any("Drag converted" in n for n in e.notes)  # without the damping patch, drag is matched, not carried
+
+
+def test_with_the_damping_patch_strathes_damping_goes_in_as_it_is(tmp_path):
+    """#80: Stonefish's mesh drag can't take Strathe's damping (cubic in speed, coupled axes); the patch's per-axis
+    damping is the same law, so the values go in unconverted, all six axes, at the logs' reference point."""
+    sc = _lab(tmp_path / "lab", hydro='<hydrodynamics quadratic_drag="1 1 1"/>', r="0.1")
+    sc.discover()
+    p = CalibrationParameters(**PARAMS)
+    measure = _measure(sc, tmp_path)
+    e = EX.export_settings(p, 32.0, lambda s: {**measure(s), "axis_damping": True}, "Hull", "Foam", 1000.0,
+                           [np.linspace(0.3, 0.8, 40)] * 3, (-0.76, 0.0, 0.0))
+    d = e.settings.axis_damping
+    assert d["linear"] == [p.Xu, p.Yv, p.Zw] and d["linear_rot"] == [p.Kp, p.Mq, p.Nr]
+    assert d["quadratic"] == [p.Xuu, p.Yvv, p.Zww] and d["quadratic_rot"] == [p.Kpp, p.Mqq, p.Nrr]
+    assert d["point"] == [-0.76, 0.0, 0.0]
+    assert e.settings.quadratic_drag is None and e.drag == {}  # the mesh coefficients are left alone
+    assert not any("Drag converted" in n for n in e.notes)
+    out = tmp_path / "v.scn"
+    sc.write_calibrated_vehicle(str(out), e.settings)
+    t = out.read_text()
+    assert f'damping_linear="{SF._fmt([p.Xu, p.Yv, p.Zw])}"' in t and 'damping_point="-0.76 0 0"' in t
+    assert 'damping_quadratic_rot=' in t and 'quadratic_drag="1 1 1"' in t
+    # Strathe's model is written about the reference point: the CG goes there, the CB to the calibrated offset from it
+    info = measure(e.settings)
+    assert info["base"]["cg"] == pytest.approx([-0.76, 0.0, 0.0], abs=1e-6)
+    assert info["base"]["cb"] == pytest.approx([-0.76 - p.cg_cb_offset_x, 0.0, -p.cg_cb_offset_z], abs=1e-6)
+    assert "<compound_transform rpy=\"0 0 0\" xyz=\"" in t and any("reference point" in n for n in e.notes)
 
 
 def test_inertia_below_what_stonefish_allows_is_floored_and_said(tmp_path):
@@ -204,4 +231,19 @@ def test_the_report_says_which_axes_got_worse_and_to_calibrate_directly():
                         r([0.424, 0.073, 0.093, 0, 0, 0], [5.14, 11.26, 14.46]))
     assert v["better"] == ["up/down speed (heave)", "heading (yaw)"]
     assert v["worse"] == ["forward speed (surge)", "roll", "pitch"] and v["same"] == ["sideways speed (sway)"]
+    assert "fit-stonefish" in EX.recommendation(SF.PartSettings())
+    assert "Strathe's own model" in EX.recommendation(SF.PartSettings(axis_damping={"linear": [0, 0, 0]}))
     assert "fit-stonefish" in EX.RECOMMENDATION and EX.axis_verdict({}, {}) == {"better": [], "worse": [], "same": []}
+
+
+def test_strathe_check_says_what_the_stonefish_build_supports(tmp_path):
+    import strathe_cli as cli
+    assert "not built" in cli.stonefish_status(str(tmp_path / "missing"))
+    for out, want in (('{"patched": true, "axis_damping": true}', "Strathe's damping"),
+                      ('{"patched": true, "axis_damping": false}', "older patch"),
+                      ('{"patched": false, "axis_damping": false}', "without the patch"),
+                      ("usage: ...", "older than this version")):
+        tool = tmp_path / "replay"
+        tool.write_text(f"#!/bin/sh\necho '{out}'\n")
+        tool.chmod(0o755)
+        assert want in cli.stonefish_status(str(tool)), out
