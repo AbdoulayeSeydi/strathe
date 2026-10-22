@@ -661,6 +661,9 @@ current field above empty.</label>
 <label for=cal-restarts>Starting points (optional; default 1): start the fit from this many points and keep the
 lowest training cost. 3-4 for a hard calibration; the first fit takes that many times as long</label>
 <input type=text id=cal-restarts name=restarts value="">
+<label class=inline><input type=checkbox id=cal-restart-whole name=restart_whole_fit value=1 aria-label="Run the whole fit from that many starting points"> With current estimation:
+run the whole fit (every round) from that many starting points and keep the lowest final training cost, instead of
+choosing after the first round. For a calibration whose rounds can go two ways; that many times as long</label>
 <label for=cal-seed>Starting-point seed (optional): a calibration's seed, from its report, repeats it exactly</label>
 <input type=text id=cal-seed name=seed value="">
 <label for=cal-torque>Advanced: re-express logged torques about another point, <code>x y z</code> in m (optional)</label>
@@ -817,7 +820,9 @@ e.g. your URDF's base_link)</label><input type=text id=ds-ref name=reference_poi
 <p class=muted>Converts the values your calibration found (mass, buoyancy, centre of gravity, inertia, drag, added mass)
 into your own Stonefish vehicle's settings on one part, and scores the original and the converted model on the
 recordings the calibration never saw. Minutes, not hours. Needs the replay tool (<code>calibration/stonefish/README.md
-</code>).</p>
+</code>). With Stonefish built with <code>calibration/stonefish/stonefish_added_mass.patch</code>, the drag goes in as
+Strathe's own damping and the model behaves like Strathe's over seconds; <code>python strathe.py check</code> says
+whether yours has it. For the best model over a minute, use "Calibrate your Stonefish model".</p>
 <form method=post action=/jobs/export_stonefish>{tok}
 <label for=sx-cal>Your calibration's output folder (from Calibrate, full path)</label>
 <input type=text id=sx-cal name=calibration required>
@@ -997,6 +1002,8 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--seed", str(int(_number(form["seed"], "Seed", 0, 2 ** 31 - 1)))]
             if form.get("restarts", "").strip():
                 args += ["--restarts", str(int(_number(form["restarts"], "Starting points", 1, 20)))]
+            if form.get("restart_whole_fit"):
+                args += ["--restart-whole-fit"]
             if form.get("torque_offset", "").strip():
                 parts = form["torque_offset"].replace(",", " ").split()
                 if len(parts) != 3:

@@ -125,7 +125,8 @@ python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yam
 python strathe.py fit-link --log messages.csv --out my_link
 
 # 4. (optional) your own Stonefish model, calibrated from the same logs (calibration/stonefish/README.md);
-#    export-stonefish converts your calibration's values in minutes and shows how far your model is from them
+#    export-stonefish puts your calibration's values into it in minutes; with Stonefish built with
+#    calibration/stonefish/stonefish_added_mass.patch it carries the damping as it is (`check` says if yours has it)
 python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
 python strathe.py export-stonefish --calibration calibration_output_my_rov --scenario my_world.scn --robot my_rov --part Hull --reference-point 0 0 0
 
@@ -146,6 +147,10 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 - **A hard calibration:** add `--restarts 3` (or 4). The fit starts from that many points and keeps the one that fits
   your training recordings best; the first fit takes that many times as long. The report lists each start's result,
   so you can see whether the starting point mattered.
+  - **With `--estimate-current`,** only the first round restarts, and the start with the lowest round-1 cost isn't
+    always the one that ends best. Add `--restart-whole-fit` to run the whole fit, every round, from each starting
+    point and keep the lowest *final* training cost. It takes that many times as long; each start's result is kept
+    in its `startN` folder, and the report lists their costs round by round.
 
 ## 6. What you get back
 

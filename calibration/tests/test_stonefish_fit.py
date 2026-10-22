@@ -32,6 +32,7 @@ VEHICLE = """<?xml version="1.0"?>
             <internal_part name="Foam" type="cylinder" physics="floating" buoyant="true">
                 <dimensions radius="{r}" height="1.0"/>
                 <mass value="0.5"/>
+                <compound_transform rpy="0 0 0" xyz="0 0 0"/>
             </internal_part>
         </base_link>
         <sensor name="dvl" type="dvl" rate="5.0"><link name="Base"/></sensor>
