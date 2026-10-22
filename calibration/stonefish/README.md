@@ -119,6 +119,8 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
   both and keeps the better (`calibration/simulators/README.md`, "What the fit does for you"). The other is next to it
   as `<your vehicle file>_calibrated_cg_tuned.scn` or `_cg_held.scn`. The second fit starts from your model as it is
   and takes about as long as the first. `--no-cg-rerun` (or the web card's checkbox) skips it.
+- **Interrupted?** The best point so far is in `stonefish_fit_checkpoint.json`. Run the same command again with
+  `--finish` to score it and write the vehicle file and report, without fitting again.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash

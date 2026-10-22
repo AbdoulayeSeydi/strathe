@@ -98,7 +98,8 @@ python strathe.py fit-sim --sim gazebo --world my_world.sdf --model-file models/
   too long for the fitted damping, this copy uses a safe one. Your own files aren't changed;
 - when the first fit made the attitude worse and Strathe fitted again with the centre of gravity held, the other model
   as `<your model file>_calibrated_cg_tuned.sdf` or `_cg_held.sdf` (`--no-cg-rerun` skips the second fit);
-- `gazebo_fit_report.md`, `gazebo_fit.yaml` and `drift.png`.
+- `gazebo_fit_report.md`, `gazebo_fit.yaml` and `drift.png`;
+- `gazebo_fit_checkpoint.json`: the fit's best point. If the fit is interrupted, run the same command with `--finish`.
 
 ## Frames
 Strathe's logs are north-east-down / forward-right-down; Gazebo is east-north-up / forward-left-up. The replay tool

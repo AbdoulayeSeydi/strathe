@@ -485,13 +485,14 @@ class Knobs:
 
 def fit(scenario: Scenario, replay: Replay, train: list, knobs: Knobs, work: str, densities: dict,
         workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0, log=print,
-        weighting: str = "variation") -> dict:
+        weighting: str = "variation", checkpoint: str = None, fingerprint: dict = None) -> dict:
     """Least squares over Stonefish's own settings on the training recordings (simfit.core.fit, with the tuned part's
     settings written into the lab's scenario and the windows replayed in Stonefish)."""
     def simulate(x, i, run, rows, d):
         scn = scenario.write_runnable(os.path.join(d, f"scn{i}"), knobs.settings(x), densities.get(run.date))
         return replay.run(scn, rows, os.path.join(d, f"run{i}"))
-    f = core.fit(simulate, train, knobs, work, workers, max_iterations, drift_weight, log, weighting)
+    f = core.fit(simulate, train, knobs, work, workers, max_iterations, drift_weight, log, weighting,
+                 checkpoint=checkpoint, fingerprint=fingerprint)
     f["settings"] = knobs.settings(np.array(f["x"]))
     return f
 
@@ -562,8 +563,34 @@ def run_fit_stonefish(a) -> int:
               f"{len(train)} training recording(s); {len(held)} held out ({', '.join(split.heldout_groups)}).", flush=True)
         for n in notes:
             print("  note: " + n, flush=True)
-        f = fit(scenario, replay, train, knobs, work, densities, a.workers, a.max_iterations,
-                log=lambda s: print(s, flush=True), weighting=a.weighting)
+        fingerprint = {"simulator": "stonefish", "model": os.path.abspath(a.scenario), "part": a.part,
+                       "data": os.path.abspath(a.data), "heldout": list(split.heldout_groups)}
+        checkpoints = {"first": os.path.join(out, "stonefish_fit_checkpoint.json"),
+                       "cg_held": os.path.join(out, "stonefish_fit_checkpoint_cg_held.json")}
+        finished = []
+        if not a.finish:
+            for c in checkpoints.values():   # a new fit: last run's checkpoints no longer apply
+                if os.path.exists(c):
+                    os.remove(c)
+
+        def fit_or_finish(kn, which):
+            if a.finish:
+                try:
+                    r = core.finish_from_checkpoint(checkpoints[which], kn, fingerprint)
+                except core.SimFitError as e:
+                    raise StonefishFitError(str(e))
+                r["settings"] = kn.settings(np.array(r["x"]))
+                if r.get("finished_from_checkpoint"):
+                    finished.append(which)
+                print(f"Finishing from {os.path.basename(checkpoints[which])}: the best of {r['evaluations']} evaluations "
+                      f"(cost {r['cost']:.4f}).", flush=True)
+                return r
+            print(f"  (the best point so far is saved to {checkpoints[which]}: if this is interrupted, run the same "
+                  f"command with --finish)", flush=True)
+            return fit(scenario, replay, train, kn, work, densities, a.workers, a.max_iterations,
+                       log=lambda s_: print(s_, flush=True), weighting=a.weighting, checkpoint=checkpoints[which],
+                       fingerprint=fingerprint)
+        f = fit_or_finish(knobs, "first")
         s = f["settings"]
         stem = os.path.splitext(os.path.basename(scenario.vehicle_file))[0]
 
@@ -596,13 +623,16 @@ def run_fit_stonefish(a) -> int:
         rerun = None
         worse = core.attitude_worse(results[orig_label], results[cal_label])
         cg_holds = [n for n in holds if n.startswith("cg_shift")]
-        if worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun:
+        skipped_rerun = False
+        if worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun and a.finish \
+                and not os.path.exists(checkpoints["cg_held"]):
+            skipped_rerun = True   # finishing doesn't start a new fit; the report says how to get the second one
+        elif worse and "cg" in fit_knobs and not cg_holds and not a.no_cg_rerun:
             print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
                   f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
                   f"this)...", flush=True)
             knobs_b = Knobs(tuple(k for k in fit_knobs if k != "cg"), parts[a.part], a.axisymmetric, holds)
-            fb = fit(scenario, replay, train, knobs_b, work, densities, a.workers, a.max_iterations,
-                     log=lambda s_: print(s_, flush=True), weighting=a.weighting)
+            fb = fit_or_finish(knobs_b, "cg_held")
             tuned_label, held_label = cal_label + " (centre of gravity tuned)", cal_label + " (centre of gravity held)"
             results[tuned_label] = results.pop(cal_label)
             score_models([(held_label, base, fb["settings"])])
@@ -639,7 +669,8 @@ def run_fit_stonefish(a) -> int:
                    "before": {k: parts[a.part][k] for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia")},
                    "after": {k: v for k, v in s.__dict__.items() if v is not None},
                    "stonefish_patched": bool(info.get("patched")),
-                   "calibrated_vehicle_file": vehicle_out, "cg_rerun": rerun, "heldout": results}
+                   "calibrated_vehicle_file": vehicle_out, "cg_rerun": rerun,
+                   "finished_from_checkpoint": finished, "heldout": results}
         yaml.safe_dump(json.loads(json.dumps(summary)), open(os.path.join(out, "stonefish_fit.yaml"), "w"), sort_keys=False)
         _plot(results, os.path.join(out, "drift.png"))
         orig = results[orig_label].get("60s", results[orig_label].get("30s", {}))
@@ -697,6 +728,13 @@ def run_fit_stonefish(a) -> int:
             rf = rerun["fit"]
             L.append(f"The refit with the centre of gravity held: cost {rf['start_cost']:.3f} -> {rf['cost']:.3f} after "
                      f"{rf['evaluations']} evaluations ({rf['status']}).")
+        if finished:
+            L.append(f"**Finished from a checkpoint (`--finish`):** the {' and the '.join('first fit' if w == 'first' else 'refit with the centre of gravity held' for w in finished)} "
+                     f"stopped before converging, and this is its best point so far. Run the command again without "
+                     f"`--finish` for a converged fit.")
+        if skipped_rerun:
+            L.append("**The refit with the centre of gravity held wasn't run** (`--finish` doesn't start a fit): run the "
+                     "command again without `--finish` to get it.")
         L += [f"- {n}" for n in notes]
         L += ["", "Fitting can trade one axis for another, or tailor values to the training sessions: odd values "
               "(drag far from the shape's, added mass at a limit) mean the logs don't pin them down. More varied "
@@ -754,6 +792,10 @@ def add_arguments(ap) -> None:
     ap.add_argument("--no-cg-rerun", action="store_true",
                     help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
                          "(by default it does, and keeps the better of the two)")
+    ap.add_argument("--finish", action="store_true",
+                    help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
+                         "score it and write the vehicle file and report as usual. Give the same command as the "
+                         "interrupted run")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="Stonefish runs at once")
     ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
     ap.add_argument("--out", default="stonefish_fit", help="output folder")

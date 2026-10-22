@@ -1094,6 +1094,8 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
         argv += ["--weighting", args.weighting]
     if getattr(args, "no_cg_rerun", False):
         argv += ["--no-cg-rerun"]
+    if getattr(args, "finish", False):
+        argv += ["--finish"]
     return argv
 
 
@@ -1410,6 +1412,9 @@ def build_parser() -> argparse.ArgumentParser:
                                                        "else Stonefish's)")
     sf.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
     sf.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (default 15)")
+    sf.add_argument("--finish", action="store_true",
+                    help="an interrupted fit: use its best point so far (the checkpoint in --out) instead of fitting "
+                         "again; give the same command as the interrupted run")
     sf.add_argument("--no-cg-rerun", action="store_true",
                     help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
                          "(by default it does, and keeps the better of the two)")

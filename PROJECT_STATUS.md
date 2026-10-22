@@ -2527,8 +2527,17 @@ cost of 874):
   - The Stonefish golden file gains one line, `cg_rerun: null`.
 - **Docs:** `calibration/simulators/README.md` ("What the fit does for you"), the Gazebo and Stonefish guides,
   LAB_GUIDE section 6, the README command table and the example's guide.
-- **Still to do:** a long simulator fit can't be finished from its best point the way `strathe calibrate --finish`
-  can.
+- **A long simulator fit can be finished from its best point,** as `strathe calibrate --finish` does (2026-10-21).
+  - **The checkpoint:** `simfit.core.fit` writes its best point to `<sim>_fit_checkpoint.json` after every improving
+    evaluation, atomically, and the result marked complete at the end. The second fit writes
+    `..._checkpoint_cg_held.json`.
+  - **`--finish`** (`fit-sim`, `fit-stonefish`, a checkbox on both web cards) scores the checkpoint's point instead of
+    fitting, and writes the usual outputs. The report marks an unfinished fit as not converged, and says to run
+    without `--finish` if the second fit hadn't started.
+  - **Refusals:** a checkpoint from other settings (other tuned values, model, logs or held-out dates) is refused, and
+    the message says which. A new fit removes old checkpoints.
+  - **Tests:** `tests/test_simfit_finish.py`; a Stonefish finish test; the web checkboxes. The Stonefish golden file
+    gains `finished_from_checkpoint: []`.
 
 ## Honest open items
 

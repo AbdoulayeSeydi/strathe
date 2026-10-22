@@ -141,13 +141,17 @@ def axis_scales(velocities: np.ndarray, weighting: str = "variation") -> np.ndar
 
 
 def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iterations: int = 15, drift_weight: float = 1.0,
-        log=print, weighting: str = "variation") -> dict:
+        log=print, weighting: str = "variation", checkpoint: str = None, fingerprint: dict = None) -> dict:
     """Least squares over a simulator's own settings on the training recordings (30 s free-running windows every 30 s;
     velocity error per axis scaled by axis_scales, plus end-of-window drift scaled by the no-motion drift). The
     Jacobian's simulator runs go in parallel.
 
     simulate(x, i, run, rows, folder) -> [(V, Q) per window]: recording i's windows run with the settings for
-    parameter vector x (an adapter's model written into `folder`). knobs: names(), values(x), x0(), bounds()."""
+    parameter vector x (an adapter's model written into `folder`). knobs: names(), values(x), x0(), bounds().
+
+    checkpoint: a JSON file the best point so far is written to after every evaluation that improves it (and the
+    result, marked complete, at the end), so an interrupted fit can be finished from it (finish_from_checkpoint, #90:
+    a Gazebo fit of bluerov2_gz ran 9.5 h). fingerprint: what the checkpoint must match to be finished."""
     from scipy.optimize import least_squares
     runs_wins = [(run, windows(run, FIT_WINDOW_S, FIT_STRIDE_S)) for run in train]
     if not any(w for _, w in runs_wins):
@@ -174,6 +178,19 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
         return np.concatenate(out)
 
     cache = {}
+    best = {"cost": math.inf, "x": None, "start_cost": None}
+
+    def save(complete=False, status=None):
+        if not checkpoint or best["x"] is None:
+            return
+        doc = {"fingerprint": fingerprint or {}, "names": knobs.names(), "x": [float(v) for v in best["x"]],
+               "values": knobs.values(np.array(best["x"])), "cost": best["cost"], "start_cost": best["start_cost"],
+               "evaluations": counter["n"], "axis_scales": scale.tolist(), "complete": complete,
+               "status": status or "interrupted: finished from its best point so far, not converged"}
+        tmp = checkpoint + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=1)
+        os.replace(tmp, checkpoint)  # never left half-written by an interruption
 
     def fun(x):
         key = tuple(np.round(x, 12))
@@ -181,7 +198,13 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
             return cache[key]
         counter["n"] += 1
         r = residuals_at(x, f"f{counter['n']}")
-        log(f"  evaluation {counter['n']}: cost {0.5 * float(r @ r):.4f}")
+        c = 0.5 * float(r @ r)
+        log(f"  evaluation {counter['n']}: cost {c:.4f}")
+        if best["start_cost"] is None:
+            best["start_cost"] = c
+        if c < best["cost"]:
+            best["cost"], best["x"] = c, np.array(x, dtype=float)
+            save()
         cache.clear()
         cache[key] = r
         return r
@@ -206,10 +229,37 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
     x0 = knobs.x0()
     r0 = fun(x0)  # cached: least_squares' first evaluation reuses it
     res = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf", max_nfev=max_iterations, x_scale=1.0)
-    best = res.x
-    return {"x": best.tolist(), "names": knobs.names(), "values": knobs.values(best), "axis_scales": scale.tolist(),
-            "start_cost": 0.5 * float(r0 @ r0),
-            "cost": float(res.cost), "evaluations": counter["n"], "status": res.message}
+    out = {"x": res.x.tolist(), "names": knobs.names(), "values": knobs.values(res.x), "axis_scales": scale.tolist(),
+           "start_cost": 0.5 * float(r0 @ r0),
+           "cost": float(res.cost), "evaluations": counter["n"], "status": res.message}
+    best["x"], best["cost"] = res.x, float(res.cost)
+    save(complete=True, status=res.message)
+    return out
+
+
+def finish_from_checkpoint(checkpoint: str, knobs, fingerprint: dict = None) -> dict:
+    """The fit result an interrupted fit's checkpoint holds (its best point so far), in fit()'s shape. Refuses a
+    checkpoint written for other settings."""
+    if not os.path.exists(checkpoint):
+        raise SimFitError(f"--finish: no checkpoint ({os.path.basename(checkpoint)}) in {os.path.dirname(checkpoint)}; "
+                          f"nothing to finish (did the fit start, with the same --out?)")
+    try:
+        with open(checkpoint, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise SimFitError(f"--finish: the checkpoint {checkpoint} can't be read ({e})")
+    if doc.get("names") != knobs.names():
+        raise SimFitError(f"--finish: the checkpoint was written for other settings (it tuned "
+                          f"{', '.join(doc.get('names') or [])}; this command tunes {', '.join(knobs.names())}). Give "
+                          f"the same --fit, --hold and --axisymmetric as the interrupted run")
+    for k, v in (fingerprint or {}).items():
+        if doc.get("fingerprint", {}).get(k) not in (None, v):
+            raise SimFitError(f"--finish: the checkpoint was written for another {k} ({doc['fingerprint'][k]}, not {v}); "
+                              f"give the same settings as the interrupted run")
+    x = np.array(doc["x"], dtype=float)
+    return {"x": x.tolist(), "names": knobs.names(), "values": knobs.values(x), "axis_scales": doc["axis_scales"],
+            "start_cost": doc["start_cost"], "cost": doc["cost"], "evaluations": doc["evaluations"],
+            "status": doc["status"], "finished_from_checkpoint": not doc.get("complete")}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

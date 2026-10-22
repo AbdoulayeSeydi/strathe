@@ -478,6 +478,8 @@ def stonefish_cli_args(form: dict) -> list:
         args += ["--hold", *holds]
     if form.get("no_cg_rerun"):
         args += ["--no-cg-rerun"]
+    if form.get("finish"):
+        args += ["--finish"]
     return args
 
 
@@ -562,6 +564,8 @@ def sim_cli_args(form: dict, command: str = "fit") -> list:
             args += ["--max-iterations", str(int(_number(form["max_iterations"], "Fit iterations", 1, 200)))]
         if form.get("no_cg_rerun"):
             args += ["--no-cg-rerun"]
+        if form.get("finish"):
+            args += ["--finish"]
     if form.get("workers", "").strip():
         args += ["--workers", str(int(_number(form["workers"], "Simulator runs at once", 1, 256)))]
     return args
@@ -844,6 +848,9 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label for=sf-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
 <input type=text id=sf-tool name=replay_tool value="">
 <label for=sf-iter>Fit iterations (optional; default 15)</label><input type=text id=sf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=sf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
+interrupted calibration (the laptop slept, the power went) from its best point so far, instead of fitting again. Use the
+same name and settings as the interrupted one; it takes minutes, not hours.</label>
 <label class=inline><input type=checkbox id=sf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
 centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
 again with it held (about as long again) and keeps the better of the two.</label>
@@ -911,6 +918,9 @@ the model file (optional)</label><input type=text id=simf-second name=second val
 <label for=simf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label><input type=text id=simf-cmp name=compare_params value="">
 <label for=simf-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simf-tool name=replay_tool value="">
 <label for=simf-iter>Fit iterations (optional; default 15)</label><input type=text id=simf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=simf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
+interrupted calibration (the laptop slept, the power went) from its best point so far, instead of fitting again. Use the
+same name and settings as the interrupted one; it takes minutes, not hours.</label>
 <label class=inline><input type=checkbox id=simf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
 centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
 again with it held (about as long again) and keeps the better of the two.</label>

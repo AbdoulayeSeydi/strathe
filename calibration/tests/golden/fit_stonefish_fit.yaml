@@ -81,6 +81,7 @@ after:
 stonefish_patched: true
 calibrated_vehicle_file: <tmp>/out/vehicle_calibrated.scn
 cg_rerun: null
+finished_from_checkpoint: []
 heldout:
   Stonefish, original:
     windows: 4

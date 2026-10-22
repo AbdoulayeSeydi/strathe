@@ -61,7 +61,7 @@ class FakeSim:
 def _run(tmp_path, monkeypatch, held_drift, extra=()):
     fits = []
 
-    def fake_fit(simulate, train, knobs, work, workers, max_iterations, log=None, weighting=None):
+    def fake_fit(simulate, train, knobs, work, workers, max_iterations, log=None, weighting=None, **kw):
         names = knobs.names()
         fits.append({s.name: s.start for s in knobs.specs})
         values = {"drag": 2.0, "cg_z": 0.05} if "cg_z" in names else {"drag": 1.9}

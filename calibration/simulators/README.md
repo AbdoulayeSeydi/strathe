@@ -104,6 +104,17 @@ held, `fit-sim` and `fit-stonefish` fit again with it held. Both are scored, and
 - **To skip it:** `--no-cg-rerun`, or the checkbox on the web cards. Holding the centre of gravity yourself (`--fit`
   without `cg`, or `--hold`) also skips it.
 
+**An interrupted fit can be finished.** A simulator fit can take hours: the public bluerov2_gz took 7–10 h in Gazebo.
+- **The checkpoint:** after every evaluation that improves the fit, the best point so far is saved to
+  `<sim>_fit_checkpoint.json` in `--out`. The second fit (centre of gravity held) saves to `..._checkpoint_cg_held.json`.
+- **If the laptop sleeps, the power goes or you stop it,** run the same command again with `--finish`, or tick
+  "Finish an interrupted calibration" on the web card and keep the same name. It doesn't fit again: it scores the best
+  point and writes the model, the world copy and the report as usual, in minutes.
+- **What the report says:** a result finished this way is marked as not converged. If the second fit hadn't started,
+  the report says to run again without `--finish` to get it.
+- **Mismatches:** `--finish` refuses a checkpoint from other settings (other values tuned, another model, other logs
+  or held-out dates) and says which. A new fit without `--finish` replaces old checkpoints.
+
 **Gazebo: a world that runs the result.**
 - **What it is:** `calibrated_world/` is a copy of your world with the calibrated model in it. An included model folder
   is copied, not linked. Run it from the output folder with `gz sim calibrated_world/<your world>.sdf`. Your own files

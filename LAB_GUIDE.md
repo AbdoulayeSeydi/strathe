@@ -155,6 +155,8 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
     kept the better model. The other is next to it (`..._cg_tuned` or `..._cg_held`), and the report says why.
   - **Gazebo:** `calibrated_world/` runs the result as it is: `gz sim calibrated_world/<your world>.sdf`. It uses a
     shorter physics step when the fitted damping needs one.
+  - **If it was interrupted:** run the same command again with `--finish`, as for `calibrate`. It finishes from the
+    best point so far in minutes, and the report says it isn't converged.
 - **`export-stonefish`:** your Stonefish vehicle file with your calibration's values in it, the same comparison, and what Stonefish can't carry.
 - **`arena` / `fleet`:** a report each, with confidence intervals, comparing your calibrated model against generic physics.
 

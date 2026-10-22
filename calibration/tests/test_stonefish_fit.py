@@ -4,6 +4,7 @@ its logs. Stonefish itself isn't needed: tests/fake_stonefish_replay.py speaks t
 vehicle whose motion follows the scenario's settings, so the whole path is checked -- the lab's scenario as written
 (ROS-style includes, sensors), the fit, the held-out scores, the files written, the command line and the web form.
 """
+import json
 import os
 import sys
 import types
@@ -190,6 +191,7 @@ def test_web_form_builds_the_command(tmp_path):
     assert "--axisymmetric" in args and args[args.index("--density-by-date") + 1] == "27-03-2026=1000"
     assert args[args.index("--hold") + 1] == "added_mass_x=10.6"
     assert "--no-cg-rerun" not in args and "--no-cg-rerun" in web.stonefish_cli_args({**form, "no_cg_rerun": "1"})
+    assert "--finish" not in args and "--finish" in web.stonefish_cli_args({**form, "finish": "1"})
     for bad, match in (({"reference_point": "1 2"}, "three numbers"), ({"data": ""}, "Give the logs"),
                        ({"density_by_date": "fresh"}, "DATE=RHO"), ({"find": "pkg"}, "PKG=/path"),
                        ({"hold": "added_mass_x"}, "NAME=VALUE")):
@@ -258,3 +260,21 @@ def test_attitude_worse_with_the_cg_tuned_refits_with_it_held(tmp_path, monkeypa
     fits.clear()
     assert SF.run_fit_stonefish(a) == 0 and len(fits) == 1
     assert "Be careful" in open(tmp_path / "out" / "stonefish_fit_report.md").read()
+
+
+def test_an_interrupted_stonefish_fit_is_finished_from_its_best_point(tmp_path, capsys):
+    """#90: fit-stonefish keeps its best point in stonefish_fit_checkpoint.json; --finish uses it."""
+    data = _logs(tmp_path, seconds=70)
+    _lab(tmp_path / "lab")
+    assert SF.run_fit_stonefish(_args(tmp_path, data, max_iterations=1)) == 0
+    out = tmp_path / "out"
+    ck = json.loads((out / "stonefish_fit_checkpoint.json").read_text())
+    assert ck["complete"]
+    ck["complete"] = False
+    (out / "stonefish_fit_checkpoint.json").write_text(json.dumps(ck))
+    assert SF.run_fit_stonefish(_args(tmp_path, data, max_iterations=1, finish=True)) == 0
+    s = yaml.safe_load(open(out / "stonefish_fit.yaml"))
+    assert s["finished_from_checkpoint"] == ["first"]
+    assert "Finished from a checkpoint" in open(out / "stonefish_fit_report.md").read()
+    with pytest.raises(SF.StonefishFitError, match="written for other settings"):
+        SF.run_fit_stonefish(_args(tmp_path, data, fit=["drag"], finish=True))

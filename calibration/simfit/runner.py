@@ -63,6 +63,9 @@ def add_fit_arguments(ap) -> None:
     ap.add_argument("--from-strathe", metavar="CALIBRATION",
                     help="start from your Strathe calibration's values put into the model (as export-sim), then fit")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
+    ap.add_argument("--finish", action="store_true",
+                    help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
+                         "score it and write the model and report as usual. Give the same command as the interrupted run")
     ap.add_argument("--no-cg-rerun", action="store_true",
                     help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
                          "(by default it does, and keeps the better of the two)")
@@ -181,12 +184,34 @@ def run_fit(adapter, a) -> int:
         for n in notes:
             print("  note: " + n, flush=True)
 
-        def fit_with(kn):
+        fingerprint = {"simulator": adapter.sim, "model": os.path.abspath(adapter.model_path),
+                       "data": os.path.abspath(a.data), "heldout": list(split.heldout_groups)}
+        checkpoints = {"first": os.path.join(out, f"{adapter.sim}_fit_checkpoint.json"),
+                       "cg_held": os.path.join(out, f"{adapter.sim}_fit_checkpoint_cg_held.json")}
+        finished = []   # the fits finished from a checkpoint (--finish): reported as not converged
+        if not a.finish:
+            for c in checkpoints.values():   # a new fit: last run's checkpoints no longer apply
+                if os.path.exists(c):
+                    os.remove(c)
+
+        def fit_with(kn, which):
+            if a.finish:
+                if which == "cg_held" and not os.path.exists(checkpoints[which]):
+                    return None
+                r = core.finish_from_checkpoint(checkpoints[which], kn, fingerprint)
+                if r.get("finished_from_checkpoint"):
+                    finished.append(which)
+                print(f"Finishing from {os.path.basename(checkpoints[which])}: the best of {r['evaluations']} evaluations "
+                      f"(cost {r['cost']:.4f}).", flush=True)
+                return r
+
             def simulate(x, i, run, rows, d):
                 model = adapter.write_runnable(kn.values(x), os.path.join(d, f"m{i}"), densities.get(run.date))
                 return adapter.replay(model, rows, os.path.join(d, f"r{i}"))
+            print(f"  (the best point so far is saved to {checkpoints[which]}: if this is interrupted, run the same "
+                  f"command with --finish)", flush=True)
             return core.fit(simulate, train, kn, work, a.workers, a.max_iterations, log=lambda s: print(s, flush=True),
-                            weighting=a.weighting)
+                            weighting=a.weighting, checkpoint=checkpoints[which], fingerprint=fingerprint)
 
         def check_step(values):
             """Gazebo (#90): if the fitted damping is too stiff for the world's step, score at a safe one."""
@@ -202,7 +227,7 @@ def run_fit(adapter, a) -> int:
             adapter.step_override = step
             return True
 
-        f = fit_with(knobs)
+        f = fit_with(knobs, "first")
         values = f["values"]
         check_step(values)
 
@@ -228,7 +253,10 @@ def run_fit(adapter, a) -> int:
         rerun = None
         cg_tuned = [sp.name for sp in specs if sp.group == "cg" and sp.name not in knobs.held]
         worse = core.attitude_worse(results[orig], results[cal])
-        if worse and cg_tuned and not a.no_cg_rerun:
+        skipped_rerun = False
+        if worse and cg_tuned and not a.no_cg_rerun and a.finish and not os.path.exists(checkpoints["cg_held"]):
+            skipped_rerun = True   # finishing doesn't start a new fit; the report says how to get the second one
+        elif worse and cg_tuned and not a.no_cg_rerun:
             print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
                   f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
                   f"this)...", flush=True)
@@ -236,7 +264,7 @@ def run_fit(adapter, a) -> int:
             specs_b = [replace(sp, start=float(values[sp.name])) if sp.transform != "linear" and sp.name in values
                        and float(values[sp.name]) > 0 else sp for sp in specs if sp.group != "cg"]
             knobs_b = Knobs(specs_b, {k: v for k, v in knobs.held.items() if k in {sp.name for sp in specs_b}})
-            fb = fit_with(knobs_b)
+            fb = fit_with(knobs_b, "cg_held")
             values_b = fb["values"]
             tuned_label, held_label = cal + " (centre of gravity tuned)", cal + " (centre of gravity held)"
             if check_step(values_b):   # a shorter step: score everything again at it, so the rows compare
@@ -269,6 +297,7 @@ def run_fit(adapter, a) -> int:
                    "heldout_dates": split.heldout_groups,
                    "fit": {k: f[k] for k in ("start_cost", "cost", "evaluations", "status")},
                    "cg_rerun": None if not rerun else {**rerun, "other_model_file": other_out},
+                   "finished_from_checkpoint": finished,
                    "physics_step_s": getattr(adapter, "step_override", None),
                    "calibrated_world": world_out,
                    "info": info, "calibrated_model_file": model_out, "heldout": results}
@@ -305,6 +334,13 @@ def run_fit(adapter, a) -> int:
             rf = rerun["fit"]
             L.append(f"The refit with the centre of gravity held: cost {rf['start_cost']:.3f} -> {rf['cost']:.3f} after "
                      f"{rf['evaluations']} evaluations ({rf['status']}).")
+        if finished:
+            L.append(f"**Finished from a checkpoint (`--finish`):** the {' and the '.join('first fit' if w == 'first' else 'refit with the centre of gravity held' for w in finished)} "
+                     f"stopped before converging, and this is its best point so far. Run the command again without "
+                     f"`--finish` for a converged fit.")
+        if skipped_rerun:
+            L.append("**The refit with the centre of gravity held wasn't run** (`--finish` doesn't start a fit): run the "
+                     "command again without `--finish` to get it.")
         L += [f"- {n}" for n in notes]
         L += ["", "Fitting can trade one axis for another, or tailor values to the training sessions: odd values (a "
               "drag far from the shape's, a value at its limit) mean the logs don't pin them down. More varied "
