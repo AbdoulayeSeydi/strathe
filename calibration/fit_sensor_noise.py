@@ -20,6 +20,14 @@ inflate it, per recording, and the median over recordings is reported.
 Measured per logged sample: the simulator applies the numbers per 0.1 s tick,
 so logs at a very different rate give a rough value (it says so).
 
+Filtered logs (F5): many autopilots log a smoothed velocity or attitude, and
+then the second difference is the smoothed motion, not noise, so it would
+report almost no noise. For white noise, consecutive second differences
+correlate at exactly -2/3 (about +-0.04 over 800 samples); smoothing pulls
+that up (an 8-sample moving average of noise: -0.46; smooth motion: positive).
+A channel above -0.55 is reported as not measurable, and the `typical`
+preset's value is written for it, with a note, instead of ~0.
+
 What logs can and can't tell:
   - white noise of velocity, rates, roll/pitch, heading, depth and (if the
     logs have positions) position: measured
@@ -59,6 +67,23 @@ def white_noise_std(x: np.ndarray) -> float:
     return float(1.4826 * mad / SQRT6)
 
 
+# white noise gives -2/3 (about +-0.04 over 800 samples); an 8-sample moving average of noise gives -0.46 and smooth
+# motion is positive: above -0.55 (about 3 standard errors from -2/3), the channel is smoothed
+FILTERED_ABOVE = -0.55
+
+
+def noise_correlation(x: np.ndarray) -> float:
+    """Lag-1 correlation of the second difference: -2/3 for white noise, positive when the logs are smoothed."""
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size < 8:
+        return float("nan")
+    d2 = np.diff(x, 2)
+    if np.std(d2[1:]) == 0 or np.std(d2[:-1]) == 0:
+        return float("nan")
+    return float(np.corrcoef(d2[1:], d2[:-1])[0, 1])
+
+
 def held_fraction(block: np.ndarray) -> float:
     """Fraction of samples whose (u, v, w) repeat the previous sample exactly, or are missing."""
     block = np.asarray(block, dtype=float)
@@ -75,12 +100,14 @@ def fit_recording(df: pd.DataFrame) -> dict:
     for col in ("Bu", "Bv", "Bw", "Bp", "Bq", "Br", "x", "y", "z"):
         if col in df:
             out[col] = white_noise_std(df[col].values)
+            out[f"{col}_corr"] = noise_correlation(df[col].values)
     if all(c in df for c in ("qx", "qy", "qz", "qw")):
         q = df[["qx", "qy", "qz", "qw"]].values
         ok = np.all(np.isfinite(q), axis=1) & (np.linalg.norm(q, axis=1) > 0.5)
         if ok.sum() >= 5:
             e = np.unwrap(Rotation.from_quat(q[ok]).as_euler("xyz"), axis=0)
             out["roll"], out["pitch"], out["yaw"] = (white_noise_std(e[:, i]) for i in range(3))
+            out["roll_corr"], out["pitch_corr"], out["yaw_corr"] = (noise_correlation(e[:, i]) for i in range(3))
     if all(c in df for c in ("Bu", "Bv", "Bw")):
         out["held"] = held_fraction(df[["Bu", "Bv", "Bw"]].values)
     out["samples"] = len(df)
@@ -117,7 +144,24 @@ def fit(files: list, position: str = None) -> tuple:
         "position": position,
         "position_std_m": round(mean(("x", "y")) if (position == "external" and have_pos) else 0.0, 6),
     }
-    return sensors, rows
+    # F5: a channel whose second differences aren't noise (smoothed logs) can't be measured: say so, use the preset
+    groups = {"velocity_std_mps": ("Bu", "Bv", "Bw"), "gyro_std_rps": ("Bp", "Bq", "Br"),
+              "attitude_std_rad": ("roll", "pitch"), "heading_std_rad": ("yaw",), "depth_std_m": ("z",)}
+    if sensors["position"] == "external" and have_pos:
+        groups["position_std_m"] = ("x", "y")
+    filtered = {}
+    preset = None
+    for key, cols in groups.items():
+        corr = [m for m in (_median(rows, f"{c}_corr") for c in cols) if m is not None]
+        if corr and float(np.median(corr)) > FILTERED_ABOVE:
+            if preset is None:
+                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensor_noise",
+                                       "typical_dvl_ahrs.yaml"), encoding="utf-8") as f:
+                    preset = (yaml.safe_load(f) or {}).get("sensors", {})
+            filtered[key] = {"measured": sensors[key], "second_difference_correlation": round(float(np.median(corr)), 3),
+                             "written": preset.get(key, sensors[key])}
+            sensors[key] = preset.get(key, sensors[key])
+    return sensors, rows, filtered
 
 
 def main(argv=None) -> int:
@@ -141,7 +185,7 @@ def main(argv=None) -> int:
             rate = json.load(f).get("sampling_rate_hz")
     rate = float(rate or 10.0)
     try:
-        sensors, rows = fit(files, args.position)
+        sensors, rows, filtered = fit(files, args.position)
     except (KeyError, ValueError, pd.errors.ParserError) as e:
         print(f"ERROR: couldn't read the logs: {e}", file=sys.stderr)
         return 2
@@ -152,12 +196,20 @@ def main(argv=None) -> int:
                      f"guide to per-tick noise in the simulator.")
     notes.append("Biases (a constant offset per dive) can't be measured from logs without an independent reference; "
                  "they are 0 here. Put your sensors' datasheet values in if you know them.")
+    if filtered:
+        notes.append("These logs look smoothed (filtered by the vehicle, or resampled by interpolating between "
+                     "samples) for " + ", ".join(
+            f"{k} (second differences correlate at {v['second_difference_correlation']:+.2f}; white noise gives "
+            f"-0.67)" for k, v in filtered.items())
+            + ": the noise can't be measured from them, and measuring would have given almost none. The `typical` "
+              "preset's values are written for those instead. Log the raw sensor readings at their own rate (ingest "
+              "without resample_hz), or put your datasheet values in.")
     if sensors["position"] == "dead_reckoning":
         notes.append("position_std_m is the error of the starting position fix; set it to your fix's accuracy.")
     doc = {"sensors": sensors, "provenance": "measured",
            "fit": {"date": date.today().isoformat(), "method": "fit_sensor_noise.py (robust second difference)",
                    "logs": os.path.basename(os.path.abspath(args.data_dir)), "recordings": len(rows),
-                   "sampling_rate_hz": rate, "notes": notes},
+                   "sampling_rate_hz": rate, "notes": notes, "not_measurable_filtered": filtered or None},
            "per_recording": [{k: (round(v, 6) if isinstance(v, float) else v) for k, v in r.items()} for r in rows]}
     from sensor_noise import load_sensor_noise
     with open(args.out, "w", encoding="utf-8") as f:

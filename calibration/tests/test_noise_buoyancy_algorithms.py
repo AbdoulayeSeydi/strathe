@@ -617,3 +617,36 @@ def test_help_and_web_labels_carry_the_caveats():
     assert "ASSUMED" in helptext
     tf = cli.build_parser()._subparsers._group_actions[0].choices["train-fleet"].format_help()
     assert "reference" in tf and "BlueROV2" in tf
+
+
+def test_fit_noise_says_filtered_logs_cant_be_measured(tmp_path):
+    """F5 (URI re-run): on smoothed logs the second difference is the motion, not noise, and fit-noise reported almost
+    none. Filtered channels are now flagged and given the typical preset's value, with a note."""
+    import yaml as _yaml
+    import fit_sensor_noise as fsn
+    rng = np.random.default_rng(3)
+    t = np.arange(800) * 0.1
+    raw = 0.3 * np.cos(0.2 * t) + rng.normal(0, 0.005, t.size)
+    smooth = np.convolve(raw, np.ones(8) / 8, mode="same")          # an autopilot's moving-average filter
+    assert fsn.noise_correlation(raw) == pytest.approx(-2 / 3, abs=0.08)
+    assert fsn.noise_correlation(smooth) > fsn.FILTERED_ABOVE
+    for name, sig in (("raw", raw), ("filtered", smooth)):
+        d = tmp_path / name
+        d.mkdir()
+        for k in range(2):
+            pd.DataFrame({"Bu": sig, "Bv": rng.normal(0, 0.005, t.size), "Bw": rng.normal(0, 0.005, t.size),
+                          "z": 1 + rng.normal(0, 0.002, t.size)}).to_csv(d / f"r{k}.csv", index=False)
+        assert fsn.main(["--data-dir", str(d), "--out", str(tmp_path / f"{name}.yaml")]) == 0
+    raw_doc = _yaml.safe_load((tmp_path / "raw.yaml").read_text())
+    assert raw_doc["fit"]["not_measurable_filtered"] is None
+    assert raw_doc["sensors"]["velocity_std_mps"] == pytest.approx(0.005, rel=0.25)
+    # one of three velocity axes smoothed is not enough to flag velocity (the median of the three decides)
+    for k in range(2):
+        df = pd.read_csv(tmp_path / "filtered" / f"r{k}.csv")
+        df["Bv"], df["Bw"] = np.convolve(df["Bv"], np.ones(8) / 8, "same"), np.convolve(df["Bw"], np.ones(8) / 8, "same")
+        df.to_csv(tmp_path / "filtered" / f"r{k}.csv", index=False)
+    assert fsn.main(["--data-dir", str(tmp_path / "filtered"), "--out", str(tmp_path / "filtered.yaml")]) == 0
+    doc = _yaml.safe_load((tmp_path / "filtered.yaml").read_text())
+    assert "velocity_std_mps" in doc["fit"]["not_measurable_filtered"]
+    assert doc["sensors"]["velocity_std_mps"] == 0.01                  # the typical preset's, not ~0
+    assert any("look smoothed" in n for n in doc["fit"]["notes"])

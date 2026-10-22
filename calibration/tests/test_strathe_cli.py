@@ -644,7 +644,7 @@ def test_web_fleet_settings_become_flags(server):
             ("beliefs", "calibrated"), ("beliefs", "oracle"), ("beacon_interval", "1 3"), ("seeds", "2"),
             ("target_separation", "3"), ("hold_steps", "25"), ("episode_steps", "250"), ("separations", "3.5, 5"),
             ("backend", "mujoco"), ("disturbance", "fitted"), ("disturbance_scale", "1"), ("modem_delay", "2"),
-            ("bandwidth_bytes", "30")]
+            ("bandwidth_bytes", "30"), ("workers", "3")]
     import http.client
     from urllib.parse import urlencode
     port = [c.cell_contents for c in request.__closure__ if isinstance(c.cell_contents, int)][0]
@@ -659,6 +659,7 @@ def test_web_fleet_settings_become_flags(server):
     assert cmd[cmd.index("--seeds") + 1] == "2" and cmd[cmd.index("--backend") + 1] == "mujoco"
     assert cmd[cmd.index("--separations") + 1:cmd.index("--separations") + 3] == ["3.5", "5.0"]
     assert cmd[cmd.index("--modem-delay") + 1] == "2.0" and cmd[cmd.index("--bandwidth-bytes") + 1] == "30.0"
+    assert cmd[cmd.index("--workers") + 1] == "3"
     cli.build_parser().parse_args(cmd)
     status, body, _ = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
                                                       "beliefs": "oracle"})
@@ -882,4 +883,9 @@ def test_fleet_modem_delay_and_bandwidth_reach_the_experiment(tmp_path, capsys):
                      str(tmp_path / "x.yaml")]) == 2
     assert "both set the modem delay" in capsys.readouterr().out
     assert cli.main(["fleet", "--modem-delay", "90", "--save-config", str(tmp_path / "y.yaml")]) == 2
+    # F18: --workers reaches the experiment, alongside --seeds
+    assert cli.main(["fleet", "--workers", "3", "--seeds", "2", "--save-config", str(tmp_path / "w.yaml")]) == 0
+    ev = yaml.safe_load((tmp_path / "w.yaml").read_text())["evaluation"]
+    assert ev["workers"] == 3 and ev["comm_seeds"] == [1, 2]
+    assert cli.main(["fleet", "--workers", "0", "--save-config", str(tmp_path / "w0.yaml")]) == 2
     assert cli.main(["fleet", "--bandwidth-bytes", "0", "--save-config", str(tmp_path / "z.yaml")]) == 2

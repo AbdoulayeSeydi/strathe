@@ -181,13 +181,32 @@ def evaluate_job(job: dict) -> list:
 
 # ----------------------------------------------------------------- statistics and report
 
+def cluster_ci(values_by_seed: dict, n_boot: int = 2000, seed: int = 0) -> tuple:
+    """95% interval of the mean of per-episode values grouped by training seed (F15): resample the training seeds, then
+    the episodes within each, so the interval includes how much results change from one trained policy to the next.
+    Episodes of one policy aren't independent of each other. With one training seed it can only resample episodes."""
+    groups = [np.asarray(v, dtype=float) for v in values_by_seed.values() if len(v)]
+    if not groups:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    boots = np.empty(n_boot)
+    for b in range(n_boot):
+        picked = [groups[i] for i in rng.integers(0, len(groups), len(groups))] if len(groups) > 1 else groups
+        boots[b] = np.concatenate([g[rng.integers(0, len(g), len(g))] for g in picked]).mean()
+    return float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))
+
+
 def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
     from fleet_stats import wilson_ci
     r = [x for x in rows if x["controller"] == label and x.get("engine", "stand_in") == engine]
     n, s = len(r), sum(x["success"] for x in r)
-    lo, hi = wilson_ci(s, n)
+    by_seed = {}
+    for x in r:
+        by_seed.setdefault(x.get("seed"), []).append(float(x["success"]))
+    lo, hi = cluster_ci(by_seed) if len(by_seed) > 1 else wilson_ci(s, n)
     ok = [x["steps"] for x in r if x["success"]]
     return {"controller": label, "engine": engine, "episodes": n, "success_rate": s / n if n else float("nan"), "ci": [lo, hi],
+            "training_seeds": len(by_seed),
             "collision_rate": sum(x["collision"] for x in r) / n if n else float("nan"),
             "mean_time_to_success_s": round(0.1 * float(np.mean(ok)), 2) if ok else None,
             "mean_final_distance_m": round(float(np.mean([x["final_distance_m"] for x in r])), 3) if r else None,
@@ -198,7 +217,9 @@ def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
 
 def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int = 0,
                       engine: str = "stand_in") -> Optional[dict]:
-    """Success(a) - success(b), paired by (training seed, episode seed); 95% bootstrap CI over episodes."""
+    """Success(a) - success(b), paired by (training seed, episode seed); 95% interval resampling training seeds and the
+    episodes within them (F15: a bootstrap over pooled episodes made a +25-point docking result look surer than it was;
+    a rerun gave +12)."""
     rows = [x for x in rows if x.get("engine", "stand_in") == engine]
     ra = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == a}
     rb = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == b}
@@ -206,10 +227,12 @@ def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int 
     if not keys:
         return None
     d = np.array([ra[k] - rb[k] for k in keys], dtype=float)
-    rng = np.random.default_rng(seed)
-    boots = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
-    return {"diff": float(d.mean()), "ci": [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))],
-            "n_pairs": len(keys)}
+    by_seed = {}
+    for k, v in zip(keys, d):
+        by_seed.setdefault(k[0], []).append(v)
+    lo, hi = cluster_ci(by_seed, n_boot, seed)
+    return {"diff": float(d.mean()), "ci": [lo, hi], "n_pairs": len(keys), "training_seeds": len(by_seed),
+            "per_seed_diff": {str(s_): float(np.mean(v)) for s_, v in by_seed.items()}}
 
 
 def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> None:
@@ -287,11 +310,18 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
                  + (f" ({ENGINE_PLAIN[engine]})" if len(contrasts) > 1 else "") + "\n")
         L.append(f"Policies trained on your calibration succeed {100 * contrast['diff']:+.0f} points "
                  f"({100 * contrast['ci'][0]:+.0f} to {100 * contrast['ci'][1]:+.0f}, 95% CI; "
-                 f"{contrast['n_pairs']} paired episodes) compared with policies trained on default physics. "
+                 f"{contrast['n_pairs']} paired episodes, {contrast.get('training_seeds', '?')} training seed(s)) "
+                 f"compared with policies trained on default physics. "
                  + ("That difference is clear of zero." if sig else
                     "That interval includes zero: on this task, this experiment can't tell the two apart.")
-                 + " Training-seed variation is real in reinforcement learning; per-seed numbers are in "
-                   "`results.json`, and more seeds (`--seeds`) narrow the interval.\n")
+                 + (" The interval resamples the training seeds as well as the episodes, because a trained policy's "
+                    "quirks show in all its episodes; per-seed differences: "
+                    + ", ".join(f"seed {k} {100 * v:+.0f}" for k, v in (contrast.get("per_seed_diff") or {}).items())
+                    + ". More seeds (`--seeds`) narrow it.\n"
+                    if (contrast.get("training_seeds") or 0) > 1 else
+                    " **One training seed:** the interval covers episode-to-episode variation only, not how much "
+                    "another training run would differ, which in reinforcement learning is often larger. Run "
+                    "`--seeds 3` or more before relying on it.\n"))
         if contrast["ci"][1] < 0:
             L.append("Training on your calibration did *worse* here. That usually means the training budget was too "
                      "short for your vehicle, not that the calibration is wrong. Every policy is tested on your "

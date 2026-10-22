@@ -1661,8 +1661,8 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
   `--spec` or logged forces. The report section and next step appear only then.
 
 **Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; a sensor
-mount rotation in ingest specs; `--finish` for `--estimate-current` runs; `train-fleet` and arena task geometry
-(formation spacing, target distance) for vehicles bigger than a BlueROV2; `fleet --workers`; mixed header and
+mount rotation in ingest specs; ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
+(formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); mixed header and
 receive timestamps in re-recorded bags; and session dates from header stamps.
 
 ### 71. Torpedo-hull physics, and Strathe against Stonefish on URI's own vehicle model (2026-10-10)
@@ -2020,11 +2020,13 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   with that round's input currents. The reason recorded and reported says which, and that the later steps didn't
   run. With `--restart-whole-fit` it keeps finished starts and finishes the interrupted one.
 - F1, F2: header stamps; recording-date sessions.
-- F5: noise from filtered logs.
-- F15: arena intervals ignore seed variance.
-- F18: `fleet` has no `--workers`.
-- F20: shipped policies on another vehicle.
-- F11: missing web form fields.
+- ~~F5: noise from filtered logs.~~ Fixed (#91).
+- ~~F15: arena intervals ignore seed variance.~~ Fixed (#91).
+- ~~F18: `fleet` has no `--workers`.~~ Fixed (#91).
+- F20: shipped policies on another vehicle. The fleet report warns when the policies were trained on another vehicle
+  and says to train on yours (`trained_elsewhere_note`); the effect itself is real.
+- ~~F11: missing web form fields.~~ Fixed in #78 (calibrate: workers, current rounds, drag, torque offset; Stonefish
+  forms: replay tool, iterations, workers).
 
 ### 77. `strathe describe-stonefish`: the vehicle description from a lab's own Stonefish model (2026-10-19)
 
@@ -2833,6 +2835,31 @@ cost of 874):
     gains `finished_from_checkpoint: []`.
 
 
+### 91. The URI re-run's open friction items, closed (2026-10-22)
+
+The open list from #76 had F18, F15, F5 and F21 still open. F21 is fixed in #79's branch. The rest:
+- **F18: `fleet --workers N`.** The experiment file had `evaluation.workers`, but there was no flag or web field. Now
+  there are, and they combine with `--seeds`.
+- **F15: arena intervals include seed-to-seed variance.** The paired calibrated-against-generic difference, and each
+  controller's success rate, pooled every episode as if independent. But all the episodes of one trained policy share
+  its quirks, and the re-run saw a +25-point docking result drop to +12.
+  - **The fix:** a two-level bootstrap (`cluster_ci`) that resamples training seeds, then episodes within each.
+  - **The report** gives the number of seeds and each seed's difference. With one seed it says the interval covers
+    episodes only, and to run `--seeds 3` or more.
+  - **Tested:** two seeds that disagree (+50 and 0) now give an interval that includes 0; the old pooled bootstrap
+    excluded it.
+- **F5: `fit-noise` on smoothed logs.** For white noise, consecutive second differences correlate at −2/3. Smoothing
+  pulls that up: an 8-sample moving average of noise gives −0.46, and smooth motion is positive.
+  - **The fix:** a channel above −0.55 is flagged as not measurable. The `typical` preset's value is written instead
+    of the near-zero reading, with a note naming the cause: filtered by the vehicle, or resampled by interpolation
+    at ingestion.
+  - **On real logs:** oceansystemslab's BlueROV2 logs (filtered odometry) have velocity and rates at about +0.65.
+    URI's ALPHA RISE logs, resampled to 10 Hz, have attitude and heading at +0.75 and velocity at −0.54. Both are
+    flagged.
+  - **Tested** on raw and smoothed signals.
+- **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
+  addressed; the list said otherwise.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -2858,7 +2885,7 @@ cost of 874):
 
 ## What's actually next
 
-0. **Calibrate any simulator a lab uses, not only Stonefish** (asked 2026-10-19, deferred): HoloOcean, Gazebo (UUV Simulator / DAVE / Plankton use the same Fossen model, so values map directly), MuJoCo, and a generic replay adapter so any simulator can be fitted through like `fit-stonefish`; with commands and docs a lab or company can run on its own.
+0. ~~**Calibrate any simulator a lab uses, not only Stonefish**~~: done in #81–#90 (`fit-sim` / `export-sim` / `convert-sim` for Stonefish, Gazebo, MuJoCo, HoloOcean and any simulator through a replay contract). HoloOcean's in-engine check still waits for a Windows machine (item 1).
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).

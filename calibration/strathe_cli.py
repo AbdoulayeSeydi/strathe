@@ -1006,6 +1006,10 @@ def fleet_setting_overrides(args) -> dict:
         if args.seeds < 1:
             raise ValueError("--seeds must be at least 1")
         o["evaluation"] = {"comm_seeds": list(range(1, args.seeds + 1))}
+    if getattr(args, "workers", None) is not None:   # F18
+        if args.workers < 1:
+            raise ValueError("--workers must be at least 1")
+        o.setdefault("evaluation", {})["workers"] = int(args.workers)
     if args.beliefs:
         o["beliefs"] = list(dict.fromkeys(args.beliefs))
         if args.compare is None:
@@ -1446,6 +1450,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="packet-loss levels, one result cell each: L0 0%%, L1 10%%, L2 30%%, L3a 60%%, "
                         "L3b 60%% + bandwidth one byte short of a beacon")
     g.add_argument("--beacon-interval", nargs="+", type=float, metavar="S", help="seconds between beacons (list = sweep)")
+    g.add_argument("--workers", type=int, metavar="N", help="CPU cores to use (default: all but one)")
     g.add_argument("--modem-delay", type=float, metavar="S",
                    help="the acoustic modem's own delay on top of travel time, s (default 0; `--link-calibration` "
                         "measures it from your logs instead)")

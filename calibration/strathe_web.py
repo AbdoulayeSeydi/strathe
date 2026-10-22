@@ -703,6 +703,7 @@ def fleet_settings_fields() -> str:
     return f"""<fieldset class=current><legend>Experiment settings (optional; anything left blank keeps the YAML's value)</legend>
 <p class=muted>Packet-loss levels (one result cell each):</p>{comm}
 <label for=fs-beacon>Seconds between beacons (one or more, e.g. <code>1 3</code>)</label><input type=text id=fs-beacon name=beacon_interval value="">
+<label for=fs-workers>CPU cores to use (optional; default all but one)</label><input type=text id=fs-workers name=workers value="">
 <label for=fs-delay>Acoustic modem's own delay on top of travel time, s (optional; default 0)</label><input type=text id=fs-delay name=modem_delay value="">
 <label for=fs-bw>Bytes the acoustic link carries per vehicle per 0.1 s tick (optional; a beacon is 24 bytes, so this is
 all or nothing here; for bandwidth shared by several vehicles, use the fleet coordination study)</label><input type=text id=fs-bw name=bandwidth_bytes value="">
@@ -1502,6 +1503,8 @@ def fleet_settings_cli_args(form: dict) -> list:
         args += ["--beacon-interval", *[repr(_number(v, "Seconds between beacons", 0.1, 60)) for v in vals]]
     if form.get("modem_delay", "").strip():
         args += ["--modem-delay", repr(_number(form["modem_delay"], "Modem delay", 0, 60))]
+    if form.get("workers", "").strip():
+        args += ["--workers", str(int(_number(form["workers"], "CPU cores", 1, 256)))]
     if form.get("bandwidth_bytes", "").strip():
         args += ["--bandwidth-bytes", repr(_number(form["bandwidth_bytes"], "Bytes per tick", 1, 1e9))]
     for key, flag, name, lo, hi, as_int in (
