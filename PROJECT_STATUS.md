@@ -2015,7 +2015,10 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   finalize), blow-up vs budget messages, an unstable recording, the report's seed line and the fleet message.
 
 **Still open:**
-- F21: `--finish` refuses `--estimate-current` runs.
+- ~~F21: `--finish` refuses `--estimate-current` runs.~~ Fixed 2026-10-22 (#79 branch). It finishes the step that was
+  running: the final fit from its checkpoint with the last round's currents, or the latest round from its checkpoint
+  with that round's input currents. The reason recorded and reported says which, and that the later steps didn't
+  run. With `--restart-whole-fit` it keeps finished starts and finishes the interrupted one.
 - F1, F2: header stamps; recording-date sessions.
 - F5: noise from filtered logs.
 - F15: arena intervals ignore seed variance.
