@@ -13,6 +13,8 @@ on Strathe's calibrated vehicle physics, starting from one base setting and chan
     fleet_size       vehicles sharing the channel
     beacon_interval  seconds between each vehicle's beacons
     spacing          formation spacing, m (range: travel time, guard times)
+    nav_drift        navigation drift, % of distance travelled (each vehicle's dead reckoning)
+    fix_error        each vehicle's starting position-fix error, m
     mac              tdma (take turns) or aloha (send when due)
     belief           how a vehicle predicts a teammate between beacons
     controller       the coordination strategy (built in, or your own module:Class)
@@ -68,12 +70,15 @@ AXES = {
     "fleet_size": ("Vehicles sharing the channel", "", int, [2, 3, 4, 6, 8], True, False),
     "beacon_interval": ("Time between beacons", "s", float, [1, 2, 5, 10, 20], True, False),
     "spacing": ("Formation spacing", "m", float, [5, 10, 20, 50, 100], True, False),
+    "nav_drift": ("Navigation drift", "% of distance", float, [0, 0.5, 1, 2, 5], True, False),
+    "fix_error": ("Starting position-fix error", "m", float, [0, 0.5, 1, 2, 5], True, False),
     "mac": ("Channel sharing", "", str, ["tdma", "aloha"], None, True),
     "belief": ("Teammate prediction between beacons", "", str,
                ["oracle", "physics", "constant_velocity", "last_beacon"], None, True),
     "controller": ("Coordination strategy", "", str, ["leader_follower"], None, True),
 }
-DEFAULT_SWEEP = ["latency", "bit_rate", "loss", "burst", "fleet_size", "beacon_interval", "mac", "belief"]
+DEFAULT_SWEEP = ["latency", "bit_rate", "loss", "burst", "fleet_size", "beacon_interval", "mac", "belief", "nav_drift",
+                 "fix_error"]
 BURST_LOSS_IF_NONE = 0.3
 
 
@@ -105,6 +110,10 @@ def apply(base: CoordinationConfig, axis: str, v) -> CoordinationConfig:
         net.beacon_interval_s = float(v)
     elif axis == "spacing":
         c.formation = replace(c.formation, spacing_m=float(v))
+    elif axis == "nav_drift":
+        c.nav_drift_pct = float(v)
+    elif axis == "fix_error":
+        c.start_fix_error_m = float(v)
     elif axis == "mac":
         net.mac = str(v)
     elif axis == "belief":
@@ -166,6 +175,7 @@ def summarize(rows, axis, values) -> list:
             "beacon_age_s": _mean_ci([x["beacon_age_s"] for x in r])[0],
             "delivery_ratio": _mean_ci([x["delivery_ratio"] for x in r])[0],
             "utilisation": _mean_ci([x["utilisation"] for x in r])[0],
+            "nav_error_m": _mean_ci([x.get("nav_error_m", 0.0) for x in r])[0],
             "airtime_s": r[0]["airtime_s"], "tdma_cycle_s": r[0]["tdma_cycle_s"],
         })
     return out
@@ -247,7 +257,7 @@ def base_config(a) -> CoordinationConfig:
     form = FormationSpec(a.formation if not offsets else "custom", a.spacing, offsets, a.formation_orientation)
     cfg = CoordinationConfig(n_vehicles=a.fleet_size, formation=form, duration_s=a.duration, speed_mps=a.speed,
                              turn_deg=a.turn, tolerance_m=a.tolerance, controller=a.controller, belief=a.belief,
-                             network=net)
+                             network=net, nav_drift_pct=a.nav_drift, start_fix_error_m=a.start_fix_error)
     cfg.validate()
     return cfg
 
@@ -415,6 +425,10 @@ def write_report(a, base, sections, path, wall_s):
         if ax == "burst":
             L.append(f"Bursts are at the base loss ({base.network.loss.loss or BURST_LOSS_IF_NONE:.0%}); "
                      f"'independent' is the same loss as coin flips.\n")
+        if ax in ("nav_drift", "fix_error"):
+            L.append("Each vehicle's own position error (mean, after the settling time): "
+                     + ", ".join(f"{s['value']}: {s['nav_error_m']:.2f} m" for s in summ) + ". A follower's slot is off "
+                     "by the difference between its error and the leader's: beacons can't fix that without ranging.\n")
         if ax == "bit_rate" and base.network.mac == "tdma":
             L.append("With TDMA each vehicle waits for its slot, so the cycle (vehicles x (time on air + guard)) is "
                      "the real update interval once it exceeds the beacon interval: that is how bandwidth limits "
@@ -467,6 +481,11 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--belief", default="constant_velocity",
                    choices=["last_beacon", "constant_velocity", "physics", "oracle"],
                    help="how a vehicle predicts a teammate between beacons (default constant_velocity)")
+    f.add_argument("--nav-drift", type=float, default=0.0, metavar="PCT",
+                   help="navigation drift: each vehicle's dead reckoning drifts this %% of the distance it travels "
+                        "(default 0: exact)")
+    f.add_argument("--start-fix-error", type=float, default=0.0, metavar="M",
+                   help="each vehicle's starting position fix is off by this much, RMS, m (default 0)")
     f.add_argument("--params", default=DEFAULT_PARAMS, help="the vehicles' calibrated physics (default: the fleet's)")
     f.add_argument("--vehicle-spec", default=DEFAULT_SPEC, help="the vehicle description for --params")
     f.add_argument("--belief-params", help="physics beliefs: the model the vehicles predict teammates with "

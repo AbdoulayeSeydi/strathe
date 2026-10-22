@@ -147,3 +147,18 @@ def test_strathe_comms_study_passes_everything_through(tmp_path, monkeypatch):
     cli.main(["comms-study", "--help"], runner=lambda c: calls.append(c) or 0)
     assert "--help" in calls[0] and "--out" not in calls[0]
     assert "comms-study" in cli.build_parser().format_help()
+
+
+def test_navigation_error_moves_what_vehicles_believe_not_the_truth():
+    """#89 review: vehicles dead-reckon; their beacons and controllers use what they believe, the score the truth."""
+    off = CoordinationSim(TRUTH, VEHICLE, _cfg(duration_s=60.0)).run_episode(3)
+    assert off["nav_error_m"] == 0.0
+    fix = CoordinationSim(TRUTH, VEHICLE, _cfg(duration_s=60.0, start_fix_error_m=2.0)).run_episode(3)
+    assert fix["nav_error_m"] > 0.5 and fix["formation_error_rms_m"] > off["formation_error_rms_m"] + 0.5
+    drift = CoordinationSim(TRUTH, VEHICLE, _cfg(duration_s=60.0, nav_drift_pct=5.0)).run_episode(3)
+    assert 0 < drift["nav_error_m"] < fix["nav_error_m"]
+    with pytest.raises(ValueError, match="navigation drift"):
+        _cfg(nav_drift_pct=50).validate()
+    base = CS.base_config(CS.build_parser().parse_args(["--nav-drift", "1", "--start-fix-error", "0.5"]))
+    assert base.nav_drift_pct == 1 and base.start_fix_error_m == 0.5
+    assert CS.apply(base, "fix_error", 2).start_fix_error_m == 2 and CS.apply(base, "nav_drift", 3).nav_drift_pct == 3

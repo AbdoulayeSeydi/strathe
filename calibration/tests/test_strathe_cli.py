@@ -787,12 +787,13 @@ def test_comms_study_form(server):
     request, token, started, manager, tmp_path = server
     status, _, _ = request("POST", "/jobs/comms_study", {"token": token, "name": "six boats", "fleet_size": "6",
                                                          "modem": "slow", "loss": "0.2", "burst": "4",
-                                                         "sweep_latency": "1", "sweep_mac": "1", "episodes": "10"})
+                                                         "sweep_latency": "1", "sweep_mac": "1", "episodes": "10",
+                                                         "nav_drift": "1", "start_fix_error": "0.5"})
     assert status == 303
     cmd = started[0]
     assert cmd[3] == "comms-study"
     for flag, val in (("--fleet-size", "6"), ("--modem", "slow"), ("--loss", "0.2"), ("--burst", "4.0"),
-                      ("--episodes", "10")):
+                      ("--episodes", "10"), ("--nav-drift", "1.0"), ("--start-fix-error", "0.5")):
         assert cmd[cmd.index(flag) + 1] == val
     assert cmd[cmd.index("--sweep") + 1:cmd.index("--sweep") + 3] == ["latency", "mac"]
     assert cmd[-1].endswith("comms_six_boats")

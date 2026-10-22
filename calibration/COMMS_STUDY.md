@@ -66,6 +66,14 @@ guard)) is the real update interval once it is longer than the beacon interval. 
 slower modem make every teammate's information older. With random access, collisions climb fast as the channel gets
 busy: textbook unslotted random access (ALOHA) carries at most about 18% of the channel's capacity.
 
+**Navigation error** (off by default):
+- **Drift** (`--nav-drift PCT`): each vehicle dead-reckons with a heading reference off by a random angle, so its
+  believed position drifts by about that % of the distance it travels.
+- **Starting fix error** (`--start-fix-error M`): it also starts from a position fix that's off by that much.
+- **Who uses what:** each vehicle steers by what it believes, and its beacons carry what it believes. Sound travels the
+  true distance, and the score is the truth.
+- **Not modelled:** acoustic ranging and USBL corrections, which would bound this error.
+
 **Between beacons**, each vehicle predicts its teammates (`--belief`):
 - `last_beacon`: the teammate stays where it last said it was;
 - `constant_velocity` (default): it keeps its reported velocity;
@@ -86,6 +94,8 @@ From the base setting (your flags), one setting at a time. Defaults are in brack
 | `fleet_size` | vehicles sharing the channel | 2, 3, 4, 6, 8 |
 | `beacon_interval` | seconds between each vehicle's beacons | 1, 2, 5, 10, 20 |
 | `spacing` | formation spacing, m (not in the default sweep) | 5, 10, 20, 50, 100 |
+| `nav_drift` | each vehicle's navigation drift, % of distance travelled | 0, 0.5, 1, 2, 5 |
+| `fix_error` | each vehicle's starting position-fix error, m | 0, 0.5, 1, 2, 5 |
 | `mac` | how the channel is shared | tdma, aloha |
 | `belief` | teammate prediction | oracle, physics, constant_velocity, last_beacon |
 | `controller` | the coordination strategy (with your `--controller`) | leader_follower and yours |
@@ -176,6 +186,10 @@ Results from PROJECT_STATUS.md #89, 30 paired episodes per value:
   A wrong model is worse than none.
 - **Random access has a sweet spot** (10–20 s beacons: about 70%). Too often and packets collide; too rarely and
   the information is stale.
+- **Where each vehicle thinks it is matters more than the channel.**
+  - **Drift:** up to 5% of distance travelled still holds (formation error 0.85 → 1.65 m over a 300 s survey).
+  - **Starting fix error:** 1 m holds at 87%, 2 m drops to 23%, and 5 m to 3%. A follower's slot is off by the
+    difference between its fix error and the leader's, and no beacon fixes that without acoustic ranging.
 
 ## 6. Reading the results honestly
 
@@ -187,8 +201,8 @@ Results from PROJECT_STATUS.md #89, 30 paired episodes per value:
 - **Not modelled:**
   - multipath geometry, Doppler and the capture effect;
   - TDMA clock drift, carrier sensing, acknowledgements and retransmission, and relaying;
-  - navigation error: vehicles know their own positions exactly here; `strathe fleet` has sensor noise for two
-    vehicles.
+  - navigation corrections: dead-reckoning drift and the starting fix error are modelled, but acoustic ranging,
+    USBL and LBL fixes, which would bound them, are not;
 
   See LIMITS.md.
 - **The thresholds are about this task.** "Breaks at 10 s of delay" is for this leader speed, these turns and this

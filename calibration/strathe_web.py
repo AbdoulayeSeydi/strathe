@@ -833,6 +833,9 @@ leader)</option><option value=line>Line abreast</option><option value=column>Col
 <option value=aloha>Send when due (random access)</option></select>
 <label for=cs-bi>Seconds between each vehicle's beacons (default 2)</label><input type=text id=cs-bi name=beacon_interval value="">
 <label for=cs-bb>Beacon size, bytes (default 32)</label><input type=text id=cs-bb name=beacon_bytes value="">
+<label for=cs-nav>Navigation drift: each vehicle's dead reckoning drifts this % of the distance it travels (optional;
+default 0, exact)</label><input type=text id=cs-nav name=nav_drift value="">
+<label for=cs-fix>Each vehicle's starting position-fix error, m (optional; default 0)</label><input type=text id=cs-fix name=start_fix_error value="">
 <label for=cs-bel>Predicting a teammate between beacons</label><select id=cs-bel name=belief>
 <option value=constant_velocity>Constant velocity</option><option value=physics>Your calibrated physics</option>
 <option value=last_beacon>Last reported position</option><option value=oracle>Perfect knowledge (an upper bound)</option></select>
@@ -1373,7 +1376,8 @@ def _existing_file(text: str, what: str, suffixes: tuple) -> str:
 
 COMMS_SWEEP_LABELS = {"latency": "Modem delay", "bit_rate": "Bit rate", "loss": "Packet loss", "burst": "Loss bursts",
                       "fleet_size": "Fleet size", "beacon_interval": "Beacon rate", "spacing": "Spacing",
-                      "mac": "Turn-taking vs random access", "belief": "Teammate prediction"}
+                      "mac": "Turn-taking vs random access", "belief": "Teammate prediction",
+                      "nav_drift": "Navigation drift", "fix_error": "Position-fix error"}
 
 
 def comms_sweep_fields() -> str:
@@ -1403,6 +1407,8 @@ def comms_study_cli_args(form: dict) -> list:
                                     ("burst", "--burst", "Burst length", 1, 1000),
                                     ("beacon_interval", "--beacon-interval", "Beacon interval", 0.1, 3600),
                                     ("beacon_bytes", "--beacon-bytes", "Beacon size", 1, 100000),
+                                    ("nav_drift", "--nav-drift", "Navigation drift", 0, 20),
+                                    ("start_fix_error", "--start-fix-error", "Starting fix error", 0, 100),
                                     ("episodes", "--episodes", "Episodes", 1, 10000)):
         if form.get(key, "").strip():
             v = _number(form[key], name, lo, hi)

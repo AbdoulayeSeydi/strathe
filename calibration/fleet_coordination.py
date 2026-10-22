@@ -32,6 +32,12 @@ Formations (slot offsets, metres: x forward, y starboard), in one of two frames 
   `module:Class`. `own` is the vehicle's own state; `teammates` maps each teammate id to what this vehicle believes
   about it (or None before its first beacon).
 
+## Navigation error (`nav_drift_pct`, `start_fix_error_m`; off by default)
+Each vehicle dead-reckons: its heading reference is off by a random angle, so its believed position drifts by about
+`nav_drift_pct` % of the distance it travels, and it starts from a fix `start_fix_error_m` off. Its own controller and
+its beacons use what it believes; sound travels the true distance, and the score is the truth. A teammate's beacon
+therefore carries the teammate's error too. No acoustic ranging or USBL corrections.
+
 ## Scored on the truth
 - formation error: each follower's distance from where its slot really is (the TRUE leader + the slot rotated by the
   TRUE leader heading), RMS over followers and time, after a settling time;
@@ -113,6 +119,11 @@ class CoordinationConfig:
     turn_rate_dps: float = 3.0
     depth_m: float = 10.0
     start_jitter_m: float = 1.0       # followers start this far (random) from their slots
+    # navigation error (dead reckoning): each vehicle's heading reference is off by a random angle with this RMS, so
+    # its believed position drifts by about this % of the distance it travels; plus a starting fix error (RMS, m,
+    # horizontal). 0 and 0 = every vehicle knows exactly where it is. No ranging or USBL corrections.
+    nav_drift_pct: float = 0.0
+    start_fix_error_m: float = 0.0
     tolerance_m: float = 3.0          # success: RMS formation error under this, and no collision
     safety_radius_m: float = 1.5
     avoid_radius_m: float = 4.0
@@ -138,6 +149,10 @@ class CoordinationConfig:
                 raise ValueError(f"{name} must be positive")
         if not 0 <= self.turn_deg <= 180:
             raise ValueError("turn must be 0 to 180 degrees")
+        if not 0 <= self.nav_drift_pct <= 20:
+            raise ValueError(f"navigation drift must be 0 to 20 % of distance travelled, got {self.nav_drift_pct}")
+        if not 0 <= self.start_fix_error_m <= 100:
+            raise ValueError(f"starting fix error must be 0 to 100 m, got {self.start_fix_error_m}")
         if self.belief not in ("last_beacon", "constant_velocity", "physics", "oracle"):
             raise ValueError(f"belief must be last_beacon, constant_velocity, physics or oracle, got {self.belief!r}")
         self.network.validate()
@@ -322,6 +337,13 @@ class CoordinationSim:
             jitter = np.zeros(3) if i == 0 else np.append(rng.normal(0, cfg.start_jitter_m, 2), 0.0)
             core.reset(position=p0 + slots[i] + jitter, nu=np.array([cfg.speed_mps, 0, 0, 0, 0, 0]))
         net = AcousticNetwork(n, cfg.network, seed=int(rng.integers(2**31)), max_distance_m=cfg.max_distance_m())
+        # navigation error, from its own stream so the episode is otherwise the same with or without it
+        nav_rng = np.random.default_rng([seed, 0x9A5])
+        nav_rot = [_rz(float(nav_rng.normal(0, cfg.nav_drift_pct / 100.0))) for _ in range(n)]
+        nav_fix = [np.append(nav_rng.normal(0, cfg.start_fix_error_m, 2), 0.0) for _ in range(n)]
+        nav_start = [c.position_array() for c in cores]
+        nav_on = cfg.nav_drift_pct > 0 or cfg.start_fix_error_m > 0
+        nav_err, n_nav = 0.0, 0
         beliefs = [{j: self.belief_spec.build(cfg.dt, self.vehicle) for j in range(n) if j != i} for i in range(n)]
         taus = [np.zeros(6) for _ in range(n)]
         steps = int(round(cfg.duration_s / cfg.dt))
@@ -344,9 +366,19 @@ class CoordinationSim:
             vel = [c.world_velocity() for c in cores]
             Rs = [np.array(c.R) for c in cores]
             nus = [c.nu_array() for c in cores]
+            # what each vehicle believes about itself (its dead reckoning); beacons and its own controller use this
+            if nav_on:
+                est_pos = [nav_start[i] + nav_fix[i] + nav_rot[i] @ (pos[i] - nav_start[i]) for i in range(n)]
+                est_vel = [nav_rot[i] @ vel[i] for i in range(n)]
+                est_R = [nav_rot[i] @ Rs[i] for i in range(n)]
+                if k > settle:
+                    nav_err += sum(float(np.linalg.norm((est_pos[i] - pos[i])[:2])) for i in range(n))
+                    n_nav += n
+            else:
+                est_pos, est_vel, est_R = pos, vel, Rs
 
             def beacon(i, _k=k):
-                return Beacon(send_tick=_k, position=pos[i].copy(), orientation=Rs[i].copy(), nu=nus[i].copy(),
+                return Beacon(send_tick=_k, position=est_pos[i].copy(), orientation=est_R[i].copy(), nu=nus[i].copy(),
                               tau=taus[i].copy())
             delivered = net.advance(t, pos, lambda i: (i, beacon(i)))
             for i in range(n):
@@ -384,7 +416,7 @@ class CoordinationSim:
                         n_bel += 1
                 views.append(view)
             for i in range(n):
-                own = VehicleState(pos[i], vel[i], Rs[i], nus[i])
+                own = VehicleState(est_pos[i], est_vel[i], est_R[i], nus[i])
                 taus[i] = np.asarray(ctrl.act(i, own, views[i], t), dtype=float)
             if record:
                 trace.append({"t": t, "positions": [p.copy() for p in pos],
@@ -396,6 +428,7 @@ class CoordinationSim:
             "min_separation_m": min_sep, "collision": bool(collided), "diverged": diverged,
             "belief_error_m": bel_err / n_bel if n_bel else math.nan,
             "beacon_age_s": ages / n_bel if n_bel else math.nan,
+            "nav_error_m": nav_err / n_nav if n_nav else 0.0,
             "success": bool((not diverged) and (not collided) and rms <= cfg.tolerance_m),
             "delivery_ratio": net.delivery_ratio(), "utilisation": net.utilisation(),
             "tdma_cycle_s": net.cycle if cfg.network.mac == "tdma" else math.nan,

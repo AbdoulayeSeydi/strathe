@@ -2612,6 +2612,31 @@ bandwidth couldn't be set on their own, and there was no shared channel.
     - the CLI pass-through.
   - The web form test.
 
+**Navigation error in `comms-study`** (2026-10-22 review). Vehicles knew their own positions exactly, which LIMITS
+listed as not modelled.
+- **The model:** `--nav-drift PCT` gives each vehicle a heading-reference error, drawn per vehicle, so its dead reckoning
+  drifts by about that % of distance travelled. `--start-fix-error M` gives it a starting fix error.
+- **Who uses what:** its controller and its beacons use what it believes; sound travels the true distance; the score is
+  the truth.
+- **Independence:** the errors come from their own random stream, so everything else in an episode stays the same.
+  With both at 0 the results are unchanged.
+- **New study settings:** `nav_drift` and `fix_error`, now in the default study. Each report says each vehicle's mean
+  position error.
+- **On the shipped BlueROV2** (4 vehicles, 1 kbit/s TDMA, 30 paired episodes per value):
+
+  | Setting | Values tested | Success | Formation error |
+  |---|---|---|---|
+  | Drift | 0 → 5% | 100% throughout | 0.85 → 1.65 m |
+  | Starting fix error | 0.5 m | 100% | 1.27 m |
+  | | 1 m | 87% | 2.03 m |
+  | | 2 m | 23% (12–41%) | 3.75 m |
+  | | 5 m | 3% | 9.07 m |
+
+  A follower's slot is off by the difference between its error and the leader's, which beacons can't fix without
+  ranging.
+- **Web, docs, tests:** web fields and sweep boxes; COMMS_STUDY.md and LIMITS; tests for the model, the settings and
+  the web form.
+
 **`strathe fleet` gets the two settings it was missing** (2026-10-22 review). Its two-vehicle experiments had a modem
 delay and a byte budget in the experiment YAML, but no flag or web field, so testing latency or bandwidth meant hand-editing
 YAML:
