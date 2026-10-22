@@ -86,7 +86,10 @@ def test_the_report_lists_each_starts_cost(tmp_path):
     assert "from 3 points" in text and "2.018, 2.217" in text and "depends on where the fit starts" in text
     calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=5,
                                     restarts=[2.018, 2.0181])
-    assert "doesn't matter" in p.read_text()
+    assert "these starts agree" in p.read_text() and "doesn't matter" not in p.read_text()
+    calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=5,
+                                    restarts=[2.018, 2.0181], current_rounds=True)
+    assert "--restart-whole-fit" in p.read_text()   # B8: starts this close after round 1 can still end apart
     calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=5)
     assert "--restarts 3" in p.read_text()  # one start: the report says how to try more
 
@@ -191,6 +194,31 @@ def test_the_report_lists_each_whole_fit_start(tmp_path):
     calibration_report.write_report(str(p), "x", [], None, [], [], None, ["Check the logs."], True, seed=12,
                                     restarts=[3.8599], whole_fit=record)
     text = p.read_text()
-    assert "ran from 2 starting points" in text and "(seed 12)" in text
+    assert "ran from 2 starting points" in text and "(seed 12)" in text and "doesn't matter" not in text
     assert "seed 11: 4.76 -> 4.237 -> 4.17" in text and "depends on where the fit starts" in text
     assert calibration_report.whole_fit_starts(str(tmp_path / "nowhere")) is None
+
+
+def test_finishing_a_whole_fit_keeps_finished_starts_and_finishes_the_interrupted_one(tmp_path, capsys):
+    out = tmp_path / "o"
+    (out / "start1").mkdir(parents=True)
+    (out / "start1" / "metrics.json").write_text(json.dumps({"optimizer": {"cost": 3.86}}))   # finished
+    (out / "start2" / "current_round1").mkdir(parents=True)                                    # interrupted in round 1
+    (out / "start2" / "current_round1" / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    calls = []
+
+    def runner(c):
+        calls.append(c)
+        if os.path.basename(c[1]) == "finalize_checkpoint.py":
+            d = c[c.index("--output-dir") + 1] if "--output-dir" in c else os.path.dirname(c[c.index("--checkpoint") + 1])
+            with open(os.path.join(d, "metrics.json"), "w") as f:
+                json.dump({"optimizer": {"cost": 4.5}}, f)
+        return 0
+    assert cli.main(["calibrate", "--data", str(tmp_path), "--out", str(out), "--estimate-current",
+                     "--current-rounds", "2", "--restarts", "3", "--restart-whole-fit", "--seed", "7", "--finish"],
+                    runner=runner) == 0
+    printed = capsys.readouterr().out
+    assert "This start had finished; kept as it is" in printed and "This start hadn't begun; left out" in printed
+    assert not any(os.path.basename(c[1]) == "run_calibration.py" for c in calls)   # nothing fitted again
+    record = json.load(open(out / "whole_fit_starts.json"))
+    assert record["chosen"] == 1 and [s["final_cost"] for s in record["starts"]] == [3.86, 4.5, None]

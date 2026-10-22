@@ -465,7 +465,7 @@ def validation_section(v: dict) -> list:
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 whole_fit=None):
+                 whole_fit=None, current_rounds=False):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
@@ -558,8 +558,7 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
         L.append(f"The whole fit (every current round) ran from {len(whole_fit['starts'])} starting points and kept "
                  f"the lowest final training cost"
                  + (f" (seed {chosen['seed']})" if chosen else "") + ". Training cost by round: " + "; ".join(parts)
-                 + ". " + ("They ended within 1% of each other: where the fit starts doesn't matter for this "
-                           "calibration." if spread < 0.01 else
+                 + ". " + ("They ended within 1% of each other: these starts agree on the result." if spread < 0.01 else
                            "They ended in different places: this calibration depends on where the fit starts. Each "
                            "start's full result is in its startN folder.") + "\n")
     elif restarts and len(restarts) > 1:
@@ -567,7 +566,11 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
         spread = (max(restarts) - min(restarts)) / max(min(restarts), 1e-12)
         L.append(f"The fit started from {len(restarts)} points (seed {seed}) and kept the lowest training cost. Their "
                  f"costs: {costs}. "
-                 + ("They ended within 1% of each other: where the fit starts doesn't matter for this calibration."
+                 + (("They ended within 1% of each other after the first round. With current estimation, later rounds "
+                     "can still go two ways from starts this close (URI's B8: 4.760 and 4.781 after round 1 ended at "
+                     "4.17 and 3.86); `--restart-whole-fit` runs every round from each start and compares the final "
+                     "results." if current_rounds else
+                     "They ended within 1% of each other: these starts agree.")
                     if spread < 0.01 else
                     "They ended in different places: this calibration depends on where the fit starts. More starts "
                     "(--restarts) make it more likely the best one is found.") + "\n")
@@ -635,7 +638,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
                  diverged_note(metrics), load_validation(result_dir), vehicle_note,
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
-                 whole_fit_starts(result_dir))
+                 whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 
