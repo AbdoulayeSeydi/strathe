@@ -32,6 +32,9 @@ T_FRD_FLU = np.diag([1.0, -1, -1])
 DEFAULT_FLUIDCOEF = "0.5 0.25 1.5 1.0 1.0"
 COEF = (("blunt_drag", "drag"), ("slender_drag", "drag"), ("angular_drag", "drag"), ("kutta_lift", "lift"),
         ("magnus_lift", "lift"))
+# MuJoCo's own fluidcoef default ("0.5 0.25 1.5 1.0 1.0"): where a coefficient the model has at 0 starts
+COEF_DEFAULTS = (("blunt_drag", 0.5), ("slender_drag", 0.25), ("angular_drag", 1.5), ("kutta_lift", 1.0),
+                 ("magnus_lift", 1.0))
 
 
 def _descend(n):
@@ -160,7 +163,13 @@ class MujocoAdapter:
             elif group == "mass":
                 specs.append(KnobSpec(name, group, v, "log_factor", 1.25, 1.25))
             else:
-                specs.append(KnobSpec(name, group, v, "log_factor", floor=1e-3))
+                # a factor of 0 stays 0 (#90): a zero starts from MuJoCo's own default (fluidcoef) or water's
+                if_zero = None
+                if v <= 1e-3:
+                    if_zero = (next((d for c, d in COEF_DEFAULTS if name.endswith("_" + c)), None)
+                               or {"water_density": 1000.0, "water_viscosity": 0.0009}.get(name))
+                specs.append(KnobSpec(name, group, v, "log_factor", floor=1e-3, if_zero=if_zero,
+                                      note=f"0 in your model; tuned from {if_zero:g} (MuJoCo's default)" if if_zero else ""))
         return specs
 
     def write_runnable(self, values, folder: str, rho=None) -> str:

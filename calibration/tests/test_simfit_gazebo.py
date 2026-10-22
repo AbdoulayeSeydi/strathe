@@ -166,7 +166,8 @@ def test_fit_sim_gazebo_recovers_the_drag_from_logs(tmp_path):
     assert world.exists() and s["calibrated_world"] == str(world)
     info = GazeboAdapter(str(world), tool=[TOOL]).tool.info(str(world))
     assert info["mass"] == pytest.approx(10.0)
-    assert "To run it:** `gz sim calibrated_world/world.sdf`" in (out / "gazebo_fit_report.md").read_text()
+    assert "From this folder: `gz sim calibrated_world/world.sdf`" in (out / "gazebo_fit_report.md").read_text()
+    assert "gz sim calibrated_world/world.sdf" in (out / "calibrated_world" / "RUN_ME.md").read_text()
 
 
 def test_the_rigid_inertia_is_always_a_rigid_bodys():
@@ -244,5 +245,8 @@ def test_the_run_ready_world_copies_an_included_model_folder(tmp_path):
     copy = tmp_path / "out" / "calibrated_world" / "auv"
     assert not os.path.islink(copy / "meshes") and (copy / "meshes" / "hull.dae").read_text() == "<mesh/>"
     assert "<xUabsU>-45</xUabsU>" in (copy / "model.sdf").read_text()
-    assert str(copy) in open(p).read() and "model://auv" not in open(p).read()
+    text = open(p).read()   # model://, not an absolute path: the folder runs when it's moved or shared
+    assert "<uri>model://auv</uri>" in text and str(tmp_path) not in text
+    run = (tmp_path / "out" / "calibrated_world" / "RUN_ME.md").read_text()
+    assert "GZ_SIM_RESOURCE_PATH=calibrated_world:" in run and "PowerShell" in run
     assert "<xUabsU>-30</xUabsU>" in (models / "model.sdf").read_text()   # the lab's own files are unchanged

@@ -2573,6 +2573,12 @@ often be a public model, so the Gazebo path was run on public parts end to end:
     - without either: from the mass or inertia.
   - **The generic adapter (`external`)** refuses a zero with a plain message unless the knob has `if_zero: VALUE`
     (documented in SIMULATOR_PROTOCOL.md).
+  - **MuJoCo and HoloOcean had the same bug** (found in the 2026-10-22 review): a zero sat on a 1e-3 or 1e-4 floor.
+    - **MuJoCo:** a zero fluid coefficient now starts from MuJoCo's own default (0.5 / 0.25 / 1.5 / 1.0 / 1.0), and a
+      zero water density or viscosity from water's.
+    - **HoloOcean:** a zero in the scenario starts from the Fossen class's own value, read before the scenario's are
+      applied. If the class has 0 too, a plain message asks for a starting value.
+    - Tested in `test_simfit_mujoco.py` and `test_simfit_holoocean.py`.
   - **Tests:** `test_a_term_the_model_has_at_zero_still_gets_tuned` and `test_the_generic_adapter_refuses_a_zero_it_cant_scale`.
 
 **Preparing the logs.** The dataset is in ROS axes, so `example_bluerov2_gz/prepare_logs.py` converts it to
@@ -2631,6 +2637,10 @@ cost of 874):
   safe step (the longest dividing the logs' sample time, under half the shortest damping time constant).
   `calibrated_world/` is written with it: a copy of the lab's world with the calibrated model in it, the model folder
   copied rather than linked, ready for `gz sim`. The report says how to run it.
+  - **Moved or shared, it still runs** (found in the 2026-10-22 review): the copy first pointed at its model folder
+    by absolute path. It now includes it as `model://`, and `RUN_ME.md` gives the command with the folder first on
+    `GZ_SIM_RESOURCE_PATH`. Checked with real `gz sim` on bluerov2_gz after moving the folder: no errors, 0.005 s
+    step. Strathe's own replay tool still needs absolute paths, which it writes for itself.
 - **The warnings moved to `simfit.core`** (`attitude_worse`, `report_warnings`), so `fit-stonefish`'s report has them
   too.
 - **Tests:**

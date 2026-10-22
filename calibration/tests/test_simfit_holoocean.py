@@ -118,3 +118,16 @@ def test_plain_messages(tmp_path):
     bad.write_text('{"agents": [{"agent_name": "a"}]}')
     with pytest.raises(SimFitError, match="Fossen agents"):
         HolooceanAdapter(str(bad))
+
+
+def test_a_value_the_scenario_has_at_zero_starts_from_the_class(tmp_path):
+    """#90: a factor of 0 stays 0, so a zero starts from the Fossen class's own value; with no value anywhere, a plain
+    message asks for one."""
+    from simfit.adapters.holoocean import HolooceanAdapter
+    specs = {k.name: k for k in HolooceanAdapter(_scenario(tmp_path, T_surge=0)).knob_specs({}, ("drag",), False)}
+    assert specs["T_surge"].start == 0 and specs["T_surge"].if_zero > 0 and "class" in specs["T_surge"].note
+    ad = HolooceanAdapter(_scenario(tmp_path, T_surge=0))
+    setattr(ad._class_defaults, "T_surge", 0.0)
+    from simfit.core import SimFitError
+    with pytest.raises(SimFitError, match="T_surge is 0 in your scenario and in the Fossen class"):
+        ad.knob_specs({}, ("drag",), False)
