@@ -205,3 +205,28 @@ def test_multiple_runs_per_session_get_numbered(tmp_path):
 def test_invalid_specs_are_rejected(tmp_path, over, match):
     with pytest.raises(IngestError, match=match):
         load_ingest_spec(_spec(tmp_path, **over))
+
+
+@needs_data
+def test_a_rotated_sensor_mount_is_undone(foreign_logs):
+    """#91 (URI's DVL is mounted rolled 180 deg, so its raw velocity failed the heave check, F4): the log's velocity
+    and rates come from sensors mounted rotated; linear_/angular_mount_rpy_deg turn them back into the vehicle's axes."""
+    tmp, originals = foreign_logs
+    for f in (tmp / "raw").glob("*.csv"):
+        df = pd.read_csv(f)
+        df["vel_y"], df["vel_z"] = -df["vel_y"], -df["vel_z"]        # a DVL rolled 180 deg
+        df["rate_x"], df["rate_y"] = df["rate_y"], -df["rate_x"]      # a gyro yawed 90 deg
+        df.to_csv(f, index=False)
+    bv = {"columns": {"u": "vel_x", "v": "vel_y", "w": "vel_z", "p": "rate_x", "q": "rate_y", "r": "rate_z"},
+          "linear_unit": "cm/s", "angular_unit": "deg/s", "linear_mount_rpy_deg": [180, 0, 0],
+          "angular_mount_rpy_deg": [0, 0, 90]}
+    summary = ingest(load_ingest_spec(_spec(tmp, body_velocity=bv)), str(tmp / "out"))
+    assert summary["files"][0]["sensor_mounts"] == {"linear_mount_rpy_deg": [180.0, 0.0, 0.0],
+                                                    "angular_mount_rpy_deg": [0.0, 0.0, 90.0]}
+    for name, original in originals.items():
+        got = pd.read_csv(next((tmp / "out").glob(f"labrov-{name[8:10]}-{name[5:7]}-{name[:4]}-*.csv")))
+        n = min(len(got), len(original))
+        for c in ("Bu", "Bv", "Bw", "Bp", "Bq", "Br"):
+            np.testing.assert_allclose(got[c].values[:n], original[c].values[:n], atol=1e-6, err_msg=c)
+    with pytest.raises(Exception, match="three angles"):
+        load_ingest_spec(_spec(tmp, body_velocity={**bv, "linear_mount_rpy_deg": [180, 0]}))

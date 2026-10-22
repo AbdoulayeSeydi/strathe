@@ -44,6 +44,10 @@ is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
 - **Velocity** (surge, sway, heave, roll/pitch/yaw rates): from a DVL or
   odometry. Body frame by default; `linear_frame: world` takes world-frame
   (NED/ENU) velocity, as ArduPilot logs it, and rotates it into the body frame.
+  A sensor mounted rotated in the vehicle (a DVL fitted upside down, a gyro turned 90°): give its roll, pitch and
+  yaw in degrees as `linear_mount_rpy_deg` (DVL) or `angular_mount_rpy_deg` (gyro), in the spec's frame, and the
+  readings are turned into the vehicle's axes. If ingestion says a force pushes against the motion on one axis, a
+  rotated mount is a common cause (URI's DVL is rolled 180°: heave −0.48 without it, +0.48 with it).
 - **Orientation**: a quaternion or roll/pitch/yaw.
 - **What pushed the vehicle**: logged forces and torques, or the command sent to each
   thruster (ESC PWM in µs, or normalized) plus a description of the thrusters.

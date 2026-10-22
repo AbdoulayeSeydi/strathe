@@ -1660,8 +1660,8 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
 - **The warning:** it fires for a custom layout with the default spec, and not for the BlueROV2 preset, a given
   `--spec` or logged forces. The report section and next step appear only then.
 
-**Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; a sensor
-mount rotation in ingest specs; ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
+**Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; ~~a sensor
+mount rotation in ingest specs~~ (fixed, #91); ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
 (formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
 receive timestamps in re-recorded bags; and session dates from header stamps~~ (fixed, #91).
 
@@ -2869,6 +2869,13 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
     missions get those dates too, so held-out-by-date calibration works on them.
   - **Tested** with a bag re-recorded 600 days later (ROS 1 and ROS 2 .mcap): the mission's date and forces line up
     with the motion, and receive times warn. LIMITS has a row.
+- **A rotated sensor mount in ingest specs** (open since the first URI run). URI's DVL is mounted rolled 180°, so its
+  raw velocity was refused (heave force against motion, F4 of that run).
+  - **The fix:** `body_velocity.linear_mount_rpy_deg` / `angular_mount_rpy_deg` (roll, pitch, yaw in degrees, in the
+    spec's frame) turn the readings into the vehicle's axes. The ingest report records the mounts.
+  - **On URI's raw DVL:** heave goes from −0.48 (refused) to +0.48.
+  - **Tested:** a DVL rolled 180° and a gyro yawed 90° come back exactly.
+  - **Not handled:** a DVL's lever arm (its velocity includes ω × r at its position).
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 
