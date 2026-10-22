@@ -703,6 +703,9 @@ def fleet_settings_fields() -> str:
     return f"""<fieldset class=current><legend>Experiment settings (optional; anything left blank keeps the YAML's value)</legend>
 <p class=muted>Packet-loss levels (one result cell each):</p>{comm}
 <label for=fs-beacon>Seconds between beacons (one or more, e.g. <code>1 3</code>)</label><input type=text id=fs-beacon name=beacon_interval value="">
+<label for=fs-delay>Acoustic modem's own delay on top of travel time, s (optional; default 0)</label><input type=text id=fs-delay name=modem_delay value="">
+<label for=fs-bw>Bytes the acoustic link carries per vehicle per 0.1 s tick (optional; a beacon is 24 bytes, so this is
+all or nothing here; for bandwidth shared by several vehicles, use the fleet coordination study)</label><input type=text id=fs-bw name=bandwidth_bytes value="">
 <p class=muted>Teammate models to compare:</p>{beliefs}
 <label for=fs-sep>Target separation, m</label><input type=text id=fs-sep name=target_separation value="">
 <label for=fs-tol>Tolerance, m</label><input type=text id=fs-tol name=tolerance value="">
@@ -1490,6 +1493,10 @@ def fleet_settings_cli_args(form: dict) -> list:
     if form.get("beacon_interval", "").strip():
         vals = form["beacon_interval"].replace(",", " ").split()
         args += ["--beacon-interval", *[repr(_number(v, "Seconds between beacons", 0.1, 60)) for v in vals]]
+    if form.get("modem_delay", "").strip():
+        args += ["--modem-delay", repr(_number(form["modem_delay"], "Modem delay", 0, 60))]
+    if form.get("bandwidth_bytes", "").strip():
+        args += ["--bandwidth-bytes", repr(_number(form["bandwidth_bytes"], "Bytes per tick", 1, 1e9))]
     for key, flag, name, lo, hi, as_int in (
             ("target_separation", "--target-separation", "Target separation", 0.1, 100, False),
             ("tolerance", "--tolerance", "Tolerance", 0.01, 10, False),

@@ -2612,6 +2612,19 @@ bandwidth couldn't be set on their own, and there was no shared channel.
     - the CLI pass-through.
   - The web form test.
 
+**`strathe fleet` gets the two settings it was missing** (2026-10-22 review). Its two-vehicle experiments had a modem
+delay and a byte budget in the experiment YAML, but no flag or web field, so testing latency or bandwidth meant hand-editing
+YAML:
+- **`--modem-delay S`** sets the acoustic modem's own delay on top of travel time. It's refused together with
+  `--link-calibration`, which measures the delay from the lab's logs.
+- **`--bandwidth-bytes N`** sets the bytes per vehicle per 0.1 s tick. A beacon is 24 bytes, so this is all or nothing
+  in this model, and the help points to `comms-study` for bandwidth shared by several vehicles. It applies on top of one
+  packet-loss level, and the error now says to add `--comm L0`.
+- **Merging:** the flag merges into the YAML's own loss settings instead of replacing them.
+- **Web and report:** both are fields on the web form, and the report states them.
+- **Tests:** `test_fleet_modem_delay_and_bandwidth_reach_the_experiment` and the web form test; a smoke experiment ran with
+  both.
+
 **Found while building it:**
 - A formation that turns rigidly with the leader is unflyable at survey turn rates: a wedge's outer slot moves at
   1.5 m/s in a 3°/s turn, against a vehicle top speed of 0.35 m/s.
