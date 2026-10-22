@@ -21,7 +21,12 @@ data:
     norms are reported so a wrong column mapping is still caught
   - thruster commands (PWM): held at the last command, as the ESC does
 Timestamps come from each message's header.stamp when it has one (the time the
-data was measured), otherwise from the time the bag recorded it.
+data was measured), otherwise from the time the bag recorded it. A bag that was
+replayed and re-recorded later (F1, F2) has receive times from the re-recording:
+topics without header stamps are then moved onto the header clock by the
+median (receive time - header stamp) of the topics that have both, when that
+delay is over a second, so every topic lines up and the session date is the
+mission's, not the re-recording's. The ingest report says so.
 
 Message definitions: ROS 1 bags and ROS 2 .mcap bags carry their own. ROS 2
 .db3 bags don't, so non-standard types (e.g. mavros_msgs/msg/RCOut) need their
@@ -139,13 +144,17 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
             raise BagError(f"{path}: topic(s) {missing} not in the bag (it has: {sorted(present)})")
         conns = [c for c in reader.connections if c.topic in wanted]
         header_used = {t: 0 for t in wanted}
+        delays = []   # receive time - header stamp, for messages that have both (a re-recorded bag: days)
         for conn, bag_ns, raw in reader.messages(connections=conns):
             try:
                 msg = reader.deserialize(raw, conn.msgtype)
             except Exception as e:
                 raise BagError(f"{path}: can't decode {conn.topic} ({conn.msgtype}): {e}. For a ROS 2 .db3 bag "
                                f"with custom message types, list their .msg files in source.message_types") from e
-            t = _stamp(msg) if stamp == "header" else None
+            h = _stamp(msg)
+            if h is not None:
+                delays.append(bag_ns * 1e-9 - h)
+            t = h if stamp == "header" else None
             if t is None:
                 t = bag_ns * 1e-9
             else:
@@ -158,6 +167,23 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
         reader.close()
 
     timestamps = {t: ("header.stamp" if stamp == "header" and header_used[t] else "bag receive time") for t in series}
+    if stamp == "receive" and delays and abs(float(np.median(delays))) > 86400:
+        report["warnings"].append(
+            f"the messages' header stamps are {float(np.median(delays)) / 86400:.1f} days before the bag's receive "
+            f"times (a re-recorded bag?): with stamp: receive, the times and the session date are the "
+            f"re-recording's. stamp: header (the default) uses the mission's own")
+    receive_only = [t for t in series if stamp == "header" and not header_used[t]]
+    if receive_only and delays:
+        delay = float(np.median(delays))
+        if abs(delay) > 1.0:   # not transport delay: the bag was re-recorded (or a clock was off) -> one clock
+            for topic in receive_only:
+                times, _ = series[topic]
+                series[topic] = ([x - delay for x in times], series[topic][1])
+                timestamps[topic] = f"bag receive time, moved {delay:+.0f} s onto the header clock"
+            report["warnings"].append(
+                f"{', '.join(receive_only)} had no header stamps, and the other topics' messages were received "
+                f"{delay / 86400:.1f} days ({delay:.0f} s) after their header stamps (a re-recorded bag?): moved onto "
+                f"the header clock, so every topic lines up and the session date is the mission's")
     return series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report, timestamps, BagError,
                           angle_columns=angle_columns)
 

@@ -1662,8 +1662,8 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
 
 **Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; a sensor
 mount rotation in ingest specs; ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); `train-fleet` and arena task geometry
-(formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); mixed header and
-receive timestamps in re-recorded bags; and session dates from header stamps.
+(formation spacing, target distance) for vehicles bigger than a BlueROV2; ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
+receive timestamps in re-recorded bags; and session dates from header stamps~~ (fixed, #91).
 
 ### 71. Torpedo-hull physics, and Strathe against Stonefish on URI's own vehicle model (2026-10-10)
 
@@ -2019,7 +2019,7 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   running: the final fit from its checkpoint with the last round's currents, or the latest round from its checkpoint
   with that round's input currents. The reason recorded and reported says which, and that the later steps didn't
   run. With `--restart-whole-fit` it keeps finished starts and finishes the interrupted one.
-- F1, F2: header stamps; recording-date sessions.
+- ~~F1, F2: header stamps; recording-date sessions.~~ Fixed (#91).
 - ~~F5: noise from filtered logs.~~ Fixed (#91).
 - ~~F15: arena intervals ignore seed variance.~~ Fixed (#91).
 - ~~F18: `fleet` has no `--workers`.~~ Fixed (#91).
@@ -2837,7 +2837,7 @@ cost of 874):
 
 ### 91. The URI re-run's open friction items, closed (2026-10-22)
 
-The open list from #76 had F18, F15, F5 and F21 still open. F21 is fixed in #79's branch. The rest:
+The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed in #79's branch. The rest:
 - **F18: `fleet --workers N`.** The experiment file had `evaluation.workers`, but there was no flag or web field. Now
   there are, and they combine with `--seeds`.
 - **F15: arena intervals include seed-to-seed variance.** The paired calibrated-against-generic difference, and each
@@ -2857,6 +2857,18 @@ The open list from #76 had F18, F15, F5 and F21 still open. F21 is fixed in #79'
     URI's ALPHA RISE logs, resampled to 10 Hz, have attitude and heading at +0.75 and velocity at −0.54. Both are
     flagged.
   - **Tested** on raw and smoothed signals.
+- **F1, F2: re-recorded ROS bags.** URI's missions (Dec 2025, Mar 2026) were replayed and re-recorded on 7 Oct 2026.
+  - **The problem:** topics with header stamps kept the missions' clock; the thruster topic, with none, carried the
+    re-recording's. With header stamps (I6) the topics "overlap for only 0.00 s"; with receive times (I10) both
+    missions landed on 07-10-2026, one session, so nothing could be held out.
+  - **The fix:** the bag reader measures the median (receive time − header stamp) on the topics that have both. When
+    it is over a second (re-recorded, not transport delay), it moves the header-less topics onto the header clock and
+    says so in the ingest report. With `stamp: receive` on such a bag, it warns that the dates are the
+    re-recording's.
+  - **On URI's real bags:** I6 now ingests, as 05-12-2025 and 27-03-2026. With `session_date: {from: recording}` the
+    missions get those dates too, so held-out-by-date calibration works on them.
+  - **Tested** with a bag re-recorded 600 days later (ROS 1 and ROS 2 .mcap): the mission's date and forces line up
+    with the motion, and receive times warn. LIMITS has a row.
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 

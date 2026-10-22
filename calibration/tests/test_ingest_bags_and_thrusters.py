@@ -220,8 +220,10 @@ def _ros_frames(d):
     return lin, ang, Rotation.from_matrix(R).as_quat()
 
 
-def write_bag(path, d, kind="ros1", odom_dt=0.1, rc_dt=0.1, rc_offset=0.0, odom_offset=0.0):
-    """Write run `d` as /odom (Odometry) + /mavros/rc/out (RCOut) messages. kind: ros1 | mcap | sqlite3."""
+def write_bag(path, d, kind="ros1", odom_dt=0.1, rc_dt=0.1, rc_offset=0.0, odom_offset=0.0, recv_delay=0.004,
+              rc_header=True):
+    """Write run `d` as /odom (Odometry) + /mavros/rc/out (RCOut) messages. kind: ros1 | mcap | sqlite3.
+    recv_delay: receive time - header stamp (days for a re-recorded bag); rc_header=False: RCOut stamps are 0."""
     ts = _typestore(kind == "ros1")
     lin, ang, q = _ros_frames(d)
     pwm = np.ascontiguousarray(d[[f"pwm{i}" for i in range(1, 9)]].values.astype(np.uint16))
@@ -234,21 +236,22 @@ def write_bag(path, d, kind="ros1", odom_dt=0.1, rc_dt=0.1, rc_offset=0.0, odom_
     for tt in np.arange(0, (n - 1) * 0.1 + 1e-9, rc_dt) + rc_offset:
         k = min(int(np.floor((tt - rc_offset) / 0.1 + 1e-9)), n - 1)
         msgs.append((T0 + tt, "/mavros/rc/out", "mavros_msgs/msg/RCOut",
-                     ts.types["mavros_msgs/msg/RCOut"](header=_header(ts, T0 + tt), channels=np.ascontiguousarray(pwm[k]))))
+                     ts.types["mavros_msgs/msg/RCOut"](header=_header(ts, T0 + tt if rc_header else 0.0),
+                                                       channels=np.ascontiguousarray(pwm[k]))))
     msgs.sort(key=lambda m: m[0])
     if kind == "ros1":
         with Writer1(path) as w:
             conns = {tp: w.add_connection(tp, mt, typestore=ts) for tp, mt in
                      (("/odom", "nav_msgs/msg/Odometry"), ("/mavros/rc/out", "mavros_msgs/msg/RCOut"))}
             for t, tp, mt, m in msgs:
-                w.write(conns[tp], int((t + 0.004) * 1e9), ts.serialize_ros1(m, mt))  # received 4 ms later
+                w.write(conns[tp], int((t + recv_delay) * 1e9), ts.serialize_ros1(m, mt))  # received recv_delay later
     else:
         plugin = StoragePlugin.MCAP if kind == "mcap" else StoragePlugin.SQLITE3
         with Writer2(path, version=9, storage_plugin=plugin) as w:
             conns = {tp: w.add_connection(tp, mt, typestore=ts) for tp, mt in
                      (("/odom", "nav_msgs/msg/Odometry"), ("/mavros/rc/out", "mavros_msgs/msg/RCOut"))}
             for t, tp, mt, m in msgs:
-                w.write(conns[tp], int((t + 0.004) * 1e9), ts.serialize_cdr(m, mt))
+                w.write(conns[tp], int((t + recv_delay) * 1e9), ts.serialize_cdr(m, mt))
     return t_data
 
 
@@ -482,3 +485,27 @@ def test_bags_with_messy_timing(tmp_path):
     Rg = Rotation.from_quat(got[["qx", "qy", "qz", "qw"]].values[ok])
     Ro = Rotation.from_quat(d[["qx", "qy", "qz", "qw"]].values[ok])
     assert np.median(np.degrees((Rg.inv() * Ro).magnitude())) < 1.0
+
+
+@needs_data
+@pytest.mark.parametrize("kind", ["ros1", "mcap"])
+def test_a_re_recorded_bag_lines_up_on_the_mission_clock_and_date(tmp_path, kind):
+    """F1, F2 (URI re-run): a mission replayed and re-recorded 600 days later. /odom has header stamps from the
+    mission; the thruster topic has none, so it carried the re-recording's time: no overlap ("the topics overlap
+    for only 0.00 s"), and the session date was the re-recording's."""
+    d = reference_run_in_frd(pd.read_csv(REAL[1])).iloc[:300].reset_index(drop=True)
+    (tmp_path / "bags").mkdir()
+    name = "run.bag" if kind == "ros1" else "run"
+    write_bag(tmp_path / "bags" / name, d, kind, recv_delay=600 * 86400.0, rc_header=False)
+    summary = ingest(load_ingest_spec(bag_spec(tmp_path, "bags/*.bag" if kind == "ros1" else "bags/run")),
+                     str(tmp_path / "out"))
+    rep = summary["files"][0]
+    assert rep["session_date"] == "03-02-2024"                           # the mission's date, from its header clock
+    assert "moved" in rep["bag"]["topics"]["/mavros/rc/out"]["timestamps"]
+    assert any("re-recorded bag" in w for w in rep["warnings"])
+    _check_matches(tmp_path / "out" / "bagrov-03-02-2024-run1.csv", d)  # forces line up with the motion again
+    # the same bag read with receive times: the re-recording's clock, and a warning that says so
+    s2 = ingest(load_ingest_spec(bag_spec(tmp_path, "bags/*.bag" if kind == "ros1" else "bags/run",
+                                          source={"stamp": "receive"})), str(tmp_path / "out2"))
+    assert s2["files"][0]["session_date"] != "03-02-2024"
+    assert any("stamp: header (the default) uses the mission's own" in w for w in s2["files"][0]["warnings"])
