@@ -330,7 +330,12 @@ class Replay:
                             "--dt", f"{self.dt:g}"]
 
     def info(self, scenario: str) -> dict:
-        r = subprocess.run(self._argv(scenario) + ["--info"], capture_output=True, text=True, timeout=600)
+        try:
+            r = subprocess.run(self._argv(scenario) + ["--info"], capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise StonefishFitError("the Stonefish replay tool didn't load the scenario within 10 minutes. Check it "
+                                    "runs on its own (calibration/stonefish/README.md step 2); if the computer slept or "
+                                    "the run was paused meanwhile, run the command again")
         js = [ln for ln in r.stdout.splitlines() if ln.startswith("{")]
         if r.returncode or not js:
             raise StonefishFitError(f"the Stonefish replay tool couldn't load the scenario: {r.stderr.strip()[-800:]}")
@@ -345,9 +350,12 @@ class Replay:
             for i, rows in enumerate(rows_by_window):
                 for k, row in enumerate(rows):
                     f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
-        r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
-                           capture_output=True, text=True,
-                           timeout=24 * 3600)
+        try:
+            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+                               capture_output=True, text=True, timeout=24 * 3600)
+        except subprocess.TimeoutExpired:
+            raise StonefishFitError("the Stonefish replay didn't finish within 24 hours; try fewer recordings or "
+                                    "--workers to run them in parallel")
         if r.returncode:
             raise StonefishFitError(f"the Stonefish replay failed: {r.stderr.strip()[-800:]}")
         got = {}

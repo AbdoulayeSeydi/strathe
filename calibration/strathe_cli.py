@@ -15,6 +15,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py fit-link --log <messages.csv> --out <folder>  the acoustic/optical link from message logs
     python strathe.py fit-stonefish --scenario my_world.scn ...  calibrate your own Stonefish vehicle model
     python strathe.py export-stonefish --calibration DIR ...      put a Strathe calibration into your Stonefish model
+    python strathe.py describe-stonefish --scenario my_world.scn ... write your vehicle description from your Stonefish model
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
 
@@ -516,9 +517,27 @@ def cmd_calibrate(args, runner=None) -> int:
         print(warn, flush=True)
 
     import secrets
+    restarts = getattr(args, "restarts", 1)
+    restarts = 1 if restarts is None else restarts
+    if restarts < 1:
+        print("❌ --restarts must be at least 1")
+        return 2
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31 - 1)
     print(f"ℹ️  Starting-point seed {seed}: the fit starts from a randomly perturbed point, so a hard calibration can "
           f"land differently on another run. `--seed {seed}` repeats this one exactly.", flush=True)
+    whole = bool(getattr(args, "restart_whole_fit", False))
+    if whole and restarts < 2:
+        print("❌ --restart-whole-fit needs --restarts 2 or more (how many times to run the whole fit)")
+        return 2
+    if whole and not args.estimate_current:
+        print("ℹ️  --restart-whole-fit only matters with --estimate-current (there's one round otherwise); "
+              "--restarts alone does the same for a one-round fit.")
+        whole = False
+    if whole:
+        return _calibrate_whole_fit_restarts(args, runner, out, restarts, seed)
+    if restarts > 1:
+        print(f"ℹ️  Starting the fit from {restarts} points and keeping the lowest training cost: the first fit takes "
+              f"about {restarts}x as long.", flush=True)
     memo = {}
 
     def settings():
@@ -574,6 +593,8 @@ def cmd_calibrate(args, runner=None) -> int:
         rate, extra = settings()
         argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev,
                               extra + ["--seed", str(seed)], rate)  # every round starts from the same recorded seed
+        if restarts > 1 and not warm:  # the first fit chooses where to start; later rounds start from its result
+            argv += ["--n-restarts", str(restarts)]
         if currents:
             argv += ["--currents-file", currents]
         if warm and os.path.exists(warm):
@@ -623,16 +644,15 @@ def cmd_calibrate(args, runner=None) -> int:
         steps.append(("Turning the interrupted fit's best result into a calibration (marked not converged)",
                       finish_argv, "The checkpoint couldn't be turned into a result; the message above says why.",
                       True))
-    if not args.skip_identifiability:
+    if getattr(args, "fit_only", False):  # one start of --restart-whole-fit: the checks run once, on the chosen one
+        pass
+    elif not args.skip_identifiability:
         steps.append(("Checking which values your data can pin down (a few minutes)",
                       lambda: identifiability_argv(out, data, spec, args.workers),
                       "The check of which values the data can pin down failed; the report is written without "
                       "that section.", False))
-    steps.append(("Comparing the simulation with the real vehicle on unseen recordings: position, orientation, "
-                  "response, plots (a few minutes)", lambda: validation_argv(out, data, spec),
-                  "The comparison with the real vehicle failed; the report is written without that section.", False))
-    steps.append(("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
-                  "The report couldn't be written; the calibration itself is saved in the output folder.", True))
+    if not getattr(args, "fit_only", False):
+        steps += checks_and_report_steps(out, data, spec, args)
     for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
         _banner(i, len(steps), title)
         argv = make_argv()
@@ -661,6 +681,89 @@ def cmd_calibrate(args, runner=None) -> int:
             return rc
         if rc != 0:
             print(f"\n⚠️  Step {i} failed (exit code {rc}). {hint}")
+    report = os.path.join(out, "calibration_report.md")
+    print(f"\n✅ Done.\n   Report:     {report}\n   Parameters: {os.path.join(out, 'calibrated_parameters.yaml')}")
+    if runner is None and os.path.exists(report):
+        _print_bottom_line(report)
+    return 0
+
+
+def checks_and_report_steps(out: str, data: str, spec: str, args) -> list:
+    return [("Comparing the simulation with the real vehicle on unseen recordings: position, orientation, "
+             "response, plots (a few minutes)", lambda: validation_argv(out, data, spec),
+             "The comparison with the real vehicle failed; the report is written without that section.", False),
+            ("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
+             "The report couldn't be written; the calibration itself is saved in the output folder.", True)]
+
+
+WHOLE_FIT_FILE = "whole_fit_starts.json"
+
+
+def _final_cost(folder: str):
+    try:
+        with open(os.path.join(folder, "metrics.json"), encoding="utf-8") as f:
+            return float(json.load(f)["optimizer"]["cost"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _round_costs(folder: str) -> list:
+    out, k = [], 1
+    while os.path.isdir(os.path.join(folder, f"current_round{k}")):
+        out.append(_final_cost(os.path.join(folder, f"current_round{k}")))
+        k += 1
+    return out + [_final_cost(folder)]
+
+
+def _calibrate_whole_fit_restarts(args, runner, out: str, restarts: int, seed: int) -> int:
+    """--restart-whole-fit (#79): the whole fit, every current round, from `restarts` starting points (seeds seed,
+    seed+1, ...), each in out/startK; keep the one with the lowest FINAL training cost. On URI's B8, the start with
+    the lower round-1 cost ended worse (4.17 against 3.86): choosing in round 1 is too early."""
+    import copy
+    import shutil
+    print(f"ℹ️  Running the whole fit (every current round) from {restarts} starting points, seeds {seed} to "
+          f"{seed + restarts - 1}, and keeping the lowest final training cost: about {restarts}x as long.", flush=True)
+    starts = []
+    for k in range(restarts):
+        sub = copy.copy(args)
+        sub.restarts, sub.restart_whole_fit, sub.fit_only = 1, False, True
+        sub.seed = seed + k
+        sub.out = os.path.join(out, f"start{k + 1}")
+        print(f"\n{'#' * 70}\n# Start {k + 1} of {restarts} (seed {sub.seed})\n{'#' * 70}", flush=True)
+        rc = cmd_calibrate(sub, runner)
+        starts.append({"start": k + 1, "seed": sub.seed, "folder": sub.out, "exit_code": rc,
+                       "round_costs": _round_costs(sub.out), "final_cost": _final_cost(sub.out)})
+    done = [s for s in starts if s["final_cost"] is not None]
+    if not done:
+        print("\n❌ None of the starts produced a calibration; the messages above say why.")
+        return 1
+    best = min(done, key=lambda s: s["final_cost"])
+    for name in os.listdir(best["folder"]):
+        src, dst = os.path.join(best["folder"], name), os.path.join(out, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+    with open(os.path.join(out, WHOLE_FIT_FILE), "w", encoding="utf-8") as f:
+        json.dump({"chosen": best["start"], "starts": starts}, f, indent=2)
+    print(f"\nℹ️  Final training costs: " + ", ".join(f"start {s['start']} (seed {s['seed']}) "
+                                                      f"{s['final_cost']:.4g}" for s in done)
+          + f". Keeping start {best['start']}.", flush=True)
+    data = os.path.join(out, "ingested_logs") if args.ingest_spec else _abs(args.data)
+    spec = spec_path(args.spec)
+    steps = checks_and_report_steps(out, data, spec, args)
+    if not args.skip_identifiability:
+        steps.insert(0, ("Checking which values your data can pin down (a few minutes)",
+                         lambda: identifiability_argv(out, data, spec, args.workers),
+                         "The check of which values the data can pin down failed; the report is written without "
+                         "that section.", False))
+    for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
+        _banner(i, len(steps), title)
+        rc = run_step(make_argv(), runner)
+        if rc != 0:
+            print(f"\n{'❌' if fatal else '⚠️ '} Step {i} failed (exit code {rc}). {hint}")
+            if fatal:
+                return rc
     report = os.path.join(out, "calibration_report.md")
     print(f"\n✅ Done.\n   Report:     {report}\n   Parameters: {os.path.join(out, 'calibrated_parameters.yaml')}")
     if runner is None and os.path.exists(report):
@@ -1156,6 +1259,32 @@ def cmd_export_stonefish(args, runner=None) -> int:
     return run_step(export_stonefish_argv(args, out), runner)
 
 
+def describe_stonefish_argv(args, out: str) -> list:
+    """stonefish_describe.py with this command's settings (PROJECT_STATUS.md #77)."""
+    argv = ["stonefish_describe.py", "--scenario", _abs(args.scenario), "--robot", args.robot,
+            "--reference-point", *(str(x) for x in args.reference_point), "--name", args.name, "--out", out,
+            "--cruise-speed", str(args.cruise_speed)]
+    for flag, value in (("--mass", args.mass), ("--water-density", args.water_density)):
+        if value is not None:
+            argv += [flag, str(value)]
+    if args.find:
+        argv += ["--find", *args.find]
+    for flag, value in (("--stonefish-data", args.stonefish_data), ("--replay-tool", args.replay_tool)):
+        if value:
+            argv += [flag, _abs(value)]
+    if args.hull_lift:
+        argv += ["--hull-lift"]
+    return argv
+
+
+def cmd_describe_stonefish(args, runner=None) -> int:
+    if not os.path.exists(_abs(args.scenario)):
+        print(f"❌ Stonefish scenario not found: {_abs(args.scenario)}")
+        return 2
+    out = _abs(args.out) if args.out else os.path.join(os.getcwd(), f"{safe_name(args.name)}_vehicle_spec.yaml")
+    return run_step(describe_stonefish_argv(args, out), runner)
+
+
 def cmd_ingest(args, runner=None) -> int:
     return run_step(ingest_argv(args.spec, args.out), runner)
 
@@ -1189,6 +1318,15 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--seed", type=int, help="the starting point's random seed (default: a new one, printed and "
                                             "recorded); give a calibration's seed to repeat it exactly")
+    c.add_argument("--restarts", type=int, default=1,
+                   help="start the fit from this many points and keep the lowest training cost (default 1). A hard "
+                        "calibration can land in a different place from each start; 3-4 makes that much less likely, "
+                        "for that many times the first fit's time. With --estimate-current, the first round only: "
+                        "later rounds start from its result (see --restart-whole-fit)")
+    c.add_argument("--restart-whole-fit", action="store_true",
+                   help="with --estimate-current and --restarts N: run the whole fit (every round) from N starting "
+                        "points (seeds S..S+N-1) and keep the lowest FINAL training cost. For a calibration whose "
+                        "rounds can go two ways; N times as long")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
                    help="advanced: re-express logged torques about another point (default: what the ingestion "
                         "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")
@@ -1423,6 +1561,24 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")
     sf.add_argument("--out", help="output folder (default: stonefish_fit_<name> in the repository)")
     sf.set_defaults(fn=cmd_fit_stonefish)
+
+    ds = sub.add_parser("describe-stonefish", help="write your vehicle description (for --spec) from your own "
+                                                   "Stonefish model, instead of filling the template by hand")
+    ds.add_argument("--scenario", required=True, help="your Stonefish world scenario (.scn) with the robot in it")
+    ds.add_argument("--robot", required=True, help="the robot's name in the scenario")
+    ds.add_argument("--reference-point", type=float, nargs=3, default=[0.0, 0.0, 0.0], metavar=("X", "Y", "Z"),
+                    help="where your logs' velocity and forces are measured, in the robot's frame (forward-right-down, "
+                         "m from the robot's origin), e.g. your URDF's base_link (default 0 0 0)")
+    ds.add_argument("--mass", type=float, help="the vehicle's weighed mass, kg (default: the Stonefish model's)")
+    ds.add_argument("--water-density", type=float, help="kg/m^3 (default: the scenario's)")
+    ds.add_argument("--cruise-speed", type=float, default=0.5, help="typical forward speed, m/s (default 0.5)")
+    ds.add_argument("--hull-lift", action="store_true", help="slender hulls: include the hull-lift terms (off by default)")
+    ds.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
+    ds.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ds.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ds.add_argument("--name", default="my_vehicle", help="the vehicle's name")
+    ds.add_argument("--out", help="the description to write (default: <name>_vehicle_spec.yaml here)")
+    ds.set_defaults(fn=cmd_describe_stonefish)
 
     ex = sub.add_parser("export-stonefish", help="put your Strathe calibration into your own Stonefish vehicle model "
                                                  "and score both on recordings it never saw (calibration/stonefish/"

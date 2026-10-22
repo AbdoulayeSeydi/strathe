@@ -183,7 +183,8 @@ def test_home_page_has_every_form(server):
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
     assert "Calibrate your Stonefish model" in body and "Put your Strathe calibration into Stonefish" in body
     assert "Calibrate your simulator model" in body and "Put your Strathe calibration into your simulator" in body
-    assert body.count(f"value='{token}'") == 11
+    assert "Describe your vehicle from your Stonefish model" in body
+    assert body.count(f"value='{token}'") == 12
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -751,12 +752,15 @@ def test_calibration_form_passes_every_advanced_option(server):
     request, token, started, manager, tmp_path = server
     status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv",
                                                       "estimate_current": "1", "current_rounds": "3", "workers": "4",
-                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1"})
+                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1",
+                                                      "restarts": "4", "restart_whole_fit": "1"})
     assert status == 303
     cmd = started[0]
-    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior")):
+    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior"),
+                      ("--restarts", "4")):
         assert cmd[cmd.index(flag) + 1] == val
     assert cmd[cmd.index("--torque-reference-offset-m") + 1:cmd.index("--torque-reference-offset-m") + 4] == ["0.05", "0.0", "0.0"]
+    assert "--restart-whole-fit" in cmd and cli.build_parser().parse_args(cmd[3:]).restart_whole_fit
     status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv2",
                                                          "current_rounds": "3"})
     assert status == 400 and "estimate the current" in body
