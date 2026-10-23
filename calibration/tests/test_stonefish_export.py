@@ -257,7 +257,7 @@ def test_stonefish_runs_in_docker_with_its_folders_mounted(monkeypatch):
     assert argv[:3] == ["docker", "run", "--rm"] and "/data:/data" in argv and "/w:/w" in argv and "/work:/work" in argv
     assert argv[argv.index("strathe-stonefish-replay") + 1] == "--scenario"
     monkeypatch.setattr(shutil, "which", lambda x: None)
-    with pytest.raises(SF.StonefishFitError, match="needs Docker"):
+    with pytest.raises(SF.StonefishFitError, match="Docker isn't installed"):
         SF.find_tool("docker:strathe-stonefish-replay")
 
 

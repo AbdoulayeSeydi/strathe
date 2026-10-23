@@ -72,8 +72,9 @@ and T_b = diag(1, −1, −1).
 **The command can be:**
 - a path;
 - a command line (`python my_replay.py`);
-- `docker:IMAGE`: Strathe then runs it with `docker run`, mounting your model's folder and the temporary folders at the
-  same paths.
+- `docker:IMAGE`: Strathe then runs it with `docker run`, mounting your model's folder, the folders your model refers
+  to by full path and the work folders at the same paths. It runs as your user id with `HOME=/tmp`, so your command
+  mustn't need root ([DOCKER.md](DOCKER.md) section 6).
 
 ## 2. The simulator description (`my_sim.yaml`)
 

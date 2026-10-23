@@ -505,7 +505,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
     ap.add_argument("--physics-hz", type=float, default=200.0, help="Stonefish's physics rate (default 200 Hz)")
-    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image (setup-sim "
+                    "stonefish --docker, once); or docker:IMAGE (default: calibration/stonefish/build/, else the "
+                    "Docker image if it's built)")
     ap.add_argument("--out", default="stonefish_export", help="output folder")
     return ap
 

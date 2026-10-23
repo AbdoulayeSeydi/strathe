@@ -28,9 +28,9 @@ URI's original model, holding the surge added mass at a slender-body estimate (P
   `--prefix PATH`.
   - **Dependencies:** git, cmake, a C++ compiler, GLM, SDL2, Freetype and OpenGL. On macOS also Homebrew's `libomp`,
     whose flags are added for you.
-- **Nothing to build, with Docker:**
-  `docker build -t strathe-stonefish-replay -f calibration/stonefish/Dockerfile calibration/stonefish` once, then
-  `--replay-tool docker:strathe-stonefish-replay`. **Not yet tested:** the development machine had no Docker.
+- **Nothing to build, with Docker:** `python strathe.py setup-sim stonefish --docker` builds an image with the patched
+  Stonefish and the replay tool, once (about 8 minutes). Every Stonefish command then uses it when the tool isn't built
+  here, or when you give `--replay-tool docker`. Install Docker and the details: [../simulators/DOCKER.md](../simulators/DOCKER.md).
 
 Sections 1 and 2 below do the same steps by hand.
 

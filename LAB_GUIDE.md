@@ -40,6 +40,10 @@ python strathe.py check
 | Nothing extra: your calibration, plus your **Stonefish** scenario | your calibration's values put into your Stonefish vehicle (minutes), scored the same way | `export-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
 | Nothing extra: the same logs, plus **another simulator's** model (Gazebo, MuJoCo, HoloOcean, in-house) | the same, in your simulator: `fit-sim` and `export-sim`, one workflow for all | `fit-sim --sim ...` ([calibration/simulators/README.md](calibration/simulators/README.md)) |
 
+**Stonefish or Gazebo not installed?** Strathe can run them in Docker, with nothing to compile:
+`python strathe.py setup-sim stonefish --docker` (or `gazebo`) once, then the commands above use the image, with
+the same results ([calibration/simulators/DOCKER.md](calibration/simulators/DOCKER.md)).
+
 ## 3. Pick a template
 
 Copy the closest one from [calibration/templates/](calibration/templates/README.md) next to your logs and change the
@@ -131,6 +135,9 @@ python strathe.py fit-link --log messages.csv --out my_link
 python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
 python strathe.py export-stonefish --calibration calibration_output_my_rov --scenario my_world.scn --robot my_rov --part Hull --reference-point 0 0 0
 
+#    no Stonefish or Gazebo installed? Run them in Docker: build the image once, then the commands use it
+#    (calibration/simulators/DOCKER.md)
+python strathe.py setup-sim stonefish --docker
 #    any other simulator: the same two commands with --sim (calibration/simulators/README.md); e.g. your own:
 python strathe.py fit-sim --sim external --simulator my_sim.yaml --ingest-spec my_rov.yaml --reference-point 0 0 0
 

@@ -401,6 +401,12 @@ class GazeboAdapter:
 
     def run_instructions(self, world_name: str, folder: str = "calibrated_world") -> str:
         """How to run the world copy, from the folder that contains it."""
+        return self._run_instructions(world_name, folder) + (
+            "\n\nThis fit ran Gazebo in Docker, which has no window: `gz sim` needs Gazebo Harmonic installed on this "
+            "machine (calibration/simulators/gazebo/README.md, route A)." if self.tool and self.tool.tool
+            and str(self.tool.tool[0]).startswith("docker:") else "")
+
+    def _run_instructions(self, world_name: str, folder: str) -> str:
         if not self.separate:
             return (f"Run it from the folder that contains `{folder}/`:\n\n    {self.run_command(world_name, folder)}\n\n"
                     f"(`-s` runs it without the window.)")
@@ -547,12 +553,13 @@ def add_arguments(ap) -> None:
     ap.add_argument("--link", help="the vehicle's link (default: the Hydrodynamics plugin's <link_name>)")
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
     ap.add_argument("--resource-path", help="extra folders for model:// URIs (as GZ_SIM_RESOURCE_PATH)")
-    ap.add_argument("--replay-tool", help="the built strathe_gz_replay, or docker:IMAGE (default: "
-                                          "calibration/simulators/gazebo/build/)")
+    ap.add_argument("--replay-tool", help="the built strathe_gz_replay; or docker: Strathe's Gazebo image (setup-sim "
+                                          "gazebo --docker, once); or docker:IMAGE (default: calibration/simulators/"
+                                          "gazebo/build/, else the Docker image if it's built)")
 
 
 def adapter_from_args(a) -> GazeboAdapter:
     tool = find(a.replay_tool, "STRATHE_GZ_REPLAY", DEFAULT_TOOL, "Gazebo",
-                "Build it: python strathe.py setup-sim gazebo (calibration/simulators/gazebo/README.md)")
+                "Build it: python strathe.py setup-sim gazebo (calibration/simulators/gazebo/README.md)", sim="gazebo")
     return GazeboAdapter(a.world, a.model_file, a.model_name, a.link, tool, a.reference_point, a.start_depth,
                          a.resource_path)
