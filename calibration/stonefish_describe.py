@@ -34,20 +34,11 @@ from stonefish_fit import Replay, Scenario, StonefishFitError, find_tool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "templates", "vehicle_spec_template.yaml")
-G = 9.81
-SLENDER = 3.0  # length / diameter above which the hull-lift terms are included
-CD_SURGE = (0.05, 8.0)  # quadratic drag coefficient on the frontal area: a faired nose up to thrusters and sensors
-CD_BROADSIDE = (0.03, 2.5)  # on the side area: sway, heave, and (strip theory) pitch and yaw
-LINEAR_SPEED = 1.0  # m/s: linear drag limit = this x the quadratic limit
+# the hull-size rules are shared with describe-vehicle (vehicle_describe.py, #95)
+from vehicle_describe import G, SLENDER, _inside, torpedo_bounds  # noqa: E402
 # Damping limits are generous on purpose: in an open-loop replay damping also absorbs what the model leaves out, and
 # ALPHA RISE's calibration wants more of it than the hull alone gives (#77: 0.3 m/s here cost 0.6 of mean skill).
 # Inertia and added mass keep limits from the hull's size: those are where an off model value did the damage.
-
-
-def _inside(v: float, lo: float, hi: float) -> float:
-    """The model's value as the starting point, moved just inside the limits if it's outside them."""
-    margin = 0.02 * (hi - lo)
-    return min(max(v, lo + margin), hi - margin)
 
 
 def describe(info: dict, *, mass: float | None = None, water_density: float | None = None, cruise_speed: float = 0.5,
@@ -90,8 +81,7 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
     L = max(S[1], S[2]) / max(D, 1e-6)
     slender = L / max(D, 1e-6) > SLENDER
     hull = f"a {L:.2f} m x {D:.2f} m hull"
-    frontal, side = math.pi * D ** 2 / 4, L * D
-    strip = rho * frontal * L  # strip-theory sway/heave added mass, rho*pi*r^2*L
+    frontal = math.pi * D ** 2 / 4
     displaced = rho * float(base["volume"])
 
     # Mass and its distribution.
@@ -116,28 +106,23 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
             f"rigid {rigid[i] + shift[i]:.3g}" + ("" if i == 0 else f" + slender-body added {phys_added:.3g}")
             + f" for {hull}; {'1/5 to 10x' if i == 0 else '1/5 to 3x'}")
     A = np.sum([p["added_mass"] for p in ext], axis=0)
-    for k, ax, v, hi, why in (("Xu_dot", "surge", A[0], displaced, f"0 to the displaced mass {displaced:.3g} kg"),
-                              ("Yv_dot", "sway", A[1], 2 * strip, f"0 to 2x strip theory rho*pi*r^2*L = {strip:.3g} kg"),
-                              ("Zw_dot", "heave", A[2], 2 * strip, f"0 to 2x strip theory rho*pi*r^2*L = {strip:.3g} kg")):
-        put("added_mass_diag", k, v, [0.0, hi], src(f"{ax} added mass (geometric estimate)"), f"{why} for {hull}")
+    hb = torpedo_bounds(rho, L, D)   # limits from the hull's size, shared with describe-vehicle (#95)
+    put("added_mass_diag", "Xu_dot", A[0], [0.0, displaced], src("surge added mass (geometric estimate)"),
+        f"0 to the displaced mass {displaced:.3g} kg for {hull}")
+    for k, ax, v in (("Yv_dot", "sway", A[1]), ("Zw_dot", "heave", A[2])):
+        put("added_mass_diag", k, v, hb[k][:2], src(f"{ax} added mass (geometric estimate)"), hb[k][2])
 
     # Drag. Stonefish: quadratic 0.5 rho Cd S |v|^2 |v| (cubic, matched at the cruise speed), viscous rho Cf T v.
-    # Limits: a drag coefficient between CD_RANGE on the hull's frontal (surge) or side (sway, heave) area.
     for i, (lk, qk, ax) in enumerate((("Xu", "Xuu", "surge"), ("Yv", "Yvv", "sway"), ("Zw", "Zww", "heave"))):
-        area, (cmin, cmax) = (frontal, CD_SURGE) if i == 0 else (side, CD_BROADSIDE)
-        qlo, qhi = -0.5 * rho * cmax * area, -0.5 * rho * cmin * area
         quad = -sum(0.5 * rho * p["quadratic_drag"][i] * p["projected_area"][i] for p in ext) * cruise_speed
         lin = -sum(rho * p["viscous_drag"][i] * p["tangential_area"][i] for p in ext)
-        put("quadratic_damping", qk, quad, [qlo, qhi],
-            src(f"{ax} drag from its coefficients and mesh area, matched at {cruise_speed:g} m/s"),
-            f"drag coefficient {cmin:g} to {cmax:g} on the {'frontal' if i == 0 else 'side'} area of {hull}")
-        put("linear_damping", lk, lin, [LINEAR_SPEED * qlo, -0.5], src(f"{ax} skin friction from its coefficients "
-                                                                       f"and mesh area"),
-            f"up to {LINEAR_SPEED:g} m/s x the quadratic limit")
+        put("quadratic_damping", qk, quad, hb[qk][:2],
+            src(f"{ax} drag from its coefficients and mesh area, matched at {cruise_speed:g} m/s"), hb[qk][2])
+        put("linear_damping", lk, lin, hb[lk][:2], src(f"{ax} skin friction from its coefficients and mesh area"),
+            hb[lk][2])
     rot = 0.5 * rho * D * L ** 4 / 32  # strip theory, drag coefficient 1
     for k in ("Mqq", "Nrr"):
-        put("quadratic_damping", k, -rot, [-CD_BROADSIDE[1] * 3 * rot, -max(0.005 * rot, 0.05)],
-            src(f"strip theory 0.5*rho*D*L^4/32 for {hull}"), "drag coefficient up to 3x sway's, for fins")
+        put("quadratic_damping", k, -rot, hb[k][:2], src(f"strip theory 0.5*rho*D*L^4/32 for {hull}"), hb[k][2])
     for k, qk in (("Mq", "Mqq"), ("Nr", "Nrr")):
         qb = T["quadratic_damping"][qk]
         put("linear_damping", k, 0.3 * qb["initial_guess"], [qb["bounds"][0], -0.2],

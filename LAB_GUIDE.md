@@ -84,6 +84,16 @@ allowed range for its inertia, drag, added mass and buoyancy. **Without `--spec`
 (11.2 kg).** That's right only for a BlueROV2 Heavy. Any other vehicle needs its own description, or the fit is poor
 and the simulation can blow up (a 33 kg AUV calibrated as a BlueROV2: no axis trustworthy, PROJECT_STATUS.md #70).
 
+**Write it from a tape measure and a scale** (or from your Gazebo, URDF, MuJoCo or HoloOcean model): no template to
+fill in. Ranges are sized from the hull; the logs decide the values
+([calibration/DESCRIBE_VEHICLE.md](calibration/DESCRIBE_VEHICLE.md)):
+
+```bash
+python strathe.py describe-vehicle --mass 11.5 --length 0.457 --width 0.575 --height 0.254 --out my_vehicle_spec.yaml   # a frame
+python strathe.py describe-vehicle --mass 33 --length 1.5 --diameter 0.254 --out my_vehicle_spec.yaml                   # a torpedo
+python strathe.py describe-vehicle --from-model my_robot.urdf --sim urdf --out my_vehicle_spec.yaml                    # a model
+```
+
 **Have a Stonefish model of your vehicle?** Strathe writes the description from it, with no template to fill in:
 
 ```bash

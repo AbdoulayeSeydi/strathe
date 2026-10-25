@@ -1412,6 +1412,32 @@ def cmd_describe_stonefish(args, runner=None) -> int:
     return run_step(describe_stonefish_argv(args, out), runner)
 
 
+def describe_vehicle_argv(args) -> list:
+    """vehicle_describe.py with this command's options, paths made absolute (#95)."""
+    import vehicle_describe
+    argv = ["vehicle_describe.py"]
+    for act in vehicle_describe.build_parser(add_help=False)._actions:
+        v = getattr(args, act.dest, None)
+        if v is None or v is False or not act.option_strings:
+            continue
+        flag = act.option_strings[0]
+        if v is True:
+            argv.append(flag)
+            continue
+        vals = list(v) if isinstance(v, (list, tuple)) else [v]
+        if act.dest in ("out", "from_model") or (act.dest == "thrusters" and os.path.exists(os.path.expanduser(str(v)))):
+            vals = [_abs(str(vals[0]))]
+        argv += [flag, *(str(x) for x in vals)]
+    return argv
+
+
+def cmd_describe_vehicle(args, runner=None) -> int:
+    if args.from_model and not os.path.exists(_abs(args.from_model)):
+        print(f"❌ model not found: {_abs(args.from_model)}")
+        return 2
+    return run_step(describe_vehicle_argv(args), runner)
+
+
 def cmd_ingest(args, runner=None) -> int:
     return run_step(ingest_argv(args.spec, args.out), runner)
 
@@ -1738,6 +1764,12 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--name", default="my_vehicle", help="the vehicle's name")
     ds.add_argument("--out", help="the description to write (default: <name>_vehicle_spec.yaml here)")
     ds.set_defaults(fn=cmd_describe_stonefish)
+
+    import vehicle_describe
+    dv = sub.add_parser("describe-vehicle", parents=[vehicle_describe.build_parser(add_help=False)],
+                        help="write your vehicle description (for --spec) from its mass and size, or from its model in "
+                             "Gazebo, URDF, MuJoCo or HoloOcean: no template to fill in (calibration/DESCRIBE_VEHICLE.md)")
+    dv.set_defaults(fn=cmd_describe_vehicle)
 
     ex = sub.add_parser("export-stonefish", help="put your Strathe calibration into your own Stonefish vehicle model "
                                                  "and score both on recordings it never saw (calibration/stonefish/"

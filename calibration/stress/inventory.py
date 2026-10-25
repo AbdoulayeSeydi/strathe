@@ -170,7 +170,26 @@ def variables_94() -> list:
     return rows
 
 
-FEATURES = {"93": variables_93, "94": variables_94}
+def variables_95() -> list:
+    """Every describe-vehicle option and choice, the water kinds, and the web card's fields."""
+    import vehicle_describe as VD
+    rows = []
+    for act in VD.build_parser(add_help=False)._actions:
+        if not act.option_strings:
+            continue
+        rows.append(("95", f"option:{act.option_strings[0]}", "describe-vehicle option", "given / left out"))
+        for c in act.choices or ():
+            rows.append(("95", f"option:{act.option_strings[0]}={c}", "describe-vehicle choice", c))
+    rows += [("95", f"water:{w}", "water", w) for w in (*VD.WATER, "a density")]
+    rows += [("95", f"shape-rules:{k}", "bound rules", k) for k in ("box_bounds", "torpedo_bounds")]
+    web = open(os.path.join(CAL, "strathe_web.py"), encoding="utf-8").read()
+    i = web.index("/jobs/describe_vehicle>")
+    card = web[i:web.index("</form>", i)]
+    rows += [("95", f"web:{n}", "web card field", "dates") for n in sorted(set(re.findall(r" name=(\w+)", card)))]
+    return rows
+
+
+FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95}
 
 
 def inventory(features=None) -> list:

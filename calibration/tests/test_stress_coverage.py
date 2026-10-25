@@ -28,8 +28,11 @@ def test_every_variable_has_a_stress_row(feature):
 def test_every_matrix_row_exists_in_the_harness(feature):
     import importlib
     run = importlib.import_module(f"run_{feature}")
-    known = set(run.ROWS_FAST) | set(run._e2e_rows())
-    prefixes = {k.split("-")[0] for k in known} | known
+    if hasattr(run, "all_rows"):   # the harness lists its row ids: the matrix must name real ones
+        known = run.all_rows()
+    else:                          # #93's rows are named by group (F1, E1, ...)
+        known = set(run.ROWS_FAST) | set(run._e2e_rows())
+        known |= {k.split("-")[0] for k in known}
     for var, (rows, _) in inventory.matrix(feature).items():
         for r in rows:
-            assert r == "exempt" or r in prefixes, f"{var}: row {r} isn't in stress/run_{feature}.py"
+            assert r == "exempt" or r in known, f"{var}: row {r} isn't in stress/run_{feature}.py"

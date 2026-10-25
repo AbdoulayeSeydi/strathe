@@ -139,8 +139,6 @@ def lcm_type_text(package: str, name: str, fields: dict, with_utime: bool = True
 def write_lcm(path: str, types_dir: str, topics: dict, with_utime: bool = True, receive_delay_s: float = 0.0) -> list:
     """One channel per topic; writes the .lcm type files into types_dir and returns their paths. The message's own
     utime is the topic's time; the receive time is that plus receive_delay_s."""
-    import importlib
-    import sys
     import lcm_reader
     os.makedirs(types_dir, exist_ok=True)
     files = []

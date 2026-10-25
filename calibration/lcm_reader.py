@@ -29,8 +29,6 @@ import subprocess
 import sys
 from typing import Optional, Sequence
 
-import numpy as np
-
 from rosbag_reader import series_to_grid
 
 CACHE = os.path.join(os.path.expanduser("~"), ".strathe", "lcm_types")

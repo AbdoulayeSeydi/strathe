@@ -602,6 +602,37 @@ def sim_cli_args(form: dict, command: str = "fit") -> list:
     return args
 
 
+def describe_vehicle_cli_args(form: dict) -> list:
+    """`strathe describe-vehicle` arguments from the web form (#95): measurements, or a model file (its size can be
+    overridden by any measurement given)."""
+    args = []
+    model = form.get("from_model", "").strip()
+    if model:
+        sim = form.get("sim", "").strip()
+        if sim not in ("gazebo", "urdf", "mujoco", "holoocean"):
+            raise ValueError("Say what the model file is: Gazebo, URDF, MuJoCo or HoloOcean.")
+        args += ["--from-model", _existing_file(model, "Model file", (".sdf", ".world", ".urdf", ".xml", ".json")),
+                 "--sim", sim]
+    for key, flag, lo, hi in (("mass", "--mass", 0.01, 100000), ("length", "--length", 0.01, 100),
+                              ("width", "--width", 0.01, 100), ("height", "--height", 0.01, 100),
+                              ("diameter", "--diameter", 0.01, 100), ("cg_below_cb", "--cg-below-cb", -10, 10),
+                              ("net_buoyancy", "--net-buoyancy", -100000, 100000)):
+        if form.get(key, "").strip():
+            args += [flag, repr(_number(form[key], key.replace("_", " ").capitalize(), lo, hi))]
+    if not model and not (form.get("mass", "").strip() and form.get("length", "").strip()):
+        raise ValueError("Give the vehicle's mass and length (and width and height, or diameter), or its model file.")
+    if form.get("shape", "") in ("box", "torpedo"):
+        args += ["--shape", form["shape"]]
+    water = form.get("water", "").strip()
+    if water:
+        if water not in ("fresh", "sea"):
+            water = repr(_number(water, "Water density", 900, 1100))
+        args += ["--water", water]
+    if form.get("hull_lift"):
+        args += ["--hull-lift"]
+    return args
+
+
 def describe_stonefish_cli_args(form: dict) -> list:
     """`strathe describe-stonefish` arguments from the web form (PROJECT_STATUS.md #77)."""
     scn = _existing_file(form.get("scenario", ""), "Stonefish scenario", (".scn", ".xml"))
@@ -769,7 +800,7 @@ thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <label for=cal-name>Name for this calibration</label><input type=text id=cal-name name=name value="my_vehicle" required>
 <label for=cal-heldout>Held out to check the result (optional): dates like <code>16-02-2024</code>; with one session, recordings like <code>my_rov-16-02-2024-run7</code>, or one recording's last part, <code>my_rov-16-02-2024-run1::last30%</code>. Default: the latest 30% of dates, else of recordings, else the last 30% of the one recording (<code>calibration/ONE_SESSION.md</code>)</label>
 <input type=text id=cal-heldout name=heldout value="">
-<label for=cal-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: copy calibration/templates/vehicle_spec_template.yaml and fill in its mass and size, LAB_GUIDE.md step 4)</label>
+<label for=cal-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: write one from its mass and size with "Describe your vehicle" below, or copy calibration/templates/vehicle_spec_template.yaml; LAB_GUIDE.md step 4)</label>
 <input type=text id=cal-spec name=vehicle_spec value="">
 <label for=cal-rate>Sampling rate of the logs in Hz (optional; read from the conversion when there is one, else 10)</label>
 <input type=text id=cal-rate name=rate value="">
@@ -992,6 +1023,29 @@ again with it held (about as long again) and keeps the better of the two.</label
 <label for=sf-workers>Stonefish runs at once (optional; default all cores but one)</label><input type=text id=sf-workers name=workers value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
+<div class=card><h2>Describe your vehicle (no simulator needed)</h2>
+<p class=muted>Writes the vehicle description every command takes (<code>--spec</code>) from what you can measure: its
+mass and size. Or from its model in Gazebo, URDF, MuJoCo or HoloOcean: the mass, inertia and size come from the file,
+and any size you type here wins. The starting values and limits are sized from the hull; calibration then decides the
+values. Guide: <code>calibration/DESCRIBE_VEHICLE.md</code>.</p>
+<form method=post action=/jobs/describe_vehicle>{tok}
+<label for=dv-mass>Mass, kg, as you logged it</label><input type=text id=dv-mass name=mass value="">
+<label for=dv-length>Length, m (nose to tail)</label><input type=text id=dv-length name=length value="">
+<label for=dv-width>Width, m (a frame)</label><input type=text id=dv-width name=width value="">
+<label for=dv-height>Height, m (a frame)</label><input type=text id=dv-height name=height value="">
+<label for=dv-diameter>Diameter, m (a round hull, instead of width and height)</label><input type=text id=dv-diameter name=diameter value="">
+<label for=dv-shape>Shape</label><select id=dv-shape name=shape><option value="">from the size</option>
+<option value="box">box frame (an ROV)</option><option value="torpedo">torpedo</option></select>
+<label for=dv-water>Water: fresh, sea, or a density in kg/m³ (optional; default sea)</label><input type=text id=dv-water name=water value="">
+<label for=dv-cg>Centre of gravity below the centre of buoyancy, m (optional)</label><input type=text id=dv-cg name=cg_below_cb value="">
+<label for=dv-nb>Net buoyancy, N (optional; + floats; default neutral)</label><input type=text id=dv-nb name=net_buoyancy value="">
+<label for=dv-model>…or your vehicle's model file, full path (optional)</label><input type=text id=dv-model name=from_model value="">
+<label for=dv-sim>The model file is</label><select id=dv-sim name=sim><option value="">no model file</option>
+<option value="gazebo">Gazebo (.sdf / .world)</option><option value="urdf">URDF</option>
+<option value="mujoco">MuJoCo (.xml)</option><option value="holoocean">HoloOcean scenario (.json)</option></select>
+<label><input type=checkbox id=dv-lift name=hull_lift> Torpedo: include the hull-lift terms</label>
+<label for=dv-name>Vehicle name</label><input type=text id=dv-name name=name value="my_vehicle" required>
+<button>Write the vehicle description</button></form></div>
 <div class=card><h2>Describe your vehicle from your Stonefish model</h2>
 <p class=muted>Writes the vehicle description that Calibrate needs (mass, inertia, added mass, drag, buoyancy, centre of
 gravity), with starting values from your own Stonefish model, so you don't fill the template by hand. Seconds. Needs the
@@ -1397,6 +1451,13 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"link_{name}")
             args = ["fit-link", "--log", *logs, "--out", out, "--link", link] + (["--optical-water", water] if water else [])
             return self.manager.start("fit_link", f"Link calibration: {name}", args, [out])
+        if path == "/jobs/describe_vehicle":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_vehicle"
+            folder = os.path.join(JOBS_DIR, f"describe_vehicle_{name}")
+            os.makedirs(folder, exist_ok=True)
+            out = os.path.join(folder, f"{name}_vehicle_spec.yaml")
+            args = ["describe-vehicle", *describe_vehicle_cli_args(form), "--name", name, "--out", out]
+            return self.manager.start("describe_vehicle", f"Vehicle description: {name}", args, [folder])
         if path == "/jobs/describe_stonefish":
             name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_vehicle"
             folder = os.path.join(JOBS_DIR, f"describe_{name}")
