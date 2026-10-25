@@ -16,7 +16,6 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -95,13 +94,19 @@ def recordings(which: str = "all") -> list:
 def values(r: Rec, v: dict) -> dict:
     """{column: values at the recording's 10 Hz} in the variant's frames and units; 'kind' says how each is logged."""
     R = Rotation.from_quat(r.q)
+    B, xyz = r.B, r.xyz
+    if v["actuation"] != "forces":
+        # the dataset's motion is ROS FLU / ENU; its ESC PWM, through the bluerov2_heavy preset, gives FRD forces: put
+        # the motion in FRD / NED so commands and motion agree (ingestion checks that they do)
+        R = Rotation.from_matrix(T_FLU @ R.as_matrix() @ TB)
+        B, xyz = np.hstack([r.B[:, :3] @ TB, r.B[:, 3:] @ TB]), r.xyz @ T_FLU.T
     out = {}
     if v["frame"] == "flu":   # what a ROS vehicle logs: FLU body, ENU world
         Rf = Rotation.from_matrix(T_FLU @ R.as_matrix() @ TB)
-        lin, ang, F, T = r.B[:, :3] @ TB, r.B[:, 3:] @ TB, r.F[:, :3] @ TB, r.F[:, 3:] @ TB
+        lin, ang, F, T = B[:, :3] @ TB, B[:, 3:] @ TB, r.F[:, :3] @ TB, r.F[:, 3:] @ TB
         Rw = T_FLU
     else:
-        Rf, lin, ang, F, T, Rw = R, r.B[:, :3], r.B[:, 3:], r.F[:, :3], r.F[:, 3:], np.eye(3)
+        Rf, lin, ang, F, T, Rw = R, B[:, :3], B[:, 3:], r.F[:, :3], r.F[:, 3:], np.eye(3)
     if v["orientation"] == "quat":
         out.update({f"q{c}": x for c, x in zip("xyzw", Rf.as_quat().T)})
     else:
@@ -109,7 +114,7 @@ def values(r: Rec, v: dict) -> dict:
         e = np.degrees(e) if v["orientation"] == "euler_deg" else e
         out.update({"roll": e[:, 0], "pitch": e[:, 1], "yaw": e[:, 2]})
     if v["velocity"] == "world":
-        lin = (Rw @ (R.apply(r.B[:, :3])).T).T
+        lin = (Rw @ (R.apply(B[:, :3])).T).T
     elif v["velocity"] == "mount":   # a DVL rolled 180 deg, a gyro yawed 90 deg: the readings in their own axes
         lin = Rotation.from_euler("xyz", [180, 0, 0], degrees=True).inv().apply(lin)
         ang = Rotation.from_euler("xyz", [0, 0, 90], degrees=True).inv().apply(ang)
@@ -128,7 +133,7 @@ def values(r: Rec, v: dict) -> dict:
             out["volt"] = 15.6 - 1.4 * np.arange(r.n) / r.n   # a battery sagging over the run
     if v["position"] != "none":
         s = {"m": 1, "cm": 100, "mm": 1000}[v["position"]]
-        out.update({c: x * s for c, x in zip(("px", "py", "pz"), (Rw @ r.xyz.T))})
+        out.update({c: x * s for c, x in zip(("px", "py", "pz"), (Rw @ xyz.T))})
     return out
 
 
@@ -292,28 +297,26 @@ def spec_for(fmt: str, v: dict, files_glob: str, _unused, folder: str, kind=None
                 th["voltage"] = 14.8
         elif a == "pwm_curve_voltage":   # a lab's own T200 table, measured at 16 V, scaled to each logged voltage
             c = tm.ThrustCurve.t200_bluerov2_dataset()
-            p = os.path.join(folder, "curve_pwm.csv")
+            p = os.path.join(os.path.dirname(folder), "curve_pwm.csv")   # next to the logs, not among them
             pd.DataFrame({"pwm_us": c.pwm_us, "thrust_n": c.thrust_n}).to_csv(p, index=False)
-            th.update({"preset": "bluerov2_heavy", "curve_csv": p, "curve_voltage": 16.0, "voltage_column": col("volt")})
+            th.update({"layout": _layout(cfg), "curve_csv": p, "curve_voltage": 16.0, "voltage_column": col("volt")})
         elif a in ("pwm_layout", "pwm_t200_layout"):
-            B = cfg.allocation
-            th["layout"] = [{"position_m": (np.cross(B[:3, i], B[3:, i]) / np.dot(B[:3, i], B[:3, i])).round(9).tolist(),
-                             "direction": B[:3, i].round(12).tolist(), "reversed": bool(cfg.directions[i] < 0)}
-                            for i in range(8)]
+            th["layout"] = _layout(cfg)
             if a == "pwm_t200_layout":
                 th["curve"] = "t200"
         elif a == "pwm_allocation":
-            p = os.path.join(folder, "allocation.csv")
+            p = os.path.join(os.path.dirname(folder), "allocation.csv")
             np.savetxt(p, cfg.allocation, delimiter=",", fmt="%.17g")
             th.update({"allocation_csv": p, "directions": cfg.directions.astype(int).tolist()})
         else:
             th.update({"preset": "bluerov2_heavy", "command": "normalized",
                        "command_range": [0, 1] if a == "norm_range01" else [-1, 1]})
-            if a == "norm_custom":
+            if a == "norm_custom":   # your own command-to-thrust table: with a layout (a preset fixes its curve)
                 c = tm.ThrustCurve.t200_bluerov2_dataset()
-                p = os.path.join(folder, "curve.csv")
+                p = os.path.join(os.path.dirname(folder), "curve.csv")
                 pd.DataFrame({"command": (c.pwm_us - 1500) / 400, "thrust_n": c.thrust_n}).to_csv(p, index=False)
-                th["curve_csv"] = p
+                del th["preset"]
+                th.update({"layout": _layout(cfg), "curve_csv": p})
         s["wrench"] = {"thrusters": th}
     if v["position"] != "none":
         s["position"] = {"x": col("px"), "y": col("py"), "z": col("pz"), "unit": v["position"]}
@@ -328,6 +331,13 @@ def spec_for(fmt: str, v: dict, files_glob: str, _unused, folder: str, kind=None
     if v["stamp"] != "default" and fmt == "lcm":
         s["source"]["stamp"] = v["stamp"]
     return s
+
+
+def _layout(cfg) -> list:
+    """The preset's thrusters as a layout: positions (least-norm, giving the same torques) and directions."""
+    B = cfg.allocation
+    return [{"position_m": (np.cross(B[:3, i], B[3:, i]) / np.dot(B[:3, i], B[:3, i])).round(12).tolist(),
+             "direction": B[:3, i].round(12).tolist(), "reversed": bool(cfg.directions[i] < 0)} for i in range(8)]
 
 
 # --- one round trip -------------------------------------------------------------------------------------------------
@@ -369,8 +379,14 @@ def compare(a: str, b: str, v: dict) -> dict:
         if abs(len(x) - len(y)) > (1 if v["resample"] != 10 else 0):
             return {"same_files": True, "rows_differ": [f, len(x), len(y)]}
         for c in di.CANONICAL_COLUMNS:
+            if c in ("qx", "qy", "qz", "qw"):
+                continue
             d = float(np.max(np.abs(x[c].to_numpy()[:n] - y[c].to_numpy()[:n])))
             worst[c] = max(worst.get(c, 0.0), d)
+        # orientation: q and -q are the same rotation (the model uses it sign-free), so compare the rotations
+        qa, qb = x[["qx", "qy", "qz", "qw"]].to_numpy()[:n], y[["qx", "qy", "qz", "qw"]].to_numpy()[:n]
+        worst["orientation"] = max(worst.get("orientation", 0.0),
+                                   float(np.max(np.minimum(np.abs(qa - qb).max(1), np.abs(qa + qb).max(1)))))
     return {"same_files": True, "recordings": len(fa), "rows": rows, "max_abs_diff": max(worst.values()),
             "worst_column": max(worst, key=worst.get)}
 
@@ -526,7 +542,6 @@ def _structural(fmt, label, r, vals, folder, spec, clean) -> dict:
     sub = os.path.join(folder, label)
     os.makedirs(sub, exist_ok=True)
     s = json.loads(json.dumps(spec))
-    kind = None
     if label == "gap":   # 3 s of DVL lost
         tops = topics_of(r, v)
         tt, cols = tops["vel"]
@@ -616,7 +631,6 @@ def s_size() -> None:
     for fmt in FORMATS:
         folder = os.path.join(DATA, f"S-{fmt}")
         shutil.rmtree(folder, ignore_errors=True)
-        global RATE
         saved = dict(RATE)
         RATE.update({"att": 50, "gyro": 50, "vel": 50, "act": 50})
         try:
@@ -898,6 +912,10 @@ def e2e(only=None) -> int:
             if only and f"E-{name}-{fmt}" not in only:
                 continue
             res = round_trip(fmt, recs, BASE, f"E-{name}-{fmt}")
+            if not _ok(res):   # no calibration from a conversion that didn't match
+                record(F, f"E-{name}-{fmt}", "calibration", fmt, f"{name}: {fmt} round trip before calibrating", name,
+                       res, "the same recordings", False)
+                continue
             ingested[fmt] = os.path.join(DATA, f"E-{name}-{fmt}", fmt, "ingested")
             ingested["csv"] = os.path.join(DATA, f"E-{name}-{fmt}", "csv", "ingested")
         if not ingested:
