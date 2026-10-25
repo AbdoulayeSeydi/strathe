@@ -1,0 +1,34 @@
+feature,variable,kind,values
+93,consumer:automated_identifiability_report.py,module that splits the logs,dates / recordings / time block
+93,consumer:calibration_report.py,module that splits the logs,dates / recordings / time block
+93,consumer:check_coriolis_excitation.py,module that splits the logs,dates / recordings / time block
+93,consumer:diagnose_calibration.py,module that splits the logs,dates / recordings / time block
+93,consumer:finalize_checkpoint.py,module that splits the logs,dates / recordings / time block
+93,consumer:run_calibration.py,module that splits the logs,dates / recordings / time block
+93,consumer:simfit/core.py,module that splits the logs,dates / recordings / time block
+93,consumer:simfit/runner.py,module that splits the logs,dates / recordings / time block
+93,consumer:stonefish_export.py,module that splits the logs,dates / recordings / time block
+93,consumer:stonefish_fit.py,module that splits the logs,dates / recordings / time block
+93,consumer:validation.py,module that splits the logs,dates / recordings / time block
+93,flag:calibration_report.py:ap,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:finalize_checkpoint.py:ap,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:run_calibration.py:parser,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:simfit/runner.py:ap,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:stonefish_export.py:ap,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:stonefish_fit.py:ap,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:strathe_cli.py:c,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:strathe_cli.py:r,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:strathe_cli.py:sf,--heldout-recordings on a parser,"names, last part, refusals"
+93,flag:strathe_cli.py:ex,--heldout-recordings on a parser,"names, last part, refusals"
+93,mode:dates,split mode,dates
+93,mode:recordings,split mode,recordings
+93,mode:time block,split mode,time block
+93,kind:date,held-out entry kind,date
+93,kind:recording,held-out entry kind,recording
+93,kind:last part,held-out entry kind,last part
+93,web:cal-heldout,web held-out field,"dates, recordings, last part, refusals"
+93,web:sf-heldout,web held-out field,"dates, recordings, last part, refusals"
+93,web:simf-heldout,web held-out field,"dates, recordings, last part, refusals"
+93,const:DEFAULT_HELDOUT_FRACTION,split constant,0.3
+93,const:TIME_BLOCK_GAP_S,split constant,10.0
+93,const:MIN_PART_S,split constant,60.0

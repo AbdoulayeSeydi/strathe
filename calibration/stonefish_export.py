@@ -274,8 +274,11 @@ def load_calibration(path: str, mass: Optional[float] = None) -> tuple:
 
 
 def training_density(train_dates: list, densities: dict, model_rho: float) -> float:
-    """The water the calibration was trained in (--density-by-date), or the scenario's when mixed or not given."""
-    rhos = {densities.get(d, model_rho) for d in train_dates}
+    """The water the calibration was trained in (--density-by-date), or the scenario's when mixed or not given. The
+    training groups are dates, or recordings named with their date (one session, #93)."""
+    from data_split import DATE_PATTERN
+    days = [(DATE_PATTERN.search(str(g)) or [g])[0] for g in train_dates]
+    rhos = {densities.get(d, model_rho) for d in days}
     return rhos.pop() if len(rhos) == 1 else model_rho
 
 
@@ -319,6 +322,8 @@ def run_export(a) -> int:
         scenario.write_calibrated_vehicle(vehicle_out, s)
 
         results = {}
+        if split.warning:   # one session: an easier check than an unseen day (#93)
+            print("  note: " + split.warning, flush=True)
         if held:
             print(f"Scoring the original and exported models on the held-out recordings "
                   f"({', '.join(split.heldout_groups)})...", flush=True)
@@ -342,7 +347,9 @@ def run_export(a) -> int:
         summary = {"calibration": os.path.abspath(pfile), "scenario": os.path.abspath(a.scenario), "robot": a.robot,
                    "part": a.part, "buoyancy_part": a.buoyancy_part, "mass_kg": float(mass), "water_density": rho,
                    "reference_point_m": list(a.reference_point), "train_dates": split.train_groups,
-                   "heldout_dates": split.heldout_groups, "settings": {k: v for k, v in s.__dict__.items()
+                   "heldout_dates": split.heldout_groups,
+                   **({"split_warning": split.warning} if split.warning else {}),   # one session (#93)
+                   "settings": {k: v for k, v in s.__dict__.items()
                                                                         if v is not None},
                    "drag_by_axis": e.drag, "comparison": [dict(zip(("quantity", "strathe", "stonefish_before",
                                                                     "stonefish_after", "unit"), r)) for r in e.rows],
@@ -411,7 +418,10 @@ def _num(x, unit):
 
 
 def _report(scenario, a, e: Export, results: dict, split, vehicle_out: str, rho: float) -> list:
-    L = [f"# Your Strathe calibration in Stonefish: {os.path.basename(scenario.vehicle_file)}\n", "## Bottom line\n"]
+    L = [f"# Your Strathe calibration in Stonefish: {os.path.basename(scenario.vehicle_file)}\n"]
+    if split.warning:   # one session (#93)
+        L.append("> ⚠️ " + split.warning + "\n")
+    L.append("## Bottom line\n")
     o, x = results.get("Stonefish, original", {}), results.get("Stonefish with Strathe's values", {})
     h = next((f"{h}s" for h in reversed(HORIZONS_S) if f"{h}s" in o and f"{h}s" in x), None)
     if h:
@@ -491,7 +501,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--params", help="or: a calibrated_parameters.yaml (then give --data)")
     ap.add_argument("--data", help="the logs in Strathe's CSV layout (default: the calibration's ingested_logs/)")
     ap.add_argument("--mass", type=float, help="the vehicle's mass, kg (default: the calibration's)")
-    ap.add_argument("--heldout-dates", nargs="+", help="recording dates to score on (default: the calibration's)")
+    ap.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+",
+                    help="dates or recordings to score on (default: the calibration's)")
     ap.add_argument("--scenario", required=True, help="your Stonefish scenario (the world file with the robot in it)")
     ap.add_argument("--robot", required=True, help="the robot's name in the scenario (after $(arg ...) substitution)")
     ap.add_argument("--part", required=True, help="the robot part that takes the values, e.g. its hull")

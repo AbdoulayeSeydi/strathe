@@ -15,7 +15,8 @@ a motion capture system and a tension sensor*, Scientific Data (2025). Zenodo
 - **Files:** one CSV per sensor, at different rates, instead of one table per run.
 - **Vehicle:** a 6-thruster vehicle, not the Heavy.
 - **Velocity:** world-frame motion capture, not body-frame.
-- **Dates:** none.
+- **Dates:** none. Strathe calibrates a single session (#93), so `session_date: {from: constant, value: ...}` works;
+  the specs here keep two placeholder dates (prepare_dfki_tether.py) so the published numbers (#62, #63) can be repeated.
 
 ## Steps
 

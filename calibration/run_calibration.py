@@ -118,6 +118,8 @@ class DatasetSummary:
     n_heldout_files: int
     total_samples: int
     total_trajectories: int
+    split_mode: str = "dates"              # "dates" | "recordings" | "time block" (data_split.py, #93)
+    split_warning: Optional[str] = None
 
 
 @dataclass
@@ -365,7 +367,9 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
         }, f, sort_keys=False)
 
     metrics = {
-        "dataset": asdict(report.dataset),
+        # split_mode / split_warning only for a one-session split (#93): a split by dates writes what it always has
+        "dataset": {k: v for k, v in asdict(report.dataset).items()
+                    if report.dataset.split_mode != "dates" or k not in ("split_mode", "split_warning")},
         "timing": asdict(report.timing),
         "optimizer": asdict(report.optimizer),
         "rmse": {
@@ -440,9 +444,11 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         # Should be impossible given split_by_date's own logic — checked
         # explicitly anyway, per "never trust input."
         raise RuntimeError(f"train/heldout date overlap detected: {overlap}")
-    logger.info("Split: %d train date(s) %s, %d heldout date(s) %s",
+    logger.info("Split (by %s): %d train group(s) %s, %d heldout group(s) %s", split.mode,
                 len(split.train_groups), split.train_groups,
                 len(split.heldout_groups), split.heldout_groups)
+    if split.warning:
+        logger.warning(split.warning)
 
     loaded_spec = load_vehicle_spec(config.spec_path)
     if config.torque_reference_offset_m is None:
@@ -639,6 +645,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             train_dates=split.train_groups, heldout_dates=split.heldout_groups,
             n_train_files=len(train_runs), n_heldout_files=len(heldout_runs),
             total_samples=total_samples, total_trajectories=len(train_runs) + len(heldout_runs),
+            split_mode=split.mode, split_warning=split.warning,
         ),
         timing=TimingSummary(loading_s=loading_s, calibration_s=calibration_s,
                               evaluation_s=evaluation_s, total_s=total_s),
@@ -755,8 +762,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "fixed clock, not curve-fitting. Full writeup in "
              "PROJECT_STATUS.md. Override this if using a different dataset.",
     )
-    parser.add_argument("--heldout-dates", nargs="*", default=None,
-                         help='e.g. --heldout-dates 16-02-2024 19-02-2024')
+    parser.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="*", default=None,
+                         help='e.g. --heldout-dates 16-02-2024 19-02-2024; or recordings (one session, #93)')
     parser.add_argument("--heldout-fraction", type=float, default=DEFAULT_HELDOUT_FRACTION)
     parser.add_argument("--n-restarts", type=int, default=1)
     parser.add_argument("--eval-workers", type=int, default=1,

@@ -586,6 +586,8 @@ def run_fit_stonefish(a) -> int:
         knobs = Knobs(fit_knobs, parts[a.part], a.axisymmetric, holds)
         if holds:
             print("  held: " + ", ".join(f"{n} = {v:g}" for n, v in holds.items()), flush=True)
+        if split.warning:   # one session: an easier check than an unseen day (#93)
+            notes.insert(0, split.warning)
         print(f"Fitting {', '.join(fit_knobs)} on part '{a.part}' ({len(knobs.names())} values) from "
               f"{len(train)} training recording(s); {len(held)} held out ({', '.join(split.heldout_groups)}).", flush=True)
         for n in notes:
@@ -791,7 +793,9 @@ def add_arguments(ap) -> None:
     ap.add_argument("--reference-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"),
                     help="where the logs' velocity and forces are measured, in the robot's frame (forward-right-down, "
                          "m from its origin), e.g. the base_link of your URDF")
-    ap.add_argument("--heldout-dates", nargs="+", help="recording dates to hold out (default: the latest 30%%)")
+    ap.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+",
+                    help="dates or recordings to hold out (default: the latest 30%% of dates, else of recordings, else "
+                         "the last 30%% of the one recording; calibration/ONE_SESSION.md)")
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized to fit the net buoyancy")
     ap.add_argument("--fit", nargs="+", choices=KNOBS, help=f"what to fit (default: all of {', '.join(KNOBS)})")
     ap.add_argument("--hold", nargs="+", metavar="NAME=VALUE",

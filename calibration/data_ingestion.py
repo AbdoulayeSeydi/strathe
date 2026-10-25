@@ -784,9 +784,9 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
               "otherwise check the thruster layout and frame")
     if len(counters) == 1:
         summary.setdefault("warnings", []).append(
-            f"every recording is from one session ({next(iter(counters))}); calibration needs at least two, "
-            f"because it checks itself on a session it never saw. Give recordings from different sessions "
-            f"(e.g. morning and afternoon, or different manoeuvres) different dates via session_date")
+            f"every recording is from one session ({next(iter(counters))}). Calibration will hold out recordings "
+            f"within it (or the last part of a single recording), which is an easier check than a session it never "
+            f"saw: record a second session for the honest number (calibration/ONE_SESSION.md)")
     if spec.wrench.thrusters is not None:
         import thruster_model as tm
         cfg = _thruster_config(spec)

@@ -223,7 +223,7 @@ def test_the_web_cards_build_fit_sim_and_export_sim(tmp_path):
                          "export")
     assert x[:3] == ["--sim", "mujoco", "--model"] and x[x.index("--calibration") + 1] == str(cal)
     for bad, msg in (({**form, "sim": "nope"}, "Choose the simulator"), ({**form, "reference_point": "1 2"}, "three numbers"),
-                     ({**form, "heldout": "2030"}, "27-03-2026"), ({**form, "hold": "x"}, "NAME=VALUE"),
+                     ({**form, "heldout": "2030"}, "16-02-2024"), ({**form, "hold": "x"}, "NAME=VALUE"),
                      ({**form, "data": "", "ingest_spec": ""}, "Give the logs")):
         with pytest.raises(ValueError, match=msg):
             web.sim_cli_args(bad, "fit")

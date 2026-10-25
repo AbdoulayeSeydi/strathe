@@ -1,0 +1,34 @@
+variable,rows,note
+consumer:automated_identifiability_report.py,E1 E2 E3 E4 E5,calibrate's identifiability step on one-session splits
+consumer:calibration_report.py,E1 E6 E17,the report written by calibrate and by strathe report
+consumer:check_coriolis_excitation.py,E1 E5 E6,run by calibrate's pre-flight with the held-out values
+consumer:diagnose_calibration.py,exempt,only identifiability_analysis() is imported (covered by E1); its own split runs in its standalone research CLI and is not reached from strathe
+consumer:finalize_checkpoint.py,E16,--finish on an interrupted one-session fit
+consumer:run_calibration.py,E1 E2 E3 E4 E5 E6 E7 E8 E9 E10 E11 E12 E13 E14 E15,strathe calibrate
+consumer:simfit/core.py,E18 E19 E20,load_runs for fit-sim and fit-stonefish
+consumer:simfit/runner.py,E18 E19,fit-sim through MuJoCo and Gazebo (Docker)
+consumer:stonefish_export.py,E21 F10,export-stonefish scored on the last part of a recording; density by recording
+consumer:stonefish_fit.py,E20,fit-stonefish on one recording (Docker)
+consumer:validation.py,E1 E6 E17,validation/ written by calibrate and by strathe validate
+flag:calibration_report.py:ap,F9,alias of --heldout-dates
+flag:finalize_checkpoint.py:ap,F9 E16,alias of --heldout-dates
+flag:run_calibration.py:parser,F9 E8,alias of --heldout-dates
+flag:simfit/runner.py:ap,F9,alias of --heldout-dates
+flag:stonefish_export.py:ap,F9 E21,alias of --heldout-dates
+flag:stonefish_fit.py:ap,F9,alias of --heldout-dates
+flag:strathe_cli.py:c,F9 E8 E9 E10,strathe calibrate --heldout-recordings
+flag:strathe_cli.py:r,F9 E17,strathe report
+flag:strathe_cli.py:sf,F9,strathe fit-stonefish
+flag:strathe_cli.py:ex,F9 E21,strathe export-stonefish
+mode:dates,F6,two or more dates: identical to before
+mode:recordings,F1 F2 F7 E1 E2 E3 E4 E5 E8 E11 E12 E13 E14,one date
+mode:time block,F1 F3 F4 F7 E6 E7 E9 E10 E15,one recording
+kind:date,F5 F6,dates held out (and refusals)
+kind:recording,F2 F5 E8,named recordings
+kind:last part,F3 F5 E9 E10 E21,a recording's last part
+web:cal-heldout,F8 E22,the calibrate card
+web:sf-heldout,F8,the Stonefish card
+web:simf-heldout,F8,the simulator card
+const:DEFAULT_HELDOUT_FRACTION,F1 F5 E1,the default 30%
+const:TIME_BLOCK_GAP_S,F3 F4,the gap in a recording
+const:MIN_PART_S,F5,the shortest recording that can be split

@@ -32,6 +32,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | You want to... | How |
 |---|---|
 | Calibrate from raw logs in one step | `calibrate --ingest-spec my_rov.yaml`: converts, checks, fits, finds what the data can't pin down, and writes a plain-language report |
+| Calibrate from one field day, or one long recording | nothing extra: recordings within the day (or the recording's last part) are held out, and the report says that check is easier than a new day; `--heldout-recordings` to choose (`calibration/ONE_SESSION.md`) |
 | Use CSV logs with your own column names and units | a CSV template in `calibration/templates/` |
 | Use ROS 1 / ROS 2 bags | read directly: `templates/ingest_rosbag_mavros.yaml` |
 | Use ArduSub / ArduPilot logs | read directly: `.bin` from the SD card (`templates/ingest_ardupilot_bin.yaml`), `.tlog` from the ground station (`templates/ingest_mavlink_tlog.yaml`) |

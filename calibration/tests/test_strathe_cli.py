@@ -223,7 +223,9 @@ def test_calibration_form_finishes_an_interrupted_run(server):
 
 @pytest.mark.parametrize("form,msg", [
     ({"data": "/definitely/not/here", "name": "x"}, "Folder not found"),
-    ({"data": ".", "name": "x", "heldout": "yesterday"}, "Held-out dates"),
+    ({"data": ".", "name": "x", "heldout": "16/02/2024"}, "Held-out dates look like"),
+    ({"data": ".", "name": "x", "heldout": "yesterday"}, "Held-out dates look like"),
+    ({"data": ".", "name": "x", "heldout": "odom-01-01-1999-run1"}, "a date or recording of the logs"),   # #93
 ])
 def test_bad_calibration_input_is_rejected(server, form, msg):
     request, token, started, *_ = server

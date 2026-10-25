@@ -78,7 +78,9 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
             "calibrated_heldout": stable_mean_run_rmse(params, held, v)[0]}
     metrics = {
         "dataset": {"train_dates": split.train_groups, "heldout_dates": split.heldout_groups,
-                    "n_train_files": len(train), "n_heldout_files": len(held)},
+                    "n_train_files": len(train), "n_heldout_files": len(held),
+                    **({"split_mode": split.mode, "split_warning": split.warning}   # one session (#93)
+                       if split.mode != "dates" else {})},
         "optimizer": {"converged": False, "cost": ck.get("best_cost_so_far"), "nfev": n_evals,
                       "message": f"finalized from checkpoint, not formally converged: {reason or 'run stopped'}",
                       "restart_costs": ck.get("restart_costs")},
@@ -124,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--spec", default="vehicle_spec.yaml")
-    ap.add_argument("--heldout-dates", nargs="+", default=None,
+    ap.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+", default=None,
                     help="default: the latest 30%% of recording dates (at least one), as run_calibration.py does")
     ap.add_argument("--output-dir", help="default: the checkpoint's folder")
     ap.add_argument("--sampling-rate-hz", type=float, default=10.0)

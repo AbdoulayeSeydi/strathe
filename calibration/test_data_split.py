@@ -39,11 +39,15 @@ class TestSplitByDate(unittest.TestCase):
         self.assertIn("odom-12-01-2024-run1.csv", result.train_files)
         self.assertIn("odom-12-01-2024-run2.csv", result.train_files)
 
-    def test_single_date_raises(self):
-        # Issue #5: can't split with only one distinct group
+    def test_single_date_holds_out_recordings(self):
+        # Issue #5, now #93: one date splits by recording, with a warning that it's an easier check
         files = ["odom-12-01-2024-run1.csv", "odom-12-01-2024-run2.csv"]
+        result = split_by_date(files)
+        self.assertEqual(result.mode, "recordings")
+        self.assertEqual(result.heldout_groups, ["odom-12-01-2024-run2"])
+        self.assertIn("within one session", result.warning)
         with self.assertRaises(ValueError):
-            split_by_date(files)
+            split_by_date(files, heldout_dates=["12-01-2024"])  # the only day can't be held out
 
     def test_explicit_heldout_dates(self):
         files = [

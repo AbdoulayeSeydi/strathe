@@ -16,7 +16,9 @@ python strathe.py check
 ## 2. What to record
 
 **The minimum: calibration from ordinary runs.**
-- **Logs from two or more days.** Strathe checks itself on whole days it never saw during calibration.
+- **Logs from two or more days, if you can.** Strathe checks itself on whole days it never saw during calibration.
+  **One day works too**: it then holds out recordings within the day (or the last part of one long recording), and
+  the report says that check is easier than a new day ([calibration/ONE_SESSION.md](calibration/ONE_SESSION.md)).
 - **Velocity:** from a DVL, an EKF that fuses one, or a positioning system.
 - **Orientation**, and the **body rates** from the IMU.
 - **What each thruster was told:** ESC PWM in µs, normalized commands (with your command-to-thrust table), or logged forces.
