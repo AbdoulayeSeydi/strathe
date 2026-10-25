@@ -534,6 +534,25 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         pwm = np.stack([_col(df, c, path) for c in th.pwm_columns], 1)
         lo_hi = cfg.command_range
         what = "PWM" if lo_hi is None else "normalized commands"
+        if lo_hi is None and np.any(pwm == 0):
+            # PWM 0 is no signal: an autopilot writes it for an output it doesn't drive or while disarmed (PX4 does
+            # both). An ESC with no signal stops its thruster, so those samples are taken as stopped (#94)
+            off = pwm == 0
+            dead = [th.pwm_columns[j] for j in range(pwm.shape[1]) if off[:, j].all()]
+            some = int(off[:, [j for j in range(pwm.shape[1]) if not off[:, j].all()]].any(axis=1).sum()) \
+                if len(dead) < pwm.shape[1] else 0
+            if len(dead) == pwm.shape[1]:
+                raise IngestError(f"{path}: every thruster command is 0 throughout: no output was driven (disarmed for "
+                                  f"the whole log, or the wrong columns)")
+            if dead:
+                report["warnings"].append(f"{', '.join(dead)} are 0 throughout: no signal, so those thrusters are taken "
+                                          f"as stopped. If they are thrusters that ran, the autopilot sent them on other "
+                                          f"outputs: check the pwm_columns")
+            if some:
+                report["warnings"].append(f"{some} sample(s) have a command of 0 (no signal: disarmed, or an output "
+                                          f"switched off), taken as stopped; drop disarmed stretches with exclude_samples "
+                                          f"(PX4: column actuator_armed.armed, below: 0.5)")
+            pwm = np.where(off, cfg.command_neutral, pwm)
         if lo_hi is None and (np.nanmin(pwm) < 900 or np.nanmax(pwm) > 2100):
             raise IngestError(f"{path}: PWM values span {np.nanmin(pwm):.0f}-{np.nanmax(pwm):.0f}; expected ESC "
                               f"microseconds (~1100-1900). If your commands are normalized (e.g. -1..1), add "

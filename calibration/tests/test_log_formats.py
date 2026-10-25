@@ -166,3 +166,21 @@ def test_two_type_sets_with_the_same_names_dont_mix(tmp_path):
     assert lcm_reader.read_log(a, ["DVL.vel[0]"], 10, type_files=fa)[0]["DVL.vel[0]"].iloc[5] == pytest.approx(0.5)
     assert lcm_reader.read_log(b, ["DVL.speed"], 10, type_files=fb)[0]["DVL.speed"].iloc[5] == pytest.approx(1.0)
     assert lcm_reader.read_log(a, ["DVL.vel[0]"], 10, type_files=fa)[0]["DVL.vel[0]"].iloc[5] == pytest.approx(0.5)
+
+
+def test_pwm_0_is_no_signal(R94, tmp_path):
+    """#94, from a real PX4 BlueROV2 log: PX4 writes PWM 0 for an output it doesn't drive and while disarmed. Those are
+    stopped thrusters, not a sign the commands are normalized."""
+    import data_ingestion as di
+    r = _Rec()
+    r.pwm[:, 6:] = 0            # two outputs never driven
+    r.pwm[100:150, 0] = 0       # one switched off for 5 s
+    v = {**R94.BASE, "actuation": "pwm_preset", "checks": "skip_force"}
+    res = R94.round_trip("px4", [r], v, "pwm0")
+    assert R94._ok(res), res
+    warnings = " ".join(res["warnings_fmt"])
+    assert "are 0 throughout" in warnings and "actuator_outputs.output[6]" in warnings
+    assert "sample(s) have a command of 0" in warnings
+    r.pwm[:] = 0
+    res = R94.round_trip("px4", [r], v, "pwm0all")
+    assert "every thruster command is 0 throughout" in res["error"]

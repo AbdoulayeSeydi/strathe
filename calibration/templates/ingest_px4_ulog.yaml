@@ -48,3 +48,7 @@ wrench:
     preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
     voltage: 15.0
     # voltage_column: battery_status.voltage_v   # thrust scaled to each sample's battery voltage
+# PX4 writes PWM 0 for outputs it doesn't drive and while disarmed: taken as stopped. To leave the disarmed stretches
+# out of the calibration altogether:
+# exclude_samples:
+#   - {column: actuator_armed.armed, below: 0.5}
