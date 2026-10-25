@@ -1,0 +1,42 @@
+# Ingest spec: LCM logs (lcm-logger's event logs, e.g. lcmlog-2025-06-01.00), read directly
+# (calibration/LOG_FORMATS.md). Needs `pip install lcm` (it ships lcm-gen); there is no wheel for Intel Macs.
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_auv
+#
+# Give your message definitions (.lcm files) in lcm_types: Strathe turns them into Python with lcm-gen once and
+# decodes each message by its type's fingerprint. Columns are <CHANNEL>.<field>, with [i] for array elements and
+# dots into nested types (NAV.pose.orientation[2]). List your channels with `lcm-logplayer-gui` or lcm-spy.
+
+vehicle: my_lcm_auv
+source:
+  files: "logs/lcmlog-*"       # the logs (no fixed extension), not the type files
+  format: lcm
+  lcm_types: ["lcmtypes/*.lcm"]
+  stamp: header                # the message's own utime field when it has one; receive: lcm-logger's clock
+resample_hz: 10                # every channel is put on this one time grid
+session_date: {from: recording}  # LCM times are Unix time
+frame: frd
+body_velocity:
+  columns:
+    u: "STATE_ESTIMATE.vel_body[0]"
+    v: "STATE_ESTIMATE.vel_body[1]"
+    w: "STATE_ESTIMATE.vel_body[2]"
+    p: "STATE_ESTIMATE.rates[0]"
+    q: "STATE_ESTIMATE.rates[1]"
+    r: "STATE_ESTIMATE.rates[2]"
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion: {x: "STATE_ESTIMATE.quat[0]", y: "STATE_ESTIMATE.quat[1]", z: "STATE_ESTIMATE.quat[2]", w: "STATE_ESTIMATE.quat[3]"}
+wrench:
+  thrusters:
+    pwm_columns:
+      - "THRUSTER_CMD.pwm[0]"
+      - "THRUSTER_CMD.pwm[1]"
+      - "THRUSTER_CMD.pwm[2]"
+      - "THRUSTER_CMD.pwm[3]"
+      - "THRUSTER_CMD.pwm[4]"
+      - "THRUSTER_CMD.pwm[5]"
+      - "THRUSTER_CMD.pwm[6]"
+      - "THRUSTER_CMD.pwm[7]"
+    preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
+    voltage: 15.0

@@ -1107,7 +1107,8 @@ the model file (optional)</label><input type=text id=simx-second name=second val
 <button>Put it into the simulator</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
-<label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
+<label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code> for CSV, ROS bags,
+ArduPilot, PX4 <code>.ulg</code>, MOOS-IvP <code>.alog</code> and LCM logs: <code>calibration/LOG_FORMATS.md</code>)</label><input type=text id=ing-spec name=spec required>
 <label for=ing-out>Output folder</label><input type=text id=ing-out name=out required>
 <button>Convert</button></form></div>
 <div class=card><h2>Jobs</h2>{'<table><tr><th>Job</th><th>Status</th><th>Started</th></tr>' + jobs + '</table>'

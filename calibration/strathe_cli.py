@@ -59,6 +59,8 @@ REQUIRED_PACKAGES = [("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"
                      ("torch", "torch")]
 OPTIONAL_PACKAGES = [("rosbags", "rosbags", "reading ROS 1/ROS 2 bags directly"),
                      ("pymavlink", "pymavlink", "reading ArduPilot .bin / MAVLink .tlog logs directly"),
+                     ("pyulog", "pyulog", "reading PX4 .ulg logs directly"),
+                     ("lcm", "lcm", "reading LCM logs directly; no wheel for Intel Macs (LOG_FORMATS.md)"),
                      ("mlflow", "mlflow", "experiment tracking")]
 # HoloOcean has its own `check` line with the simulators (#88: it was listed twice)
 

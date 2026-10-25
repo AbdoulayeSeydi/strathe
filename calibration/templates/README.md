@@ -20,12 +20,15 @@ can pin down, and writes a plain-language report. To only convert:
 | ROS 1 `.bag` or ROS 2 bag folders (`.mcap`, `.db3`), e.g. ArduSub + MAVROS | `ingest_rosbag_mavros.yaml` |
 | ArduSub / ArduPilot DataFlash logs from the SD card (`.bin`, `.log`) | `ingest_ardupilot_bin.yaml` |
 | MAVLink telemetry logs from a ground station (`.tlog`, e.g. QGroundControl) | `ingest_mavlink_tlog.yaml` |
+| PX4 logs (`.ulg`) | `ingest_px4_ulog.yaml` (`../LOG_FORMATS.md`) |
+| MOOS-IvP logs (`.alog`, written by pLogger) | `ingest_moos_alog.yaml` (`../LOG_FORMATS.md`) |
+| LCM event logs (lcm-logger), with your `.lcm` message definitions | `ingest_lcm.yaml` (`../LOG_FORMATS.md`; `pip install lcm`) |
 | Free-decay tank tests on an ArduSub vehicle, for roll and pitch (`strathe free-decay`; `../FREE_DECAY_PROTOCOL.md`) | `ingest_free_decay_ardupilot.yaml` |
-| CSV logs (any logger: MOOS, LCM, DUNE, vendor software, MATLAB) with **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_csv_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
+| CSV logs (any logger: DUNE, vendor software, MATLAB) with **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_csv_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
 | ROS 1 / ROS 2 bags with an EKF (`nav_msgs/Odometry`) or DVL and **normalized** thruster commands (array topic, one topic per thruster, or a custom message) | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
 | Your modems' message logs, to calibrate the acoustic/optical link (`strathe fit-link`) | `link_log_template.csv` |
 
-Any other format (PX4 `.ulg`, MOOS, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
+Any other format (DUNE/IMC, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
 
 CSV ingestion reads **one table per recording**. If your logs are one CSV per sensor at different
 rates (a common export), merge them onto one time base first; `../examples/dfki_tether/` does exactly
@@ -54,8 +57,8 @@ is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
 - **Time**: a timestamp column (any unit), or the sampling rate. Bags carry their
   own. The rate is recorded, and calibration uses it automatically.
 - **A date per recording**: calibration holds out whole days to check itself on
-  sessions it never saw. Dates come from the filename, a constant, or the
-  recording's own clock (`from: recording`).
+  sessions it never saw (with one day, recordings within it: `../ONE_SESSION.md`). Dates come from the filename,
+  a constant, or the recording's own clock (`from: recording`).
 - **Frame**: `frd` (forward-right-down, NED world; the physics model's) or
   `flu` (ROS: forward-left-up, ENU world). Everything is converted to FRD/NED.
 
