@@ -32,4 +32,6 @@ web:simf-heldout,F8,the simulator card
 const:DEFAULT_HELDOUT_FRACTION,F1 F5 E1,the default 30%
 const:TIME_BLOCK_GAP_S,F3 F4,the gap in a recording
 const:MIN_PART_S,F5,the shortest recording that can be split
-const:AUTO_RESTARTS,E8b,a failed single-start fit retried from more starting points (#93)
+const:AUTO_RESTARTS,E8b E24,up to 3 more starting points when a single start fails (#93)
+const:AUTO_RESTART_GAIN,E8b E23,a fit no better than its starting description is retried; a sound one isn't
+const:AUTO_RESTART_ROUGHNESS,E24 E23,a fit that ended on a rough cost (a chaotic replay) is retried; a smooth one isn't

@@ -104,7 +104,8 @@ def variables_93() -> list:
     rows += [("93", f"const:{c}", "split constant", getattr(ds, c))
              for c in ("DEFAULT_HELDOUT_FRACTION", "TIME_BLOCK_GAP_S", "MIN_PART_S")]
     import run_calibration as rc
-    rows.append(("93", "const:AUTO_RESTARTS", "failed-fit retry", rc.AUTO_RESTARTS))   # found by #93's stress test
+    rows += [("93", f"const:{c}", "failed-fit retry", getattr(rc, c))   # found by #93's and #94's stress tests
+             for c in ("AUTO_RESTARTS", "AUTO_RESTART_GAIN", "AUTO_RESTART_ROUGHNESS")]
     return rows
 
 

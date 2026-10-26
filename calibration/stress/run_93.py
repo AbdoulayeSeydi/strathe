@@ -27,8 +27,9 @@ import time
 
 import numpy as np
 import pandas as pd
+import yaml
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE =os.path.dirname(os.path.abspath(__file__))
 CAL = os.path.dirname(HERE)
 sys.path.insert(0, CAL)
 sys.path.insert(0, HERE)
@@ -511,6 +512,8 @@ def _e2e_rows() -> dict:
     rows["E20-fit_stonefish"] = e20_fit_stonefish
     rows["E21-export_stonefish"] = e21_export_stonefish
     rows["E22-web"] = e22_web
+    rows["E23-sound_untouched"] = e23_sound_untouched
+    rows["E24-wandering"] = e24_wandering
     return rows
 
 
@@ -524,11 +527,49 @@ def _e2e_retry() -> None:
     m = json.load(open(os.path.join(OUT, row, "metrics.json")))
     auto = (m.get("optimizer") or {}).get("auto_restart")
     r = m["rmse"]
-    ok = bool(auto) and r["calibrated_train"] < 0.9 * r["default_train"]
+    e8 = json.load(open(os.path.join(OUT, "E8-named", "metrics.json")))["optimizer"]["cost"]
+    same_start = bool(auto) and auto["first_cost"] == e8   # --seed repeats the failed fit bit for bit
+    ok = same_start and r["calibrated_train"] < 0.9 * r["default_train"]
     record(F, f"{row}-check", "fit", "auto restart", "the failed start was noticed and retried", day("12-01-2024"),
-           {"auto_restart": auto, "train_rmse": [r["default_train"], r["calibrated_train"]],
+           {"auto_restart": auto, "first_cost_is_E8s": same_start, "E8_cost": e8,
+            "train_rmse": [r["default_train"], r["calibrated_train"]],
             "heldout_skill": m["skill_vs_zero"]["calibrated_heldout_full_replay"]},
-           "retried, and the kept fit beats the starting description by more than 10%", ok)
+           "the first fit repeats E8's exactly; retried, and the kept fit beats the starting description by >10%", ok)
+
+
+def e23_sound_untouched() -> None:
+    """E4 again (19 Feb alone), same seed: a sound fit is probed but not retried, and its result is unchanged to the
+    last bit (the probe only evaluates after the fit)."""
+    row = "E23-sound_untouched"
+    seed = yaml.safe_load(open(os.path.join(OUT, "E4-bluerov_19-02-2024", "calibrated_parameters.yaml")))["seed"]
+    _e2e_calibrate(row, "fit", "sound fit untouched", "E4 again, same seed: probed, not retried", day("19-02-2024"),
+                   ["--seed", str(seed), "--skip-identifiability"], expect_mode="recordings")
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))["optimizer"]
+    e4 = json.load(open(os.path.join(OUT, "E4-bluerov_19-02-2024", "metrics.json")))["optimizer"]["cost"]
+    ok = "auto_restart" not in m and m["cost"] == e4 and m["n_restarts"] == 1
+    record(F, f"{row}-check", "fit", "sound fit untouched", "no retry, same cost to the last bit", day("19-02-2024"),
+           {"cost": m["cost"], "E4_cost": e4, "retried": "auto_restart" in m}, "not retried; cost identical to E4's", ok)
+
+
+WANDERING = os.path.expanduser("~/strathe_formats_data/E-bluerov-px4/csv/ingested")   # #94's CSV route
+
+
+def e24_wandering() -> None:
+    """#94's CSV route, seed 94: the first fit used its whole budget on a rough cost (training cost 103, held-out skill
+    -0.02; the PX4 route on the same recordings reached 39 and +0.38). It must be caught as rough and retried."""
+    row = "E24-wandering"
+    _e2e_calibrate(row, "fit", "wandering fit retried", "#94's CSV route, seed 94: a fit that wandered out of budget",
+                   WANDERING, ["--seed", "94", "--skip-identifiability", "--heldout-dates", "16-02-2024", "19-02-2024"])
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))
+    auto = (m.get("optimizer") or {}).get("auto_restart") or {}
+    r = m["rmse"]
+    skill = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
+    ok = auto.get("why") == "rough" and auto["best_cost"] < auto["first_cost"] and \
+        r["calibrated_train"] < 0.9 * r["default_train"]
+    record(F, f"{row}-check", "fit", "wandering fit retried", "caught as rough, retried, a better fit kept", WANDERING,
+           {"auto_restart": auto, "train_rmse": [r["default_train"], r["calibrated_train"]], "heldout_skill": skill,
+            "heldout_mean_skill": round(sum(skill) / len(skill), 3), "before_fix": {"cost": 102.597, "mean_skill": -0.024}},
+           "retried because rough; the kept fit has a lower training cost and beats the starting description", ok)
 
 
 def _subset_and_calibrate(row: str, n: int) -> None:

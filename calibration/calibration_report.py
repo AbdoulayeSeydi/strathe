@@ -211,8 +211,11 @@ def fit_note(metrics) -> Optional[str]:
                 f". Its values aren't a calibration. Check the description's ranges (a value stuck at one, below) and "
                 f"the logs' data checks, or run again with --restarts 4.")
     if auto:
-        return (f"> ℹ️ The first fit stopped no better than where it started (training cost {auto['first_cost']:.4g}), "
-                f"so Strathe tried {auto['more_starts']} more starting points and kept the lowest training cost "
+        first = ("ended where the simulation is too sensitive to these values to fit (a tiny change in them changed "
+                 "its training error by far more than it should, so the optimizer's slopes were noise)"
+                 if auto.get("why") == "rough" else "stopped no better than where it started")
+        return (f"> ℹ️ The first fit {first} (training cost {auto['first_cost']:.4g}), so Strathe tried "
+                f"{auto['more_starts']} more starting points and kept the lowest training cost "
                 f"({auto['best_cost']:.4g}).")
     return None
 

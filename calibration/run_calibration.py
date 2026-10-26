@@ -57,7 +57,8 @@ from objective import (DatasetConfig, RunData, compute_zero_baseline_scales, loa
                        rmse_by_dof, skill_vs_zero, stable_mean_run_rmse, stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import (
     LoadedVehicleSpec, load_vehicle_spec, initial_parameters,
-    CalibrationConfig, calibrate, calibrate_parallel, held_by_bounds, parameter_bounds,
+    CalibrationConfig, RestartsFailed, calibrate, calibrate_parallel, held_by_bounds, parameter_bounds,
+    result_from_restarts,
 )
 from mlflow_logging import log_calibration_run
 from mlflow_schema import STATUS_SUCCESS, STATUS_FAILED
@@ -104,6 +105,7 @@ class PipelineConfig:
     drag_prior_weight: float = 0.1
     free_decay: Optional[str] = None  # free_decay.yaml (free_decay.py): roll/pitch damping and righting arm
         # measured in free-decay tank tests, held fixed instead of fitted from the mission logs
+    checkpoint_path: Optional[str] = None  # where a retried fit's record is noted, for a not-converged finish (#93)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +149,96 @@ class OptimizerSummary:
 
 
 AUTO_RESTART_GAIN = 0.9   # a fit must end below this fraction of the starting description's training error
-AUTO_RESTARTS = 3         # more starting points when it doesn't
+AUTO_RESTART_ROUGHNESS = 1e-9   # ...and where the training cost is smooth (optimizer.end_roughness)
+AUTO_RESTARTS = 3         # up to this many more starting points when it doesn't
+
+
+def fit_with_retry(loaded_spec, train_runs, cc: CalibrationConfig, default_params, vehicle,
+                   checkpoint_path: Optional[str] = None) -> tuple:
+    """calibrate(), and for a fit from one cold starting point, up to AUTO_RESTARTS more starts when the first fails.
+    Returns (result, the retry's record or None).
+
+    Two ways a single start fails on real recordings (PROJECT_STATUS.md #93), both from one cause: the start drifts to
+    values where the simulated vehicle is barely damped, the long open-loop replay turns chaotic, and the training cost
+    jumps for any change in the values, so the optimizer's finite-difference slopes are noise. It then either stalls
+    (stuck: training cost 1599, no better than the starting description, against 20 for the same day's other split) or
+    wanders until its evaluation budget runs out (training cost 103 where the same data from another start reached 39).
+    Both are caught: a fit no better than the starting description on its training recordings, or one that ended
+    where the cost is rough (end_roughness above AUTO_RESTART_ROUGHNESS; 14 sound fits measured 1.5e-15 to 1.2e-10, the
+    stuck one 2e-3, the wandering one 7.6e-8). A fit that ran out of budget on a smooth cost is not retried: it was
+    still descending, which more budget fixes, not another start (112 of 276 results on our machines ran out of budget,
+    with the same median error as converged fits'; strathe finishes them from the checkpoint and says so). The starts
+    are pooled and the lowest training cost kept, as --restarts does. A warm start (x0_override) or --restarts N is
+    left as asked."""
+    from dataclasses import replace as _replace
+    if cc.n_restarts != 1 or cc.x0_override is not None:
+        return calibrate(loaded_spec, train_runs, cc), None
+    cc = _replace(cc, measure_roughness=True)
+    try:
+        first, failed = calibrate(loaded_spec, train_runs, cc), None
+        first_restarts, first_rmse = first.restarts, first.train_rmse
+    except RestartsFailed as e:   # no convergence within the budget: judged the same way, from where it stopped
+        first, failed, first_restarts = None, e, e.restarts
+        try:
+            first_rmse = mean_run_rmse(CalibrationParameters.from_vector(e.restarts[0].x), train_runs, vehicle)
+        except (FloatingPointError, ValueError):
+            first_rmse = float("inf")
+    start_rmse = mean_run_rmse(default_params, train_runs, vehicle)
+    rough = first_restarts[0].roughness or 0.0
+    no_better = not first_rmse < AUTO_RESTART_GAIN * start_rmse
+    if not no_better and not rough > AUTO_RESTART_ROUGHNESS:
+        if failed is not None:
+            raise failed   # ran out of budget at a smooth, better answer: finished from its checkpoint, as before
+        return first, None
+    why = "no_better" if no_better else "rough"
+    first_cost = float(first_restarts[0].cost)
+    logger.warning("The fit %s (training cost %.4g): trying up to %d more starting points and keeping the lowest "
+                   "training cost",
+                   f"ended no better than the starting description on its own training recordings (error "
+                   f"{first_rmse:.3g} against {start_rmse:.3g})" if no_better else
+                   f"ended where the simulation is too sensitive to fit (nudging each value by 1e-8 of its range "
+                   f"changed the training cost's curvature by {rough:.1e} of it, against ~1e-15 for a sound fit)",
+                   first_cost, AUTO_RESTARTS)
+    t0 = time.monotonic()
+    more, seeds = [], []
+    for k in range(1, AUTO_RESTARTS + 1):
+        # one start at a time, each with its own seed (so --seed still repeats all of it), stopping at the first sound
+        # one: converged below the first fit's cost, better than the starting description, on a smooth cost
+        seeds.append((cc.seed or 0) + k)
+        try:
+            r = calibrate(loaded_spec, train_runs, _replace(cc, seed=seeds[-1]))
+        except RestartsFailed as e:
+            more += e.restarts
+            continue
+        more += r.restarts
+        if r.cost < first_cost and r.train_rmse < AUTO_RESTART_GAIN * start_rmse and \
+                not (r.restarts[0].roughness or 0.0) > AUTO_RESTART_ROUGHNESS:
+            break
+    pooled = list(first_restarts) + list(more)
+    best = min(pooled, key=lambda r: r.cost)
+    auto = {"reason": ("the first fit ended no better than the starting description on its training recordings"
+                       if no_better else "the first fit ended where the training cost is rough (a chaotic replay)"),
+            "why": why, "first_cost": first_cost, "first_converged": failed is None,
+            "first_train_rmse": float(first_rmse), "start_train_rmse": float(start_rmse),
+            "first_roughness": float(rough), "more_starts": len(more), "seeds_of_more_starts": seeds,
+            "costs_of_more_starts": [float(r.cost) for r in more],
+            "roughness_of_more_starts": [None if r.roughness is None else float(r.roughness) for r in more],
+            "best_cost": float(best.cost), "best_converged": bool(best.success)}
+    logger.info("Kept the lowest training cost of %d starting points: %.6g (the first: %.6g)%s", len(pooled),
+                best.cost, first_cost, "" if best.success else ", which did not converge either")
+    if checkpoint_path and Path(checkpoint_path).exists():   # kept by a not-converged finish (finalize_checkpoint)
+        try:
+            write_checkpoint(checkpoint_path, {**read_checkpoint(checkpoint_path), "auto_restart": auto,
+                                               "restart_costs": [float(r.cost) for r in pooled]})
+        except (OSError, CheckpointError):
+            pass
+    try:
+        result = result_from_restarts(pooled, cc, train_runs, vehicle, time.monotonic() - t0)
+    except RestartsFailed as e:
+        e.auto_restart = auto
+        raise
+    auto["best_train_rmse"] = float(result.train_rmse)
+    return result, auto
 
 
 @dataclass
@@ -557,33 +648,8 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         cal_result = calibrate_parallel(loaded_spec, train_runs, config.calibration_config,
                                          max_workers=config.max_workers)
     else:
-        cal_result = calibrate(loaded_spec, train_runs, config.calibration_config)
-    auto_restart = None
-    cc = config.calibration_config
-    if not config.parallel and cc.n_restarts == 1 and cc.x0_override is None:
-        # A fit from one starting point can stop where it began (#93's stress test: training cost 1599 against 20 for
-        # the same day's other split). No better than the starting description on its own training recordings means
-        # the fit failed, not that the data can't do better: try more starting points and keep the lowest cost.
-        start_rmse = mean_run_rmse(default_params, train_runs, vehicle)
-        if not cal_result.train_rmse < AUTO_RESTART_GAIN * start_rmse:
-            logger.warning("The fit ended no better than the starting description on its own training recordings "
-                           "(%.3g against %.3g): trying %d more starting points and keeping the lowest training cost",
-                           cal_result.train_rmse, start_rmse, AUTO_RESTARTS)
-            from dataclasses import replace as _replace
-            more = calibrate(loaded_spec, train_runs, _replace(cc, n_restarts=AUTO_RESTARTS,
-                                                              seed=(cc.seed or 0) + 1))
-            first_cost, first_rmse = cal_result.cost, cal_result.train_rmse
-            if more.cost < cal_result.cost:
-                cal_result = _replace(more, restarts=list(cal_result.restarts) + list(more.restarts))
-            else:
-                cal_result = _replace(cal_result, restarts=list(cal_result.restarts) + list(more.restarts))
-            auto_restart = {"reason": "the first fit ended no better than the starting description on its training "
-                                      "recordings", "first_cost": float(first_cost),
-                            "first_train_rmse": float(first_rmse), "start_train_rmse": float(start_rmse),
-                            "best_train_rmse": float(cal_result.train_rmse), "more_starts": AUTO_RESTARTS,
-                            "best_cost": float(cal_result.cost), "seed_of_more_starts": (cc.seed or 0) + 1}
-            logger.info("Kept the lowest training cost of %d starting points: %.6g (the first: %.6g)",
-                        1 + AUTO_RESTARTS, cal_result.cost, first_cost)
+        cal_result, auto_restart = fit_with_retry(loaded_spec, train_runs, config.calibration_config,
+                                                  default_params, vehicle, config.checkpoint_path)
     calibration_s = time.monotonic() - t_cal
     logger.info("Calibration converged: %s (%d/%d restarts), cost=%.6g (%.2fs)",
                 cal_result.converged, cal_result.stability["n_converged"],
@@ -630,7 +696,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             status=scipy_result.status,
             message=scipy_result.message,
             optimality=float(scipy_result.optimality),
-            n_restarts=config.calibration_config.n_restarts,
+            n_restarts=len(cal_result.restarts),   # with a retry's starts (#93)
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
             restart_costs=[float(r.cost) for r in cal_result.restarts],
@@ -848,6 +914,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                               "parameter's bounds width.")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--loss", default="soft_l1")
+    parser.add_argument("--jacobian-step", type=float, default=None,
+                        help="finite-difference step for the optimizer's slopes, relative to each value (default: "
+                             "scipy's, ~1.5e-8)")
     parser.add_argument(
         "--max-nfev", type=int, default=300,
         help="Max function evaluations PER RESTART. Left uncapped, scipy "
@@ -999,6 +1068,7 @@ def main() -> None:
         args.seed = secrets.randbelow(2**31 - 1)
     calibration_config = CalibrationConfig(
         loss=args.loss, n_restarts=args.n_restarts, seed=args.seed, max_nfev=args.max_nfev,
+        diff_step=args.jacobian_step,
         initialization_strategy=args.initialization_strategy,
         perturbation_frac=args.perturbation_frac,
         verbose=2 if args.verbose else 0,
@@ -1031,6 +1101,7 @@ def main() -> None:
                                    else tuple(args.torque_reference_offset_m)),
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
         current_by_file=None if not args.currents_file else read_currents_file(args.currents_file),
+        checkpoint_path=None if args.parallel else checkpoint_path,
     )
 
     try:

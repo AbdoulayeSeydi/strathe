@@ -83,7 +83,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
                        if split.mode != "dates" else {})},
         "optimizer": {"converged": False, "cost": ck.get("best_cost_so_far"), "nfev": n_evals,
                       "message": f"finalized from checkpoint, not formally converged: {reason or 'run stopped'}",
-                      "restart_costs": ck.get("restart_costs")},
+                      "restart_costs": ck.get("restart_costs"),
+                      **({"auto_restart": ck["auto_restart"]} if ck.get("auto_restart") else {})},  # retried (#93)
         "rmse": rmse,
         "per_dof": {"default_train": _per_dof(default, train, v).tolist(),
                     "default_heldout": _per_dof(default, held, v).tolist(),
