@@ -397,22 +397,40 @@ def mutants() -> int:
 
 
 # --- end to end -----------------------------------------------------------------------------------------------------
-def score(result: str, data: str, heldout, spec: str) -> dict:
-    """Per-axis skill against predicting no motion, and position drift, of a calibration on any recordings."""
+def score(result: str, data: str, heldout, spec: str, whole: bool = False) -> dict:
+    """Per-axis skill against predicting no motion, and position drift, of a calibration on any recordings.
+    whole=True: every recording in `data`, whole, as a calibration scores a session it held out; when the calibration
+    estimated currents, theirs are estimated with it too (strathe estimate-current), as calibrate does for held-out
+    recordings."""
     import yaml
+    from dataclasses import replace
     from dynamics_model import CalibrationParameters
-    from objective import load_run, stable_rmse_by_dof, zero_baseline_rmse
+    from objective import load_run, read_currents_file, stable_rmse_by_dof, zero_baseline_rmse
     from optimizer import load_vehicle_spec
     from validation import dataset_config_from_metrics, trajectory_drift
     metrics = json.load(open(os.path.join(result, "metrics.json"), encoding="utf-8"))
     params = CalibrationParameters(**yaml.safe_load(open(os.path.join(result, "calibrated_parameters.yaml")))["parameters"])
     vehicle = load_vehicle_spec(spec).vehicle
-    sp = ds.split_by_date(files(data), heldout_dates=heldout)
-    runs = [load_run(f, dataset_config_from_metrics(metrics)) for f in sp.heldout_files]
+    dc = dataset_config_from_metrics(metrics)
+    if whole:
+        targets = files(data)
+        current = None
+        if (metrics.get("objective") or {}).get("current_by_file"):   # the calibration estimated currents
+            est = os.path.join(result, f"other_session_currents_{os.path.basename(os.path.normpath(data))}.csv")
+            if not os.path.exists(est):
+                strathe(["estimate-current", "--data", data, "--params", os.path.join(result, "calibrated_parameters.yaml"),
+                         "--spec", spec, "--out", est], est + ".log")
+            current = read_currents_file(est)
+        dc = replace(dc, current_by_file=current, current_world_mps=None)
+        held = [ds.recording_name(f) for f in targets]
+    else:
+        sp = ds.split_by_date(files(data), heldout_dates=heldout)
+        targets, held = sp.heldout_files, sp.heldout_groups
+    runs = [load_run(f, dc) for f in targets]
     c, z = stable_rmse_by_dof(params, runs, vehicle)[0], zero_baseline_rmse(runs)
     skill = (1 - np.asarray(c) / np.asarray(z)).round(3).tolist()
     drift = trajectory_drift({"calibrated": params}, runs, vehicle)
-    return {"skill": skill, "mean_skill": round(float(np.mean(skill)), 3), "heldout": sp.heldout_groups[:6],
+    return {"skill": skill, "mean_skill": round(float(np.mean(skill)), 3), "heldout": held[:6],
             "drift_m": {f"{h}s": round(float(drift["calibrated"][i]["median"]), 2) if drift["calibrated"][i]
                         else None for i, h in enumerate(drift["horizons_s"])}}
 
@@ -433,13 +451,19 @@ def _e2e_calibrate(row: str, variable: str, value, what: str, data: str, args: l
                      "converged": m.get("optimizer", {}).get("converged"),
                      "within": score(out, data, m["dataset"]["heldout_dates"], spec or _default_spec())})
         ok = ok and (expect_mode is None or mode == expect_mode)
+        r = m.get("rmse") or {}
+        nums["train_rmse_start_vs_fit"] = [r.get("default_train"), r.get("calibrated_train")]
+        # the fit has to have worked: better than the starting description on its own training recordings (#93)
+        ok = ok and r.get("calibrated_train") is not None and r["calibrated_train"] < 0.9 * r["default_train"]
         if mode != "dates":
             ok = ok and "within one session" in rep and os.path.exists(os.path.join(out, "validation", "validation.json"))
         if cross:   # the same calibration on sessions it never saw: the optimism of a one-session check, measured
-            nums["other_sessions"] = score(out, cross[0], cross[1], spec or _default_spec())
+            nums["other_sessions"] = (score(out, cross[0], None, spec or _default_spec(), whole=True) if cross[1] is None
+                                      else score(out, cross[0], cross[1], spec or _default_spec()))
             nums["optimism_mean_skill"] = round(nums["within"]["mean_skill"] - nums["other_sessions"]["mean_skill"], 3)
     record(F, row, variable, value, what, data, nums,
-           f"completes; split by {expect_mode or 'as given'}; report states the within-session warning", ok, secs)
+           f"completes; split by {expect_mode or 'as given'}; the fit beats the starting description by >10% on its "
+           f"training recordings; report states the within-session warning", ok, secs)
 
 
 def _default_spec() -> str:
@@ -466,6 +490,7 @@ def _e2e_rows() -> dict:
     rows["E8-named"] = lambda: _e2e_calibrate("E8-named", "kind", "recording", "--heldout-recordings, two named",
                                               day("12-01-2024"), ["--heldout-recordings", "odom-12-01-2024-run3",
                                                                   "odom-12-01-2024-run9"], expect_mode="recordings")
+    rows["E8b-retry"] = lambda: _e2e_retry()
     for i, pct in ((9, 20), (10, 50)):
         rows[f"E{i}-last{pct}"] = (lambda pct=pct, i=i: _e2e_calibrate(
             f"E{i}-last{pct}", "kind", "last part", f"--heldout-recordings ...::last{pct}%",
@@ -487,6 +512,23 @@ def _e2e_rows() -> dict:
     rows["E21-export_stonefish"] = e21_export_stonefish
     rows["E22-web"] = e22_web
     return rows
+
+
+def _e2e_retry() -> None:
+    """E8's split with the seed whose single start failed (training cost 1599 against E1's 20): the fit must notice,
+    try more starting points, and end with a working calibration (#93)."""
+    row = "E8b-retry"
+    _e2e_calibrate(row, "fit", "failed start retried", "E8 again, same seed: a failed single start is retried",
+                   day("12-01-2024"), ["--heldout-recordings", "odom-12-01-2024-run3", "odom-12-01-2024-run9",
+                                       "--seed", "70209514"], expect_mode="recordings")
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))
+    auto = (m.get("optimizer") or {}).get("auto_restart")
+    r = m["rmse"]
+    ok = bool(auto) and r["calibrated_train"] < 0.9 * r["default_train"]
+    record(F, f"{row}-check", "fit", "auto restart", "the failed start was noticed and retried", day("12-01-2024"),
+           {"auto_restart": auto, "train_rmse": [r["default_train"], r["calibrated_train"]],
+            "heldout_skill": m["skill_vs_zero"]["calibrated_heldout_full_replay"]},
+           "retried, and the kept fit beats the starting description by more than 10%", ok)
 
 
 def _subset_and_calibrate(row: str, n: int) -> None:
@@ -598,6 +640,25 @@ def e22_web() -> None:
            ok, time.time() - t0)
 
 
+def rescore(rows) -> int:
+    """Score finished rows again (e.g. after a fix to the scoring), keeping their calibrations."""
+    import csv
+    last = {r["row"]: r for r in csv.DictReader(open(os.path.join(HERE, "results_93.csv"), encoding="utf-8"))}
+    for rid in rows:
+        r = last[rid]
+        n = json.loads(r["numbers"])
+        out = os.path.join(OUT, rid)
+        spec = URI_SPEC if "uri" in rid else _default_spec()
+        other = os.path.join(DATA, "uri_pond" if rid.endswith("bay") else "uri_bay")
+        n["within"] = score(out, r["data"], n["held"], spec)
+        n["other_sessions"] = score(out, other, None, spec, whole=True)
+        n["optimism_mean_skill"] = round(n["within"]["mean_skill"] - n["other_sessions"]["mean_skill"], 3)
+        n["rescored"] = "other session scored whole, with its current estimated (as calibrate scores held-out sessions)"
+        record(F, rid, r["variable"], r["value"], r["what"], r["data"], n, r["expected"], r["passed"] == "pass",
+               float(r["seconds"]))
+    return 0
+
+
 def e2e(only=None) -> int:
     rows = _e2e_rows()
     for rid, fn in rows.items():
@@ -619,4 +680,6 @@ if __name__ == "__main__":
         print("fast:", " ".join(ROWS_FAST))
         print("e2e:", " ".join(_e2e_rows()))
         sys.exit(0)
+    if cmd == "rescore":
+        sys.exit(rescore(sys.argv[2:]))
     sys.exit({"fast": fast, "mutants": mutants}.get(cmd, lambda: e2e(sys.argv[2:]))())

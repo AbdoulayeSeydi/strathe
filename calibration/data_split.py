@@ -234,9 +234,9 @@ def split_by_group(
 
 
 WITHIN_SESSION_WARNING = (
-    "Held out within one session: the unseen part shares the session's trim, battery and water, so this check is "
-    "easier than a new day and the scores look better than they will on another day. Record a second session for "
-    "the honest number (calibration/ONE_SESSION.md).")
+    "Held out within one session: the unseen part shares the session's trim, battery and water, so this check can't "
+    "show how another day changes them. In our tests a one-session score stayed within 0.07 of the same model's "
+    "score on other days (calibration/ONE_SESSION.md), but record a second session for the honest number.")
 
 
 def _date_or_none(path: str) -> Optional[str]:

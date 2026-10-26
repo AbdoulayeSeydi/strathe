@@ -32,3 +32,4 @@ web:simf-heldout,F8,the simulator card
 const:DEFAULT_HELDOUT_FRACTION,F1 F5 E1,the default 30%
 const:TIME_BLOCK_GAP_S,F3 F4,the gap in a recording
 const:MIN_PART_S,F5,the shortest recording that can be split
+const:AUTO_RESTARTS,E8b,a failed single-start fit retried from more starting points (#93)

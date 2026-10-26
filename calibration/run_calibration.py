@@ -143,6 +143,11 @@ class OptimizerSummary:
     n_converged: int
     convergence_rate: float
     restart_costs: Optional[list] = None  # each starting point's training cost, in order (#79)
+    auto_restart: Optional[dict] = None   # a failed single-start fit retried from more starting points (#93)
+
+
+AUTO_RESTART_GAIN = 0.9   # a fit must end below this fraction of the starting description's training error
+AUTO_RESTARTS = 3         # more starting points when it doesn't
 
 
 @dataclass
@@ -371,7 +376,8 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
         "dataset": {k: v for k, v in asdict(report.dataset).items()
                     if report.dataset.split_mode != "dates" or k not in ("split_mode", "split_warning")},
         "timing": asdict(report.timing),
-        "optimizer": asdict(report.optimizer),
+        "optimizer": {k: v for k, v in asdict(report.optimizer).items()
+                      if not (k == "auto_restart" and v is None)},   # only when a failed fit was retried (#93)
         "rmse": {
             "default_train": report.rmse.default_train,
             "default_heldout": report.rmse.default_heldout,
@@ -552,6 +558,32 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                                          max_workers=config.max_workers)
     else:
         cal_result = calibrate(loaded_spec, train_runs, config.calibration_config)
+    auto_restart = None
+    cc = config.calibration_config
+    if not config.parallel and cc.n_restarts == 1 and cc.x0_override is None:
+        # A fit from one starting point can stop where it began (#93's stress test: training cost 1599 against 20 for
+        # the same day's other split). No better than the starting description on its own training recordings means
+        # the fit failed, not that the data can't do better: try more starting points and keep the lowest cost.
+        start_rmse = mean_run_rmse(default_params, train_runs, vehicle)
+        if not cal_result.train_rmse < AUTO_RESTART_GAIN * start_rmse:
+            logger.warning("The fit ended no better than the starting description on its own training recordings "
+                           "(%.3g against %.3g): trying %d more starting points and keeping the lowest training cost",
+                           cal_result.train_rmse, start_rmse, AUTO_RESTARTS)
+            from dataclasses import replace as _replace
+            more = calibrate(loaded_spec, train_runs, _replace(cc, n_restarts=AUTO_RESTARTS,
+                                                              seed=(cc.seed or 0) + 1))
+            first_cost, first_rmse = cal_result.cost, cal_result.train_rmse
+            if more.cost < cal_result.cost:
+                cal_result = _replace(more, restarts=list(cal_result.restarts) + list(more.restarts))
+            else:
+                cal_result = _replace(cal_result, restarts=list(cal_result.restarts) + list(more.restarts))
+            auto_restart = {"reason": "the first fit ended no better than the starting description on its training "
+                                      "recordings", "first_cost": float(first_cost),
+                            "first_train_rmse": float(first_rmse), "start_train_rmse": float(start_rmse),
+                            "best_train_rmse": float(cal_result.train_rmse), "more_starts": AUTO_RESTARTS,
+                            "best_cost": float(cal_result.cost), "seed_of_more_starts": (cc.seed or 0) + 1}
+            logger.info("Kept the lowest training cost of %d starting points: %.6g (the first: %.6g)",
+                        1 + AUTO_RESTARTS, cal_result.cost, first_cost)
     calibration_s = time.monotonic() - t_cal
     logger.info("Calibration converged: %s (%d/%d restarts), cost=%.6g (%.2fs)",
                 cal_result.converged, cal_result.stability["n_converged"],
@@ -602,6 +634,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             n_converged=cal_result.stability["n_converged"],
             convergence_rate=cal_result.stability["convergence_rate"],
             restart_costs=[float(r.cost) for r in cal_result.restarts],
+            auto_restart=auto_restart,
         )
     else:
         # calibrate_parallel() (config.parallel=True) never populates

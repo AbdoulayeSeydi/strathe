@@ -2989,6 +2989,72 @@ SIMULATOR_PROTOCOL and LIMITS (Docker is checked on a Mac only).
 
 **Not tested:** Docker Desktop (Colima was used; the same `docker` commands), Linux and Windows hosts.
 
+### 93. Calibrate from one field day; a failed fit is retried (2026-10-25/26)
+
+**Why:** a lab with one day of logs, or one long mission, couldn't calibrate at all: `split_by_date` refused one date.
+It's one of the three things that turned labs away before calibration even started (outreach to more labs).
+
+**What changed:**
+- **One date:** the latest 30% of the recordings are held out, by run number (at least one).
+- **One recording:** its last 30% is held out, after a 10 s gap. The part is read as `path::rows=A-B` by
+  `objective.read_run_csv`, which every `load_run` uses.
+- **Two or more dates:** exactly as before, checked bit for bit against the old code on the BlueROV2 and DFKI splits.
+- **`--heldout-recordings`** (an alias of `--heldout-dates`) names recordings, or one recording's last part
+  (`run1::last20%`). It's on calibrate, report, `--finish`, fit-sim, fit-stonefish and export-stonefish, and in the
+  web fields. The web checks the names against the logs folder.
+- **The run's log, its report and `metrics.json`** say how the split was made, with a warning that one session can't
+  show another day. The warning carries the measured figure below.
+- **Fixed on the way:**
+  - `--density-by-date` with recording groups;
+  - finalize's `metrics.json` dropping the split.
+- **A failed single-start fit is now retried.** The stress test found one (E8): it ended no better than the starting
+  description on its own training recordings (training cost 1599, against 20 for the same day's other split) and still
+  reported "converged".
+  - **Now:** a single cold start that doesn't beat the starting description's training error by at least 10% is
+    retried from 3 more starting points, and the lowest training cost is kept (`AUTO_RESTARTS`). This costs time only
+    when a fit failed.
+  - **If it still fails,** the report opens with "The fit failed", the numbers, and what to do.
+  - **Proven on the same seed (E8b):** training cost 1599 → 23.9; held-out mean skill −3.0 → +0.32.
+  - **Not covered:** a fit that runs out of its evaluation budget is finished from its checkpoint, not retried. The
+    report's warning still shows.
+
+**How good is a one-session check?** Each calibration was trained on one session, then scored on what it held out of
+that session and on sessions it never saw. Those were scored whole, with their current estimated when the calibration
+estimated currents, as calibrate scores any held-out session. Mean skill over 6 axes:
+
+| One session | Within it | Other sessions |
+|---|---|---|
+| BlueROV2 tank days, one at a time | 0.33, 0.39, 0.38, 0.39 | 0.37, 0.35, 0.34, 0.34 |
+| ALPHA RISE bay mission alone (last 30% held out) | 0.16 | 0.22 on the pond (URI's own two-mission calibration: 0.23) |
+| ALPHA RISE pond mission alone | 0.13 | 0.19 on the bay |
+
+Within 0.07 either way. In the tank the within-session check read slightly higher, in open water slightly lower.
+**A correction:** the stress harness first scored only the other mission's last 30%, without its current, and showed a
+large gap (0.00 against 0.16). That was the harness, not Strathe; it's fixed, and those rows were rescored.
+
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **102 of 103 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes.
+- **Coverage:** an inventory of 34 variables found in the code (every module that splits the logs, every parser with
+  the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
+- **75 fast checks on real recordings:**
+  - the BlueROV2 days, DFKI's single session, URI's missions;
+  - the held-out rows re-read from the files and compared with pandas;
+  - regressions against the old code;
+  - every refusal.
+- **4 deliberate faults, all caught:** an off-by-one at the time block, a held-out recording leaking into training, a
+  part's rows ignored, the wrong held-out count.
+- **23 end-to-end runs:**
+  - calibrate on each BlueROV2 day, DFKI and each URI mission;
+  - named recordings; last 20 and 50%; 2, 3 and 5 recordings;
+  - `--restarts 4`; with and without `--estimate-current`; `--finish`; report and validate;
+  - fit-sim MuJoCo and Gazebo (Docker); fit-stonefish and export-stonefish (Docker);
+  - the web card.
+
+  Every fit is checked to beat its starting description.
+
+**Tests:** `test_data_split`, `tests/test_failed_fit_retry.py`, `tests/test_stress_coverage.py`, and updated calibrate,
+CLI and web tests.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
