@@ -3101,7 +3101,19 @@ smooth cost. All starts are pooled and the lowest training cost kept, as `--rest
 
 **Proof on real data** (`STRESS_TEST_93_95.md`, `calibration/stress/`):
 
-PENDING_ROBUST_PROOF
+Three rows, each rerunning a real fit from before the fix with the same seed:
+
+| Row | The fit | First start | Probe | More starts | Kept | Held-out mean skill, before → after |
+|---|---|---|---|---|---|---|
+| **E8b** | E8 again: BlueROV2 12 Jan, runs 3 and 9 held out | 1598.968677529448, bit-identical to E8; error 1.02 × the start's | rough (2.0e-3), no better | 1: seed 70209515 → 23.86, smooth (2.2e-15) | 23.86, converged; error 0.18 × the start's | −3.0 → **+0.32** |
+| **E24** | #94's CSV route: all four days, 16 and 19 Feb held out, seed 94 | 102.5, out of budget (before the fix: 102.6) | rough (1.2e-7) | 1: seed 95 → 38.79, smooth (2.4e-15) | 38.79, converged; error 0.19 × the start's | −0.02 → **+0.38** |
+| **E23** | E4 again: BlueROV2 19 Feb, a sound fit | 7.102579181661516, converged | smooth, better | none | the same cost to the last bit | 0.39, unchanged |
+
+- **Both failures are caught and fixed, on the exact seeds that failed.** E24's retry lands where the PX4 route did
+  on the same recordings (38.8, skill +0.38): the readers were never the problem.
+- **A fit that already works is left alone**, at the cost of 7 evaluations.
+- **What a retry costs in time:** E8b took 3.8 h (E8 alone: 1.2 h). E24 took 13.7 h, because its first start ran its
+  whole budget before it could be probed.
 
 **Tests:** `tests/test_failed_fit_retry.py`, 11:
 - stuck, and rough converged or out of budget: retried;
@@ -3111,8 +3123,8 @@ PENDING_ROBUST_PROOF
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **102 of 103 rows pass.** The one that fails is E8, the
-failed fit that led to the retry; E8b, its rerun, passes.
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **106 of 107 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24.
 - **Coverage:** an inventory of 34 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**

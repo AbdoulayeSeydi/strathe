@@ -1,10 +1,10 @@
 # Stress test: #93-#95
 
-Written by `calibration/stress/report.py` on 2026-10-26 04:29. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-10-27 10:13. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
-**102 of 103 rows pass** (34 variables found in the code, each with a row).
+**106 of 107 rows pass** (36 variables found in the code, each with a row).
 
 ### How good a one-session check is (measured)
 
@@ -120,8 +120,8 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E6-uri_bay | dataset = uri bay | calibrate URI's bay mission alone (time block) | uri_bay | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-05-12-2025-run1::last30%"], "converged": true, "within": {"skill": [0.871, 0.117, 0.032, 0.012, -0.33, 0.... | 37 min |
 | E7-uri_pond | dataset = uri pond | calibrate URI's pond mission alone (time block) | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last30%"], "converged": true, "within": {"skill": [0.757, 0.363, -0.399, 0.002, 0.008, 0... | 110 min |
 | E8-named | kind = recording | --heldout-recordings, two named | bluerov_12-01-2024 | ❌ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.308, -1.157, -1.05, -9.524... | 76 min |
-| E8b-retry | fit = failed start retried | E8 again, same seed: a failed single start is retried | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.638, 0.429, 0.477, -0.08, ... | 251 min |
-| E8b-retry-check | fit = auto restart | the failed start was noticed and retried | bluerov_12-01-2024 | ✅ | {"auto_restart": {"reason": "the first fit ended no better than the starting description on its training recordings", "first_cost": 1598.968677529448, "first_tr... | 0 min |
+| E8b-retry | fit = failed start retried | E8 again, same seed: a failed single start is retried | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.638, 0.429, 0.477, -0.08, ... | 225 min |
+| E8b-retry-check | fit = auto restart | the failed start was noticed and retried | bluerov_12-01-2024 | ✅ | {"auto_restart": {"reason": "the first fit ended no better than the starting description on its training recordings", "why": "no_better", "first_cost": 1598.968... | 0 min |
 | E9-last20 | kind = last part | --heldout-recordings ...::last20% | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last20%"], "converged": false, "within": {"skill": [0.765, 0.337, -0.678, 0.017, 0.019, ... | 325 min |
 | E10-last50 | kind = last part | --heldout-recordings ...::last50% | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last50%"], "converged": false, "within": {"skill": [0.827, 0.416, -0.201, 0.009, 0.004, ... | 94 min |
 | E11-2recs | recordings available = 2 | one day with 2 recordings | bluerov_12-01-2024_2recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run10"], "converged": true, "within": {"skill": [0.554, 0.352, 0.445, 0.004, -0.008, 0.648], "mean_s... | 4 min |
@@ -136,4 +136,8 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E20-fit_stonefish | consumer = stonefish_fit.py | fit-stonefish on one session | uri_bay | ✅ | {"exit": 0, "report": true, "tail": ["  Stonefish, calibrated by Strathe     drift 3.43 / 14.30 / 35.38 m", "  no motion                            drift 6.99 /... | 4 min |
 | E21-export_stonefish | consumer = stonefish_export.py | export-stonefish on one session | uri_pond | ✅ | {"exit": 0, "report": true, "tail": ["  With the patch's damping, Stonefish runs Strathe's own model, with the centre of gravity at the logs' reference point as... | 4 min |
 | E22-web | web = cal-heldout | web calibrate card, one session, a named recording | bluerov_16-02-2024 | ✅ | {"exit": 0, "tail": ["", "It is trustworthy for 2 of 6 motion axes: forward speed (surge), turning rate (yaw). On recordings the calibration never saw (from the... | 5 min |
+| E23-sound_untouched | fit = sound fit untouched | E4 again, same seed: probed, not retried | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 33 min |
+| E23-sound_untouched-check | fit = sound fit untouched | no retry, same cost to the last bit | bluerov_19-02-2024 | ✅ | {"cost": 7.102579181661516, "E4_cost": 7.102579181661516, "retried": false} | 0 min |
+| E24-wandering | fit = wandering fit retried | #94's CSV route, seed 94: a fit that wandered out of budget | ingested | ✅ | {"exit": 0, "mode": "dates", "held": ["16-02-2024", "19-02-2024"], "converged": true, "within": {"skill": [0.723, 0.508, 0.59, -0.026, -0.103, 0.581], "mean_ski... | 824 min |
+| E24-wandering-check | fit = wandering fit retried | caught as rough, retried, a better fit kept | ingested | ✅ | {"auto_restart": {"reason": "the first fit ended where the training cost is rough (a chaotic replay)", "why": "rough", "first_cost": 102.50482563582999, "first_... | 0 min |
 
