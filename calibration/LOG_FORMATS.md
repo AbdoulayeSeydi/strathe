@@ -97,7 +97,9 @@ PROJECT_STATUS.md #94 and `STRESS_TEST_93_95.md` have every check.
   - for every option of the spec (each unit, frame, orientation and thruster setup), one at a time and in all
     pairs;
   - for every way of naming a column;
-  - and calibrating both gives the same model.
+  - and calibration gets exactly the same problem from both: the same training cost at the same values, to 3·10⁻¹⁶.
+    (Two calibrations of identical data can still end in different places when a fit drifts into a chaotic region;
+    Strathe catches that and retries, PROJECT_STATUS.md #93.)
 - **Damaged logs:** every kind in the table above was made deliberately and gives the result it shows.
 - **Independent decoders:** values match pyulog's own `ulog2csv`, a plain-text read of the `.alog`, and lcm's own
   decoder.

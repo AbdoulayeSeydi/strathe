@@ -3101,7 +3101,19 @@ smooth cost. All starts are pooled and the lowest training cost kept, as `--rest
 
 **Proof on real data** (`STRESS_TEST_93_95.md`, `calibration/stress/`):
 
-PENDING_ROBUST_PROOF
+Three rows, each rerunning a real fit from before the fix with the same seed:
+
+| Row | The fit | First start | Probe | More starts | Kept | Held-out mean skill, before → after |
+|---|---|---|---|---|---|---|
+| **E8b** | E8 again: BlueROV2 12 Jan, runs 3 and 9 held out | 1598.968677529448, bit-identical to E8; error 1.02 × the start's | rough (2.0e-3), no better | 1: seed 70209515 → 23.86, smooth (2.2e-15) | 23.86, converged; error 0.18 × the start's | −3.0 → **+0.32** |
+| **E24** | #94's CSV route: all four days, 16 and 19 Feb held out, seed 94 | 102.5, out of budget (before the fix: 102.6) | rough (1.2e-7) | 1: seed 95 → 38.79, smooth (2.4e-15) | 38.79, converged; error 0.19 × the start's | −0.02 → **+0.38** |
+| **E23** | E4 again: BlueROV2 19 Feb, a sound fit | 7.102579181661516, converged | smooth, better | none | the same cost to the last bit | 0.39, unchanged |
+
+- **Both failures are caught and fixed, on the exact seeds that failed.** E24's retry lands where the PX4 route did
+  on the same recordings (38.8, skill +0.38): the readers were never the problem.
+- **A fit that already works is left alone**, at the cost of 7 evaluations.
+- **What a retry costs in time:** E8b took 3.8 h (E8 alone: 1.2 h). E24 took 13.7 h, because its first start ran its
+  whole budget before it could be probed.
 
 **Tests:** `tests/test_failed_fit_retry.py`, 11:
 - stuck, and rough converged or out of budget: retried;
@@ -3111,9 +3123,9 @@ PENDING_ROBUST_PROOF
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **102 of 103 rows pass.** The one that fails is E8, the
-failed fit that led to the retry; E8b, its rerun, passes.
-- **Coverage:** an inventory of 34 variables found in the code (every module that splits the logs, every parser with
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **106 of 107 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24.
+- **Coverage:** an inventory of 36 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**
   - the BlueROV2 days, DFKI's single session, URI's missions;
@@ -3133,6 +3145,76 @@ failed fit that led to the retry; E8b, its rerun, passes.
 
 **Tests:** `test_data_split`, `tests/test_failed_fit_retry.py`, `tests/test_stress_coverage.py`, and updated calibrate,
 CLI and web tests.
+
+### 94. PX4 `.ulg`, MOOS-IvP `.alog` and LCM logs, read directly (2026-10-24/27)
+
+**Why:** a lab logging with PX4, MOOS-IvP or LCM had to write its own converter to CSV before Strathe could read
+anything, and most won't. It's the second of the three things that turned labs away before calibration started.
+
+**What changed:**
+- **Three readers** (`ulog_reader.py`, `moos_reader.py`, `lcm_reader.py`) with the ArduPilot reader's interface,
+  chosen by `source.format: px4 | moos | lcm` in an ingest spec. Columns are named the way each tool names them:
+  - PX4: `topic[instance].field[i]`, e.g. `vehicle_attitude.q[0]`, `actuator_outputs[0].output[2]`;
+  - MOOS-IvP: `VAR`, `VAR.key` for `key=value,...` postings, `VAR@SOURCE` for one publisher;
+  - LCM: `CHANNEL.field[i].sub`, with the lab's own `.lcm` type files (`source.lcm_types`).
+- **Every series goes on one grid** at `resample_hz`, as ROS bags and ArduPilot logs already did: values interpolated,
+  angles unwrapped, quaternions on the sphere, thruster commands held.
+- **Damaged logs** are read up to the damage and the damage counted; a wrong name is refused, listing what the log
+  has (table in `calibration/LOG_FORMATS.md`).
+- **Wired in:** `strathe ingest` and `calibrate --ingest-spec`, the web "Convert logs" card, three templates
+  (`ingest_px4_ulog.yaml`, `ingest_moos_alog.yaml`, `ingest_lcm.yaml`), and `check` lines for `pyulog` and `lcm`
+  (`lcm` optional: it has no wheel for Intel Macs).
+- **Guide:** `calibration/LOG_FORMATS.md`; LAB_GUIDE step 3, README, `templates/README.md`.
+- **Found and fixed on the way:**
+  - LCM types generated with the same name were reused across type sets in one process;
+  - `stamp:` was silently ignored for PX4 and MOOS (now refused);
+  - PX4 writes PWM 0 for outputs it doesn't drive and while disarmed, which ingestion refused as an out-of-range
+    command. Found on the real PX4 log below; now a stopped thruster, and an output at 0 throughout is named.
+
+**Proof on real data.** We found no public real-vehicle MOOS-IvP or LCM log with thruster commands, and PX4's
+public archive is mostly aircraft. So every real recording we have was written into each format the way a vehicle
+logs it (each topic at its own rate: attitude 50 Hz, velocity 10 Hz, commands 20 Hz, commands held between updates)
+and, with the same content, as a CSV; both were ingested and compared.
+
+| Check | Result |
+|---|---|
+| All 41 real recordings (BlueROV2's 39, URI's 2 missions) through each format against CSV | identical to 2.8·10⁻¹⁴ (float rounding), 200,445 rows each |
+| Every spec option one at a time (98 rows) and all pairs (171) | all identical |
+| Every way of naming a column: PX4 multi-instance, MOOS `key=value` and `@SOURCE`, LCM nested | all identical |
+| 29 kinds of damage (gaps, NaN, cut at 50% and 99%, a damaged middle, out of order, repeats, empty, strings, wrong type files) and 14 refusals | each gives the result in the guide's table |
+| Independent decoders: pyulog's `ulog2csv`, a plain-text read of the `.alog`, lcm's own decode | 1.6·10⁻⁷ (`ulog2csv`'s printed precision), 0, 0 |
+| **A real underwater PX4 log:** a BlueROV2 Heavy from logs.px4.io (CC-BY), against `ulog2csv` | PWM exact; attitude, rates, velocity, battery to 3·10⁻⁶ |
+| A one-hour log at 50 Hz | PX4 9 s, LCM 23 s, MOOS 42 s; under 0.5 GB |
+| `ingest`, `calibrate` straight from the logs, the web card, `check` | all run |
+| **Calibration gets the same problem from each format:** training cost at the starting description, a perturbed start and a calibrated point, each format against CSV | the same to 3·10⁻¹⁶ (BlueROV2, 25 training recordings) and 1·10⁻¹⁵ (URI) |
+| Deliberate faults: a frame sign flipped, PX4 time off by 1000, an array index dropped | each caught by exactly the formats it touches, and only those |
+
+**A finding: identical data, different calibrations.** The plan was to calibrate from each format and from CSV and
+get the same model. They didn't match. The CSV route ran out of budget at training cost 103 (held-out skill −0.02);
+PX4's converged at 39 (+0.38); MOOS's ran out of budget at 43. The recordings were identical to 3·10⁻¹⁴, and the
+problem the optimizer saw was identical to 3·10⁻¹⁶ (above), so the readers weren't the cause: the fit was. A start
+that drifts toward weak roll damping makes the long replay chaotic, and from there the optimizer's path depends on
+differences at the 10⁻¹⁴ level. That is now caught and retried (#93, "Making calibration robust"): rerun with the fix,
+the CSV route's fit is flagged as rough, retried once, and lands at 38.79 and +0.38, where PX4's did (#93's E24). So
+the proof of the readers is that they give calibration the same problem, not that two single-start fits agree.
+
+**Open:**
+- Not yet run on a lab's own MOOS-IvP or LCM log; the guide asks for one.
+- MOOS-IvP's published example log (`alpha.alog`) is no longer at its documented address, so no public `.alog` was read.
+- **PX4's date comes from its GPS clock.** The real BlueROV2 log is dated 18 Feb 2021 by its GPS, though its PX4
+  version came out later: an underwater positioning system feeding PX4 GPS messages can carry a wrong clock. The guide
+  says to check the date in the ingest report and use `session_date: {from: filename}` or a constant.
+- The real PX4 log can't be calibrated: its velocity barely moves with its thrust (ingestion says so). It proves the
+  reading, not a calibration.
+
+**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **349 of 349 rows pass**, over 294
+variables found in the ingest schema (`tests/test_stress_coverage.py` fails if one has no row).
+- **A correction:** the first fault check reported 3 of 3 caught, but the frame-sign fault never reached the PX4 and
+  MOOS readers (they hold their own reference to the function), and LCM, imported mid-fault, kept it for the later
+  faults. Fixed: the fault goes into every reader, and each must fail exactly the formats it touches.
+
+**Tests:** `tests/test_log_formats.py` (fast, synthetic logs written by `tests/format_writers.py`), the coverage gate, and the real-data rows
+above (skipped when the data isn't present).
 
 ## Honest open items
 
