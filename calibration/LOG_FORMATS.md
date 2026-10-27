@@ -57,7 +57,7 @@ Each format has its own way of naming a column. Every other part of the spec is 
 
 | | Clock | `session_date: {from: recording}` |
 |---|---|---|
-| PX4 | `timestamp`: microseconds since the autopilot booted; UTC when the log has GPS time | Works with GPS time. Underwater logs usually have none: use `{from: filename}` or `{from: constant}` |
+| PX4 | `timestamp`: microseconds since the autopilot booted; UTC when the log has GPS time | Works with GPS time. Underwater logs usually have none: use `{from: filename}` or `{from: constant}`. **Check the date** in the ingest report: an underwater positioning system that feeds PX4 GPS messages can carry a wrong clock. A public BlueROV2 log we read is dated 2021 by its GPS, though its PX4 version came out later |
 | MOOS-IvP | `%% LOGSTART` (Unix time) plus the log's seconds | Works |
 | LCM | The message's own `utime` field when it has one (`stamp: header`, the default), else lcm-logger's receive time (`stamp: receive`) | Works |
 
@@ -76,6 +76,7 @@ The same holds for ROS bags and ArduPilot logs.
 | Gaps (a sensor dropped out) | Interpolated across, and counted in the ingest report |
 | NaN, repeated or out-of-order messages | Sorted, dropped and counted |
 | A string where a number should be (MOOS: `DVL_U = no_lock`) | Skipped and counted |
+| A thruster command of 0 (PX4 writes it for an output it doesn't drive, and while disarmed) | No signal, so taken as a stopped thruster. An output that's 0 throughout is named, so you can check `pwm_columns` |
 | A name that isn't in the log | Refused, listing the names the log has |
 | A topic logged for several instances, with no `[i]` | Refused, listing the instances |
 | LCM: no type file matches a channel's messages | Refused, naming the channel |
@@ -100,5 +101,10 @@ PROJECT_STATUS.md #94 and `STRESS_TEST_93_95.md` have every check.
 - **Damaged logs:** every kind in the table above was made deliberately and gives the result it shows.
 - **Independent decoders:** values match pyulog's own `ulog2csv`, a plain-text read of the `.alog`, and lcm's own
   decoder.
+- **A real underwater PX4 log:** a BlueROV2 Heavy from PX4's public archive (logs.px4.io, CC-BY), read against
+  `ulog2csv`.
+  - The PWM matches exactly; attitude, rates, velocity and battery match to `ulog2csv`'s printed precision (3·10⁻⁶).
+  - It then ingests through the product. Doing that found the PWM-0 case above, which is now handled.
+  - MOOS-IvP's published example log is no longer at its documented address, so there was no public `.alog` to read.
 - **Not yet run on a lab's own MOOS-IvP or LCM log.** If yours misbehaves, send it (or its first minute): it's the
   check we're missing.

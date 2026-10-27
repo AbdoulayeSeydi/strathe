@@ -103,6 +103,9 @@ def variables_93() -> list:
              for i in sorted(set(re.findall(r"id=([\w-]+) name=heldout", web)))]
     rows += [("93", f"const:{c}", "split constant", getattr(ds, c))
              for c in ("DEFAULT_HELDOUT_FRACTION", "TIME_BLOCK_GAP_S", "MIN_PART_S")]
+    import run_calibration as rc
+    rows += [("93", f"const:{c}", "failed-fit retry", getattr(rc, c))   # found by #93's and #94's stress tests
+             for c in ("AUTO_RESTARTS", "AUTO_RESTART_GAIN", "AUTO_RESTART_ROUGHNESS")]
     return rows
 
 

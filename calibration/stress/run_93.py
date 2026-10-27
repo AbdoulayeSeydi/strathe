@@ -27,8 +27,9 @@ import time
 
 import numpy as np
 import pandas as pd
+import yaml
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE =os.path.dirname(os.path.abspath(__file__))
 CAL = os.path.dirname(HERE)
 sys.path.insert(0, CAL)
 sys.path.insert(0, HERE)
@@ -397,22 +398,40 @@ def mutants() -> int:
 
 
 # --- end to end -----------------------------------------------------------------------------------------------------
-def score(result: str, data: str, heldout, spec: str) -> dict:
-    """Per-axis skill against predicting no motion, and position drift, of a calibration on any recordings."""
+def score(result: str, data: str, heldout, spec: str, whole: bool = False) -> dict:
+    """Per-axis skill against predicting no motion, and position drift, of a calibration on any recordings.
+    whole=True: every recording in `data`, whole, as a calibration scores a session it held out; when the calibration
+    estimated currents, theirs are estimated with it too (strathe estimate-current), as calibrate does for held-out
+    recordings."""
     import yaml
+    from dataclasses import replace
     from dynamics_model import CalibrationParameters
-    from objective import load_run, stable_rmse_by_dof, zero_baseline_rmse
+    from objective import load_run, read_currents_file, stable_rmse_by_dof, zero_baseline_rmse
     from optimizer import load_vehicle_spec
     from validation import dataset_config_from_metrics, trajectory_drift
     metrics = json.load(open(os.path.join(result, "metrics.json"), encoding="utf-8"))
     params = CalibrationParameters(**yaml.safe_load(open(os.path.join(result, "calibrated_parameters.yaml")))["parameters"])
     vehicle = load_vehicle_spec(spec).vehicle
-    sp = ds.split_by_date(files(data), heldout_dates=heldout)
-    runs = [load_run(f, dataset_config_from_metrics(metrics)) for f in sp.heldout_files]
+    dc = dataset_config_from_metrics(metrics)
+    if whole:
+        targets = files(data)
+        current = None
+        if (metrics.get("objective") or {}).get("current_by_file"):   # the calibration estimated currents
+            est = os.path.join(result, f"other_session_currents_{os.path.basename(os.path.normpath(data))}.csv")
+            if not os.path.exists(est):
+                strathe(["estimate-current", "--data", data, "--params", os.path.join(result, "calibrated_parameters.yaml"),
+                         "--spec", spec, "--out", est], est + ".log")
+            current = read_currents_file(est)
+        dc = replace(dc, current_by_file=current, current_world_mps=None)
+        held = [ds.recording_name(f) for f in targets]
+    else:
+        sp = ds.split_by_date(files(data), heldout_dates=heldout)
+        targets, held = sp.heldout_files, sp.heldout_groups
+    runs = [load_run(f, dc) for f in targets]
     c, z = stable_rmse_by_dof(params, runs, vehicle)[0], zero_baseline_rmse(runs)
     skill = (1 - np.asarray(c) / np.asarray(z)).round(3).tolist()
     drift = trajectory_drift({"calibrated": params}, runs, vehicle)
-    return {"skill": skill, "mean_skill": round(float(np.mean(skill)), 3), "heldout": sp.heldout_groups[:6],
+    return {"skill": skill, "mean_skill": round(float(np.mean(skill)), 3), "heldout": held[:6],
             "drift_m": {f"{h}s": round(float(drift["calibrated"][i]["median"]), 2) if drift["calibrated"][i]
                         else None for i, h in enumerate(drift["horizons_s"])}}
 
@@ -433,13 +452,19 @@ def _e2e_calibrate(row: str, variable: str, value, what: str, data: str, args: l
                      "converged": m.get("optimizer", {}).get("converged"),
                      "within": score(out, data, m["dataset"]["heldout_dates"], spec or _default_spec())})
         ok = ok and (expect_mode is None or mode == expect_mode)
+        r = m.get("rmse") or {}
+        nums["train_rmse_start_vs_fit"] = [r.get("default_train"), r.get("calibrated_train")]
+        # the fit has to have worked: better than the starting description on its own training recordings (#93)
+        ok = ok and r.get("calibrated_train") is not None and r["calibrated_train"] < 0.9 * r["default_train"]
         if mode != "dates":
             ok = ok and "within one session" in rep and os.path.exists(os.path.join(out, "validation", "validation.json"))
         if cross:   # the same calibration on sessions it never saw: the optimism of a one-session check, measured
-            nums["other_sessions"] = score(out, cross[0], cross[1], spec or _default_spec())
+            nums["other_sessions"] = (score(out, cross[0], None, spec or _default_spec(), whole=True) if cross[1] is None
+                                      else score(out, cross[0], cross[1], spec or _default_spec()))
             nums["optimism_mean_skill"] = round(nums["within"]["mean_skill"] - nums["other_sessions"]["mean_skill"], 3)
     record(F, row, variable, value, what, data, nums,
-           f"completes; split by {expect_mode or 'as given'}; report states the within-session warning", ok, secs)
+           f"completes; split by {expect_mode or 'as given'}; the fit beats the starting description by >10% on its "
+           f"training recordings; report states the within-session warning", ok, secs)
 
 
 def _default_spec() -> str:
@@ -466,6 +491,7 @@ def _e2e_rows() -> dict:
     rows["E8-named"] = lambda: _e2e_calibrate("E8-named", "kind", "recording", "--heldout-recordings, two named",
                                               day("12-01-2024"), ["--heldout-recordings", "odom-12-01-2024-run3",
                                                                   "odom-12-01-2024-run9"], expect_mode="recordings")
+    rows["E8b-retry"] = lambda: _e2e_retry()
     for i, pct in ((9, 20), (10, 50)):
         rows[f"E{i}-last{pct}"] = (lambda pct=pct, i=i: _e2e_calibrate(
             f"E{i}-last{pct}", "kind", "last part", f"--heldout-recordings ...::last{pct}%",
@@ -486,7 +512,64 @@ def _e2e_rows() -> dict:
     rows["E20-fit_stonefish"] = e20_fit_stonefish
     rows["E21-export_stonefish"] = e21_export_stonefish
     rows["E22-web"] = e22_web
+    rows["E23-sound_untouched"] = e23_sound_untouched
+    rows["E24-wandering"] = e24_wandering
     return rows
+
+
+def _e2e_retry() -> None:
+    """E8's split with the seed whose single start failed (training cost 1599 against E1's 20): the fit must notice,
+    try more starting points, and end with a working calibration (#93)."""
+    row = "E8b-retry"
+    _e2e_calibrate(row, "fit", "failed start retried", "E8 again, same seed: a failed single start is retried",
+                   day("12-01-2024"), ["--heldout-recordings", "odom-12-01-2024-run3", "odom-12-01-2024-run9",
+                                       "--seed", "70209514"], expect_mode="recordings")
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))
+    auto = (m.get("optimizer") or {}).get("auto_restart")
+    r = m["rmse"]
+    e8 = json.load(open(os.path.join(OUT, "E8-named", "metrics.json")))["optimizer"]["cost"]
+    same_start = bool(auto) and auto["first_cost"] == e8   # --seed repeats the failed fit bit for bit
+    ok = same_start and r["calibrated_train"] < 0.9 * r["default_train"]
+    record(F, f"{row}-check", "fit", "auto restart", "the failed start was noticed and retried", day("12-01-2024"),
+           {"auto_restart": auto, "first_cost_is_E8s": same_start, "E8_cost": e8,
+            "train_rmse": [r["default_train"], r["calibrated_train"]],
+            "heldout_skill": m["skill_vs_zero"]["calibrated_heldout_full_replay"]},
+           "the first fit repeats E8's exactly; retried, and the kept fit beats the starting description by >10%", ok)
+
+
+def e23_sound_untouched() -> None:
+    """E4 again (19 Feb alone), same seed: a sound fit is probed but not retried, and its result is unchanged to the
+    last bit (the probe only evaluates after the fit)."""
+    row = "E23-sound_untouched"
+    seed = yaml.safe_load(open(os.path.join(OUT, "E4-bluerov_19-02-2024", "calibrated_parameters.yaml")))["seed"]
+    _e2e_calibrate(row, "fit", "sound fit untouched", "E4 again, same seed: probed, not retried", day("19-02-2024"),
+                   ["--seed", str(seed), "--skip-identifiability"], expect_mode="recordings")
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))["optimizer"]
+    e4 = json.load(open(os.path.join(OUT, "E4-bluerov_19-02-2024", "metrics.json")))["optimizer"]["cost"]
+    ok = "auto_restart" not in m and m["cost"] == e4 and m["n_restarts"] == 1
+    record(F, f"{row}-check", "fit", "sound fit untouched", "no retry, same cost to the last bit", day("19-02-2024"),
+           {"cost": m["cost"], "E4_cost": e4, "retried": "auto_restart" in m}, "not retried; cost identical to E4's", ok)
+
+
+WANDERING = os.path.expanduser("~/strathe_formats_data/E-bluerov-px4/csv/ingested")   # #94's CSV route
+
+
+def e24_wandering() -> None:
+    """#94's CSV route, seed 94: the first fit used its whole budget on a rough cost (training cost 103, held-out skill
+    -0.02; the PX4 route on the same recordings reached 39 and +0.38). It must be caught as rough and retried."""
+    row = "E24-wandering"
+    _e2e_calibrate(row, "fit", "wandering fit retried", "#94's CSV route, seed 94: a fit that wandered out of budget",
+                   WANDERING, ["--seed", "94", "--skip-identifiability", "--heldout-dates", "16-02-2024", "19-02-2024"])
+    m = json.load(open(os.path.join(OUT, row, "metrics.json")))
+    auto = (m.get("optimizer") or {}).get("auto_restart") or {}
+    r = m["rmse"]
+    skill = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
+    ok = auto.get("why") == "rough" and auto["best_cost"] < auto["first_cost"] and \
+        r["calibrated_train"] < 0.9 * r["default_train"]
+    record(F, f"{row}-check", "fit", "wandering fit retried", "caught as rough, retried, a better fit kept", WANDERING,
+           {"auto_restart": auto, "train_rmse": [r["default_train"], r["calibrated_train"]], "heldout_skill": skill,
+            "heldout_mean_skill": round(sum(skill) / len(skill), 3), "before_fix": {"cost": 102.597, "mean_skill": -0.024}},
+           "retried because rough; the kept fit has a lower training cost and beats the starting description", ok)
 
 
 def _subset_and_calibrate(row: str, n: int) -> None:
@@ -598,6 +681,25 @@ def e22_web() -> None:
            ok, time.time() - t0)
 
 
+def rescore(rows) -> int:
+    """Score finished rows again (e.g. after a fix to the scoring), keeping their calibrations."""
+    import csv
+    last = {r["row"]: r for r in csv.DictReader(open(os.path.join(HERE, "results_93.csv"), encoding="utf-8"))}
+    for rid in rows:
+        r = last[rid]
+        n = json.loads(r["numbers"])
+        out = os.path.join(OUT, rid)
+        spec = URI_SPEC if "uri" in rid else _default_spec()
+        other = os.path.join(DATA, "uri_pond" if rid.endswith("bay") else "uri_bay")
+        n["within"] = score(out, r["data"], n["held"], spec)
+        n["other_sessions"] = score(out, other, None, spec, whole=True)
+        n["optimism_mean_skill"] = round(n["within"]["mean_skill"] - n["other_sessions"]["mean_skill"], 3)
+        n["rescored"] = "other session scored whole, with its current estimated (as calibrate scores held-out sessions)"
+        record(F, rid, r["variable"], r["value"], r["what"], r["data"], n, r["expected"], r["passed"] == "pass",
+               float(r["seconds"]))
+    return 0
+
+
 def e2e(only=None) -> int:
     rows = _e2e_rows()
     for rid, fn in rows.items():
@@ -619,4 +721,6 @@ if __name__ == "__main__":
         print("fast:", " ".join(ROWS_FAST))
         print("e2e:", " ".join(_e2e_rows()))
         sys.exit(0)
+    if cmd == "rescore":
+        sys.exit(rescore(sys.argv[2:]))
     sys.exit({"fast": fast, "mutants": mutants}.get(cmd, lambda: e2e(sys.argv[2:]))())

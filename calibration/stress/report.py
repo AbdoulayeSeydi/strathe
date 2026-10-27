@@ -39,11 +39,11 @@ def _short(numbers: str, n: int = 160) -> str:
 
 def optimism_93(rows: list) -> list:
     """Within-session skill against the same calibration on sessions it never saw."""
-    L = ["### How much easier a one-session check is (measured)\n",
+    L = ["### How good a one-session check is (measured)\n",
          "Each calibration trained on one session, scored on its own held-out part and on sessions it never saw "
          "(mean skill over the 6 axes against predicting no motion; position drift after 30 s, median).\n",
          "| Calibrated on | Held out | Within the session: mean skill, drift 30 s | Other sessions: mean skill, drift 30 s "
-         "| Optimism (skill) |", "|---|---|---|---|---|"]
+         "| Within minus other (skill) |", "|---|---|---|---|---|"]
     for r in rows:
         try:
             n = json.loads(r["numbers"])

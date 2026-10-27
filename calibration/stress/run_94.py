@@ -362,8 +362,10 @@ def round_trip(fmt: str, recs: list, v: dict, tag: str, kind=None) -> dict:
             outs[route] = (out, di.ingest(di.load_ingest_spec(sp), out))
         except Exception as e:
             return {"error": f"{route}: {type(e).__name__}: {e}"[:400], "seconds": time.time() - t0}
+    summ = outs[fmt][1]
+    warned = summ.get("warnings", []) + [w for f in summ.get("files", []) for w in f.get("warnings", [])]
     return compare(outs[fmt][0], outs["csv"][0], v) | {"seconds": round(time.time() - t0, 1),
-                                                        "warnings_fmt": outs[fmt][1].get("warnings", [])[:3]}
+                                                        "warnings_fmt": list(dict.fromkeys(warned))[:8]}
 
 
 def compare(a: str, b: str, v: dict) -> dict:
@@ -794,7 +796,7 @@ def c_check() -> None:
 
 def all_rows() -> set:
     """Every row id this harness writes (the coverage test checks the matrix against it)."""
-    rows = {f"R-{f}" for f in FORMATS} | {"C-check"}
+    rows = {f"R-{f}" for f in FORMATS} | {"C-check", "I-px4-real", "I-px4-real-ingest"}
     for f in FORMATS:
         rows |= {f"V-{f}-{var}-{o}" for var, opts in OPTIONS.items() for o in opts
                  if (o != BASE[var] or var == "actuation") and (var != "stamp" or f == "lcm")}
@@ -808,6 +810,77 @@ def all_rows() -> set:
     rows |= {"D-moos-string_value", "D-lcm-wrong_types", "K-px4-multi_instance", "K-moos-keyvalue", "K-moos-source",
              "K-lcm-nested", "M-frame_sign_flipped", "M-PX4_time_unit_wrong_by_1000", "M-array_index_dropped"}
     return rows
+
+
+PUBLIC_PX4 = os.path.expanduser("~/strathe_public_logs/px4/bluerov2_heavy_2024-07-11.ulg")   # logs.px4.io, CC-BY
+
+
+def i_real_px4() -> None:
+    """A real underwater PX4 log (a BlueROV2 Heavy, PX4's public archive): our reader against pyulog's own ulog2csv
+    export, and the log through ingestion as a lab would read it."""
+    import glob
+    from pyulog import ULog
+    from rosbag_reader import slerp
+    import ulog_reader as ur
+    if not os.path.exists(PUBLIC_PX4):
+        return record(F, "I-px4-real", "independent", "public PX4 log", "the public log isn't downloaded", "-", {},
+                      "present", False)
+    csvd = os.path.join(os.path.dirname(PUBLIC_PX4), "ulog2csv")
+    if not glob.glob(os.path.join(csvd, "*.csv")):
+        os.makedirs(csvd, exist_ok=True)
+        subprocess.run([os.path.join(os.path.dirname(PY), "ulog2csv"), "-o", csvd, PUBLIC_PX4], capture_output=True)
+    cols = ["vehicle_attitude.q[0]", "vehicle_attitude.q[1]", "vehicle_attitude.q[2]", "vehicle_attitude.q[3]",
+            "vehicle_angular_velocity.xyz[0]", "vehicle_angular_velocity.xyz[1]", "vehicle_angular_velocity.xyz[2]",
+            "vehicle_local_position.vx", "vehicle_local_position.vy", "vehicle_local_position.vz",
+            *[f"actuator_outputs.output[{i}]" for i in range(8)], "battery_status.voltage_v"]
+    pwm = [c for c in cols if "actuator" in c]
+    qg = [["vehicle_attitude.q[1]", "vehicle_attitude.q[2]", "vehicle_attitude.q[3]", "vehicle_attitude.q[0]"]]
+    df, rep = ur.read_log(PUBLIC_PX4, cols, 10, hold_columns=pwm, quaternion_groups=qg)
+    off = ur._utc_offset_us(ULog(PUBLIC_PX4, list(ur.GPS_TOPICS))) or 0.0
+    tb = df["__bag_time_s__"].to_numpy() - off / 1e6
+    worst = {}
+    for c in cols:
+        topic, field = c.split(".", 1)
+        r = pd.read_csv(glob.glob(os.path.join(csvd, f"*_{topic}_0.csv"))[0])
+        t = r["timestamp"].to_numpy() / 1e6
+        if topic == "vehicle_attitude":
+            q = slerp(t, r[["q[1]", "q[2]", "q[3]", "q[0]"]].to_numpy(), tb)[:, ["q[1]", "q[2]", "q[3]", "q[0]"].index(field)]
+            d = np.minimum(np.abs(q - df[c]), np.abs(q + df[c])).max()
+        elif c in pwm:
+            d = np.abs(r[field].to_numpy()[np.clip(np.searchsorted(t, tb + 1e-6, side="right") - 1, 0, len(t) - 1)]
+                       - df[c]).max()
+        else:
+            d = np.abs(np.interp(tb, t, r[field].to_numpy()) - df[c]).max()
+        worst[c] = float(d)
+    # ulog2csv prints about 8 significant digits: agreement to that is agreement
+    ok = max(worst.values()) < 1e-5 and all(worst[c] == 0 for c in pwm)
+    record(F, "I-px4-real", "independent", "pyulog ulog2csv, real log",
+           "px4: a real BlueROV2 Heavy log (PX4 public archive) against pyulog's ulog2csv", os.path.basename(PUBLIC_PX4),
+           {"max_abs_diff": max(worst.values()), "pwm_max_abs_diff": max(worst[c] for c in pwm), "clock": rep["clock"],
+            "span_s": rep["span_s"], "warnings": rep["warnings"]}, "PWM identical; the rest to ulog2csv's printed precision", ok)
+    folder = os.path.join(DATA, "I-px4-real")
+    shutil.rmtree(folder, ignore_errors=True)
+    os.makedirs(folder)
+    spec = {"vehicle": "px4_bluerov2", "source": {"files": PUBLIC_PX4, "format": "px4"}, "resample_hz": 10,
+            "session_date": {"from": "recording"}, "frame": "frd",
+            "body_velocity": {"columns": {"u": "vehicle_local_position.vx", "v": "vehicle_local_position.vy",
+                                          "w": "vehicle_local_position.vz", "p": "vehicle_angular_velocity.xyz[0]",
+                                          "q": "vehicle_angular_velocity.xyz[1]", "r": "vehicle_angular_velocity.xyz[2]"},
+                              "linear_frame": "world"},
+            "orientation": {"quaternion": {"w": "vehicle_attitude.q[0]", "x": "vehicle_attitude.q[1]",
+                                           "y": "vehicle_attitude.q[2]", "z": "vehicle_attitude.q[3]"}},
+            "wrench": {"thrusters": {"pwm_columns": pwm, "preset": "bluerov2_heavy", "voltage_column": "battery_status.voltage_v"}}}
+    sp = os.path.join(folder, "spec.yaml")
+    yaml.safe_dump(spec, open(sp, "w"), sort_keys=False)
+    try:
+        summ = di.ingest(di.load_ingest_spec(sp), os.path.join(folder, "out"))
+        got = {"recordings": summ.get("n_recordings"), "sessions": summ.get("sessions"),
+               "warnings": summ.get("warnings", [])[:4]}
+        ok = bool(summ.get("n_recordings"))
+    except di.IngestError as e:   # a plain refusal from the data checks is an answer too: recorded as it is
+        got, ok = {"refused": str(e)[:400]}, "Traceback" not in str(e)
+    record(F, "I-px4-real-ingest", "entry", "strathe ingest, real log", "px4: the real BlueROV2 log through ingestion",
+           os.path.basename(PUBLIC_PX4), got, "converts, or refuses with a plain sentence naming the problem", ok)
 
 
 def fast() -> int:
@@ -901,7 +974,9 @@ def _params(out: str) -> dict:
 
 def e2e(only=None) -> int:
     """Calibrate the BlueROV2 (all four days, 16 and 19 Feb held out) and URI (pond held out) from each format's
-    ingest and from the CSV route's, with the same seed: the same parameters and cost."""
+    ingest and from the CSV route's, with the same seed: each completes. The routes aren't expected to land on the same
+    parameters: on this data the fit's path is chaotic (#93: recordings that differ by 3e-14 took the optimizer to
+    different places). That the routes give the same calibration problem is objective_same()'s proof."""
     cases = [("bluerov", recordings("pwm"), ["--heldout-dates", "16-02-2024", "19-02-2024"], None),
              ("uri", [Rec(p, k) for k, p in enumerate(sorted(_glob(os.path.join(URI, "*.csv"))))],
               ["--heldout-dates", "27-03-2026", "--estimate-current", "--workers", "2"], URI_SPEC)]
@@ -926,23 +1001,71 @@ def e2e(only=None) -> int:
             rc, secs = _cal(folder, outs[route], extra, spec)
             record(F, f"E-{name}-{route}-cal", "calibration", route, f"calibrate {name} from the {route} route", name,
                    {"exit": rc}, "completes", rc == 0, secs)
-        base = _params(outs["csv"])
-        for fmt in FORMATS:
-            if fmt not in outs:
+    return 0
+
+
+def _route_folders(name: str, recs: list) -> dict:
+    """{format: {route: ingested folder}} for each format and its CSV route, converting what isn't there yet."""
+    out = {}
+    for fmt in FORMATS:
+        tag = f"E-{name}-{fmt}"
+        folders = {r: os.path.join(DATA, tag, r, "ingested") for r in (fmt, "csv")}
+        if not all(os.path.exists(os.path.join(f, "ingest_report.json")) for f in folders.values()):
+            res = round_trip(fmt, recs, BASE, tag)
+            if not _ok(res):
+                record(F, tag, "calibration", fmt, f"{name}: {fmt} round trip", name, res, "the same recordings", False)
                 continue
-            got = _params(outs[fmt])
-            d = max(abs(got[k] - base[k]) / max(1.0, abs(base[k])) for k in base)
-            mc = json.load(open(os.path.join(outs["csv"], "metrics.json")))
-            mf = json.load(open(os.path.join(outs[fmt], "metrics.json")))
-            record(F, f"E-{name}-{fmt}", "calibration", fmt, f"{name}: the calibration from {fmt} vs from the CSV route",
-                   name, {"max_rel_param_diff": d, "cost_csv": mc["optimizer"].get("cost"),
-                          "cost_fmt": mf["optimizer"].get("cost")}, "the same parameters (relative diff < 1e-6)",
-                   d < 1e-6)
+        out[fmt] = folders
+    return out
+
+
+def objective_same(only=None) -> int:
+    """Each format's route gives the same calibration problem as the CSV route (#94): the training cost calibrate
+    minimizes (the same split, axis scaling and torque convention) agrees to rounding at the starting description, a
+    randomly perturbed start, and a calibrated point. Calibrating twice can't show this: on this data the fit's path is
+    chaotic (#93), so two calibrations of recordings that differ by 3e-14 can end apart."""
+    import data_split as ds
+    from dynamics_model import CalibrationParameters
+    from objective import DatasetConfig, ParallelJointResiduals, compute_zero_baseline_scales, load_run
+    from optimizer import _initialize_x0, initial_parameters, load_vehicle_spec, parameter_bounds
+    from run_calibration import spec_torque_reference_offset
+    cases = [("bluerov", recordings("pwm"), ["16-02-2024", "19-02-2024"], os.path.join(CAL, "vehicle_spec.yaml")),
+             ("uri", [Rec(p, k) for k, p in enumerate(sorted(_glob(os.path.join(URI, "*.csv"))))], ["27-03-2026"],
+              URI_SPEC)]
+    for name, recs, held, spec_path in cases:
+        if only and not any(o.startswith(f"E-{name}") for o in only):
+            continue
+        t0 = time.time()
+        spec = load_vehicle_spec(spec_path)
+        p0 = initial_parameters(spec).to_vector()
+        lb, ub = parameter_bounds(spec)
+        points = {"start": p0, "perturbed start (seed 94)": _initialize_x0(p0, lb, ub, np.random.default_rng(94),
+                                                                           "perturbed", 0.1)}
+        cal = os.path.join(DATA, f"E-{name}", "cal_px4")
+        if os.path.exists(os.path.join(cal, "calibrated_parameters.yaml")):
+            points["calibrated (px4 route)"] = CalibrationParameters(**_params(cal)).to_vector()
+
+        def costs(folder):
+            sp = ds.split_by_date(ds.discover_csv_files(folder)[0], heldout_dates=held)
+            runs = [load_run(f, DatasetConfig(ds._rate_hz(f), spec_torque_reference_offset(spec)))
+                    for f in sp.train_files]
+            sc = compute_zero_baseline_scales(runs)
+            with ParallelJointResiduals(runs, spec.vehicle, 6) as fn:
+                return len(runs), {k: float(np.sum(fn(x, runs, spec.vehicle, sc) ** 2)) for k, x in points.items()}
+        for fmt, folders in _route_folders(name, recs).items():
+            n_c, base = costs(folders["csv"])
+            n_f, got = costs(folders[fmt])
+            rel = max(abs(got[k] - base[k]) / base[k] for k in base)
+            record(F, f"E-{name}-{fmt}", "calibration", fmt,
+                   f"{name}: the calibration problem from {fmt} vs from the CSV route", name,
+                   {"train_recordings": [n_c, n_f], "cost_csv": base, f"cost_{fmt}": got, "max_rel_cost_diff": rel},
+                   "the same training recordings, and the same training cost at every point (relative diff < 1e-9)",
+                   n_c == n_f and rel < 1e-9, time.time() - t0)
     return 0
 
 
 def list_rows() -> None:
-    print("fast: R V P K D S X I EP; mutants: M; e2e: E-bluerov-<fmt> E-uri-<fmt>")
+    print("fast: R V P K D S X I EP; mutants: M; objective: E-bluerov-<fmt> E-uri-<fmt>; e2e: E-<name>-<route>-cal")
 
 
 ROWS_FAST = tuple(sorted(all_rows()))
@@ -957,4 +1080,5 @@ if __name__ == "__main__":
     if cmd == "list":
         list_rows()
         sys.exit(0)
-    sys.exit({"fast": fast, "mutants": mutants}.get(cmd, lambda: e2e(sys.argv[2:]))())
+    sys.exit({"fast": fast, "mutants": mutants, "objective": lambda: objective_same(sys.argv[2:])}
+             .get(cmd, lambda: e2e(sys.argv[2:]))())

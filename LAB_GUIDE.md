@@ -213,12 +213,20 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 - **Every step stops with a plain message saying what to fix**, for example:
   - a column that isn't there;
   - forces that push against the motion (a reversed layout, a mirrored heading);
-  - commands outside their range;
-  - only one recording day.
+  - commands outside their range.
 - **Read the report's "Be careful with" and next steps.** It says which axes not to trust and what data would fix them.
 - **Many values stuck at their limits, or no axis trustworthy?** Check the vehicle description first (step 4): the
   report says so at the top of "Be careful with" when a BlueROV2's description was used for other thrusters.
 - **"Unstable" at the top of a report** means the calibrated simulation blew up on some unseen recordings. Don't simulate with it.
+- **"The first fit ... so Strathe tried N more starting points"** at the top of a report: the first fit stalled, or
+  ended where the simulation is too sensitive to the values to fit (a barely damped vehicle makes a long replay
+  chaotic). Strathe noticed, tried other starting points and kept the lowest training cost. Nothing to do; `--seed`
+  still repeats it exactly.
+- **"The fit failed" at the top of a report** means the calibrated model is no better than your description's starting
+  values even on the recordings it trained on. Strathe has already tried up to 4 starting points by then. Check the
+  description's ranges and the data checks, or run again with `--restarts 4`.
+- **Only one recording day?** That works: recordings within it are held out, and the report says so
+  ([calibration/ONE_SESSION.md](calibration/ONE_SESSION.md)).
 - **What Strathe can't do yet:** [LIMITS.md](LIMITS.md) lists every known limit with what to do about it. Roll and pitch prediction and the thruster lag are the main open ones.
 
 ## 8. What to send us, if you'd like help

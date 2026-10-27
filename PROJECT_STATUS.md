@@ -2989,6 +2989,151 @@ SIMULATOR_PROTOCOL and LIMITS (Docker is checked on a Mac only).
 
 **Not tested:** Docker Desktop (Colima was used; the same `docker` commands), Linux and Windows hosts.
 
+### 93. Calibrate from one field day; fits that stall or wander are caught and retried (2026-10-25/27)
+
+**Why:** a lab with one day of logs, or one long mission, couldn't calibrate at all: `split_by_date` refused one date.
+It's one of the three things that turned labs away before calibration even started (outreach to more labs).
+
+**What changed:**
+- **One date:** the latest 30% of the recordings are held out, by run number (at least one).
+- **One recording:** its last 30% is held out, after a 10 s gap. The part is read as `path::rows=A-B` by
+  `objective.read_run_csv`, which every `load_run` uses.
+- **Two or more dates:** exactly as before, checked bit for bit against the old code on the BlueROV2 and DFKI splits.
+- **`--heldout-recordings`** (an alias of `--heldout-dates`) names recordings, or one recording's last part
+  (`run1::last20%`). It's on calibrate, report, `--finish`, fit-sim, fit-stonefish and export-stonefish, and in the
+  web fields. The web checks the names against the logs folder.
+- **The run's log, its report and `metrics.json`** say how the split was made, with a warning that one session can't
+  show another day. The warning carries the measured figure below.
+- **Fixed on the way:**
+  - `--density-by-date` with recording groups;
+  - finalize's `metrics.json` dropping the split.
+- **Fits that stall or wander are caught and retried:** see "Making calibration robust" below.
+
+**How good is a one-session check?** Each calibration was trained on one session, then scored on what it held out of
+that session and on sessions it never saw. Those were scored whole, with their current estimated when the calibration
+estimated currents, as calibrate scores any held-out session. Mean skill over 6 axes:
+
+| One session | Within it | Other sessions |
+|---|---|---|
+| BlueROV2 tank days, one at a time | 0.33, 0.39, 0.38, 0.39 | 0.37, 0.35, 0.34, 0.34 |
+| ALPHA RISE bay mission alone (last 30% held out) | 0.16 | 0.22 on the pond (URI's own two-mission calibration: 0.23) |
+| ALPHA RISE pond mission alone | 0.13 | 0.19 on the bay |
+
+Within 0.07 either way. In the tank the within-session check read slightly higher, in open water slightly lower.
+**A correction:** the stress harness first scored only the other mission's last 30%, without its current, and showed a
+large gap (0.00 against 0.16). That was the harness, not Strathe; it's fixed, and those rows were rescored.
+
+#### Making calibration robust: fits that stall or wander
+
+**Two failures on real data.** Both start from one randomly perturbed point and both used to pass as results:
+- **Stuck (#93's E8):** BlueROV2, 12 Jan, two named recordings held out. The fit ended no better than the starting
+  description on its own training recordings (training cost 1599; the same day's other split reached 20), stopped by
+  scipy's `xtol`, and said "converged".
+- **Wandering (#94's CSV route):** BlueROV2, all four days, 16 and 19 Feb held out, seed 94. The fit used its whole
+  budget (2256 evaluations) and stopped at training cost 103, held-out mean skill −0.02. The PX4 route on the same
+  recordings (they differ by 3e-14) converged at 39 in 57 iterations, skill +0.38.
+
+**Why (measured).** The optimizer takes each slope by finite differences, nudging a value by about 1.5e-8 of itself.
+Where E8 stopped, the cost is not smooth at that scale:
+
+| Slope of the training cost (× the value's range) along | At E8's end, step 1.5e-8 (scipy's) | 1e-7 | 1e-5 | At E1's good answer, 1.5e-8 and 1e-7 |
+|---|---|---|---|---|
+| `Kp` (roll damping) | −1.7e8 | −3.5e7 | −3.9e6 | +2.70, +2.70 |
+| `Xuu` (surge drag) | +2.9e8 | +7.1e7 | +2.6e6 | +0.47, +0.47 |
+| `Ieff_roll` | −1.0e6 | −2.3e5 | −4.0e3 | −0.0020, −0.0020 |
+
+- **The cost jumps.** Slope times step is about constant: nudging `Kp` by 1.5e-9 of its range changes the cost by
+  0.25 (of 1599), and a ten times bigger nudge changes it by about as much. So the slopes the optimizer sees are noise, and every step it tries fails
+  until its step shrinks below `xtol` (first-order optimality at the stop: 7.9e9).
+- **The cause:** E8 ended with `Kp` at −0.1, the *least* roll damping its range allows (E1: −10, the most). A barely
+  damped vehicle in a 200–400 s open-loop replay turns chaotic: a tiny difference grows until it changes the whole
+  trajectory. The model has no clipping or angle wrapping; nothing in it jumps. It isn't divergence either: no
+  recording blew up, at the start or at the end.
+- **The #94 pair shows the same thing:** recordings that differ by 3e-14 took the optimizer down different paths.
+- **Not seed-dependent noise in Strathe:** `--seed` repeats a fit exactly. E8 and its rerun E8b, days apart, give the
+  same first-fit cost to the last bit (1598.968677529448). One worker and seven give bit-identical residuals
+  (215,994 of them, 19 Feb, seed 94's start).
+
+**How to tell, at the end of a fit.** `optimizer.end_roughness`: the curvature of the training cost when every value
+is nudged by 1e-8 of its range, |C(x+2d) − 2C(x+d) + C(x)| / C(x), worst of 3 directions. The slope cancels, so a fit
+stopped early on a steep but smooth cost doesn't read as rough. It costs 7 evaluations (a fit uses thousands). On 17
+real fits:
+
+| Fit | How it ended | Training error / start's | Roughness |
+|---|---|---|---|
+| E8, BlueROV2 12 Jan (stuck) | "converged" (`xtol`) | 1.02 | **2.0e-3** |
+| #94 CSV route, seed 94 (wandered) | out of budget | 0.43 | **7.6e-8** |
+| PX4 and MOOS routes, the same recordings | converged; out of budget | 0.19; 0.21 | 2.9e-15; 1.5e-15 |
+| E1–E4 and E14, each BlueROV2 day alone | converged | 0.16–0.22 | 3.4e-15 to 3.9e-15 |
+| URI ALPHA RISE, first and final rounds (E6, E7, E9, E10, E15) | converged or out of budget | 0.14–0.22 | 7.1e-15 to 1.2e-10 |
+| URI E9, first round | out of budget | 0.41 | 2.5e-13 |
+
+URI's E9 first round is poor but smooth: it was still descending when its budget ran out, and the next
+current-estimation round carried on from it to 0.14. More budget fixes that, not another start, and strathe already
+finishes such a fit from its checkpoint, marked not converged, with "re-run with a larger `--max-nfev`".
+
+**How often.**
+- **Stuck:** 8 of 276 distinct calibration results on our machines (3%) ended no better than their starting
+  description, all single starts. Of the 517 starts in optimizer logs, 9 stopped on `xtol`, the stall's signature;
+  4 of the stuck fits had first-order optimality of 1e5 to 8e9 where they stopped, the jumpy cost's signature.
+- **Out of budget:** 112 of 276 results. Most are harmless: their median training error, 0.20 of the start's, is the
+  same as converged fits'. 10 ended above 0.5 (converged fits: 90% below 0.45). That's why running out of budget alone doesn't trigger a retry.
+- **Several starts:** in 7 runs with several starts (28 starts), 3 starts ended far above the others (E14: 730
+  against 7.1; another run: 170 and 308 against 2.5).
+
+**The fix** (`run_calibration.fit_with_retry`): a fit from one cold starting point is probed where it ended, and
+retried when
+- it's no better than the starting description on its training recordings (error not below 0.9 × the start's,
+  `AUTO_RESTART_GAIN`), or
+- it ended on a rough cost (`end_roughness` above `AUTO_RESTART_ROUGHNESS` = 1e-9: 8× the roughest sound fit, 76×
+  below the wandering one),
+
+converged or not. More starts are tried one at a time (seed + 1, + 2, + 3: `--seed` still repeats all of it), up to 3
+(`AUTO_RESTARTS`), stopping at the first sound one: converged, below the first fit's cost, better than the start, on a
+smooth cost. All starts are pooled and the lowest training cost kept, as `--restarts` does.
+- **What the lab sees:** the log says why it retried; the report opens with "The first fit ... so Strathe tried N more
+  starting points and kept the lowest training cost". If none beats the starting description, the report opens with
+  "The fit failed", the numbers, and what to do.
+- **Recorded:** `metrics.json` `optimizer.auto_restart` has the reason, each start's cost, seed and roughness. When no
+  start converged, the record goes into the checkpoint, so the result strathe finishes from it still has it.
+- **Left as asked:** `--restarts N` and warm starts (`--finish`, current-estimation rounds 2+).
+- **What it costs:** 7 evaluations per sound fit; one more fit, usually, when one fails.
+
+**Proof on real data** (`STRESS_TEST_93_95.md`, `calibration/stress/`):
+
+PENDING_ROBUST_PROOF
+
+**Tests:** `tests/test_failed_fit_retry.py`, 11:
+- stuck, and rough converged or out of budget: retried;
+- smooth and better, though out of budget: finished as before;
+- a retry that isn't sound keeps trying;
+- every start failing: finished from the checkpoint with the record;
+- `--restarts N` left alone;
+- `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
+
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **102 of 103 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes.
+- **Coverage:** an inventory of 34 variables found in the code (every module that splits the logs, every parser with
+  the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
+- **75 fast checks on real recordings:**
+  - the BlueROV2 days, DFKI's single session, URI's missions;
+  - the held-out rows re-read from the files and compared with pandas;
+  - regressions against the old code;
+  - every refusal.
+- **4 deliberate faults, all caught:** an off-by-one at the time block, a held-out recording leaking into training, a
+  part's rows ignored, the wrong held-out count.
+- **23 end-to-end runs:**
+  - calibrate on each BlueROV2 day, DFKI and each URI mission;
+  - named recordings; last 20 and 50%; 2, 3 and 5 recordings;
+  - `--restarts 4`; with and without `--estimate-current`; `--finish`; report and validate;
+  - fit-sim MuJoCo and Gazebo (Docker); fit-stonefish and export-stonefish (Docker);
+  - the web card.
+
+  Every fit is checked to beat its starting description.
+
+**Tests:** `test_data_split`, `tests/test_failed_fit_retry.py`, `tests/test_stress_coverage.py`, and updated calibrate,
+CLI and web tests.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
