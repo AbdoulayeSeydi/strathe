@@ -308,8 +308,9 @@ def calibrate(row: str, data: str, spec: str, extra: list) -> dict:
     m = json.load(open(os.path.join(out, "metrics.json")))
     params = CalibrationParameters(**yaml.safe_load(open(os.path.join(out, "calibrated_parameters.yaml")))["parameters"])
     skill = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
+    pinned = pinned_parameters(params, load_vehicle_spec(spec))
     return {"out": out, "mean_skill": round(float(np.mean(skill)), 4), "skill": [round(x, 3) for x in skill],
-            "pinned": [p["name"] for p in pinned_parameters(params, load_vehicle_spec(spec))],
+            "pinned": [p["name"] for p in pinned], "pinned_at": {p["name"]: p["bound"] for p in pinned},
             "params": dict(zip(params.param_names, (float(x) for x in params.to_vector())))}
 
 
@@ -322,13 +323,19 @@ def compare(row: str, hand: dict, gen: dict, gen_spec: str, what: str, data: str
     t = targets(yaml.safe_load(open(gen_spec)))
     outside = [k for k, v in hand["params"].items() if k in t and isinstance(v, (int, float)) and
                not (t[k]["bounds"][0] - 1e-9 <= v <= t[k]["bounds"][1] + 1e-9)]
+    # A value the hand fit left at one of its own limits isn't one it found: the data wanted more than that range
+    # allows. It only has to be pinned at the same end in the generated fit; a value it found must be inside.
+    pinned_both = [k for k in outside if hand["pinned_at"].get(k) and hand["pinned_at"][k] == gen["pinned_at"].get(k)]
+    cut_off = [k for k in outside if k not in pinned_both]
     nums = {"hand_mean_skill": hand["mean_skill"], "generated_mean_skill": gen["mean_skill"],
             "difference": round(gen["mean_skill"] - hand["mean_skill"], 4), "hand_values_outside_generated_limits":
-            outside, "pinned_hand": len(hand["pinned"]), "pinned_generated": len(gen["pinned"]),
+            outside, "of_which_pinned_at_the_same_end_in_both": pinned_both, "found_values_cut_off": cut_off,
+            "pinned_hand": len(hand["pinned"]), "pinned_generated": len(gen["pinned"]),
             "skill_hand": hand["skill"], "skill_generated": gen["skill"]}
-    ok = gen["mean_skill"] >= hand["mean_skill"] - 0.05 and not outside and len(gen["pinned"]) <= len(hand["pinned"])
+    ok = gen["mean_skill"] >= hand["mean_skill"] - 0.05 and not cut_off and len(gen["pinned"]) <= len(hand["pinned"])
     record(F, row, "calibration", what, f"{what}: generated spec against the hand-written one", data, nums,
-           "skill within 0.05 of the hand spec's or better; hand values inside the limits; no more pinned", ok)
+           "skill within 0.05 of the hand spec's or better; every value the hand fit found inside the generated "
+           "limits (one pinned at a hand limit: pinned at the same end in both); no more pinned", ok)
 
 
 def e2e(only=None) -> int:
