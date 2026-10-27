@@ -3125,7 +3125,7 @@ Three rows, each rerunning a real fit from before the fix with the same seed:
 
 **Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **106 of 107 rows pass.** The one that fails is E8, the
 failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24.
-- **Coverage:** an inventory of 34 variables found in the code (every module that splits the logs, every parser with
+- **Coverage:** an inventory of 36 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**
   - the BlueROV2 days, DFKI's single session, URI's missions;
