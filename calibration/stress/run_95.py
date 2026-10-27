@@ -276,7 +276,7 @@ def mutants() -> int:
     """Bounds that don't scale with size: the input rows must fail. Run in-process on describe_hull."""
     real = VD.box_bounds, VD.torpedo_bounds
     fails = []
-    VD.box_bounds = lambda rho, L, W, H, m: real[0](rho, 1.0, 1.0, 1.0, m)
+    VD.box_bounds = lambda rho, L, W, H, m, *a: real[0](rho, 1.0, 1.0, 1.0, m)
     VD.torpedo_bounds = lambda rho, L, D: real[1](rho, 1.0, 0.2)
     try:
         for veh, dims in (("blue", BLUE), ("alpha", ALPHA)):

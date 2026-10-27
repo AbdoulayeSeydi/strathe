@@ -51,7 +51,7 @@ fit from wandering to values that fit the training logs and fail on unseen ones 
 |---|---|---|
 | Quadratic drag | 0.5·ρ·Cd·face area; Cd 0.1–3 on each face (W×H surge, L×H sway, L×W heave) | Cd 0.05–8 nose-on (π D²/4), 0.03–2.5 broadside (L×D) |
 | Linear drag | up to 1 m/s × the quadratic range | the same |
-| Rotational drag | each face as plates turning about the axis | strip theory 0.5·ρ·D·L⁴/32, up to 7.5× |
+| Rotational drag | each face as plates turning about the axis (Cd up to 9), or enough to stop the largest inertia allowed within 0.1 s, whichever is larger: thrusters and a tether resist turning far more than the frame's outline (DFKI's BlueROV2 needs 10 N·m·s; the plates alone allow 1.1) | strip theory 0.5·ρ·D·L⁴/32, up to 7.5× |
 | Added mass | 0 to 4 × the mass | surge up to the displaced mass; sway and heave up to 2× strip theory ρπr²L |
 | Inertia | a solid box of the mass (or your CAD), plus 0.75× that of water; 1/5 to 5× | a solid cylinder (or your CAD), plus slender-body ρπr²L³/12 for pitch and yaw; 1/5 to 3–10× |
 | Net buoyancy | ±12% of the weight around your trim | the same |

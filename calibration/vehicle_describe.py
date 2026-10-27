@@ -39,6 +39,7 @@ CD_SURGE = (0.05, 8.0)        # torpedo, nose-on: a faired nose up to thrusters 
 CD_BROADSIDE = (0.03, 2.5)    # torpedo, side-on (sway, heave, and strip-theory pitch and yaw)
 CD_BOX = (0.1, 3.0)           # an open frame, any face: porous to a solid plate with things hanging off it
 LINEAR_SPEED = 1.0            # m/s: linear drag limit = this x the quadratic limit
+STOP_TIME = 0.1               # s: an open frame's turning damping may stop its largest inertia this fast
 WATER = {"fresh": 1000.0, "sea": 1025.0}
 
 
@@ -74,8 +75,9 @@ def torpedo_bounds(rho: float, L: float, D: float) -> dict:
     return b
 
 
-def box_bounds(rho: float, L: float, W: float, H: float, m: float) -> dict:
-    """Limits sized from an open box frame: {name: (lo, hi, why)}."""
+def box_bounds(rho: float, L: float, W: float, H: float, m: float, inertia_hi=None) -> dict:
+    """Limits sized from an open box frame: {name: (lo, hi, why)}. inertia_hi: the largest roll, pitch and yaw
+    inertia allowed (kg m^2), which widens the turning damping limits (#95)."""
     faces = {"x": W * H, "y": L * H, "z": L * W}
     frame = f"a {L:.2f} x {W:.2f} x {H:.2f} m frame"
     b = {}
@@ -89,6 +91,13 @@ def box_bounds(rho: float, L: float, W: float, H: float, m: float) -> dict:
     for k, r in rot.items():
         b[k] = (-CD_BOX[1] * 3 * r, -max(0.005 * r, 0.05), f"plates turning about the axis, drag coefficient up to "
                                                             f"{3 * CD_BOX[1]:g} ({r:.3g} at 1)")
+    # Thrusters (their thrust changes with the water flowing through them as the frame turns), a tether and the
+    # payload damp turning far more than the frame's outline: DFKI's BlueROV2 needs 10, the plates allow 1.1. So the
+    # limit also reaches the damping that stops the largest inertia allowed within STOP_TIME, about one log sample.
+    for k, I in zip(("Kpp", "Mqq", "Nrr"), inertia_hi if inertia_hi is not None else ()):
+        if I / STOP_TIME > -b[k][0]:
+            b[k] = (-I / STOP_TIME, b[k][1], f"{b[k][2]}, or enough to stop the largest inertia allowed ({I:.3g}) "
+                                             f"within {STOP_TIME:g} s: thrusters and a tether damp turning too")
     for k, qk in (("Kp", "Kpp"), ("Mq", "Mqq"), ("Nr", "Nrr")):
         b[k] = (b[qk][0], -0.05, "up to 1 rad/s x the quadratic limit")
     for k in ("Xu_dot", "Yv_dot", "Zw_dot"):
@@ -155,8 +164,10 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
     d = np.asarray(reference_point, dtype=float)
     shift = m * np.array([d[1] ** 2 + d[2] ** 2, d[0] ** 2 + d[2] ** 2, d[0] ** 2 + d[1] ** 2])
     nominal = rigid + shift + added
+    inertia_hi = []
     for i, (k, ax) in enumerate((("Ieff_roll", "roll"), ("Ieff_pitch", "pitch"), ("Ieff_yaw", "yaw"))):
         hi = (10 if (shape == "torpedo" and i == 0) else 5) * nominal[i]
+        inertia_hi.append(hi)
         put("effective_inertia", k, nominal[i], [nominal[i] / 5, hi],
             f"{'your CAD' if inertia is not None else 'a solid ' + shape} {rigid[i] + shift[i]:.3g} + water "
             f"{added[i]:.3g}, about the reference point; 1/5 to {hi / nominal[i]:g}x")
@@ -171,7 +182,7 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
                    "Zww": -0.5 * rho * 1.0 * L * D, "Mqq": -0.5 * rho * D * L ** 4 / 32,
                    "Nrr": -0.5 * rho * D * L ** 4 / 32}
     else:
-        b = box_bounds(rho, L, W, H, m)
+        b = box_bounds(rho, L, W, H, m, inertia_hi)
         faces = np.array([W * H, L * H, L * W])
         ratio = np.clip(faces / faces.mean(), 0.5, 1.5)
         guesses = {"Xu_dot": ratio[0] * m, "Yv_dot": ratio[1] * m, "Zw_dot": ratio[2] * m,
