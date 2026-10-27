@@ -937,13 +937,20 @@ def mutants() -> int:
                 df[c] = df[c2]
         return df, rep
 
-    faults = {"frame sign flipped": (rosbag_reader, "series_to_grid", sign_flip),
-              "PX4 time unit wrong by 1000": (ur, "read_log", time_unit),
-              "array index dropped": (ur, "read_log", dropped_index)}
-    for label, (mod, name, fn) in faults.items():
+    # Each reader binds series_to_grid when it's imported, so the fault goes into every module that holds it; all are
+    # imported first, or one imported mid-fault would keep the faulty copy for the rest of the run. Each fault must
+    # fail the formats it touches and leave the others passing (a format that fails regardless proves nothing).
+    import lcm_reader
+    grid_holders = (rosbag_reader, ulog_reader, moos_reader, lcm_reader)
+    faults = {"frame sign flipped": ([(m, "series_to_grid") for m in grid_holders], sign_flip, {"px4", "moos", "lcm"}),
+              "PX4 time unit wrong by 1000": ([(ur, "read_log")], time_unit, {"px4"}),
+              "array index dropped": ([(ur, "read_log")], dropped_index, {"px4"})}
+    for label, (targets, fn, hit) in faults.items():
         fails = []
-        globals()["record"] = lambda *a, **k: fails.append(a[1]) if not a[8] else None
-        setattr(mod, name, fn)
+        globals()["record"] = lambda *a, **k: fails.append(a[1][2:]) if not a[8] else None
+        saved = [(m, n, getattr(m, n)) for m, n in targets]
+        for m, n in targets:
+            setattr(m, n, fn)
         try:
             recs = recordings("sample")[:1]
             for fmt in FORMATS:
@@ -952,10 +959,12 @@ def mutants() -> int:
         except Exception as e:
             fails.append(f"crash: {e}")
         finally:
-            setattr(mod, name, real["grid"] if name == "series_to_grid" else real["ulog"])
+            for m, n, f in saved:
+                setattr(m, n, f)
             globals()["record"] = real_record
         record(F, f"M-{label.replace(' ', '_')}", "mutant", label, f"deliberate fault: {label}", "round trips",
-               {"rows_failed": fails}, "at least one round trip fails", bool(fails))
+               {"formats_failed": fails, "formats_it_touches": sorted(hit)},
+               "the round trips through the formats it touches fail, and only those", set(fails) == hit)
     return 0
 
 
