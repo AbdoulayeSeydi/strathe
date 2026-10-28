@@ -761,8 +761,8 @@ def home_page(manager: JobManager, token: str) -> bytes:
 <p class=muted>Checks your logs, fits the simulator to them, checks which values the data can pin down, and writes a
 plain-language report. About an hour on the reference dataset; the computer is kept awake while it runs.</p>
 <form method=post action=/jobs/calibrate>{tok}
-<label for=cal-ingest>Your raw logs: the ingestion spec YAML that describes them, full path (CSV or ROS bags, forces or
-thruster PWM; templates in <code>calibration/templates/</code>)</label>
+<label for=cal-ingest>Your raw logs: the ingestion spec YAML that describes them, full path (CSV, ROS bags, ArduPilot, PX4
+.ulg, MOOS-IvP .alog or LCM logs; forces or thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <input type=text id=cal-ingest name=ingest_spec value="">
 <label for=cal-data>…or a folder of logs already in Strathe's CSV layout (ignored when an ingestion spec is given)</label>
 <input type=text id=cal-data name=data value="{html.escape(default_data)}">
