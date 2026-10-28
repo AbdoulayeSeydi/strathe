@@ -36,3 +36,13 @@ def test_every_matrix_row_exists_in_the_harness(feature):
     for var, (rows, _) in inventory.matrix(feature).items():
         for r in rows:
             assert r == "exempt" or r in known, f"{var}: row {r} isn't in stress/run_{feature}.py"
+
+
+def test_the_report_lists_every_row():
+    """STRESS_TEST_93_95.md once counted all 349 #94 rows but listed 15: rows outside the F/M/E groups were dropped."""
+    import report
+    from common import load_rows
+    text = report.render()
+    for feature in report.TITLES:
+        missing = [r["row"] for r in load_rows(feature) if f"| {r['row']} |" not in text]
+        assert not missing, f"#{feature} rows missing from the report: {missing[:5]}"
