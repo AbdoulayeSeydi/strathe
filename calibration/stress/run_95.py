@@ -133,6 +133,8 @@ def g_inputs() -> None:
                 ok = ("hull_lift" in s["calibration_targets"]) == (veh == "alpha")
             if ok and name == "shape-box" and veh == "alpha":
                 ok = "box" in s["metadata"]["description"]
+            if ok and name.startswith("shape-"):   # the shape the size doesn't suggest is warned about, and only that one
+                ok = ("goes against the size" in text) == (name == {"blue": "shape-torpedo", "alpha": "shape-box"}[veh])
             if ok and name.startswith("water"):
                 ok = targets(s)["Xuu"]["bounds"] != t0["Xuu"]["bounds"] or name == "water-sea" and veh == "alpha"
             record(F, f"G-{veh}-{name}", "inputs", name, f"{veh}: {name}", veh, info, "loads; the input shows", ok)

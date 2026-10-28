@@ -120,18 +120,26 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
             raise DescribeError(f"{k} must be above 0 (m), got {v}")
     if diameter is None and (width is None or height is None):
         raise DescribeError("give the vehicle's size: --width and --height (a frame), or --diameter (a round hull)")
-    if shape is None:   # slender and round enough -> torpedo
-        if diameter is not None:
-            shape = "torpedo" if L / diameter > SLENDER else "box"
-        else:
-            round_ = abs(width - height) / max(width, height) < 0.3
-            shape = "torpedo" if round_ and L / max(width, height) > SLENDER else "box"
+    if diameter is not None:   # slender and round enough -> torpedo
+        across, round_ = diameter, True
+    else:
+        across, round_ = max(width, height), abs(width - height) / max(width, height) < 0.3
+    sized = "torpedo" if round_ and L / across > SLENDER else "box"
+    shape = shape or sized
     if shape not in ("box", "torpedo"):
         raise DescribeError(f"--shape is box or torpedo, got {shape!r}")
     D = diameter if diameter is not None else (width + height) / 2
     W = width if width is not None else D
     H = height if height is not None else D
     notes = []
+    if shape != sized:
+        # The wrong shape's rules size the limits for another hull (#95): a BlueROV2 described as a torpedo lost 0.077
+        # held-out skill against the box rules, with its pitch inertia and yaw damping cut off.
+        notes.append(f"--shape {shape} goes against the size: {L:.3g} m long and {across:.3g} m across "
+                     f"(length {L / across:.2g}x the {'diameter' if diameter is not None else 'width or height'}"
+                     f"{'' if round_ else ', not round'}) reads as a {sized}. The {shape} rules size the limits for "
+                     f"another hull: a BlueROV2 described as a torpedo lost 0.077 held-out skill and had its pitch "
+                     f"inertia and yaw damping cut off. Leave --shape out unless the hull really is {shape}-shaped")
     spec = yaml.safe_load(open(TEMPLATE, encoding="utf-8"))
     T = spec["calibration_targets"]
     src = f"{source}"

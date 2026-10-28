@@ -37,6 +37,16 @@ def test_a_frame_and_a_torpedo_get_their_own_rules():
     assert "hull_lift" in VD.describe_hull(**ALPHA, hull_lift=True)[0]["calibration_targets"]
 
 
+def test_a_shape_the_size_does_not_suggest_is_warned_about():
+    """A BlueROV2 described as a torpedo lost 0.077 held-out skill, with two values cut off (#95)."""
+    for dims, wrong, right in ((BLUE, "torpedo", "box"), (ALPHA, "box", "torpedo")):
+        spec, notes = VD.describe_hull(**dims, shape=wrong)
+        assert wrong in spec["metadata"]["description"]   # still done as asked
+        assert any("goes against the size" in n and f"reads as a {right}" in n for n in notes)
+        for shape in (right, None):
+            assert not any("goes against the size" in n for n in VD.describe_hull(**dims, shape=shape)[1])
+
+
 def test_the_limits_follow_the_size_mass_and_water():
     base = _t(VD.describe_hull(**BLUE)[0])
     wider = _t(VD.describe_hull(**{**BLUE, "width": 0.575 * 1.3})[0])
