@@ -479,7 +479,17 @@ def run(a) -> int:
         raise DescribeError(f"--water is fresh, sea or a density in kg/m^3; could not read {a.water!r}")
     if not 900 <= rho <= 1100:
         raise DescribeError(f"--water {rho:g} kg/m^3 isn't water (fresh 1000, sea about 1025)")
-    source = (f"{os.path.basename(a.from_model)} ({a.sim}; link {model.get('link')})" if model else
+    ext = model and model.get("extents")
+    if ext and not gave_size and model.get("n_shapes") == 1 and abs(ext[1] - ext[2]) < 0.05 * max(ext[1:]):
+        # A converter sizes a stand-in cylinder to float the vehicle; a hull with flooded sections is larger outside.
+        # URI's ALPHA RISE in Gazebo: 0.17 m read, 0.254 m real; its added-mass limits came out 57% too small.
+        shown = rho * math.pi * ext[1] * ext[2] / 4 * ext[0]
+        if abs(shown - a.mass) < 0.1 * a.mass:
+            notes_pre.append(f"The model's hull ({ext[0]:.3g} m x {ext[1]:.3g} m) displaces "
+                             f"{shown:.3g} kg, the vehicle's own mass: it may be sized to float the vehicle rather "
+                             f"than to its outer hull. Added mass and drag limits scale with the outer size: if the "
+                             f"hull is larger (flooded sections), give --length and --diameter")
+    source =(f"{os.path.basename(a.from_model)} ({a.sim}; link {model.get('link')})" if model else
               "your measurements")
     spec, notes = describe_hull(a.mass, a.length, width=a.width, height=a.height, diameter=a.diameter, shape=a.shape,
                                 rho=rho, inertia=a.inertia, cg_below_cb=a.cg_below_cb, net_buoyancy=a.net_buoyancy,

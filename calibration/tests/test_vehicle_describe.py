@@ -107,6 +107,20 @@ def test_the_command_writes_a_description_every_command_loads(tmp_path, capsys):
                     "--out", str(tmp_path / "w.yaml")]) == 2
 
 
+def test_a_hull_sized_only_to_float_the_vehicle_is_flagged(tmp_path, capsys):
+    """URI's ALPHA RISE in Gazebo: a 0.17 m cylinder displacing its 33 kg; the real hull is 0.254 m (#95)."""
+    def urdf(mass):
+        p = tmp_path / f"r{mass}.urdf"
+        p.write_text(f'<robot name="r"><link name="base"><inertial><mass value="{mass}"/>'
+                     '<inertia ixx="1" iyy="2" izz="3" ixy="0" ixz="0" iyz="0"/></inertial>'
+                     '<collision><origin xyz="0 0 0" rpy="0 1.5707963 0"/><geometry><cylinder radius="0.1" length="1.2"/>'
+                     '</geometry></collision></link></robot>')
+        return str(p)
+    for mass, more, flagged in ((38.7, [], True), (20, [], False), (38.7, ["--length", "1.5", "--diameter", "0.3"], False)):
+        assert VD.main(["--from-model", urdf(mass), "--sim", "urdf", *more, "--out", str(tmp_path / "u.yaml")]) == 0
+        assert ("sized to float the vehicle" in capsys.readouterr().out) == flagged
+
+
 def test_strathe_and_the_web_page_build_it(tmp_path):
     import strathe_web as web
     calls = []

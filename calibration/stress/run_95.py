@@ -147,7 +147,9 @@ def m_models() -> None:
              ("urdf-bluerov2", urdf, "urdf", [], "thinner"),
              ("gazebo-model-name", GZ_BLUEROV, "gazebo", ["--model-name", "bluerov2_heavy", "--height", "0.254"], None),
              ("mujoco-model-name", MJ_ALPHA, "mujoco", ["--model-name", "vehicle"], None),
-             ("gazebo-alpha", GZ_ALPHA, "gazebo", [], None), ("mujoco-alpha", MJ_ALPHA, "mujoco", [], None),
+             ("gazebo-alpha", GZ_ALPHA, "gazebo", [], "sized to float the vehicle"),
+             ("gazebo-alpha-sized", GZ_ALPHA, "gazebo", ["--length", "1.5", "--diameter", "0.254"], None),
+             ("mujoco-alpha", MJ_ALPHA, "mujoco", [], None),
              ("mujoco-example", os.path.join(CAL, "simulators", "mujoco", "example", "auv.xml"), "mujoco", [], None),
              ("holoocean-alpha", holo, "holoocean", [], None),
              ("holoocean-example-sized", os.path.join(CAL, "simulators", "holoocean", "example", "scenario.json"),
@@ -399,6 +401,8 @@ def e2e(only=None) -> int:
             rows[f"E-{name}-{tag}"] = run
         alpha("alpha-dims", _args(ALPHA), "ALPHA RISE from its published size")
         alpha("alpha-gazebo", ["--from-model", GZ_ALPHA, "--sim", "gazebo"], "ALPHA RISE from its Gazebo model")
+        alpha("alpha-gazebo-sized", ["--from-model", GZ_ALPHA, "--sim", "gazebo", "--length", "1.5", "--diameter", "0.254"],
+              "ALPHA RISE from its Gazebo model, its real size given")
         alpha("alpha-mujoco", ["--from-model", MJ_ALPHA, "--sim", "mujoco"], "ALPHA RISE from its MuJoCo model")
         alpha("alpha-holoocean", ["--from-model", os.path.join(DATA, "alpha_holoocean", "scenario.json"), "--sim",
                                   "holoocean", "--length", "1.5", "--diameter", "0.254"], "ALPHA RISE from HoloOcean")
@@ -438,7 +442,7 @@ def all_rows() -> set:
                                           "inertia", "cg", "net-buoyancy", "volume", "reference-point", "thrusters",
                                           "hull-lift", "name") if not (veh == "blue" and n == "water-fresh")}
     rows |= {f"MS-{n}" for n in ("gazebo-bluerov2_gz", "gazebo-bluerov2_gz-sized", "urdf-bluerov2", "gazebo-model-name",
-                                 "mujoco-model-name", "gazebo-alpha", "mujoco-alpha", "mujoco-example", "holoocean-alpha",
+                                 "mujoco-model-name", "gazebo-alpha", "gazebo-alpha-sized", "mujoco-alpha", "mujoco-example", "holoocean-alpha",
                                  "holoocean-example-sized")}
     rows |= {f"X-{n}" for n in ("no_size", "zero_length", "negative_width", "no_mass", "missing_model",
                                 "model_without_mass", "holoocean_without_size", "bad_water", "bad_inertia",
