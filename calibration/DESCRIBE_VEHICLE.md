@@ -40,7 +40,9 @@ On the web page (`python strathe.py web`), use the card "Describe your vehicle (
 **The shape comes from the size:**
 - **A torpedo** is longer than 3 diameters and round in section (width and height within 30%).
 - **Everything else is a frame.**
-- Override with `--shape box | torpedo`.
+- Override with `--shape box | torpedo` only if the hull really is that shape. Strathe warns ("goes against the
+  size") when the shape you give isn't the one the size reads as: a BlueROV2 described as a torpedo lost 0.077
+  held-out skill, with its pitch inertia and yaw damping cut off.
 
 ## How the ranges are set
 
