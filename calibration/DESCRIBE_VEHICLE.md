@@ -74,7 +74,12 @@ torpedo rules are the ones `describe-stonefish` uses.
 **Check the size it reports.** Collision shapes are often not the hull:
 - **bluerov2_gz's only collision shape is a 5 cm thick buoyancy block.** Strathe says so ("one side is much thinner
   than the others") when a side is under a quarter of the next.
-- **Give the real size** (`--height 0.254`), which wins over the model's.
+- **A converted model's hull may be sized to float the vehicle, not to its outside.** URI's ALPHA RISE in Gazebo is a
+  0.17 m cylinder that displaces its 33 kg; the real hull, with flooded sections, is 0.254 m. Its added-mass limits came
+  out 57% too small and the fit pinned them. Strathe says so ("it may be sized to float the vehicle") when a single
+  round hull displaces the vehicle's own mass to within 10%.
+- **Give the real size** (`--height 0.254`; `--length 1.5 --diameter 0.254`), which wins over the model's; mass and
+  inertia still come from the model.
 - **Meshes aren't measured.** A model with only meshes needs the size given.
 
 ## How we know it works
