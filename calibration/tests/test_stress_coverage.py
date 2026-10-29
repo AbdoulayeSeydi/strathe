@@ -46,3 +46,13 @@ def test_the_report_lists_every_row():
     for feature in report.TITLES:
         missing = [r["row"] for r in load_rows(feature) if f"| {r['row']} |" not in text]
         assert not missing, f"#{feature} rows missing from the report: {missing[:5]}"
+
+
+def test_the_results_page_lists_every_row():
+    """The private results page (stress/page.py) is built from the same rows as the report, and drops none."""
+    import page
+    from common import load_rows
+    text = page.render()
+    for feature in ("93", "94", "95"):
+        missing = [r["row"] for r in load_rows(feature) if f"<code>{page.E(r['row'])}</code>" not in text]
+        assert not missing, f"#{feature} rows missing from the page: {missing[:5]}"
