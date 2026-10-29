@@ -93,5 +93,6 @@ MEASURED_95_TABLE
 
 **Pass, per vehicle:**
 - held-out skill within 0.05 of the hand-written description's, or better;
-- every value the hand-written calibration found inside the generated ranges;
+- every value the hand-written calibration found inside the generated ranges. A value both calibrations left stuck at
+  the same end of their ranges is excused: the logs didn't hold it down, so neither found it;
 - no more values stuck at a range's end.
