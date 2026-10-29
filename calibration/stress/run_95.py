@@ -35,7 +35,9 @@ BLUEROV = os.path.expanduser("~/marine_sim_mvp/data/raw/Bluerov2_trajectory_data
 DFKI = os.path.expanduser("~/strathe_session_data/dfki_dated")
 URI_LOGS = os.path.expanduser("~/strathe_uri_lab_v2/runs/ingest_I0")
 URI_HAND = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec.yaml")
-URI_DESCRIBED = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec_from_stonefish_final.yaml")
+# describe-stonefish's description of ALPHA RISE is written by the command as it is now (the hull-size rules it shares
+# with describe-vehicle), not read from URI's lab folder: that file (18 Oct) predates #95 and its limits differ for 18
+# of 22 values. Its calibration from one start, the old file, scored 0.053 against 0.183 on the bay day.
 HAND_BLUEROV = os.path.join(CAL, "vehicle_spec.yaml")
 GZ_BLUEROV = os.path.expanduser("~/strathe_gz_public/bluerov2_gz/models/bluerov2_heavy/model.sdf")
 GZ_ALPHA = os.path.expanduser("~/strathe_uri_lab_v3/models/alpha_gazebo/world.sdf")
@@ -202,6 +204,23 @@ def _holoocean_alpha() -> str:
                      "--reference-point", "-0.76", "0", "0", "--replay-tool", "docker", "--out", out],
                     os.path.join(DATA, "convert_holoocean.log"))
     return p if rc == 0 and os.path.exists(p) else None   # (converted_from.json next to it is the conversion's record)
+
+
+def _stonefish_alpha_spec() -> str:
+    """ALPHA RISE described by `strathe describe-stonefish` from URI's Stonefish scenario (Docker)."""
+    p = os.path.join(DATA, "specs", "alpha-describe-stonefish.yaml")
+    if os.path.exists(p):
+        return p
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    rc, _ = strathe(["describe-stonefish", "--scenario",
+                     os.path.expanduser("~/strathe_uri_lab_v3/stonefish_v2/lab/alpha_world.scn"), "--robot", "alpha_rise",
+                     "--find", "world_of_stonefish=" + os.path.expanduser("~/strathe_uri_lab_v2/stonefish/world"),
+                     "--stonefish-data", os.path.expanduser("~/strathe_uri_lab_v3/stonefish_v2/world/data"),
+                     "--reference-point", "-0.76", "0", "0", "--mass", "33", "--replay-tool", "docker", "--out", p],
+                    p + ".log")
+    if rc or not os.path.exists(p):
+        raise RuntimeError(f"describe-stonefish failed: {p}.log")
+    return p
 
 
 def x_refusals() -> None:
@@ -413,8 +432,9 @@ def e2e(only=None) -> int:
 
         def described(tag=tag, extra=extra, held=held):
             hand = calibrate(f"alpha-hand-{tag}", URI_LOGS, URI_HAND, extra)
+            sf = _stonefish_alpha_spec()
             compare(f"E-alpha-describe-stonefish-{tag}", hand,
-                    calibrate(f"alpha-described-{tag}", URI_LOGS, URI_DESCRIBED, extra), URI_DESCRIBED,
+                    calibrate(f"alpha-stonefish-{tag}", URI_LOGS, sf, extra), sf,
                     "ALPHA RISE: describe-stonefish's spec (for reference)", f"ALPHA RISE ({held} held out)")
         rows[f"E-alpha-describe-stonefish-{tag}"] = described
     if only == ["__rows__"]:
