@@ -3225,7 +3225,7 @@ above (skipped when the data isn't present).
 - **Sensor biases are assumed in every open-water preset (#60).** SOLAQUA measured the white noise, dropouts and USBL fix, but its DVL tracks a moving net, so biases need a seabed-locked DVL with an independent reference.
 - **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
 - **Lab data, not built yet (#56, #57):**
-  - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
+  - ~~PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs~~: PX4, MOOS-IvP and LCM logs are read directly (#94); other formats still export to CSV
   - ~~thruster response lag~~ (opt-in since #66: the full refit trades it against yaw inertia and added mass, #66) and battery sag within a run (handled when voltage is logged, #63)
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
