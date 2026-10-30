@@ -92,7 +92,37 @@ torpedo rules are the ones `describe-stonefish` uses.
 Each generated description was calibrated on its vehicle's real logs, against the description a person wrote for
 it, with the same logs, held-out days and seed (PROJECT_STATUS.md #95, `STRESS_TEST_93_95.md`):
 
-MEASURED_95_TABLE
+| Vehicle | Described from | Held out | Hand-written | Generated | Pinned (hand / gen.) | Passes |
+|---|---|---|---|---|---|---|
+| BlueROV2 Heavy | its size and mass | 16, 19 Feb | 0.379 | **0.435** | 14 / 5 | yes |
+| BlueROV2 Heavy | bluerov2_gz (Gazebo), height given | 16, 19 Feb | 0.379 | **0.434** | 14 / 5 | yes |
+| BlueROV2 Heavy | a URDF of it, height given | 16, 19 Feb | 0.379 | **0.434** | 14 / 5 | yes |
+| DFKI BlueROV2, 6 thrusters | its size and mass | its held-out runs | 0.297 | **0.303** | 11 / 8 | yes |
+| ALPHA RISE | its size and mass | pond day | 0.227 | **0.221** | 12 / 11 | yes |
+| ALPHA RISE | its size and mass | bay day | 0.183 | **0.197** | 11 / 7 | no: roll inertia and heave drag: not held by the pond day's logs |
+| ALPHA RISE | its Gazebo model, real size given | pond day | 0.227 | **0.221** | 12 / 7 | yes |
+| ALPHA RISE | its Gazebo model, real size given | bay day | 0.183 | **0.197** | 11 / 8 | no: heave drag: not held by the pond day's logs |
+| ALPHA RISE | its MuJoCo model | pond day | 0.227 | **0.216** | 12 / 8 | no: pitch damping: the model is 1.45 m long, not 1.5 |
+| ALPHA RISE | its MuJoCo model | bay day | 0.183 | **0.196** | 11 / 8 | yes |
+| ALPHA RISE | HoloOcean, size given | pond day | 0.227 | **0.222** | 12 / 12 | yes |
+| ALPHA RISE | HoloOcean, size given | bay day | 0.183 | **0.192** | 11 / 9 | no: roll inertia and heave drag: not held by the pond day's logs |
+| ALPHA RISE | its Stonefish model (`describe-stonefish`) | pond day | 0.227 | **0.216** | 12 / 10 | yes |
+| ALPHA RISE | its Stonefish model, 1 start | bay day | 0.183 | **0.123** | 11 / 9 | no: yaw damping stuck; the fit ran out of evaluations |
+| ALPHA RISE | its Stonefish model, 4 starts as it advises | bay day | 0.183 | **0.123** | 11 / 9 | no: the same fit: the first start was the best |
+
+Skill is the mean over the six axes on the held-out recordings (1 is perfect, 0 is no better than predicting no motion);
+"pinned" counts values that ended stuck at a limit. Each "no" but the last two scores within 0.05 of the hand-written
+description, or better, and misses on a value the training day's logs don't decide (both fits leave it stuck at a limit,
+in different places; LIMITS.md) or on a model a little off the real size. `describe-stonefish`'s description scores 0.06
+below on the bay day, with one start or four (seed 95): calibrate this command's description too
+(`stonefish/README.md`).
+
+- **Measurements off by up to 30%** (mass, length, width or height, one at a time, on the BlueROV2): 0.428 to 0.438,
+  against 0.435 with the right values. A tape measure and a bathroom scale are enough.
+- **Four starting points** (`--restarts 4`) on the BlueROV2 found the same fit as one, for both descriptions, at 3 to
+  5.5× the time.
+- **What a wrong input costs:** a model's thin buoyancy block read as the hull, 0.312; the BlueROV2 described as a
+  torpedo, 0.358; ALPHA RISE as a box, −0.097 on one day (+0.224 on the other). Strathe's notes say so in each case.
 
 **Pass, per vehicle:**
 - held-out skill within 0.05 of the hand-written description's, or better;

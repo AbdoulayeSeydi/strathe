@@ -158,17 +158,20 @@ it starts. Strathe keeps the start with the lowest training cost, so the choice 
 report lists each start's cost. The first start is one of the four, so four never end worse than one; they take about
 four times as long in the first round. On URI's ALPHA RISE, mean skill on the unseen mission:
 
-| Description | Mission held out | One start | 4 starts | Hand-written description |
+| Starting-point seed | Mission held out | One start | 4 starts | Hand-written description |
 |---|---|---|---|---|
-| An earlier one from this command (18 Oct; 18 of its 22 limits differ from today's; #77, #79) | Bay | −3.18 (blew up: 66 m drift at 60 s) | +0.191, 4.0 m at 60 s | +0.183, 4.0 m |
+| 11 (#77, #79) | Bay | −3.18 (blew up: 66 m drift at 60 s) | +0.191, 4.0 m at 60 s | +0.183, 4.0 m |
 | | Pond | +0.159 | +0.205, 5.3 m at 60 s | +0.227, 3.5 m |
-| What it writes today (#95) | Bay | +0.123 | +0.123: the other three starts ended at 2.4–2.7× the first's training cost | +0.183 |
+| 95 (#95; the same description) | Bay | +0.123 | +0.123: the other three starts ended at 2.4–2.7× the first's training cost | +0.183 |
 | | Pond | +0.216 | | +0.227 |
+
+So four starts help, but on a hard fit where it lands still depends on the seed (`--seed`).
 
 **Also try `describe-vehicle`.** The same vehicle described from its size alone (`python strathe.py describe-vehicle
 --mass 33 --length 1.5 --diameter 0.254`, [DESCRIBE_VEHICLE.md](../DESCRIBE_VEHICLE.md)) scored +0.221 (pond held out)
-and +0.197 (bay held out). Its starting values come from the hull's size rather than Stonefish's geometric estimates.
-Calibrate with both and keep the one that scores better on your held-out data.
+and +0.197 (bay held out) with seed 95, against this command's +0.216 and +0.123. Its starting values come from the
+hull's size rather than Stonefish's geometric estimates. Calibrate with both and keep the one that scores better on your
+held-out data.
 
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash

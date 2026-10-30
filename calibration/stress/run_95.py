@@ -36,8 +36,8 @@ DFKI = os.path.expanduser("~/strathe_session_data/dfki_dated")
 URI_LOGS = os.path.expanduser("~/strathe_uri_lab_v2/runs/ingest_I0")
 URI_HAND = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec.yaml")
 # describe-stonefish's description of ALPHA RISE is written by the command as it is now (the hull-size rules it shares
-# with describe-vehicle), not read from URI's lab folder: that file (18 Oct) predates #95 and its limits differ for 18
-# of 22 values. Its calibration from one start, the old file, scored 0.053 against 0.183 on the bay day.
+# with describe-vehicle), not read from URI's lab folder: that file (18 Oct, 16:39) predates the hull-sized limits
+# (54435ce) and differs for 18 of 22 values. Its calibration from one start scored 0.053 against 0.183 on the bay day.
 HAND_BLUEROV = os.path.join(CAL, "vehicle_spec.yaml")
 GZ_BLUEROV = os.path.expanduser("~/strathe_gz_public/bluerov2_gz/models/bluerov2_heavy/model.sdf")
 GZ_ALPHA = os.path.expanduser("~/strathe_uri_lab_v3/models/alpha_gazebo/world.sdf")
