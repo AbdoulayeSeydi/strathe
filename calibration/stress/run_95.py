@@ -447,6 +447,14 @@ def e2e(only=None) -> int:
                     calibrate(f"alpha-stonefish-{tag}", URI_LOGS, sf, extra), sf,
                     "ALPHA RISE: describe-stonefish's spec (for reference)", f"ALPHA RISE ({held} held out)")
         rows[f"E-alpha-describe-stonefish-{tag}"] = described
+    def described_r4():   # as describe-stonefish advises ("--restarts 4"); the hand-written fit keeps its one start
+        extra = ["--heldout-dates", "05-12-2025", "--estimate-current", "--workers", "2", "--skip-identifiability"]
+        hand = calibrate("alpha-hand-bayout", URI_LOGS, URI_HAND, extra)
+        sf = _stonefish_alpha_spec()
+        compare("E-alpha-describe-stonefish-bayout-r4", hand,
+                calibrate("alpha-stonefish-bayout-r4", URI_LOGS, sf, extra + ["--restarts", "4"]), sf,
+                "ALPHA RISE: describe-stonefish's spec, 4 starting points as it advises", "ALPHA RISE (05-12-2025 held out)")
+    rows["E-alpha-describe-stonefish-bayout-r4"] = described_r4
     if only == ["__rows__"]:
         return rows
     for rid, fn in rows.items():

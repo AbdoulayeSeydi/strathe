@@ -40,7 +40,8 @@ MAIN_95 = [("E-blue-dims", "BlueROV2 Heavy", "published size and mass", "16, 19 
            ("E-alpha-hull-lift-pondout", "ALPHA RISE", "size, with hull-lift terms", "pond day"),
            ("E-alpha-hull-lift-bayout", "ALPHA RISE", "size, with hull-lift terms", "bay day"),
            ("E-alpha-describe-stonefish-pondout", "ALPHA RISE", "describe-stonefish (reference)", "pond day"),
-           ("E-alpha-describe-stonefish-bayout", "ALPHA RISE", "describe-stonefish (reference)", "bay day")]
+           ("E-alpha-describe-stonefish-bayout", "ALPHA RISE", "describe-stonefish (reference)", "bay day"),
+           ("E-alpha-describe-stonefish-bayout-r4", "ALPHA RISE", "describe-stonefish, 4 starting points", "bay day")]
 SENS_95 = [("E-blue-mass-0.7", "mass −30%"), ("E-blue-mass-1.3", "mass +30%"), ("E-blue-length-0.7", "length −30%"),
            ("E-blue-length-1.3", "length +30%"), ("E-blue-width-0.7", "width −30%"),
            ("E-blue-height-1.3", "height +30%"), ("E-blue-sea", "sea water (it was a tank)")]
