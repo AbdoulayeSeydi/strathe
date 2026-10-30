@@ -80,6 +80,9 @@ torpedo rules are the ones `describe-stonefish` uses.
   0.17 m cylinder that displaces its 33 kg; the real hull, with flooded sections, is 0.254 m. Its added-mass limits came
   out 57% too small and the fit pinned them. Strathe says so ("it may be sized to float the vehicle") when a single
   round hull displaces the vehicle's own mass to within 10%.
+- **A close size still moves the limits a little.** URI's ALPHA RISE in MuJoCo reads 1.45 × 0.28 m (the real hull
+  1.5 × 0.254 m); its pitch-damping limit, which grows with the length to the fourth power, came out 0.5% short of
+  where the hand-written fit stopped.
 - **Give the real size** (`--height 0.254`; `--length 1.5 --diameter 0.254`), which wins over the model's; mass and
   inertia still come from the model.
 - **Meshes aren't measured.** A model with only meshes needs the size given.

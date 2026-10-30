@@ -1050,7 +1050,8 @@ values. Guide: <code>calibration/DESCRIBE_VEHICLE.md</code>.</p>
 <p class=muted>Writes the vehicle description that Calibrate needs (mass, inertia, added mass, drag, buoyancy, centre of
 gravity), with starting values from your own Stonefish model, so you don't fill the template by hand. Seconds. Needs the
 replay tool (<code>calibration/stonefish/README.md</code>). Then calibrate with it using <b>4 starting points</b>: its
-limits are wide, and one start isn't reliable.</p>
+limits are wide, and one start isn't reliable. Also describe it from its size ("Describe your vehicle (no simulator
+needed)"), calibrate both, and keep the one that scores better on your held-out data.</p>
 <form method=post action=/jobs/describe_stonefish>{tok}
 <label for=ds-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=ds-scn name=scenario required>
 <label for=ds-robot>Robot name in the scenario</label><input type=text id=ds-robot name=robot required>

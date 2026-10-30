@@ -108,8 +108,11 @@ python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --re
   mass can be several times strip theory) starts just inside, and the command says so.
 - **Then check two things:** the thruster count, and anything you know better.
 - **Calibrate it with `--restarts 4`.** Its limits are wide, so one starting point isn't reliable: on URI's ALPHA RISE,
-  one start blew up on the unseen mission (mean skill −3.18) and four matched the hand-written description (+0.191
-  against +0.183). It takes about 4× as long.
+  an earlier version's description blew up from one start on the unseen mission (mean skill −3.18), and four matched
+  the hand-written description (+0.191 against +0.183). Four never end worse than one; they take about 4× as long in
+  the first round. With what it writes today, one and four starts gave the same result (+0.123 against +0.183), and
+  `describe-vehicle` from the size alone scored +0.197: calibrate with both and keep the better
+  ([stonefish/README.md](calibration/stonefish/README.md)).
 
 Otherwise, copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next
 to your logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
