@@ -121,6 +121,8 @@ below on the bay day, with one start or four (seed 95): calibrate this command's
   against 0.435 with the right values. A tape measure and a bathroom scale are enough.
 - **Four starting points** (`--restarts 4`) on the BlueROV2 found the same fit as one, for both descriptions, at 3 to
   5.5× the time.
+- **In a simulator:** both BlueROV2 calibrations, put into bluerov2_gz with `export-sim gazebo` and scored there on
+  the held-out days: neither diverged, and the one from the size drifted 5.41 m in 30 s, the hand-written one 4.98 m.
 - **What a wrong input costs:** a model's thin buoyancy block read as the hull, 0.312; the BlueROV2 described as a
   torpedo, 0.358; ALPHA RISE as a box, −0.097 on one day (+0.224 on the other). Strathe's notes say so in each case.
 
