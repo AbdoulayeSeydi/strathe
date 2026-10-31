@@ -3123,10 +3123,16 @@ Three rows, each rerunning a real fit from before the fix with the same seed:
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **109 of 110 rows pass.** The one that fails is E8, the
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **141 of 142 rows pass.** The one that fails is E8, the
 failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24. E25, E25b and E26 cover the commands
 that hadn't been run on one day: `export-sim --sim mujoco` refuses plainly (it says to use `fit-sim --sim mujoco`),
 `export-sim gazebo` scores a one-day calibration in bluerov2_gz, and `fit-noise` fits from one day.
+- **Found by the audit of 31 Oct:** 31 all-pairs rows (dataset × held-out kind × fraction), each split worked out
+  independently, and 2000 random held-out entries on real recordings (none crashed) found two wrong messages:
+  - a whole recording named with another's last part said "Unknown held-out recording"; now "Hold out whole
+    recordings or the last part of one, not both";
+  - a recording too short to split was told a length 10 s too long at 30% (210 s; 200 s splits) and 190 s too short
+    at 95% (1210 s; 1400 s is needed). Fixed, with a test that the stated length splits and 1% less doesn't.
 - **Coverage:** an inventory of 36 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**
@@ -3259,6 +3265,21 @@ there. It's the third of the three things that turned labs away before calibrati
     today's `describe-stonefish`, and both reference runs were redone.
   - **The stress report** listed only one kind of row: #94's page counted 349 rows and showed about 15. It now lists
     every row, with a test.
+  - **Found by the audit of 31 Oct** (random inputs, all pairs and the lab's-eye run, after every planned row passed):
+    - a hull under about 10 cm (frames) or 0.5 m (torpedoes) got turning-damping limits in the wrong order (the
+      fixed upper limits -0.05 and -0.2 sat below the size-scaled lower ones) and an inertia rounded to 0: the
+      description didn't load. Fixed: a range out of order or narrower than 2:1 gets an upper limit a tenth of its
+      lower one, and values under 0.001 keep 3 significant figures. On 3000 random hulls: 736 fixed, 0 still broken;
+      under 5 cm or 10 g is refused, naming the units. The BlueROV2, DFKI and ALPHA RISE descriptions are unchanged,
+      byte for byte, so no calibration here changes;
+    - `--thrusters` with a file that has no thrusters block crashed with a traceback; one that logs forces (the lab
+      clone's own spec) said "no usable thrusters block". Both are now plain sentences, the second saying to leave
+      `--thrusters` out;
+    - `--thrusters` had been tried only with the preset. A layout and an allocation matrix of the same BlueROV2 Heavy
+      now give its forces (to 0.4% and exactly), and DFKI's six give the same sideways force and about half the heave
+      (two vertical thrusters, not four);
+    - the web card had no inertia or thrusters fields: added, with stress rows;
+    - the plan's all-pairs rows had only been written for #94: 26 here, over 11 inputs.
 
 **Proof on real data.** Each generated description was calibrated on its vehicle's real logs against the one a person
 wrote, with the same logs, held-out days and seed. Mean held-out skill over the 6 axes (1 is perfect, 0 is no better
@@ -3329,8 +3350,9 @@ depends on the seed and suggest calibrating `describe-vehicle`'s description bes
 - Meshes aren't measured: a model with only meshes needs the size given.
 - Not yet used by a lab on its own vehicle.
 
-**Stress test** (`calibration/stress/run_95.py`; `STRESS_TEST_93_95.md`): 116 rows, 108 pass: 55 generated descriptions
-(every input at every value), 11 from simulator models, 10 refusals, 5 web, 1 mutant (limits not scaled with the size:
+**Stress test** (`calibration/stress/run_95.py`; `STRESS_TEST_93_95.md`): 154 rows, 146 pass: 61 generated descriptions
+(every input at every value, thrusters three ways, a 5 cm and a 20 t hull), 26 all-pairs, 600 random descriptions
+(one row: none failed), 11 from simulator models, 12 refusals, 8 web, 1 mutant (limits not scaled with the size:
 caught), 33 calibrations and 1 Gazebo comparison. The 8 that fail are the ALPHA RISE rows marked "no" above and the two hull-lift rows below.
 
 **Tests:** `tests/test_vehicle_describe.py` (fast), the coverage gate, and the real-data rows above (skipped when the

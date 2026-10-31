@@ -27,7 +27,7 @@ On the web page (`python strathe.py web`), use the card "Describe your vehicle (
 | Measure | How | Needed |
 |---|---|---|
 | Mass | Weigh it as you logged it: batteries, payload, ballast | yes |
-| Length | Nose to tail, overall | yes |
+| Length | Nose to tail, overall (from 5 cm; a vehicle under 5 cm or 10 g is refused, as a likely unit mistake) | yes |
 | Width and height (a frame) | Overall, including thrusters | yes, or the diameter |
 | Diameter (a round hull) | The hull, not the fins | yes, or width and height |
 | Water | `--water fresh` (a tank, a lake), `sea` (the default), or a density | when not the sea |
@@ -123,6 +123,8 @@ below on the bay day, with one start or four (seed 95): calibrate this command's
   5.5× the time.
 - **In a simulator:** both BlueROV2 calibrations, put into bluerov2_gz with `export-sim gazebo` and scored there on
   the held-out days: neither diverged, and the one from the size drifted 5.41 m in 30 s, the hand-written one 4.98 m.
+- **Any size, any mix of inputs:** every pair of values of eleven inputs (26 descriptions), and 600 random ones from
+  5 cm to 10 m, each with any optional inputs: every one loads as `calibrate` loads it.
 - **What a wrong input costs:** a model's thin buoyancy block read as the hull, 0.312; the BlueROV2 described as a
   torpedo, 0.358; ALPHA RISE as a box, −0.097 on one day (+0.224 on the other). Strathe's notes say so in each case.
 
