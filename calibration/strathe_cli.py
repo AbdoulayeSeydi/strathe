@@ -15,6 +15,8 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
     python strathe.py fit-link --log <messages.csv> --out <folder>  the acoustic/optical link from message logs
     python strathe.py fit-stonefish --scenario my_world.scn ...  calibrate your own Stonefish vehicle model
     python strathe.py export-stonefish --calibration DIR ...      put a Strathe calibration into your Stonefish model
+    python strathe.py describe-vehicle --mass 11.5 --length 0.457 --width 0.575 --height 0.254 --out spec.yaml
+                                                         write your vehicle description from its size (or --from-model)
     python strathe.py describe-stonefish --scenario my_world.scn ... write your vehicle description from your Stonefish model
     python strathe.py ingest --spec my_vehicle.yaml --out <folder>   convert your own logs
     python strathe.py web                                the same, in a browser (local only)
