@@ -34,7 +34,7 @@ On the web page (`python strathe.py web`), use the card "Describe your vehicle (
 | Inertia from CAD | `--inertia IXX IYY IZZ` (kg·m², about the centre) | optional |
 | Centre of gravity below the centre of buoyancy | `--cg-below-cb 0.02` (m) | optional |
 | Trim | `--net-buoyancy 3` (N; + floats) | optional, default neutral |
-| Thrusters | `--thrusters my_logs.yaml` (your ingest spec) or `bluerov2_heavy`: checks the drag ranges against what they can push | optional |
+| Thrusters | `--thrusters my_logs.yaml` (your ingest spec, when it logs thruster commands: a preset, a layout or an allocation matrix) or `bluerov2_heavy`: checks the drag ranges against what they can push | optional |
 | Torque convention | `--torque-reference-offset X Y Z`, when your logs' torques are taken about another point | rarely |
 
 **The shape comes from the size:**

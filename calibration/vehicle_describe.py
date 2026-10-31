@@ -460,7 +460,11 @@ def max_force_of(thrusters: Optional[str]) -> Optional[list]:
             raise DescribeError(f"--thrusters: {thrusters} isn't a file or a preset (bluerov2_heavy)")
         spec = yaml.safe_load(open(thrusters, encoding="utf-8"))
         spec = spec if isinstance(spec, dict) else {}
-        block = (spec.get("wrench") or {}).get("thrusters") or spec.get("thrusters") or spec
+        wrench = spec.get("wrench") if isinstance(spec.get("wrench"), dict) else {}
+        if "columns" in wrench and "thrusters" not in wrench:
+            raise DescribeError(f"--thrusters: {thrusters} logs forces and torques directly, not thruster commands, so "
+                                f"there are no thrusters to check the drag limits against: leave --thrusters out")
+        block =(spec.get("wrench") or {}).get("thrusters") or spec.get("thrusters") or spec
         block = {k: v for k, v in block.items() if k in tm.THRUSTER_BLOCK_KEYS}
         try:
             cfg = tm.thruster_block(block, os.path.dirname(os.path.abspath(thrusters)))

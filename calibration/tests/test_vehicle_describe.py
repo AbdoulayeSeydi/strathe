@@ -181,3 +181,7 @@ def test_the_thrusters_from_a_preset_a_layout_or_an_allocation_matrix(tmp_path):
     empty.write_text("source:\n  format: csv\n")
     with pytest.raises(VD.DescribeError, match="no usable thrusters block"):
         VD.max_force_of(str(empty))
+    forces = tmp_path / "forces.yaml"   # a spec that logs forces, not thruster commands
+    forces.write_text(yaml.safe_dump({"wrench": {"columns": {"Fx": "fx"}}}))
+    with pytest.raises(VD.DescribeError, match="logs forces and torques directly"):
+        VD.max_force_of(str(forces))
