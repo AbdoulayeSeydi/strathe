@@ -3178,6 +3178,13 @@ anything, and most won't. It's the second of the three things that turned labs a
   - `stamp:` was silently ignored for PX4 and MOOS (now refused);
   - PX4 writes PWM 0 for outputs it doesn't drive and while disarmed, which ingestion refused as an out-of-range
     command. Found on the real PX4 log below; now a stopped thruster, and an output at 0 throughout is named.
+  - **Found by the audit of 31 Oct** (120 randomly damaged logs: cut, bytes flipped, garbage inserted, a block
+    wiped): a few flipped bytes in a PX4 log put three messages 691 s, 870 s and 10¹³ s after the rest, and the
+    resampler all the readers share built its grid over that span: it asked for 760 TiB, and the run was killed.
+    Messages cut off from the rest of a topic by over a minute (or 1000 message intervals), and under 1% of it, are
+    now dropped with a counted warning; a log still spanning over 50 million grid rows is refused plainly; a real
+    pause mid-log is kept as before. Rerun after the fix: of the 120, 75 read and 45 were refused plainly, none
+    crashed; every other #94 row is unchanged (all 41 real recordings still identical to the CSV route).
 
 **Proof on real data.** We found no public real-vehicle MOOS-IvP or LCM log with thruster commands, and PX4's
 public archive is mostly aircraft. So every real recording we have was written into each format the way a vehicle
@@ -3217,7 +3224,7 @@ the proof of the readers is that they give calibration the same problem, not tha
 - The real PX4 log can't be calibrated: its velocity barely moves with its thrust (ingestion says so). It proves the
   reading, not a calibration.
 
-**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **353 of 353 rows pass**, over 294
+**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **356 of 356 rows pass**, over 294
 variables found in the ingest schema (`tests/test_stress_coverage.py` fails if one has no row).
 - **A correction:** the first fault check reported 3 of 3 caught, but the frame-sign fault never reached the PX4 and
   MOOS readers (they hold their own reference to the function), and LCM, imported mid-fault, kept it for the later
