@@ -188,6 +188,30 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
                           angle_columns=angle_columns)
 
 
+STRAY_GAP_S = 60.0          # a stretch cut off from the rest of a log by over a minute (or 1000 messages)...
+STRAY_SHARE = 0.01          # ...holding under 1% of its messages: damaged timestamps, dropped
+MAX_GRID_ROWS = 50_000_000  # above this a log's span is a damaged timestamp, not a recording (115 days at 5 Hz)
+
+
+def _drop_stray(t, cols: dict, topic: str, report: dict) -> tuple:
+    """Messages whose timestamps sit far from the rest of the log (a damaged stamp can read as years away) would
+    stretch the grid over that span: dropped with a counted warning (#94)."""
+    med = float(np.median(np.diff(t)))
+    cut = np.flatnonzero(np.diff(t) > max(STRAY_GAP_S, 1000 * med))
+    if not len(cut):
+        return t, cols
+    edges = np.r_[0, cut + 1, len(t)]
+    main = int(np.argmax(np.diff(edges)))
+    keep = np.zeros(len(t), dtype=bool)
+    keep[edges[main]:edges[main + 1]] = True
+    dropped = int(len(t) - keep.sum())
+    if dropped > STRAY_SHARE * len(t):   # a real pause in logging: kept (the span check below still applies)
+        return t, cols
+    report["warnings"].append(f"{topic}: dropped {dropped} message(s) with timestamps far from the rest of the "
+                              f"log (damaged?)")
+    return t[keep], {ref: v[keep] for ref, v in cols.items()}
+
+
 def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, quaternion_groups, report: dict,
                    timestamps: dict, error_cls=BagError, angle_columns: Optional[dict] = None,
                    source_word: str = "topic") -> tuple:
@@ -217,6 +241,7 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
             t, cols = t[ok], {ref: v[ok] for ref, v in cols.items()}
             if len(t) < 2:
                 raise error_cls(f"{path}: {source_word} {topic} has fewer than 2 usable messages")
+        t, cols = _drop_stray(t, cols, topic, report)
         dts = np.diff(t)
         med = float(np.median(dts))
         gaps = int(np.sum(dts > 2.5 * med))
@@ -232,6 +257,9 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
     if end - start < 10.0 / resample_hz:
         raise error_cls(f"{path}: the {source_word}s overlap for only {max(end - start, 0):.2f} s; they need a "
                         f"common span")
+    if (end - start) * resample_hz > MAX_GRID_ROWS:
+        raise error_cls(f"{path}: the log spans {(end - start) / 86400:.0f} days at {resample_hz:g} Hz: a timestamp is "
+                        f"likely damaged. Check the log's clock, or cut it into the recordings it holds")
     # start + k / rate, not np.arange(start, ...): arange steps by (start + step) - start, which at
     # Unix-epoch magnitudes is rounded (~2e-8 s) and drifts ~1e-5 s over a few minutes
     # (+1e-3: Unix-epoch stamps carry ~2e-7 s rounding, which must not drop the final sample)
