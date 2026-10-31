@@ -563,7 +563,8 @@ def _e2e_rows() -> dict:
             cross=(os.path.join(DATA, f"uri_{other}"), None), expect_mode="time block"))
     rows["E8-named"] = lambda: _e2e_calibrate("E8-named", "kind", "recording", "--heldout-recordings, two named",
                                               day("12-01-2024"), ["--heldout-recordings", "odom-12-01-2024-run3",
-                                                                  "odom-12-01-2024-run9"], expect_mode="recordings")
+                                                                  "odom-12-01-2024-run9", "--seed", "70209514"],
+                                              expect_mode="recordings")   # the seed its single start got stuck on
     rows["E8b-retry"] = lambda: _e2e_retry()
     for i, pct in ((9, 20), (10, 50)):
         rows[f"E{i}-last{pct}"] = (lambda pct=pct, i=i: _e2e_calibrate(
@@ -603,7 +604,8 @@ def _e2e_retry() -> None:
     m = json.load(open(os.path.join(OUT, row, "metrics.json")))
     auto = (m.get("optimizer") or {}).get("auto_restart")
     r = m["rmse"]
-    e8 = json.load(open(os.path.join(OUT, "E8-named", "metrics.json")))["optimizer"]["cost"]
+    e8m = json.load(open(os.path.join(OUT, "E8-named", "metrics.json")))["optimizer"]
+    e8 = (e8m.get("auto_restart") or {}).get("first_cost", e8m["cost"])   # E8's first fit, retried since the fix
     same_start = bool(auto) and auto["first_cost"] == e8   # --seed repeats the failed fit bit for bit
     ok = same_start and r["calibrated_train"] < 0.9 * r["default_train"]
     record(F, f"{row}-check", "fit", "auto restart", "the failed start was noticed and retried", day("12-01-2024"),

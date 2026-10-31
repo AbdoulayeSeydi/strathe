@@ -660,7 +660,7 @@ def e2e(only=None) -> int:
     if only == ["__rows__"]:
         return rows
     for rid, fn in rows.items():
-        if only and rid not in only and not any(rid.startswith(o) for o in only):
+        if only and rid not in only:   # exact ids: a prefix ran ...-bayout-r4 with ...-bayout
             continue
         print(f"=== {rid}", flush=True)
         try:
