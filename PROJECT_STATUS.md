@@ -3185,10 +3185,12 @@ and, with the same content, as a CSV; both were ingested and compared.
 | Every way of naming a column: PX4 multi-instance, MOOS `key=value` and `@SOURCE`, LCM nested | all identical |
 | 29 kinds of damage (gaps, NaN, cut at 50% and 99%, a damaged middle, out of order, repeats, empty, strings, wrong type files) and 14 refusals | each gives the result in the guide's table |
 | Independent decoders: pyulog's `ulog2csv`, a plain-text read of the `.alog`, lcm's own decode | 1.6·10⁻⁷ (`ulog2csv`'s printed precision), 0, 0 |
+| **A log recorded by `lcm-logger`** off the network: 100 velocity messages published live, against lcm's decode | 99 of the 100 logged (LCM sends over UDP, which can drop one); each logged value exact |
 | **A real underwater PX4 log:** a BlueROV2 Heavy from logs.px4.io (CC-BY), against `ulog2csv` | PWM exact; attitude, rates, velocity, battery to 3·10⁻⁶ |
 | A one-hour log at 50 Hz | PX4 9 s, LCM 23 s, MOOS 42 s; under 0.5 GB |
 | `ingest`, `calibrate` straight from the logs, the web card, `check` | all run |
 | **Calibration gets the same problem from each format:** training cost at the starting description, a perturbed start and a calibrated point, each format against CSV | the same to 3·10⁻¹⁶ (BlueROV2, 25 training recordings) and 1·10⁻¹⁵ (URI) |
+| `fit-sim --sim mujoco` from each format against CSV (BlueROV2, 16 and 19 Feb held out, 3 evaluations) | the same three drag values to 4·10⁻¹⁵, the same cost and held-out drift |
 | Deliberate faults: a frame sign flipped, PX4 time off by 1000, an array index dropped | each caught by exactly the formats it touches, and only those |
 
 **A finding: identical data, different calibrations.** The plan was to calibrate from each format and from CSV and
@@ -3209,7 +3211,7 @@ the proof of the readers is that they give calibration the same problem, not tha
 - The real PX4 log can't be calibrated: its velocity barely moves with its thrust (ingestion says so). It proves the
   reading, not a calibration.
 
-**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **349 of 349 rows pass**, over 294
+**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **353 of 353 rows pass**, over 294
 variables found in the ingest schema (`tests/test_stress_coverage.py` fails if one has no row).
 - **A correction:** the first fault check reported 3 of 3 caught, but the frame-sign fault never reached the PX4 and
   MOOS readers (they hold their own reference to the function), and LCM, imported mid-fault, kept it for the later

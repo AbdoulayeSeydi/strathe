@@ -1,10 +1,10 @@
 # Stress test: #93-#95
 
-Written by `calibration/stress/report.py` on 2026-10-30 10:39. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-10-31 03:01. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
-**106 of 107 rows pass** (36 variables found in the code, each with a row).
+**109 of 110 rows pass** (36 variables found in the code, each with a row).
 
 ### How good a one-session check is (measured)
 
@@ -140,10 +140,13 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E23-sound_untouched-check | fit = sound fit untouched | no retry, same cost to the last bit | bluerov_19-02-2024 | ✅ | {"cost": 7.102579181661516, "E4_cost": 7.102579181661516, "retried": false} | 0 min |
 | E24-wandering | fit = wandering fit retried | #94's CSV route, seed 94: a fit that wandered out of budget | ingested | ✅ | {"exit": 0, "mode": "dates", "held": ["16-02-2024", "19-02-2024"], "converged": true, "within": {"skill": [0.723, 0.508, 0.59, -0.026, -0.103, 0.581], "mean_ski... | 824 min |
 | E24-wandering-check | fit = wandering fit retried | caught as rough, retried, a better fit kept | ingested | ✅ | {"auto_restart": {"reason": "the first fit ended where the training cost is rough (a chaotic replay)", "why": "rough", "first_cost": 102.50482563582999, "first_... | 0 min |
+| E26-fit_noise | consumer = fit-noise | fit-noise on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "written": true} | 0 min |
+| E25-export_sim_mujoco | refusal = export-sim --sim mujoco | export-sim to MuJoCo on one session: a plain refusal | bluerov_19-02-2024 | ✅ | {"exit": 2} | 0 min |
+| E25b-export_sim_gazebo | consumer = simfit/runner.py (export) | export-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  note: Held out within one session: the unseen part shares the session's trim, battery and water, so this check can't sho... | 8 min |
 
 ## #94. PX4, MOOS-IvP and LCM logs, read directly
 
-**349 of 349 rows pass** (294 variables found in the code, each with a row).
+**353 of 353 rows pass** (294 variables found in the code, each with a row).
 
 
 ### Every real recording through each format, against the CSV route
@@ -512,6 +515,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | I-lcm | independent = lcm EventLog | lcm: values against lcm's own decode | odom-12-01-2024-run1.csv | ✅ | {"max_abs_diff": 0.0} | 0 min |
 | I-px4-real | independent = pyulog ulog2csv, real log | px4: a real BlueROV2 Heavy log (PX4 public archive) against pyulog's ulog2csv | bluerov2_heavy_2024-07-11.ulg | ✅ | {"max_abs_diff": 3.224869797702201e-06, "pwm_max_abs_diff": 0.0, "clock": "UTC (from the log's GPS)", "span_s": 328.5, "warnings": ["the logger dropped data 1 t... | 0 min |
 | I-px4-real-ingest | entry = strathe ingest, real log | px4: the real BlueROV2 log through ingestion | bluerov2_heavy_2024-07-11.ulg | ✅ | {"recordings": 1, "sessions": {"18-02-2021": 1}, "warnings": ["force and velocity barely move together on surge, sway, heave, yaw (surge -0.02, sway -0.01, heav... | 0 min |
+| I-lcm-logger | independent = lcm-logger | lcm: a log recorded by lcm-logger off the network, against lcm's own decode | 100 published DVL messages | ✅ | {"published": 100, "logged": 99, "grid_rows": 56, "max_abs_diff": 0.0} | 0 min |
 
 ### Entry points: ingest, calibrate --ingest-spec, the web card
 
@@ -554,10 +558,13 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E-uri-px4 | calibration = px4 | uri: the calibration problem from px4 vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_px4": {"start": 367.69970365066933... | 1 min |
 | E-uri-moos | calibration = moos | uri: the calibration problem from moos vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_moos": {"start": 367.6997036506693... | 1 min |
 | E-uri-lcm | calibration = lcm | uri: the calibration problem from lcm vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_lcm": {"start": 367.69970365066933... | 1 min |
+| E-mujoco-px4 | calibration = px4 | bluerov: fit-sim --sim mujoco from px4 vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "px4": {"hull_blunt_drag": 1.01... | 0 min |
+| E-mujoco-moos | calibration = moos | bluerov: fit-sim --sim mujoco from moos vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "moos": {"hull_blunt_drag": 1.0... | 0 min |
+| E-mujoco-lcm | calibration = lcm | bluerov: fit-sim --sim mujoco from lcm vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "lcm": {"hull_blunt_drag": 1.01... | 0 min |
 
 ## #95. Vehicle spec from basic measurements, or from any simulator model
 
-**105 of 113 rows pass** (44 variables found in the code, each with a row).
+**108 of 116 rows pass** (44 variables found in the code, each with a row).
 
 
 ### Inputs, each varied
@@ -702,4 +709,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E-alpha-gazebo-sized-bayout | calibration = ALPHA RISE from its Gazebo model, its real size given | ALPHA RISE from its Gazebo model, its real size given: generated spec against the hand-written one | ALPHA RISE (05-12-2025 held out) | ❌ | {"hand_mean_skill": 0.183, "generated_mean_skill": 0.197, "difference": 0.014, "hand_values_outside_generated_limits": ["Yvv", "Zww"], "of_which_pinned_at_the_s... | 0 min |
 | E-alpha-describe-stonefish-bayout-r4 | calibration = ALPHA RISE: describe-stonefish's spec, 4 starting points as it advises | ALPHA RISE: describe-stonefish's spec, 4 starting points as it advises: generated spec against the hand-written one | ALPHA RISE (05-12-2025 held out) | ❌ | {"hand_mean_skill": 0.183, "generated_mean_skill": 0.1228, "difference": -0.0602, "hand_values_outside_generated_limits": ["Yvv", "Mqq"], "of_which_pinned_at_th... | 0 min |
 | E-alpha-gazebo-sized-pondout | calibration = ALPHA RISE from its Gazebo model, its real size given | ALPHA RISE from its Gazebo model, its real size given: generated spec against the hand-written one | ALPHA RISE (27-03-2026 held out) | ✅ | {"hand_mean_skill": 0.2274, "generated_mean_skill": 0.2206, "difference": -0.0068, "hand_values_outside_generated_limits": ["Yvv", "Zww"], "of_which_pinned_at_t... | 0 min |
+| E-blue-height-0.7 | calibration = BlueROV2, height off by -30% | BlueROV2, height off by -30%: generated spec against the hand-written one | bluerov2 (16, 19 Feb held out) | ✅ | {"hand_mean_skill": 0.3789, "generated_mean_skill": 0.435, "difference": 0.0561, "hand_values_outside_generated_limits": [], "of_which_pinned_at_the_same_end_in... | 0 min |
+| E-blue-width-1.3 | calibration = BlueROV2, width off by +30% | BlueROV2, width off by +30%: generated spec against the hand-written one | bluerov2 (16, 19 Feb held out) | ✅ | {"hand_mean_skill": 0.3789, "generated_mean_skill": 0.4388, "difference": 0.0599, "hand_values_outside_generated_limits": [], "of_which_pinned_at_the_same_end_i... | 0 min |
+| E-blue-gazebo-export | calibration = export-sim gazebo | BlueROV2: each description's calibration put into bluerov2_gz (Gazebo), scored on the held-out days | bluerov2 (16, 19 Feb held out) | ✅ | {"hand": {"drift_30s_median_m": 4.982, "diverged": 0, "velocity_rmse_10s": [0.1335, 0.0967, 0.0748, 0.2073, 0.372, 0.2406]}, "generated": {"drift_30s_median_m":... | 0 min |
 
