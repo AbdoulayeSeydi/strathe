@@ -68,7 +68,7 @@ def describe(info: dict, *, mass: float | None = None, water_density: float | No
         model value that's off, e.g. a geometric added-mass estimate 3x strip theory, mustn't widen them)."""
         lo, hi = float(bounds[0]), float(bounds[1])
         start = _inside(float(guess), lo, hi)
-        if abs(start - float(guess)) > 1e-9 * max(1.0, abs(float(guess))):
+        if not lo <= float(guess) <= hi:   # (one just inside is moved off the limit too, but isn't outside)
             outside.append(f"{key} {float(guess):.3g}")
         T[group][key].update({"initial_guess": round(start, 4), "bounds": [round(lo, 4), round(hi, 4)],
                               "source": source, "bounds_rationale": rationale, "confidence": "estimated"})

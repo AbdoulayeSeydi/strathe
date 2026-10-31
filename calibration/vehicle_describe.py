@@ -48,7 +48,8 @@ class DescribeError(ValueError):
 
 
 def _inside(v: float, lo: float, hi: float) -> float:
-    """A starting value moved just inside its limits if it's outside them."""
+    """A starting value kept off its limits: one outside them, or within 2% of the range from either end, starts 2%
+    of the range inside (a fit started on a limit can't move off it in that direction's first step)."""
     margin = 0.02 * (hi - lo)
     return min(max(v, lo + margin), hi - margin)
 
