@@ -613,7 +613,7 @@ def describe_vehicle_cli_args(form: dict) -> list:
             raise ValueError("Say what the model file is: Gazebo, URDF, MuJoCo or HoloOcean.")
         args += ["--from-model", _existing_file(model, "Model file", (".sdf", ".world", ".urdf", ".xml", ".json")),
                  "--sim", sim]
-    for key, flag, lo, hi in (("mass", "--mass", 0.01, 100000), ("length", "--length", 0.01, 100),
+    for key, flag, lo, hi in (("mass", "--mass", 0.01, 100000), ("length", "--length", 0.05, 100),
                               ("width", "--width", 0.01, 100), ("height", "--height", 0.01, 100),
                               ("diameter", "--diameter", 0.01, 100), ("cg_below_cb", "--cg-below-cb", -10, 10),
                               ("net_buoyancy", "--net-buoyancy", -100000, 100000)):
@@ -628,6 +628,16 @@ def describe_vehicle_cli_args(form: dict) -> list:
         if water not in ("fresh", "sea"):
             water = repr(_number(water, "Water density", 900, 1100))
         args += ["--water", water]
+    inertia = form.get("inertia", "").strip()
+    if inertia:
+        parts = inertia.replace(",", " ").split()
+        if len(parts) != 3:
+            raise ValueError("Inertia takes three values, Ixx Iyy Izz in kg m², about the centre (from CAD).")
+        args += ["--inertia", *[repr(_number(x, "Inertia", 1e-9, 1e6)) for x in parts]]
+    thrusters = form.get("thrusters", "").strip()
+    if thrusters:
+        args += ["--thrusters", thrusters if thrusters == "bluerov2_heavy" else
+                 _existing_file(thrusters, "Thrusters (your ingest spec)", (".yaml", ".yml"))]
     if form.get("hull_lift"):
         args += ["--hull-lift"]
     return args
@@ -1039,6 +1049,9 @@ values. Guide: <code>calibration/DESCRIBE_VEHICLE.md</code>.</p>
 <label for=dv-water>Water: fresh, sea, or a density in kg/m³ (optional; default sea)</label><input type=text id=dv-water name=water value="">
 <label for=dv-cg>Centre of gravity below the centre of buoyancy, m (optional)</label><input type=text id=dv-cg name=cg_below_cb value="">
 <label for=dv-nb>Net buoyancy, N (optional; + floats; default neutral)</label><input type=text id=dv-nb name=net_buoyancy value="">
+<label for=dv-inertia>Inertia from CAD: Ixx Iyy Izz, kg·m² about the centre (optional)</label><input type=text id=dv-inertia name=inertia value="">
+<label for=dv-thr>Thrusters: your ingest spec's full path (one that logs thruster commands), or bluerov2_heavy (optional;
+checks the drag limits against what they can push)</label><input type=text id=dv-thr name=thrusters value="">
 <label for=dv-model>…or your vehicle's model file, full path (optional)</label><input type=text id=dv-model name=from_model value="">
 <label for=dv-sim>The model file is</label><select id=dv-sim name=sim><option value="">no model file</option>
 <option value="gazebo">Gazebo (.sdf / .world)</option><option value="urdf">URDF</option>

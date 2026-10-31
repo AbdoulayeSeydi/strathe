@@ -269,15 +269,27 @@ def w_web() -> None:
                         ("model", {"from_model": GZ_BLUEROV, "sim": "gazebo", "height": "0.254", "name": "web_gz"}),
                         ("torpedo", {"mass": "33", "length": "1.5", "diameter": "0.254", "shape": "torpedo",
                                      "cg_below_cb": "0.02", "net_buoyancy": "3", "hull_lift": "on", "water": "1023",
-                                     "name": "web_alpha"})):
+                                     "name": "web_alpha"}),
+                        ("cad-and-thrusters", {"mass": "11.5", "length": "0.457", "width": "0.575", "height": "0.254",
+                                               "inertia": "0.2 0.3 0.4", "name": "web_cad",
+                                               "thrusters": os.path.join(CAL, "templates",
+                                                                         "ingest_csv_pwm_custom_thrusters.yaml")})):
         job = h._start("/jobs/describe_vehicle", form)
         job.proc.wait()
         out = job.argv[job.argv.index("--out") + 1]
         ok = job.proc.returncode == 0 and os.path.exists(out) and not sane(yaml.safe_load(open(out)))
+        if ok and label == "cad-and-thrusters":   # both reach the command, and the CAD inertia is the starting value
+            ok = "--thrusters" in job.argv and abs(targets(yaml.safe_load(open(out)))["Ieff_roll"]["initial_guess"]
+                                                   - targets(yaml.safe_load(open(os.path.join(DATA, "G-blue-base.yaml"))))
+                                                   ["Ieff_roll"]["initial_guess"]) > 1e-6
         record(F, f"W-{label}", "web", label, f"the web card: from {label}", "-",
                {"exit": job.proc.returncode, "out": out}, "the job writes a sane spec", ok)
     for label, form, want in (("nothing", {"name": "x"}, "mass and length"),
-                              ("model without kind", {"from_model": GZ_BLUEROV, "name": "x"}, "Gazebo, URDF")):
+                              ("model without kind", {"from_model": GZ_BLUEROV, "name": "x"}, "Gazebo, URDF"),
+                              ("two inertia values", {"mass": "11.5", "length": "0.457", "diameter": "0.2",
+                                                      "inertia": "1 2", "name": "x"}, "three values"),
+                              ("thrusters file missing", {"mass": "11.5", "length": "0.457", "diameter": "0.2",
+                                                          "thrusters": "/nope/logs.yaml", "name": "x"}, "Thrusters")):
         try:
             h._start("/jobs/describe_vehicle", form)
             ok, msg = False, "accepted"
@@ -617,7 +629,8 @@ def all_rows() -> set:
                                 "unknown_thrusters", "thrusters_without_block", "too_small")}
     rows |= {f"G-blue-thrusters-{n}" for n in ("layout", "allocation", "dfki-layout")}
     rows |= {"G-small-frame", "G-small-torpedo", "G-large-frame", "FZ-600"}
-    rows |= {"W-measurements", "W-model", "W-torpedo", "W-refuse-nothing", "W-refuse-model_without_kind",
+    rows |= {"W-measurements", "W-model", "W-torpedo", "W-cad-and-thrusters", "W-refuse-nothing",
+             "W-refuse-model_without_kind", "W-refuse-two_inertia_values", "W-refuse-thrusters_file_missing",
              "M-bounds_not_scaled"}
     return rows | set(_e2e_rows())
 

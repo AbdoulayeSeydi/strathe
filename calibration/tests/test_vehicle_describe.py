@@ -146,6 +146,16 @@ def test_strathe_and_the_web_page_build_it(tmp_path):
         web.describe_vehicle_cli_args({})
     with pytest.raises(ValueError, match="Gazebo, URDF"):
         web.describe_vehicle_cli_args({"from_model": os.path.join(CAL, "simulators", "mujoco", "example", "auv.xml")})
+    pwm = os.path.join(CAL, "templates", "ingest_csv_pwm_custom_thrusters.yaml")
+    a = web.describe_vehicle_cli_args({"mass": "11.5", "length": "0.457", "width": "0.575", "height": "0.254",
+                                       "inertia": "0.2, 0.3 0.4", "thrusters": pwm})
+    assert a[a.index("--inertia") + 1:a.index("--inertia") + 4] == ["0.2", "0.3", "0.4"]
+    assert a[a.index("--thrusters") + 1] == pwm
+    assert "bluerov2_heavy" in web.describe_vehicle_cli_args({"mass": "11.5", "length": "0.457", "diameter": "0.2",
+                                                              "thrusters": "bluerov2_heavy"})
+    for form, msg in (({"inertia": "1 2"}, "three values"), ({"thrusters": "/nope.yaml"}, "Thrusters")):
+        with pytest.raises(ValueError, match=msg):
+            web.describe_vehicle_cli_args({"mass": "11.5", "length": "0.457", "diameter": "0.2", **form})
 
 
 @pytest.mark.parametrize("kw", [dict(mass=0.075, length=0.05, width=0.05, height=0.03),     # a 5 cm, 75 g frame

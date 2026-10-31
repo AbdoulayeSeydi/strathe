@@ -43,3 +43,5 @@ web:shape,W-torpedo,the web card's field
 web:sim,W-model W-refuse-model_without_kind,the web card's field
 web:water,W-measurements W-torpedo W-refuse-nothing,the web card's field
 web:width,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:inertia,W-cad-and-thrusters W-refuse-two_inertia_values,the web card's field
+web:thrusters,W-cad-and-thrusters W-refuse-thrusters_file_missing,the web card's field
