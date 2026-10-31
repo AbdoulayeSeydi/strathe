@@ -19,7 +19,7 @@ Strathe picks the split from what your logs contain:
 | One recording | Its last 30%, after a 10 s gap | ⚠️ held out within one session, with the part's length |
 
 - **The gap** keeps the held-out part from starting where training ended, so the two never share a moment of motion.
-- **Each part needs at least 60 s:** a recording shorter than about 3.5 minutes can't be split at 30%. Strathe says so,
+- **Each part needs at least 60 s:** a recording shorter than 200 s can't be split at 30% (60 s held out). Strathe says so,
   with the length it needs.
 - **The run's first log line** says how the split was made (`Split (by recordings)` or `Split (by time block)`).
   `metrics.json` records it, so `strathe report`, `strathe validate` and `--finish` reuse the same split.

@@ -33,7 +33,7 @@ HERE =os.path.dirname(os.path.abspath(__file__))
 CAL = os.path.dirname(HERE)
 sys.path.insert(0, CAL)
 sys.path.insert(0, HERE)
-from common import record, strathe  # noqa: E402
+from common import all_pairs, record, strathe  # noqa: E402
 
 import data_split as ds  # noqa: E402
 
@@ -210,6 +210,75 @@ def f5_refusals(tmp: str) -> None:
                f"a ValueError mentioning '{want}'", ok)
 
 
+PAIRS_93 = {"dataset": ["6 recordings", "2 recordings", "3 recordings", "5 recordings", "1 recording", "2 days"],
+            "held_out": ["automatic", "one name", "two names", "last part", "a date"],
+            "fraction": [0.2, 0.3, 0.5]}
+
+
+def _pair_files(dataset: str) -> list:
+    d19 = files(day("19-02-2024"))
+    return {"6 recordings": d19, "2 recordings": files(day("12-01-2024") + "_2recs"),
+            "3 recordings": files(day("12-01-2024") + "_3recs"), "5 recordings": files(day("12-01-2024") + "_5recs"),
+            "1 recording": d19[:1], "2 days": sorted(d19 + files(day("16-02-2024")))}[dataset]
+
+
+def p_pairwise() -> None:
+    """Every pair of dataset, held-out kind and fraction: the split each gives is worked out here independently
+    (row counts read with pandas at 10 Hz) and compared; refusals only where the rules say so."""
+    for i, c in enumerate(all_pairs(PAIRS_93, 93)):
+        fs = _pair_files(c["dataset"])
+        order = sorted((ds.recording_name(p) for p in fs), key=ds._natural)
+        dates = sorted({ds.extract_date(p) for p in fs})
+        f = c["fraction"]
+        held, expect = None, None   # expect: ("refused", text) or (mode, held-out names)
+        if c["held_out"] == "automatic":
+            if len(dates) > 1:
+                expect = ("dates", [max(dates, key=lambda d: ds._parse_date(d))])
+            elif len(fs) == 1:
+                held, expect = None, ("time block", None)
+            else:
+                n = max(1, min(len(order) - 1, round(len(order) * f)))
+                expect = ("recordings", order[-n:])
+        elif c["held_out"] in ("one name", "two names"):
+            k = 1 if c["held_out"] == "one name" else 2
+            held = order[:k]
+            expect = ("refused", "Every recording is held out") if k >= len(order) else ("recordings", held)
+        elif c["held_out"] == "last part":
+            held = [f"{order[0]}::last{round(f * 100)}%"]
+            rows = len(pd.read_csv([p for p in fs if ds.recording_name(p) == order[0]][0]))
+            short = int(rows * f) < 600 or rows - int(rows * f) - 100 < 600   # 60 s each side, a 10 s gap, at 10 Hz
+            expect = ("refused", "too short") if short else ("time block", None)
+        else:
+            held = [dates[0]]
+            expect = ("refused", "no other day") if len(dates) == 1 else ("dates", [dates[0]])
+        problems = []
+        try:
+            sp = ds.split_by_date(fs, held, f)
+            ds.assert_disjoint(sp)
+            if expect[0] == "refused":
+                problems.append(f"split ({sp.mode}) where a refusal was expected: {expect[1]}")
+            elif sp.mode != expect[0]:
+                problems.append(f"mode {sp.mode}, expected {expect[0]}")
+            elif expect[1] is not None and sorted(sp.heldout_groups) != sorted(expect[1]):
+                problems.append(f"held out {sp.heldout_groups}, expected {expect[1]}")
+            if sp.mode == "time block":   # the part's rows: last floor(n*f), a 10 s gap, the rest trains
+                path, a, b = ds.parse_ref(sp.heldout_files[0])
+                n = len(pd.read_csv(path))
+                tr = [ds.parse_ref(r) for r in sp.train_files if ds.parse_ref(r)[0] == path][0]
+                if (a, b) != (n - int(n * f), n) or tr[1:] != (0, n - int(n * f) - 100):
+                    problems.append(f"rows held {a}-{b}, trained {tr[1]}-{tr[2]} of {n}")
+                if len(sp.train_files) != len(fs):
+                    problems.append("the other recordings don't train")
+            if (sp.warning is not None) != (len(dates) == 1):
+                problems.append("the one-session warning is missing, or shown for two days")
+        except ValueError as e:
+            if expect[0] != "refused" or expect[1] not in str(e):
+                problems.append(f"refused: {str(e)[:160]}")
+        record(F, f"P-{i}", "pairwise", json.dumps(c), f"all-pairs case {i + 1}: {c['dataset']}, {c['held_out']}, "
+               f"{f:g}", c["dataset"], {"held": held, "expected": expect, "problems": problems},
+               "the split worked out independently, or the refusal the rules give", not problems)
+
+
 def f6_regression() -> None:
     """Two or more dates: identical to data_split before #93."""
     old = _old_split()
@@ -337,6 +406,7 @@ def fast() -> int:
     f8_web()
     f9_flags()
     f10_density()
+    p_pairwise()
     shutil.rmtree(tmp, ignore_errors=True)
     return 0
 
@@ -752,7 +822,7 @@ def e2e(only=None) -> int:
     return 0
 
 
-ROWS_FAST = ("F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10")
+ROWS_FAST = ("F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "P")
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "fast"

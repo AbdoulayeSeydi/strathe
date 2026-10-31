@@ -28,7 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CAL = os.path.dirname(HERE)
 sys.path.insert(0, CAL)
 sys.path.insert(0, HERE)
-from common import record, strathe  # noqa: E402
+from common import all_pairs, record, strathe  # noqa: E402
 
 import vehicle_describe as VD  # noqa: E402
 from optimizer import load_vehicle_spec  # noqa: E402
@@ -396,9 +396,71 @@ def fuzz(n: int, seed: int = 95) -> None:
            not failed)
 
 
+PAIRS_95 = {"vehicle": ["blue", "alpha"], "scale": [0.7, 1.0, 1.3], "shape": ["auto", "box", "torpedo"],
+            "water": ["default", "fresh", "sea", "1010"], "inertia": ["no", "yes"], "cg": ["no", "yes"],
+            "net_buoyancy": ["no", "plus", "minus"], "reference_point": ["no", "yes"],
+            "thrusters": ["none", "preset", "layout", "allocation", "dfki"], "hull_lift": ["off", "on"],
+            "volume": ["no", "yes"]}
+
+
+def p_pairwise() -> None:
+    """Every pair of values of any two inputs in at least one description: each loads, and each input shows."""
+    thr = {"preset": "bluerov2_heavy", "layout": os.path.join(CAL, "templates", "ingest_csv_pwm_custom_thrusters.yaml"),
+           "allocation": os.path.join(DATA, "alloc_ingest.yaml"),
+           "dfki": os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml")}
+    with open(thr["allocation"], "w") as f:
+        yaml.safe_dump({"wrench": {"thrusters": {"allocation_csv": os.path.join(CAL, "templates", "allocation_template.csv"),
+                                                 "directions": [-1, -1, 1, 1, -1, 1, 1, -1]}}}, f)
+    for i, c in enumerate(all_pairs(PAIRS_95, 95)):
+        dims = {k: round(v * c["scale"], 6) for k, v in (BLUE if c["vehicle"] == "blue" else ALPHA).items()}
+        args = _args(dims)
+        auto = "box" if c["vehicle"] == "blue" else "torpedo"
+        shape = auto if c["shape"] == "auto" else c["shape"]
+        if c["shape"] != "auto":
+            args += ["--shape", c["shape"]]
+        if c["water"] != "default":
+            args += ["--water", c["water"]]
+        if c["inertia"] == "yes":
+            args += ["--inertia", *[f"{dims['mass'] * 0.01 * k:.5f}" for k in (1, 2, 2)]]
+        if c["cg"] == "yes":
+            args += ["--cg-below-cb", "0.01"]
+        nb = {"no": None, "plus": 2.0, "minus": -2.0}[c["net_buoyancy"]]
+        if nb is not None:
+            args += [f"--net-buoyancy={nb}"]
+        if c["reference_point"] == "yes":
+            args += ["--reference-point", "0.05", "0", "0.02"]
+        if c["thrusters"] != "none":
+            args += ["--thrusters", thr[c["thrusters"]]]
+        if c["hull_lift"] == "on":
+            args += ["--hull-lift"]
+        if c["volume"] == "yes":
+            args += ["--volume", f"{dims['mass'] / 1025:.6f}"]
+        out = os.path.join(DATA, f"P-{i}.yaml")
+        rc, s, text = describe(out, args)
+        problems = sane(s) if s else ["no spec: " + text.strip()[-200:]]
+        if not problems:
+            try:
+                load_vehicle_spec(out)
+            except Exception as e:
+                problems.append(f"doesn't load: {e}"[:200])
+            t = targets(s)
+            if shape not in s["metadata"]["description"]:
+                problems.append(f"shape {shape} not in the description")
+            if ("hull_lift" in s["calibration_targets"]) != (c["hull_lift"] == "on" and shape == "torpedo"):
+                problems.append("hull lift present when it shouldn't be, or missing")
+            if ("goes against the size" in text) != (shape != auto):
+                problems.append("the wrong-shape warning is missing, or shown when the shape is right")
+            if nb is not None and abs(t["net_buoyancy_z"]["initial_guess"] - nb) > 1e-6:
+                problems.append(f"net buoyancy start {t['net_buoyancy_z']['initial_guess']}, not {nb}")
+            if c["cg"] == "yes" and abs(t["cg_cb_offset_z"]["initial_guess"] - 0.01) > 1e-6:
+                problems.append("CG below CB not taken")
+        record(F, f"P-{i}", "pairwise", json.dumps(c), f"all-pairs case {i + 1}: describe-vehicle {' '.join(args)}",
+               c["vehicle"], {"exit": rc, "problems": problems}, "loads; every input shows", rc == 0 and not problems)
+
+
 def fast() -> int:
     os.makedirs(DATA, exist_ok=True)
-    for step in (g_inputs, m_models, x_refusals, w_web, t_thrusters_and_sizes):
+    for step in (g_inputs, m_models, x_refusals, w_web, t_thrusters_and_sizes, p_pairwise):
         try:
             step()
         except Exception as e:
@@ -629,13 +691,14 @@ def all_rows() -> set:
                                 "unknown_thrusters", "thrusters_without_block", "too_small")}
     rows |= {f"G-blue-thrusters-{n}" for n in ("layout", "allocation", "dfki-layout")}
     rows |= {"G-small-frame", "G-small-torpedo", "G-large-frame", "FZ-600"}
+    rows |= {f"P-{i}" for i in range(len(all_pairs(PAIRS_95, 95)))}
     rows |= {"W-measurements", "W-model", "W-torpedo", "W-cad-and-thrusters", "W-refuse-nothing",
              "W-refuse-model_without_kind", "W-refuse-two_inertia_values", "W-refuse-thrusters_file_missing",
              "M-bounds_not_scaled"}
     return rows | set(_e2e_rows())
 
 
-ROWS_FAST = ("G", "MS", "X", "W", "M", "FZ")
+ROWS_FAST = ("G", "MS", "X", "W", "M", "FZ", "P")
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "fast"

@@ -102,3 +102,31 @@ class TestSplitByDate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTimeBlockMinimum(unittest.TestCase):
+    def test_the_minimum_length_it_states_is_the_real_one(self):
+        """The refusal states the shortest recording that splits; at that length it splits, 1% shorter it doesn't
+        (the old formula was 10 s too long at 30% and 190 s too short at 95%)."""
+        import math
+        import os
+        import re
+        import tempfile
+        from data_split import _split_time_block
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "my_rov-05-01-2030-run1.csv")
+            for fraction in (0.05, 0.2, 0.3, 0.5, 0.8, 0.95):
+                with open(p, "w") as f:
+                    f.write("u\n" + "0\n" * 100)   # 10 s: too short at any fraction
+                with self.assertRaises(ValueError) as e:
+                    _split_time_block(p, fraction)
+                shortest = float(re.search(r"at least (\d+) s with", str(e.exception)).group(1))
+                for seconds, ok in ((shortest, True), (shortest * 0.99, False)):   # exact to the sample rounding
+                    with open(p, "w") as f:
+                        f.write("u\n" + "0\n" * int(math.ceil(seconds * 10)))
+                    if ok:
+                        _split_time_block(p, fraction)
+                    else:
+                        with self.assertRaises(ValueError):
+                            _split_time_block(p, fraction)
+
