@@ -48,6 +48,9 @@ class TestSplitByDate(unittest.TestCase):
         self.assertIn("within one session", result.warning)
         with self.assertRaises(ValueError):
             split_by_date(files, heldout_dates=["12-01-2024"])  # the only day can't be held out
+        # a whole recording and another's last part: said plainly, not "unknown recording" (found by fuzzing, #93)
+        with self.assertRaisesRegex(ValueError, "the last part of one, not both"):
+            split_by_date(files, heldout_dates=["odom-12-01-2024-run2", "odom-12-01-2024-run1::last30%"])
 
     def test_explicit_heldout_dates(self):
         files = [

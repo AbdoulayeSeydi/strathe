@@ -25,7 +25,7 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
                  "E": "End to end on real data"},
           "94": {"R": "Every real recording through each format, against the CSV route",
                  "V": "One variable at a time", "P": "All pairs of variables", "K": "Field kinds",
-                 "D": "Damaged logs", "S": "Size: a one-hour log", "X": "Refusals",
+                 "D": "Damaged logs", "DF": "Randomly damaged logs", "S": "Size: a one-hour log", "X": "Refusals",
                  "I": "Independent decoders (pyulog, plain text, lcm's own)",
                  "EP": "Entry points: ingest, calibrate --ingest-spec, the web card", "C": "strathe check",
                  "M": "Deliberate faults (each must be caught)", "E": "End to end on real data"},

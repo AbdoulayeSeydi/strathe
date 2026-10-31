@@ -321,6 +321,8 @@ def split_by_date(
     if not (0 < heldout_fraction < 1):
         raise ValueError(f"heldout_fraction must be strictly between 0 and 1, got {heldout_fraction}")
     heldout = None if heldout_dates is None else [str(h) for h in heldout_dates]
+    if heldout and any(LAST in h for h in heldout) and not all(LAST in h for h in heldout):
+        raise ValueError(f"Hold out whole recordings or the last part of one, not both: {heldout}")
     if heldout and all(LAST in h for h in heldout):
         if len(heldout) != 1:
             raise ValueError("hold out the last part of one recording only (e.g. my_rov-05-01-2030-run1::last30%)")

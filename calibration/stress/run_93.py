@@ -192,6 +192,9 @@ def f5_refusals(tmp: str) -> None:
          "between 0 and 1"),
         ("last part of two", lambda: ds.split_by_date(fs, heldout_dates=[f"{ds.recording_name(f)}::last30%"
                                                                           for f in fs[:2]]), "one recording only"),
+        ("whole and last part", lambda: ds.split_by_date(fs, heldout_dates=[ds.recording_name(fs[1]),
+                                                                             f"{ds.recording_name(fs[0])}::last30%"]),
+         "the last part of one, not both"),
         ("percent not a number", lambda: ds.split_by_date(fs[:1], heldout_dates=[f"{ds.recording_name(fs[0])}::lastx%"]),
          "percentage"),
         ("unknown date", lambda: ds.split_by_date(multi, heldout_dates=["01-01-1999"]), "Unknown heldout"),

@@ -512,6 +512,44 @@ def d_damage() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def d_fuzz(n: int = 40) -> None:
+    """Random damage, n logs per format: cut anywhere, bytes flipped, garbage inserted or a block wiped. Each must
+    ingest or be refused with a plain IngestError: never another exception."""
+    os.makedirs(DATA, exist_ok=True)
+    rng = np.random.default_rng(94)
+    for fmt in FORMATS:
+        r, vals, p, spec, folder = _one_log(fmt)
+        raw = open(p, "rb").read()
+        crashes, refused, read = [], 0, 0
+        for i in range(n):
+            b = bytearray(raw)
+            kind = ("cut", "flip", "insert", "wipe")[i % 4]
+            at = int(rng.integers(0, len(b)))
+            if kind == "cut":
+                b = b[:at]
+            elif kind == "flip":
+                for j in rng.integers(0, len(b), int(rng.integers(1, 50))):
+                    b[j] = int(rng.integers(0, 256))
+            elif kind == "insert":
+                b[at:at] = bytes(rng.integers(0, 256, int(rng.integers(1, 2000)), dtype=np.uint8))
+            else:
+                b[at:at + 2000] = bytes(min(2000, len(b) - at))
+            q = p.replace(os.path.basename(p), f"fuzz{i}_{os.path.basename(p)}")
+            open(q, "wb").write(bytes(b))
+            res = _damage_check(fmt, spec, q, folder, None, f"fuzz{i}")
+            os.remove(q)
+            if "crash" in res:
+                crashes.append({"damage": kind, "at": at, "error": res["crash"]})
+            elif "refused" in res:
+                refused += 1
+            else:
+                read += 1
+        record(F, f"DF-{fmt}", "damage", "random", f"{fmt}: {n} randomly damaged logs (cut, flipped, inserted, wiped)",
+               r.name, {"read": read, "refused_plainly": refused, "crashed": len(crashes), "first": crashes[:3]},
+               "each read or refused with a plain error; none crash", not crashes)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def _glob(p):
     import glob
     return glob.glob(p)
@@ -530,6 +568,8 @@ def _damage_check(fmt, spec, q, folder, clean, label) -> dict:
     except Exception as e:
         return {"ok": False, "crash": f"{type(e).__name__}: {e}"[:240]}
     got = pd.read_csv(_glob(os.path.join(out, "*.csv"))[0])
+    if clean is None:   # random damage: reading it without a crash is the check
+        return {"ok": True, "rows": len(got)}
     n = min(len(got), len(clean))
     head = float(np.max(np.abs(got[di.CANONICAL_COLUMNS].to_numpy()[: n // 2] -
                                clean[di.CANONICAL_COLUMNS].to_numpy()[: n // 2])))
@@ -803,7 +843,7 @@ def all_rows() -> set:
         rows |= {f"P-{f}-{i}" for i in range(len(pairwise_cases(PAIR_NAMES)))}
         rows |= {f"D-{f}-{d}" for d in ("truncated_50pct", "truncated_99pct", "corrupt_middle", "empty", "gap", "nan",
                                         "out_of_order", "duplicates", "missing_variable")}
-        rows |= {f"S-{f}", f"I-{f}", f"EP-{f}-ingest", f"EP-{f}-web", f"EP-{f}-calibrate"}
+        rows |= {f"S-{f}", f"I-{f}", f"EP-{f}-ingest", f"EP-{f}-web", f"EP-{f}-calibrate", f"DF-{f}"}
         rows |= {f"X-{f}-{x}" for x in ("time_block", "no_resample", "message_types",
                                        *(("stamp", "lcm_types_elsewhere") if f != "lcm" else ("lcm_without_types",)))}
         rows |= {f"E-bluerov-{f}", f"E-uri-{f}"}
@@ -959,7 +999,7 @@ def e_mujoco_routes() -> None:
 
 def fast() -> int:
     os.makedirs(DATA, exist_ok=True)
-    for step in (r_full, v_one_at_a_time, p_pairwise, k_field_kinds, d_damage, s_size, x_spec_rules, i_independent,
+    for step in (r_full, v_one_at_a_time, p_pairwise, k_field_kinds, d_damage, d_fuzz, s_size, x_spec_rules, i_independent,
                  e_entry_points, c_check):
         print(f"--- {step.__name__} ({time.strftime('%H:%M')})", flush=True)
         try:
