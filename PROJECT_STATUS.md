@@ -3322,7 +3322,7 @@ depends on the seed and suggest calibrating `describe-vehicle`'s description bes
   "Model structure"). Widening the torpedo limit as a frame's (enough to stop the largest inertia in 0.1 s: −1046
   instead of −154) didn't help: on the bay day both fits' replays blew up (NaN skill, too stiff for the 0.1 s step),
   and on the pond day the first fit ended worse than its start (error 1.44 against 0.319, and 1.11 against 0.31).
-  Rejected (branch `exp/torpedo-turning`, not merged).
+  Rejected, and the change not kept.
 - **Hull lift** (`--hull-lift`) on ALPHA RISE: the bay held out, −0.354 (roll and yaw drift over the whole replay,
   though better on 3 s windows); the pond held out, 0.209 with one more value stuck. It stays off by default.
 - **`describe-stonefish` on the bay day:** 0.06 below the hand-written description with seed 95, from one start or four.
