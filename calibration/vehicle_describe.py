@@ -40,6 +40,7 @@ CD_BROADSIDE = (0.03, 2.5)    # torpedo, side-on (sway, heave, and strip-theory 
 CD_BOX = (0.1, 3.0)           # an open frame, any face: porous to a solid plate with things hanging off it
 LINEAR_SPEED = 1.0            # m/s: linear drag limit = this x the quadratic limit
 STOP_TIME = 0.1               # s: an open frame's turning damping may stop its largest inertia this fast
+MIN_LENGTH, MIN_MASS = 0.05, 0.01   # m, kg: the smallest hull the limits are checked for (stress/run_95.py FZ rows)
 WATER = {"fresh": 1000.0, "sea": 1025.0}
 
 
@@ -52,6 +53,21 @@ def _inside(v: float, lo: float, hi: float) -> float:
     of the range inside (a fit started on a limit can't move off it in that direction's first step)."""
     margin = 0.02 * (hi - lo)
     return min(max(v, lo + margin), hi - margin)
+
+
+def _round(v: float) -> float:
+    """4 decimals, or 3 significant figures below 0.001 (a small hull's inertia would round to 0)."""
+    return round(v, 4) if abs(v) >= 1e-3 or abs(v) < 1e-9 else float(f"{v:.3g}")
+
+
+def _small_hull(b: dict) -> dict:
+    """A tiny hull's damping limits: the fixed upper limits (-0.05, -0.2, -0.5) can reach past the size-scaled lower
+    ones. A range out of order, or narrower than 2:1, gets an upper limit a tenth of its lower one; others are
+    unchanged."""
+    for k, (lo, hi, why) in b.items():
+        if lo < 0 and hi < 0.5 * lo:
+            b[k] = (lo, 0.1 * lo, f"{why}; upper limit a tenth of the lower for a small hull")
+    return b
 
 
 def torpedo_bounds(rho: float, L: float, D: float) -> dict:
@@ -73,7 +89,7 @@ def torpedo_bounds(rho: float, L: float, D: float) -> dict:
         b[k] = (-CD_BROADSIDE[1] * 3 * rot, -max(0.005 * rot, 0.05), "drag coefficient up to 3x sway's, for fins")
     for k, qk in (("Mq", "Mqq"), ("Nr", "Nrr")):
         b[k] = (b[qk][0], -0.2, "up to 1 rad/s x the quadratic limit")
-    return b
+    return _small_hull(b)
 
 
 def box_bounds(rho: float, L: float, W: float, H: float, m: float, inertia_hi=None) -> dict:
@@ -103,7 +119,7 @@ def box_bounds(rho: float, L: float, W: float, H: float, m: float, inertia_hi=No
         b[k] = (b[qk][0], -0.05, "up to 1 rad/s x the quadratic limit")
     for k in ("Xu_dot", "Yv_dot", "Zw_dot"):
         b[k] = (0.0, 4 * m, f"0 to 4x the mass ({4 * m:.3g} kg): an open frame carries 0.5-1.5x its mass of water")
-    return b
+    return _small_hull(b)
 
 
 def describe_hull(mass: float, length: float, *, width: Optional[float] = None, height: Optional[float] = None,
@@ -121,6 +137,9 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
             raise DescribeError(f"{k} must be above 0 (m), got {v}")
     if diameter is None and (width is None or height is None):
         raise DescribeError("give the vehicle's size: --width and --height (a frame), or --diameter (a round hull)")
+    if m < MIN_MASS or L < MIN_LENGTH:
+        raise DescribeError(f"a vehicle under {MIN_LENGTH * 100:g} cm or {MIN_MASS * 1000:g} g is smaller than Strathe's "
+                            f"limits are worked out for: check the units (kg and m), got {m:g} kg and {L:g} m")
     if diameter is not None:   # slender and round enough -> torpedo
         across, round_ = diameter, True
     else:
@@ -147,8 +166,8 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
 
     def put(group, key, guess, bounds, why):
         lo, hi = float(bounds[0]), float(bounds[1])
-        T[group][key].update({"initial_guess": round(_inside(float(guess), lo, hi), 4),
-                              "bounds": [round(lo, 4), round(hi, 4)], "source": src, "bounds_rationale": why,
+        T[group][key].update({"initial_guess": _round(_inside(float(guess), lo, hi)),
+                              "bounds": [_round(lo), _round(hi)], "source": src, "bounds_rationale": why,
                               "confidence": "estimated"})
         T[group][key].pop("reference", None)
 
@@ -440,9 +459,14 @@ def max_force_of(thrusters: Optional[str]) -> Optional[list]:
         if not os.path.exists(thrusters):
             raise DescribeError(f"--thrusters: {thrusters} isn't a file or a preset (bluerov2_heavy)")
         spec = yaml.safe_load(open(thrusters, encoding="utf-8"))
+        spec = spec if isinstance(spec, dict) else {}
         block = (spec.get("wrench") or {}).get("thrusters") or spec.get("thrusters") or spec
         block = {k: v for k, v in block.items() if k in tm.THRUSTER_BLOCK_KEYS}
-        cfg = tm.thruster_block(block, os.path.dirname(os.path.abspath(thrusters)))
+        try:
+            cfg = tm.thruster_block(block, os.path.dirname(os.path.abspath(thrusters)))
+        except (ValueError, OSError, KeyError, TypeError) as e:
+            raise DescribeError(f"--thrusters: {thrusters} has no usable thrusters block ({e}). Give an ingest spec "
+                                f"with one (templates/ingest_csv_pwm_custom_thrusters.yaml) or bluerov2_heavy") from e
     return [float(x) for x in np.abs(cfg.max_wrench()[:3])]
 
 

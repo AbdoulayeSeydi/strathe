@@ -13,7 +13,10 @@ value the hand-spec calibration found inside the generated limits; no more value
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import math
 import os
 import shutil
 import sys
@@ -28,6 +31,7 @@ sys.path.insert(0, HERE)
 from common import record, strathe  # noqa: E402
 
 import vehicle_describe as VD  # noqa: E402
+from optimizer import load_vehicle_spec  # noqa: E402
 
 F = "95"
 DATA = os.path.expanduser("~/strathe_describe_data")
@@ -237,7 +241,8 @@ def x_refusals() -> None:
              ("bad inertia", ["--mass", "10", "--length", "1", "--diameter", "0.2", "--inertia", "1", "0", "1"],
               "three values above 0"),
              ("unknown thrusters", ["--mass", "10", "--length", "1", "--diameter", "0.2", "--thrusters", "nope"],
-              "isn't a file or a preset")]
+              "isn't a file or a preset"),
+             ("too small", ["--mass", "0.0005", "--length", "0.04", "--diameter", "0.004"], "check the units")]
     for label, args, want in cases:
         out = os.path.join(DATA, f"X-{label.replace(' ', '_')}.yaml")
         rc, s, text = describe(out, args)
@@ -282,9 +287,106 @@ def w_web() -> None:
                {"message": msg}, "a plain refusal", ok)
 
 
+def t_thrusters_and_sizes() -> None:
+    """--thrusters from a preset, a layout and an allocation matrix (the same Heavy each way), DFKI's 6-thruster layout,
+    a file without a thrusters block; the smallest hulls; and random inputs at every size (each must load)."""
+    preset = VD.max_force_of("bluerov2_heavy")
+    alloc = os.path.join(DATA, "alloc_ingest.yaml")
+    with open(alloc, "w") as f:
+        yaml.safe_dump({"wrench": {"thrusters": {"allocation_csv": os.path.join(CAL, "templates", "allocation_template.csv"),
+                                                 "directions": [-1, -1, 1, 1, -1, 1, 1, -1]}}}, f)
+    for name, path, check in (
+            ("layout", os.path.join(CAL, "templates", "ingest_csv_pwm_custom_thrusters.yaml"),
+             lambda f: all(abs(a / b - 1) < 0.01 for a, b in zip(f, preset))),
+            ("allocation", alloc, lambda f: all(abs(a / b - 1) < 1e-6 for a, b in zip(f, preset))),
+            ("dfki-layout", os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml"),
+             lambda f: abs(f[0] / preset[0] - 1) < 0.15 and 0.35 < f[2] / preset[2] < 0.55)):
+        rc, s, text = describe(os.path.join(DATA, f"G-blue-thrusters-{name}.yaml"), _args(BLUE) + ["--thrusters", path])
+        force = VD.max_force_of(path)
+        record(F, f"G-blue-thrusters-{name}", "thrusters", name, f"blue: --thrusters from a {name}", "blue",
+               {"exit": rc, "max_force_N": [round(x, 1) for x in force], "preset_N": [round(x, 1) for x in preset],
+                "problems": sane(s) if s else "no spec"},
+               "loads; the force matches the Heavy's (DFKI: the same sideways, about half the heave: 2 vertical, not 4)",
+               rc == 0 and s is not None and not sane(s) and check(force))
+    empty = os.path.join(DATA, "no_thrusters.yaml")
+    open(empty, "w").write("source:\n  format: csv\n")
+    rc, _, text = describe(os.path.join(DATA, "X-thrusters_without_block.yaml"), _args(BLUE) + ["--thrusters", empty])
+    record(F, "X-thrusters_without_block", "refusal", "thrusters without a block", "refused: a --thrusters file with "
+           "no thrusters block", "-", {"exit": rc, "said": text.strip().splitlines()[-1][:200] if text.strip() else ""},
+           "a plain refusal mentioning 'no usable thrusters block'",
+           rc != 0 and "no usable thrusters block" in text and "Traceback" not in text)
+    for name, args in (("small-frame", ["--mass", "0.075", "--length", "0.05", "--width", "0.05", "--height", "0.03"]),
+                       ("small-torpedo", ["--mass", "0.43", "--length", "0.3", "--diameter", "0.043"]),
+                       ("large-frame", ["--mass", "20000", "--length", "6", "--width", "3", "--height", "2.5"])):
+        out = os.path.join(DATA, f"G-{name}.yaml")
+        rc, s, text = describe(out, args)
+        problems = sane(s) if s else ["no spec: " + text.strip()[-150:]]
+        if not problems:
+            try:
+                load_vehicle_spec(out)
+            except Exception as e:
+                problems = [str(e)[:150]]
+        record(F, f"G-{name}", "size", name, f"describe-vehicle {' '.join(args)}", "-", {"exit": rc, "problems": problems},
+               "loads as calibrate loads it; limits in order", rc == 0 and not problems)
+    fuzz(600)
+
+
+def fuzz(n: int, seed: int = 95) -> None:
+    """Random inputs (size 5 cm to 10 m, either shape, every optional input): each description must load."""
+    import random
+    import strathe_cli as cli
+    from optimizer import initial_parameters
+    rnd = random.Random(seed)
+    thr = ["bluerov2_heavy", os.path.join(CAL, "templates", "ingest_csv_pwm_custom_thrusters.yaml"),
+           os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml")]
+    failed = []
+    for i in range(n):
+        L = 10 ** rnd.uniform(-1.3, 1.0)
+        args = ["describe-vehicle", "--length", f"{L:.5f}"]
+        if rnd.random() < 0.5:
+            D = L / rnd.uniform(2, 15)
+            vol = math.pi * D * D / 4 * L
+            args += ["--diameter", f"{D:.6f}"]
+        else:
+            W, H = L * rnd.uniform(0.3, 2), L * rnd.uniform(0.2, 1.2)
+            vol = L * W * H
+            args += ["--width", f"{W:.6f}", "--height", f"{H:.6f}"]
+        m = max(1000 * vol * rnd.uniform(0.1, 1.0), VD.MIN_MASS)
+        args += ["--mass", f"{m:.6f}"]
+        if rnd.random() < 0.3:
+            args += ["--shape", rnd.choice(["box", "torpedo"])]
+        if rnd.random() < 0.3:
+            args += ["--water", rnd.choice(["fresh", "sea", "1010"])]
+        if rnd.random() < 0.3:
+            args += ["--inertia", *[f"{m * L * L * rnd.uniform(0.005, 0.2):.8f}" for _ in range(3)]]
+        if rnd.random() < 0.3:
+            args += [f"--cg-below-cb={rnd.uniform(-0.06, 0.1) * L:.6f}"]
+        if rnd.random() < 0.3:
+            args += [f"--net-buoyancy={rnd.uniform(-0.1, 0.1) * m * 9.81:.6f}"]
+        if rnd.random() < 0.3:
+            args += ["--reference-point", *[f"{rnd.uniform(-0.3, 0.3) * L:.5f}" for _ in range(3)]]
+        if rnd.random() < 0.3:
+            args += ["--thrusters", rnd.choice(thr)]
+        if rnd.random() < 0.2:
+            args += ["--hull-lift"]
+        out = os.path.join(DATA, "fuzz.yaml")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                rc = cli.main(args + ["--out", out])
+            if rc != 0:
+                raise RuntimeError(f"exit {rc}")
+            spec = load_vehicle_spec(out)
+            initial_parameters(spec)
+        except BaseException as e:   # SystemExit from argparse too
+            failed.append({"args": " ".join(args[1:]), "error": f"{type(e).__name__}: {str(e)[:120]}"})
+    record(F, f"FZ-{n}", "fuzz", "random inputs", f"{n} random descriptions, 5 cm to 10 m and 10 g up, every optional input", "-",
+           {"tried": n, "failed": len(failed), "first_failures": failed[:3]}, "every one loads as calibrate loads it",
+           not failed)
+
+
 def fast() -> int:
     os.makedirs(DATA, exist_ok=True)
-    for step in (g_inputs, m_models, x_refusals, w_web):
+    for step in (g_inputs, m_models, x_refusals, w_web, t_thrusters_and_sizes):
         try:
             step()
         except Exception as e:
@@ -512,13 +614,15 @@ def all_rows() -> set:
                                  "holoocean-example-sized")}
     rows |= {f"X-{n}" for n in ("no_size", "zero_length", "negative_width", "no_mass", "missing_model",
                                 "model_without_mass", "holoocean_without_size", "bad_water", "bad_inertia",
-                                "unknown_thrusters")}
+                                "unknown_thrusters", "thrusters_without_block", "too_small")}
+    rows |= {f"G-blue-thrusters-{n}" for n in ("layout", "allocation", "dfki-layout")}
+    rows |= {"G-small-frame", "G-small-torpedo", "G-large-frame", "FZ-600"}
     rows |= {"W-measurements", "W-model", "W-torpedo", "W-refuse-nothing", "W-refuse-model_without_kind",
              "M-bounds_not_scaled"}
     return rows | set(_e2e_rows())
 
 
-ROWS_FAST = ("G", "MS", "X", "W", "M")
+ROWS_FAST = ("G", "MS", "X", "W", "M", "FZ")
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "fast"

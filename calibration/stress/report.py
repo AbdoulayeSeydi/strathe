@@ -30,7 +30,7 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
                  "EP": "Entry points: ingest, calibrate --ingest-spec, the web card", "C": "strathe check",
                  "M": "Deliberate faults (each must be caught)", "E": "End to end on real data"},
           "95": {"G": "Inputs, each varied", "MS": "Model sources", "X": "Refusals", "W": "The web card",
-                 "M": "Deliberate faults (each must be caught)", "E": "End to end on real data"}}
+                 "M": "Deliberate faults (each must be caught)", "FZ": "Random inputs (fuzz)", "E": "End to end on real data"}}
 
 
 def _group(feature: str, row: str) -> str:

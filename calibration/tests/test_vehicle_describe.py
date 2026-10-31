@@ -146,3 +146,38 @@ def test_strathe_and_the_web_page_build_it(tmp_path):
         web.describe_vehicle_cli_args({})
     with pytest.raises(ValueError, match="Gazebo, URDF"):
         web.describe_vehicle_cli_args({"from_model": os.path.join(CAL, "simulators", "mujoco", "example", "auv.xml")})
+
+
+@pytest.mark.parametrize("kw", [dict(mass=0.075, length=0.05, width=0.05, height=0.03),     # a 5 cm, 75 g frame
+                                dict(mass=0.43, length=0.3, diameter=0.043),                # a 30 cm torpedo
+                                dict(mass=0.014, length=0.137, diameter=0.0137)])           # 14 g: inertia ~1e-5
+def test_a_small_hull_gets_limits_in_order_and_a_description_that_loads(tmp_path, kw):
+    """The fixed upper damping limits (-0.05, -0.2) used to sit below a small hull's size-scaled lower ones, and its
+    inertia rounded to 0: the description didn't load."""
+    spec, _ = VD.describe_hull(**kw)
+    for k, v in _t(spec).items():
+        lo, hi = v["bounds"]
+        assert lo < hi and lo <= v["initial_guess"] <= hi, k
+        if lo < 0:
+            assert hi >= 0.5 * lo, k   # at least 2:1 wide
+    assert all(_t(spec)[k]["initial_guess"] > 0 for k in ("Ieff_roll", "Ieff_pitch", "Ieff_yaw"))
+    p = tmp_path / "s.yaml"
+    p.write_text(yaml.safe_dump(spec))
+    load_vehicle_spec(str(p))
+
+
+def test_the_thrusters_from_a_preset_a_layout_or_an_allocation_matrix(tmp_path):
+    preset = VD.max_force_of("bluerov2_heavy")
+    layout = VD.max_force_of(os.path.join(CAL, "templates", "ingest_csv_pwm_custom_thrusters.yaml"))  # a Heavy's layout
+    alloc = tmp_path / "alloc.yaml"
+    alloc.write_text(yaml.safe_dump({"wrench": {"thrusters": {
+        "allocation_csv": os.path.join(CAL, "templates", "allocation_template.csv"),
+        "directions": [-1, -1, 1, 1, -1, 1, 1, -1]}}}))
+    assert layout == pytest.approx(preset, rel=0.01)
+    assert VD.max_force_of(str(alloc)) == pytest.approx(preset, rel=1e-6)
+    dfki = VD.max_force_of(os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml"))
+    assert dfki[0] == pytest.approx(preset[0], rel=0.15) and 0.35 < dfki[2] / preset[2] < 0.55   # 2 vertical, not 4
+    empty = tmp_path / "no_thrusters.yaml"
+    empty.write_text("source:\n  format: csv\n")
+    with pytest.raises(VD.DescribeError, match="no usable thrusters block"):
+        VD.max_force_of(str(empty))
