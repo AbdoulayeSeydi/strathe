@@ -511,6 +511,9 @@ def _e2e_rows() -> dict:
     rows["E19-fit_sim_gazebo"] = e19_fit_sim_gazebo
     rows["E20-fit_stonefish"] = e20_fit_stonefish
     rows["E21-export_stonefish"] = e21_export_stonefish
+    rows["E25-export_sim_mujoco"] = e25_export_sim_mujoco
+    rows["E25b-export_sim_gazebo"] = e25b_export_sim_gazebo
+    rows["E26-fit_noise"] = e26_fit_noise
     rows["E22-web"] = e22_web
     rows["E23-sound_untouched"] = e23_sound_untouched
     rows["E24-wandering"] = e24_wandering
@@ -661,6 +664,39 @@ def e21_export_stonefish() -> None:
              ["export-stonefish", "--calibration", os.path.expanduser("~/strathe_uri_lab_v2/runs/cal_B0r1_pondout"),
               "--mass", "33", *URI_SF, "--heldout-recordings", "alpha_rise-27-03-2026-run1::last30%",
               "--replay-tool", "docker"], os.path.join(DATA, "uri_pond"), "stonefish_export_report.md")
+
+
+def e25_export_sim_mujoco() -> None:
+    """MuJoCo can't hold Strathe's model (no per-axis linear damping, no buoyancy moment): export-sim says so plainly."""
+    row, res = "E25-export_sim_mujoco", os.path.join(OUT, "E4-bluerov_19-02-2024")
+    rc, secs = strathe(["export-sim", "--sim", "mujoco", "--model", _mjcf(), "--reference-point", "0", "0", "0",
+                        "--calibration", res, "--data", day("19-02-2024"), "--out", os.path.join(OUT, row)],
+                       os.path.join(OUT, f"{row}.log"))
+    log = open(os.path.join(OUT, f"{row}.log"), encoding="utf-8").read()
+    record(F, row, "refusal", "export-sim --sim mujoco", "export-sim to MuJoCo on one session: a plain refusal",
+           day("19-02-2024"), {"exit": rc}, "exit 2, naming what MuJoCo lacks and fit-sim instead",
+           rc == 2 and "fit-sim --sim mujoco" in log and "Traceback" not in log, secs)
+
+
+def e25b_export_sim_gazebo() -> None:
+    """export-sim scores a calibration in Gazebo on the held-out part: the one-session split must reach it."""
+    H = os.path.expanduser("~/strathe_gz_public")
+    _sim_fit("E25b-export_sim_gazebo", "simfit/runner.py (export)",
+             ["export-sim", "--sim", "gazebo", "--world",
+              os.path.join(CAL, "simulators", "gazebo", "example_bluerov2_gz", "world.sdf"),
+              "--model-file", f"{H}/bluerov2_gz/models/bluerov2_heavy/model.sdf", "--resource-path",
+              f"{H}/bluerov2_gz/models", "--reference-point", "0", "0", "0",
+              "--calibration", os.path.join(OUT, "E4-bluerov_19-02-2024"), "--workers", "3"], day("19-02-2024"),
+             "gazebo_export_report.md")
+
+
+def e26_fit_noise() -> None:
+    """fit-noise reads every recording (it holds nothing out): one field day must work as before."""
+    row, out = "E26-fit_noise", os.path.join(OUT, "E26-fit_noise.yaml")
+    rc, secs = strathe(["fit-noise", "--data", day("19-02-2024"), "--out", out], os.path.join(OUT, f"{row}.log"))
+    ok = rc == 0 and os.path.exists(out) and bool(yaml.safe_load(open(out)))
+    record(F, row, "consumer", "fit-noise", "fit-noise on one session", day("19-02-2024"), {"exit": rc,
+           "written": os.path.exists(out)}, "completes and writes the noise file", ok, secs)
 
 
 def e22_web() -> None:

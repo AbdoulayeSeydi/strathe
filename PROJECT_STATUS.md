@@ -3123,8 +3123,10 @@ Three rows, each rerunning a real fit from before the fix with the same seed:
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **106 of 107 rows pass.** The one that fails is E8, the
-failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24.
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **109 of 110 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24. E25, E25b and E26 cover the commands
+that hadn't been run on one day: `export-sim --sim mujoco` refuses plainly (it says to use `fit-sim --sim mujoco`),
+`export-sim gazebo` scores a one-day calibration in bluerov2_gz, and `fit-noise` fits from one day.
 - **Coverage:** an inventory of 36 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**
@@ -3279,9 +3281,15 @@ than predicting no motion):
 | ALPHA RISE | its Stonefish model, 4 starts as it advises | bay day | 0.183 | **0.123** | 11 / 9 | no: the same fit: the first start was the best |
 
 **How wrong can the measurements be?** The BlueROV2's description from its size, with one input off at a time, scored
-0.428 to 0.438 against 0.435 with the right values and 0.379 hand-written: mass −30% 0.428, +30% 0.438; length −30%
-0.432, +30% 0.437; width −30% 0.430; height +30% 0.437; sea water for a tank 0.435 (the density moves only the starting
-values and a few limits by 2.5%, and the fit lands on the same answer). A tape measure and a bathroom scale are enough.
+0.428 to 0.439 against 0.435 with the right values and 0.379 hand-written: mass −30% 0.428, +30% 0.438; length −30%
+0.432, +30% 0.437; width −30% 0.430, +30% 0.439; height −30% 0.435, +30% 0.437; sea water for a tank 0.435 (the
+density moves only the starting values and a few limits by 2.5%, and the fit lands on the same answer). A tape measure
+and a bathroom scale are enough.
+
+**In a simulator too.** Both BlueROV2 calibrations, the hand-written description's and the one from its size, put into
+bluerov2_gz with `export-sim gazebo` and scored there on the held-out days: neither diverged; 30-s drift 5.41 m
+against 4.98 m (9% further, inside the 10% allowed); 10-s velocity error lower on five of six axes (pitch 0.21
+against 0.37 rad/s), higher on sway (0.103 against 0.097 m/s).
 
 **What a wrong input costs, and what Strathe says:**
 - **A model's buoyancy block read as the hull** (bluerov2_gz): drag limits too small, 0.312 (sway 0.51 → 0.21). With
@@ -3319,9 +3327,9 @@ depends on the seed and suggest calibrating `describe-vehicle`'s description bes
 - Meshes aren't measured: a model with only meshes needs the size given.
 - Not yet used by a lab on its own vehicle.
 
-**Stress test** (`calibration/stress/run_95.py`; `STRESS_TEST_93_95.md`): 113 rows, 105 pass: 55 generated descriptions
+**Stress test** (`calibration/stress/run_95.py`; `STRESS_TEST_93_95.md`): 116 rows, 108 pass: 55 generated descriptions
 (every input at every value), 11 from simulator models, 10 refusals, 5 web, 1 mutant (limits not scaled with the size:
-caught), 31 calibrations. The 8 that fail are the ALPHA RISE rows marked "no" above and the two hull-lift rows below.
+caught), 33 calibrations and 1 Gazebo comparison. The 8 that fail are the ALPHA RISE rows marked "no" above and the two hull-lift rows below.
 
 **Tests:** `tests/test_vehicle_describe.py` (fast), the coverage gate, and the real-data rows above (skipped when the
 data isn't present).

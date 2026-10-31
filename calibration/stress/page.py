@@ -44,6 +44,7 @@ MAIN_95 = [("E-blue-dims", "BlueROV2 Heavy", "published size and mass", "16, 19 
            ("E-alpha-describe-stonefish-bayout-r4", "ALPHA RISE", "describe-stonefish, 4 starting points", "bay day")]
 SENS_95 = [("E-blue-mass-0.7", "mass −30%"), ("E-blue-mass-1.3", "mass +30%"), ("E-blue-length-0.7", "length −30%"),
            ("E-blue-length-1.3", "length +30%"), ("E-blue-width-0.7", "width −30%"),
+           ("E-blue-width-1.3", "width +30%"), ("E-blue-height-0.7", "height −30%"),
            ("E-blue-height-1.3", "height +30%"), ("E-blue-sea", "sea water (it was a tank)")]
 WRONG_95 = [("E-blue-gz-raw", "BlueROV2: bluerov2_gz as it is", "its 5 cm buoyancy block read as the hull",
              "“thinner than the others … give the hull's real size”"),

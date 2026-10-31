@@ -117,7 +117,7 @@ in different places; LIMITS.md) or on a model a little off the real size. `descr
 below on the bay day, with one start or four (seed 95): calibrate this command's description too
 (`stonefish/README.md`).
 
-- **Measurements off by up to 30%** (mass, length, width or height, one at a time, on the BlueROV2): 0.428 to 0.438,
+- **Measurements off by up to 30%** (mass, length, width or height, one at a time, on the BlueROV2): 0.428 to 0.439,
   against 0.435 with the right values. A tape measure and a bathroom scale are enough.
 - **Four starting points** (`--restarts 4`) on the BlueROV2 found the same fit as one, for both descriptions, at 3 to
   5.5× the time.

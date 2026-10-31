@@ -396,7 +396,8 @@ def e2e(only=None) -> int:
          "the model's buoyancy block read as the hull; Strathe says to give the size")
     blue("blue-urdf", ["--from-model", os.path.join(DATA, "bluerov2.urdf"), "--sim", "urdf", "--height", "0.254"] +
          BLUE_CONV, "BlueROV2 from a URDF")
-    for key, f in (("length", 0.7), ("length", 1.3), ("mass", 0.7), ("mass", 1.3), ("width", 0.7), ("height", 1.3)):
+    for key, f in (("length", 0.7), ("length", 1.3), ("mass", 0.7), ("mass", 1.3), ("width", 0.7), ("width", 1.3),
+                   ("height", 0.7), ("height", 1.3)):
         blue(f"blue-{key}-{f}", _args({**BLUE, key: round(BLUE[key] * f, 6)}) + BLUE_CONV,
              f"BlueROV2, {key} off by {round((f - 1) * 100):+d}%")
     blue("blue-as-torpedo", _args(BLUE) + BLUE_CONV + ["--shape", "torpedo"], "BlueROV2 described as a torpedo",
@@ -410,6 +411,31 @@ def e2e(only=None) -> int:
         compare("E-blue-restarts4", hand, calibrate("blue-dims-r4", BLUEROV, gs, blue_held + ["--restarts", "4"]), gs,
                 "BlueROV2 from its size, 4 starting points", "bluerov2")
     rows["E-blue-restarts4"] = blue_restarts
+
+    def blue_gazebo():   # the calibrations from both descriptions, put into bluerov2_gz and scored there (Docker)
+        H = os.path.expanduser("~/strathe_gz_public")
+        got = {}
+        for name in ("blue-hand", "blue-dims"):
+            out = os.path.join(DATA, "gz_export", name)
+            if not os.path.exists(os.path.join(out, "gazebo_export.yaml")):
+                shutil.rmtree(out, ignore_errors=True)
+                strathe(["export-sim", "--sim", "gazebo", "--world",
+                         os.path.join(CAL, "simulators", "gazebo", "example_bluerov2_gz", "world.sdf"), "--model-file",
+                         f"{H}/bluerov2_gz/models/bluerov2_heavy/model.sdf", "--resource-path", f"{H}/bluerov2_gz/models",
+                         "--reference-point", "0", "0", "0", "--calibration", os.path.join(DATA, "cal", name),
+                         "--data", BLUEROV, "--workers", "3", "--out", out], out + ".log")
+            p = os.path.join(out, "gazebo_export.yaml")
+            h = yaml.safe_load(open(p))["heldout"]["Gazebo with Strathe's values"] if os.path.exists(p) else None
+            got[name] = h and {"drift_30s_median_m": h["30s"]["drift_median_m"], "diverged": h["diverged"],
+                               "velocity_rmse_10s": h["10s"]["velocity_rmse"]}
+        a, b = got["blue-hand"], got["blue-dims"]
+        ok = bool(a and b) and b["diverged"] <= a["diverged"] and b["drift_30s_median_m"] <= 1.1 * a["drift_30s_median_m"]
+        record(F, "E-blue-gazebo-export", "calibration", "export-sim gazebo",
+               "BlueROV2: each description's calibration put into bluerov2_gz (Gazebo), scored on the held-out days",
+               "bluerov2 (16, 19 Feb held out)", {"hand": a, "generated": b},
+               "the generated description's calibration drifts no more than 10% further than the hand-written one's",
+               ok)
+    rows["E-blue-gazebo-export"] = blue_gazebo
 
     def dfki():
         hand = calibrate("dfki-hand", DFKI, HAND_BLUEROV, ["--skip-identifiability"])
