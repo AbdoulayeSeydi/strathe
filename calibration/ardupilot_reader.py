@@ -72,7 +72,8 @@ def _instance(msg) -> Optional[int]:
 
 
 def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns: Sequence[str] = (),
-             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None) -> tuple:
+             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None,
+             native_columns: Sequence[str] = (), span_exempt: Sequence[str] = ()) -> tuple:
     """Returns (DataFrame with the time column + one column per reference on a uniform grid, report)."""
     try:
         from pymavlink import mavutil
@@ -169,7 +170,8 @@ def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns
         clock = "time since boot (no GPS time in the log)" if boot_clock else "log clock (GPS time)"
     df, report = series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report,
                                 {k: clock for k in series}, ArduPilotLogError, angle_columns=angle_columns,
-                                source_word="message type")
+                                source_word="message type",
+                                native_columns=native_columns, span_exempt=span_exempt)
     report["clock"] = clock
     if boot_clock:
         report["recording_start_unix_s"] = None

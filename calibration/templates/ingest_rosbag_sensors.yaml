@@ -1,0 +1,56 @@
+# Ingest spec: a ROS vehicle's own sensors, read from its bags, with or without a DVL:
+# an IMU (sensor_msgs/Imu), a pressure sensor (sensor_msgs/FluidPressure), GPS at the surface
+# (sensor_msgs/NavSatFix), a USBL fix (geometry_msgs/PoseStamped or similar), a DVL.
+#     python strathe.py ingest --spec this_file.yaml --out ingested/
+# Each sensor's readings are placed where they happened, never interpolated, and checked
+# (calibration/SENSORS.md). Don't use a filtered odometry (robot_localization's
+# /odometry/filtered) as a sensor: it usually fuses the DVL and a model.
+
+vehicle: my_auv
+source:
+  files: "bags/*"
+  format: rosbag
+resample_hz: 10
+session_date: {from: recording}
+frame: flu                     # REP-103: FLU body, ENU world
+body_velocity:
+  columns:
+    p: /imu/data.angular_velocity.x
+    q: /imu/data.angular_velocity.y
+    r: /imu/data.angular_velocity.z
+    # with a DVL, add its body velocity, and keep its gaps (no reading = no reading):
+    # u: /dvl/twist.twist.twist.linear.x
+    # v: /dvl/twist.twist.twist.linear.y
+    # w: /dvl/twist.twist.twist.linear.z
+  # linear_gaps: keep
+orientation:
+  quaternion: {x: /imu/data.orientation.x, y: /imu/data.orientation.y, z: /imu/data.orientation.z,
+               w: /imu/data.orientation.w}
+depth:
+  name: baro
+  pressure: {column: /pressure.fluid_pressure, unit: Pa, water: salt, surface: auto}
+  # or a depth reading: column: /depth.data, positive: down
+position:
+  - use: calibrate
+    source: gps                # a fix only at the surface
+    latlon: {lat: /gps/fix.latitude, lon: /gps/fix.longitude}
+    drop_when:
+      - {column: /gps/fix.status.status, below: 0}   # -1: no fix
+  - use: calibrate
+    source: usbl
+    name: usbl
+    x: /usbl/pose.pose.position.x   # in the world frame (ENU here, frame: flu)
+    y: /usbl/pose.pose.position.y
+    z: /usbl/pose.pose.position.z
+    delay_s: 0.0               # the fix's latency, if you know it
+accelerometer:
+  x: /imu/data.linear_acceleration.x   # ROS IMUs report +9.81 on z at rest: that's right, keep it
+  y: /imu/data.linear_acceleration.y
+  z: /imu/data.linear_acceleration.z
+wrench:
+  thrusters:
+    pwm_columns: ["/mavros/rc/out.channels[0]", "/mavros/rc/out.channels[1]", "/mavros/rc/out.channels[2]",
+                  "/mavros/rc/out.channels[3]", "/mavros/rc/out.channels[4]", "/mavros/rc/out.channels[5]",
+                  "/mavros/rc/out.channels[6]", "/mavros/rc/out.channels[7]"]
+    preset: bluerov2_heavy
+    voltage: 15.0

@@ -49,7 +49,8 @@ def _key(value: str, key: str) -> Optional[str]:
 
 
 def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns: Sequence[str] = (),
-             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None) -> tuple:
+             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None,
+             native_columns: Sequence[str] = (), span_exempt: Sequence[str] = ()) -> tuple:
     """Returns (DataFrame with the time column + one column per reference on a uniform grid, report)."""
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
         raise MoosLogError(f"{path}: empty or missing log file")
@@ -126,7 +127,8 @@ def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns
                     del series[r]
     df, report = series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report,
                                 {k: "MOOS log clock (LOGSTART + seconds)" for k in series}, MoosLogError,
-                                angle_columns=angle_columns, source_word="variable")
+                                angle_columns=angle_columns, source_word="variable",
+                                native_columns=native_columns, span_exempt=span_exempt)
     report["clock"] = "MOOS log clock (LOGSTART + seconds)"
     return df, report
 

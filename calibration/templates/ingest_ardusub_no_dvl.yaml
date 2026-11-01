@@ -1,0 +1,45 @@
+# Ingest spec: an ArduSub vehicle with NO DVL (.bin DataFlash logs), from what it does measure:
+# the IMU (gyro, accelerometer), the attitude, the external depth sensor (Bar30 / Bar02), and,
+# if it has one, a position fix (a USBL or GPS fed to the autopilot as GPS, e.g. Water Linked UGPS).
+#     python strathe.py ingest --spec this_file.yaml --out ingested/
+# Which axes these sensors can calibrate, and which they can't: calibration/SENSORS.md.
+#
+# Columns are <MESSAGE>.<field>; [i] picks one instance (IMU[0], BARO[1]). List what your log has
+# with `mavlogdump.py --types my.bin` (pymavlink) or Mission Planner. Don't use XKF1 velocity
+# without a DVL: it's the EKF's dead reckoning, not a measurement.
+
+vehicle: my_bluerov2
+source:
+  files: "logs/*.bin"
+  format: ardupilot
+resample_hz: 10
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+frame: frd                     # ArduPilot is FRD body / NED world
+body_velocity:                 # no u, v, w: there's no DVL. The gyro only:
+  columns:
+    p: IMU[0].GyrX             # rad/s
+    q: IMU[0].GyrY
+    r: IMU[0].GyrZ
+  angular_unit: rad/s
+orientation:
+  euler: {roll: ATT.Roll, pitch: ATT.Pitch, yaw: ATT.Yaw, unit: deg}
+depth:
+  name: bar30
+  # BARO[1] is the external (water) pressure sensor on ArduSub; BARO[0] is the one inside the enclosure
+  pressure: {column: "BARO[1].Press", unit: Pa, water: fresh, surface: auto}   # water: salt at sea
+accelerometer:                 # optional: the raw IMU's specific force (m/s^2, gravity included)
+  x: IMU[0].AccX
+  y: IMU[0].AccY
+  z: IMU[0].AccZ
+# position:                    # uncomment if the vehicle has a USBL / UGPS reported as GPS
+#   use: calibrate
+#   source: usbl               # the outlier check's tolerance; set noise_m: to your system's accuracy
+#   latlon: {lat: GPS.Lat, lon: GPS.Lng}
+#   drop_when:
+#     - {column: GPS.Status, below: 3}   # 3: a 3-D fix
+#   delay_s: 0.0               # a USBL fix arrives late: its latency in seconds, if you know it
+wrench:
+  thrusters:
+    pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]
+    preset: bluerov2_heavy
+    voltage: 15.0

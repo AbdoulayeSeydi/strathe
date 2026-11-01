@@ -26,6 +26,8 @@ can pin down, and writes a plain-language report. To only convert:
 | Free-decay tank tests on an ArduSub vehicle, for roll and pitch (`strathe free-decay`; `../FREE_DECAY_PROTOCOL.md`) | `ingest_free_decay_ardupilot.yaml` |
 | CSV logs (any logger: DUNE, vendor software, MATLAB) with **normalized** thruster commands (e.g. −1..1) plus your command-to-thrust table | `ingest_csv_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
 | ROS 1 / ROS 2 bags with an EKF (`nav_msgs/Odometry`) or DVL and **normalized** thruster commands (array topic, one topic per thruster, or a custom message) | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
+| **No DVL**: an ArduSub vehicle's IMU, depth sensor and (if it has one) a USBL/UGPS fix, from `.bin` logs | `ingest_ardusub_no_dvl.yaml` (`../SENSORS.md`) |
+| A ROS vehicle's own sensors: IMU, pressure, GPS at the surface, a USBL, a DVL with its gaps kept | `ingest_rosbag_sensors.yaml` (`../SENSORS.md`) |
 | Your modems' message logs, to calibrate the acoustic/optical link (`strathe fit-link`) | `link_log_template.csv` |
 
 Any other format (DUNE/IMC, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.
@@ -115,7 +117,15 @@ vehicle's commands in `strathe arena`, `strathe fleet` and `strathe train-fleet`
   (the battery voltage it was measured at): it keeps its shape and is rescaled from that voltage by the
   published T200 ratio, forward and reverse separately (#69).
 - `position: {x: ..., y: ..., z: ..., unit: m}`: world positions (motion capture, USBL, odometry), in the
-  spec's world frame. Used only to check the orientation (below); calibration doesn't need them.
+  spec's world frame. By default (`use: check`) only to check the orientation (below).
+- **Your vehicle's own sensors (#96, `../SENSORS.md`):** `depth:` (a depth reading, or a pressure in Pa, hPa,
+  mbar, bar or psi), `position:` with `use: calibrate` (a USBL, LBL or motion-capture fix in metres, or GPS
+  `latlon:`; several as a list), `accelerometer:`, and a DVL whose dropouts are kept
+  (`body_velocity.linear_gaps: keep`). `body_velocity` can leave out u, v, w (no DVL), or p, q, r (no gyro
+  logged: the rates come from the orientation, with a warning). Each sensor's readings are placed at the
+  samples where they happened and never interpolated, its noise is measured at its own rate, and
+  `drop_when:` drops readings by another column (GPS has no fix underwater), `delay_s:` takes a sensor's
+  latency off its times.
 
 ## What it refuses, and what it warns about
 
@@ -138,8 +148,16 @@ It also checks the data makes physical sense, and refuses it when it doesn't:
   with its size. With world-frame velocity this can't test the heading (the velocity was turned with that same
   heading). There, a wrong heading shows as force and velocity barely moving together on surge or sway, which
   ingestion warns about (it doesn't refuse: a mirrored heading took DFKI's surge to about 0, not below -0.2).
-- `skip_checks: [force_direction]` or `[orientation_vs_position]` turns a refusal into a warning, for logs
-  you know are right.
+- **The sensors' own checks (#96):** the gyro must turn the way the orientation turns (deg/s against rad/s,
+  a flipped axis, and a clock offset between them are named); an accelerometer must read 9.81 m/s^2 along
+  the orientation's down at rest (g against m/s^2, a frame or mount error); a depth sensor and a position
+  fix's vertical must move together (a flipped sign, the wrong unit); depth can't change faster than
+  5 m/s; position fixes the vehicle couldn't have reached are dropped as outliers (refused if over 20%);
+  with no DVL, the heading is checked against the fixes with the thrust, and force direction with the
+  velocity between fixes and depth readings.
+- `skip_checks: [force_direction]`, `[orientation_vs_position]`, `[gyro_vs_orientation]`, `[accelerometer]`,
+  `[depth_vs_position]` or `[heading_vs_position]` turns a refusal into a warning, for logs you know are
+  right.
 
 It warns about gaps in time (with their total length and share of the recording) and orientation jumps
 over 45° between samples (sensor glitches). Everything is recorded in `ingest_report.json`. It only sees
