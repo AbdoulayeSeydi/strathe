@@ -2295,8 +2295,8 @@ web cards and the URI stress test of every simulator.
 - **A Windows replay command lost its backslashes.** `--replay-tool "C:\Python\python.exe D:\lab\replay.py"` (or the
   same in a description's `replay:`) went through POSIX `shlex.split`, which reads `\` as an escape: "wasn't found".
   `simfit.replay_tool.split_command` / `join_command` keep backslashes and use cmd's quoting on Windows.
-- **Docker on Windows mounts `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
-  `/d/x` and translates the paths; until it merges, the mount test skips on Windows.
+- **Docker on Windows mounted `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
+  `/d/x` and translates the paths; the Stonefish mount test checks that on Windows.
 - **Tests:** the golden outputs compare paths with `/` and numbers to 10 significant figures on another platform (the
   fitted values differed in the 15th digit on Windows).
 
