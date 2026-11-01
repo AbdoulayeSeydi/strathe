@@ -230,7 +230,7 @@ What changed, and why the numbers in this README differ from earlier versions. D
 **Tests and CI**
 - A fake `mujoco` module in one test file leaked into every later file. Test results depended on file order.
 - One MuJoCo test file never actually ran; it passed values between tests in a way pytest doesn't support.
-- CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every push.
+- CI now downloads the real dataset, pinned to a fixed commit, so the real-data tests run on every pull request.
 - CI covers the fleet suite and a smoke run of the lab entry point. It runs on Windows, and several Windows-only failures were fixed (file encoding, permissions).
 - 605 tests in `calibration/tests/` plus 142 in the fleet suite, all passing.
 
@@ -758,7 +758,7 @@ RL training environment (four tasks: `waypoint`, `station_keeping`,
 (`--algorithm ppo` (default), `sac`, or `td3` - all real, rigorously
 validated against the same locked criteria, see PROJECT_STATUS.md
 finding 37), diagnostic and reporting tools, and a real, automated
-test suite (`calibration/tests/`, CI-verified on every push).
+test suite (`calibration/tests/`, CI-verified on every pull request).
 - **`calibration/comm_channel.py`** — a standalone, vehicle-agnostic underwater acoustic communication model (latency, distance-conditioned packet loss, per-tick bandwidth budget). Zero physics dependency by construction — any vehicle can sit on either end.
 - **`calibration/fleet_env.py`, `fleet_belief.py`, `fleet_vec_env.py`** — fleet v2: the two-vehicle simulation with per-vehicle observations, the teammate belief models, and the wrapper that trains one shared per-vehicle policy with stock stable-baselines3.
 - **`calibration/run_fleet_experiment.py`, `fleet_experiment_schema.py`, `fleet_eval.py`, `fleet_stats.py`** — the lab entry point: YAML config, paired evaluation across processes, statistics (Wilson CIs, paired bootstrap, McNemar, dose-response), plain-language report.
@@ -900,7 +900,7 @@ machine with HoloOcean, then re-run Claim A, before quoting HoloOcean numbers.
 - ✅ Lab data tools: PWM → thrust (reproduces all 183,555 dataset rows) for any thruster layout, log ingestion from CSV or ROS 1/ROS 2 bags with silent-error guards, ready-to-edit templates, plain-language calibration reports that include which values the data can't pin down
 - ✅ A lab's own vehicle end to end (#56): raw logs → one command → calibration and report → single-vehicle (`strathe arena`) and fleet experiments and fleet training with its calibration, vehicle description, thruster limits and water current; all on the web page too
 - ✅ Calibration stall diagnosed (the Mac was asleep) and fixed: long runs keep the machine awake, with a watchdog on every run
-- ✅ Automated test suite (605 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every push
+- ✅ Automated test suite (605 + 142 fleet tests, incl. real-data validation on the dataset fetched in CI), Windows CI on every pull request (run once per PR, in parallel, with cached downloads, to stay inside GitHub Free's Actions minutes)
 - ✅ Comm channel module (latency, packet loss, bandwidth), vehicle-agnostic, zero physics dependency
 - ✅ Fleet v2: per-vehicle policies, physical teammate belief models, paired belief-to-success study with robustness checks
 - ✅ MuJoCo physics backend, independently validated (frame conventions, held-out RMSE, multi-body zero-cross-talk)
