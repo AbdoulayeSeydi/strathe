@@ -42,7 +42,9 @@ def add_shared_arguments(ap, out_default: str) -> None:
     ap.add_argument("--reference-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"),
                     help="where the logs' velocity and forces are measured, in the model's frame (forward-right-down, "
                          "m from its origin), e.g. your URDF's base_link")
-    ap.add_argument("--heldout-dates", nargs="+", help="recording dates to hold out (default: the latest 30%%)")
+    ap.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+",
+                    help="dates or recordings to hold out (default: the latest 30%% of dates, else of recordings, else "
+                         "the last 30%% of the one recording; calibration/ONE_SESSION.md)")
     ap.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
     ap.add_argument("--compare-params", help="also score your Strathe calibration (calibrated_parameters.yaml)")
@@ -173,6 +175,8 @@ def run_fit(adapter, a) -> int:
                               f"{', '.join(adapter.groups)}")
         specs = adapter.knob_specs(info, groups, a.axisymmetric)
         notes = list(getattr(adapter, "notes", notes))
+        if split.warning:   # one session: an easier check than an unseen day (#93)
+            notes.insert(0, split.warning)
         if not specs:
             raise SimFitError(f"nothing to fit: the {adapter.label} model has no settings in {', '.join(groups)}")
         knobs = Knobs(specs, parse_holds(a.hold))
@@ -382,6 +386,9 @@ def run_export(adapter, a) -> int:
         model_out = adapter.write_calibrated(values, out, "strathe")
         results = {}
         new = f"{adapter.label} with Strathe's values"
+        if split.warning:
+            notes.insert(0, split.warning)
+            print("  note: " + split.warning, flush=True)
         if held:
             print(f"Scoring the original and exported models on the held-out recordings "
                   f"({', '.join(split.heldout_groups)})...", flush=True)

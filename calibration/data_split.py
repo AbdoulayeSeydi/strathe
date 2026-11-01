@@ -20,7 +20,15 @@ produce the same split.
 
 Filenames currently look like: odom-12-01-2024-run1.csv, hover-15-06-2024-run3.csv
 (anything containing a DD-MM-YYYY date is matched, regardless of prefix).
+
+One session (PROJECT_STATUS.md #93): a lab with one field day can still calibrate. With one date, split_by_date holds
+out whole recordings (the latest by run number); with one recording, the last part of it, after a gap. Both are easier
+checks than an unseen day (the same trim, battery and water), and SplitResult.warning says so. A part of a recording
+is a reference `path::rows=A-B` (rows A to B-1), which objective.read_run_csv reads.
 """
+import json
+import math
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -76,6 +84,59 @@ class SplitResult:
     heldout_groups: list
     n_train: int
     n_heldout: int
+    mode: str = "dates"      # "dates" | "recordings" | "time block" (#93)
+    warning: Optional[str] = None
+
+
+SPLIT_MODES = ("dates", "recordings", "time block")          # SplitResult.mode
+HELDOUT_KINDS = ("date", "recording", "last part")           # what a held-out entry can name
+
+
+# --- parts of a recording (#93) ------------------------------------------------------------------------------------
+ROWS = "::rows="
+LAST = "::last"
+TIME_BLOCK_GAP_S = 10.0          # between the training and the held-out part of one recording
+MIN_PART_S = 60.0                # each part holds at least one 60 s evaluation window (validation, fit-sim)
+_REF = re.compile(r"^(?P<path>.*)::rows=(?P<a>\d+)-(?P<b>\d+)$")
+
+
+def part_ref(path: str, start: int, stop: int) -> str:
+    """Rows start..stop-1 of a recording, as a reference load_run reads."""
+    return f"{path}{ROWS}{int(start)}-{int(stop)}"
+
+
+def parse_ref(ref: str) -> tuple:
+    """'path::rows=A-B' -> (path, A, B); a plain path -> (path, None, None)."""
+    m = _REF.match(str(ref))
+    return (m.group("path"), int(m.group("a")), int(m.group("b"))) if m else (str(ref), None, None)
+
+
+def recording_path(ref: str) -> str:
+    return parse_ref(ref)[0]
+
+
+def recording_name(path: str) -> str:
+    """odom-12-01-2024-run7.csv -> odom-12-01-2024-run7 (what --heldout-recordings takes)."""
+    return os.path.splitext(os.path.basename(recording_path(path)))[0]
+
+
+def _natural(name: str) -> list:
+    """run2 before run10."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name)]
+
+
+def _rows(path: str) -> int:
+    with open(path, "rb") as f:
+        return max(0, sum(1 for _ in f) - 1)
+
+
+def _rate_hz(path: str, default: float = 10.0) -> float:
+    """The recording's sampling rate: ingestion's report next to it, else Strathe's 10 Hz."""
+    rp = os.path.join(os.path.dirname(os.path.abspath(path)), "ingest_report.json")
+    try:
+        return float(json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz") or default)
+    except (OSError, ValueError, AttributeError):
+        return default
 
 
 def extract_date(filepath: str) -> str:
@@ -172,6 +233,77 @@ def split_by_group(
     )
 
 
+WITHIN_SESSION_WARNING = (
+    "Held out within one session: the unseen part shares the session's trim, battery and water, so this check can't "
+    "show how another day changes them. In our tests a one-session score stayed within 0.07 of the same model's "
+    "score on other days (calibration/ONE_SESSION.md), but record a second session for the honest number.")
+
+
+def _date_or_none(path: str) -> Optional[str]:
+    try:
+        return extract_date(path)
+    except ValueError:
+        return None
+
+
+def _split_recordings(filepaths: list, heldout: Optional[list], heldout_fraction: float) -> SplitResult:
+    """Whole recordings held out: the named ones, else the latest heldout_fraction by run number (at least one)."""
+    names = {recording_name(p): p for p in filepaths}
+    order = sorted(names, key=_natural)
+    if heldout is not None:
+        unknown = sorted(set(heldout) - set(names))
+        if unknown:
+            raise ValueError(f"Unknown held-out recording(s): {unknown}. The recordings are: {order}")
+        held = [n for n in order if n in set(heldout)]
+        if len(held) == len(order):
+            raise ValueError("Every recording is held out: leave at least one to calibrate on.")
+    else:
+        n = max(1, min(len(order) - 1, round(len(order) * heldout_fraction)))
+        held = order[-n:]
+    train = [n for n in order if n not in set(held)]
+    dates = {d for d in (_date_or_none(p) for p in filepaths) if d}
+    return SplitResult(train_files=sorted(names[n] for n in train), heldout_files=sorted(names[n] for n in held),
+                       train_groups=train, heldout_groups=held, n_train=len(train), n_heldout=len(held),
+                       mode="recordings", warning=WITHIN_SESSION_WARNING if len(dates) <= 1 else None)
+
+
+def _split_time_block(path: str, fraction: float, gap_s: float = TIME_BLOCK_GAP_S) -> SplitResult:
+    """One recording: train on the first part, hold out the last `fraction` of it, with a gap between (#93)."""
+    if not (0 < fraction < 1):
+        raise ValueError(f"the held-out part of a recording must be strictly between 0 and 1, got {fraction}")
+    n, rate = _rows(path), _rate_hz(path)
+    gap = int(round(gap_s * rate))
+    held_n = int(math.floor(n * fraction))
+    train_n = n - held_n - gap
+    need = int(math.ceil(MIN_PART_S * rate))
+    if held_n < need or train_n < need:
+        shortest = max(MIN_PART_S / fraction, MIN_PART_S / (1 - fraction)) + gap_s
+        raise ValueError(
+            f"{os.path.basename(path)} is {n / rate:.0f} s long: too short to hold out part of it. Calibration needs "
+            f"at least {MIN_PART_S:.0f} s to train on and {MIN_PART_S:.0f} s held out, {gap_s:.0f} s apart: at least "
+            f"{shortest:.0f} s with {fraction:.0%} held out. Record longer, or a second recording.")
+    name = recording_name(path)
+    tag = f"{name}{LAST}{round(fraction * 100):g}%"
+    train_ref, held_ref = part_ref(path, 0, train_n), part_ref(path, n - held_n, n)
+    return SplitResult(train_files=[train_ref], heldout_files=[held_ref], train_groups=[f"{name}::first part"],
+                       heldout_groups=[tag], n_train=1, n_heldout=1, mode="time block",
+                       warning=WITHIN_SESSION_WARNING + f" Here the held-out part is the last {fraction:.0%} of one "
+                               f"recording ({held_n / rate:.0f} s), after a {gap_s:g} s gap.")
+
+
+def assert_disjoint(split: SplitResult) -> None:
+    """No held-out sample in training: different recordings, or row ranges that don't overlap (#93)."""
+    train = {}
+    for ref in split.train_files:
+        p, a, b = parse_ref(ref)
+        train.setdefault(os.path.abspath(p), []).append((a, b))
+    for ref in split.heldout_files:
+        p, a, b = parse_ref(ref)
+        for ta, tb in train.get(os.path.abspath(p), []):
+            if a is None or ta is None or not (b <= ta or a >= tb):
+                raise RuntimeError(f"held-out data overlaps training: {ref} and {p}::rows={ta}-{tb}")
+
+
 def split_by_date(
     filepaths: list,
     heldout_dates: Optional[list] = None,
@@ -181,18 +313,54 @@ def split_by_date(
     split_by_group(), specialized to collection date — the current
     grouping key. heldout_dates, if given, are "DD-MM-YYYY" strings and
     must exactly match dates found in the filenames.
+
+    One session (#93): heldout_dates may also name recordings (odom-12-01-2024-run7) or a recording's last part
+    (odom-12-01-2024-run7::last30%). With no names and one date, recordings are held out; with one recording, its last
+    part. Two or more dates and no recording names: exactly as before.
     """
+    if not (0 < heldout_fraction < 1):
+        raise ValueError(f"heldout_fraction must be strictly between 0 and 1, got {heldout_fraction}")
+    heldout = None if heldout_dates is None else [str(h) for h in heldout_dates]
+    if heldout and all(LAST in h for h in heldout):
+        if len(heldout) != 1:
+            raise ValueError("hold out the last part of one recording only (e.g. my_rov-05-01-2030-run1::last30%)")
+        name, frac = heldout[0].split(LAST, 1)
+        match = [p for p in filepaths if recording_name(p) == name]
+        if not match:
+            raise ValueError(f"Unknown recording {name!r}. The recordings are: "
+                             f"{sorted((recording_name(p) for p in filepaths), key=_natural)}")
+        try:
+            fraction = float(frac.rstrip("%")) / 100
+        except ValueError:
+            raise ValueError(f"{heldout[0]!r}: give the held-out part as a percentage, e.g. ::last30%")
+        split = _split_time_block(match[0], fraction)
+        if len(filepaths) > 1:   # the other recordings train too
+            others = sorted(p for p in filepaths if p != match[0])
+            split.train_files = sorted(others + split.train_files)
+            split.train_groups = sorted({recording_name(p) for p in others}, key=_natural) + split.train_groups
+            split.n_train = len(split.train_files)
+        assert_disjoint(split)
+        return split
     dates = {extract_date(p) for p in filepaths}
-    if len(dates) == 1:
-        raise ValueError(
-            f"All {len(filepaths)} recordings are from one session ({next(iter(dates))}). Calibration checks "
-            f"itself on whole sessions it never saw, so it needs at least two. If your recordings come from one "
-            f"day, split them into sessions you can tell apart (e.g. morning and afternoon, or by manoeuvre) "
-            f"and give each its own date in the file names, or record a second session.")
-    return split_by_group(
-        filepaths,
-        group_key_fn=extract_date,
-        sort_key_fn=_parse_date,  # chronological, not string, sort
-        heldout_groups=heldout_dates,
-        heldout_fraction=heldout_fraction,
-    )
+    is_date = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+    if heldout and not all(is_date.match(h) for h in heldout):
+        if any(is_date.match(h) for h in heldout):
+            raise ValueError(f"Hold out dates or recordings, not both: {heldout}")
+        split = _split_recordings(filepaths, heldout, heldout_fraction)
+    elif len(dates) == 1:
+        if heldout:   # a date given, and it's the only one
+            raise ValueError(f"All recordings are from {next(iter(dates))}: there's no other day to calibrate on. "
+                             f"Leave the held-out dates out and Strathe holds out recordings within the day, or name "
+                             f"them with --heldout-recordings (calibration/ONE_SESSION.md)")
+        split = (_split_recordings(filepaths, None, heldout_fraction) if len(filepaths) > 1
+                 else _split_time_block(filepaths[0], heldout_fraction))
+    else:
+        split = split_by_group(
+            filepaths,
+            group_key_fn=extract_date,
+            sort_key_fn=_parse_date,  # chronological, not string, sort
+            heldout_groups=heldout,
+            heldout_fraction=heldout_fraction,
+        )
+    assert_disjoint(split)
+    return split

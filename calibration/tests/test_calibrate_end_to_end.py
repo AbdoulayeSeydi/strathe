@@ -58,8 +58,8 @@ def test_one_session_is_explained_in_plain_words(tmp_path):
     import yaml
     from data_ingestion import ingest, load_ingest_spec
     from data_split import split_by_date
-    with pytest.raises(ValueError, match="one session .*morning and afternoon"):
-        split_by_date([f"rov-05-01-2030-run{i}.csv" for i in (1, 2, 3)])
+    one_day = split_by_date([f"rov-05-01-2030-run{i}.csv" for i in (1, 2, 3)])   # #93: recordings held out
+    assert one_day.mode == "recordings" and "second session" in one_day.warning
     raw = tmp_path / "raw"
     raw.mkdir()
     for i in (1, 2):

@@ -437,6 +437,35 @@ def _calibration_folder(text: str) -> str:
     return d
 
 
+HELDOUT_ITEM = re.compile(r"\d{2}-\d{2}-\d{4}|[\w.-]*\d{2}-\d{2}-\d{4}[\w.-]*(::last\d{1,2}%)?")  # names carry a date
+
+
+def _data_dir(form: dict) -> Optional[str]:
+    """The form's folder of Strathe CSVs, when it gives one (not an ingestion spec)."""
+    d = form.get("data", "").strip()
+    return None if not d or form.get("ingest_spec", "").strip() else os.path.abspath(os.path.expanduser(d))
+
+
+def _heldout_args(text: str, data_dir: Optional[str] = None) -> list:
+    """--heldout-dates from a form: dates (16-02-2024), recordings (my_rov-16-02-2024-run7), or one recording's last
+    part (my_rov-16-02-2024-run1::last30%) (one session, #93). With the logs' folder, each must be in it."""
+    items = text.split()
+    for d in items:
+        if not HELDOUT_ITEM.fullmatch(d):
+            raise ValueError(f"Held-out dates look like 16-02-2024, recordings like my_rov-16-02-2024-run7, a "
+                             f"recording's last part like my_rov-16-02-2024-run1::last30%; got {d!r}")
+    if items and data_dir and os.path.isdir(data_dir):
+        from data_split import DATE_PATTERN, discover_csv_files, recording_name
+        names = {recording_name(f) for f in discover_csv_files(data_dir)[0]}
+        dates = {m.group(1) for m in (DATE_PATTERN.search(n) for n in names) if m}
+        for d in items if dates else []:   # a folder without Strathe recordings yet: calibration says what's wrong
+            if d not in dates and d.split("::")[0] not in names:
+                raise ValueError(f"Held-out {d!r} isn't a date or recording of the logs in {data_dir}. Dates: "
+                                 f"{', '.join(sorted(dates)) or 'none'}; recordings: "
+                                 f"{', '.join(sorted(names)[:12])}{' ...' if len(names) > 12 else ''}")
+    return ["--heldout-dates", *items] if items else []
+
+
 def _tool_value(t: str, guide: str) -> list:
     """--replay-tool from a form: a runnable file, `docker` (Strathe's image) or `docker:IMAGE` (#92)."""
     t = t.strip()
@@ -472,8 +501,7 @@ def stonefish_cli_args(form: dict) -> list:
         args += ["--data", data]
     else:
         raise ValueError("Give the logs: an ingestion spec, or a folder of Strathe CSVs.")
-    if form.get("heldout", "").strip():
-        args += ["--heldout-dates", *form["heldout"].split()]
+    args += _heldout_args(form.get("heldout", ""), _data_dir(form))
     if form.get("from_strathe", "").strip():
         args += ["--from-strathe", _calibration_folder(form["from_strathe"])]
     if form.get("compare_params", "").strip():
@@ -537,10 +565,7 @@ def sim_cli_args(form: dict, command: str = "fit") -> list:
         args += ["--data", data]
     else:
         raise ValueError("Give the logs: an ingestion spec, or a folder of Strathe CSVs.")
-    if form.get("heldout", "").strip():
-        if not all(re.fullmatch(r"\d{2}-\d{2}-\d{4}", d) for d in form["heldout"].split()):
-            raise ValueError("Held-out dates look like 27-03-2026.")
-        args += ["--heldout-dates", *form["heldout"].split()]
+    args += _heldout_args(form.get("heldout", ""), _data_dir(form))
     dens = form.get("density_by_date", "").split()
     if dens:
         if not all(re.fullmatch(r"[\d-]+=[\d.]+", d) for d in dens):
@@ -614,8 +639,7 @@ def stonefish_export_cli_args(form: dict) -> list:
         _replay_tool_args(form)
     if form.get("mass", "").strip():
         args += ["--mass", str(_number(form["mass"], "Vehicle mass", 0.1, 100000))]
-    if form.get("heldout", "").strip():
-        args += ["--heldout-dates", *form["heldout"].split()]
+    args += _heldout_args(form.get("heldout", ""), _data_dir(form))
     return args
 
 
@@ -743,8 +767,7 @@ thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <label for=cal-data>…or a folder of logs already in Strathe's CSV layout (ignored when an ingestion spec is given)</label>
 <input type=text id=cal-data name=data value="{html.escape(default_data)}">
 <label for=cal-name>Name for this calibration</label><input type=text id=cal-name name=name value="my_vehicle" required>
-<label for=cal-heldout>Recording dates to hold out for validation (optional, e.g. <code>16-02-2024 19-02-2024</code>;
-default: the latest 30% of dates, at least one)</label>
+<label for=cal-heldout>Held out to check the result (optional): dates like <code>16-02-2024</code>; with one session, recordings like <code>my_rov-16-02-2024-run7</code>, or one recording's last part, <code>my_rov-16-02-2024-run1::last30%</code>. Default: the latest 30% of dates, else of recordings, else the last 30% of the one recording (<code>calibration/ONE_SESSION.md</code>)</label>
 <input type=text id=cal-heldout name=heldout value="">
 <label for=cal-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: copy calibration/templates/vehicle_spec_template.yaml and fill in its mass and size, LAB_GUIDE.md step 4)</label>
 <input type=text id=cal-spec name=vehicle_spec value="">
@@ -940,7 +963,7 @@ held.</p>
 e.g. your URDF's base_link)</label><input type=text id=sf-ref name=reference_point value="0 0 0" required>
 <label for=sf-spec>Your logs: ingestion spec YAML (full path)</label><input type=text id=sf-spec name=ingest_spec value="">
 <label for=sf-data>…or a folder of logs already in Strathe's CSV layout</label><input type=text id=sf-data name=data value="">
-<label for=sf-heldout>Recording dates to hold out (optional; default the latest 30%)</label>
+<label for=sf-heldout>Held out to check the result (optional): dates like <code>16-02-2024</code>; with one session, recordings like <code>my_rov-16-02-2024-run7</code>, or one recording's last part, <code>my_rov-16-02-2024-run1::last30%</code>. Default: the latest 30% of dates, else of recordings, else the last 30% of the one recording (<code>calibration/ONE_SESSION.md</code>)</label>
 <input type=text id=sf-heldout name=heldout value="">
 <label for=sf-buoy>Buoyant part to resize for the net buoyancy (a box, cylinder or sphere; optional)</label>
 <input type=text id=sf-buoy name=buoyancy_part value="">
@@ -1041,7 +1064,7 @@ the model file (optional)</label><input type=text id=simf-second name=second val
 (forward-right-down; 0 0 0 for base_link)</label><input type=text id=simf-ref name=reference_point value="0 0 0" required>
 <label for=simf-spec>Your logs: ingestion spec YAML (full path)</label><input type=text id=simf-spec name=ingest_spec value="">
 <label for=simf-data>…or a folder of logs already in Strathe's CSV layout</label><input type=text id=simf-data name=data value="">
-<label for=simf-heldout>Recording dates to hold out (optional; default the latest 30%)</label><input type=text id=simf-heldout name=heldout value="">
+<label for=simf-heldout>Held out to check the result (optional): dates like <code>16-02-2024</code>; with one session, recordings like <code>my_rov-16-02-2024-run7</code>, or one recording's last part, <code>my_rov-16-02-2024-run1::last30%</code>. Default: the latest 30% of dates, else of recordings, else the last 30% of the one recording (<code>calibration/ONE_SESSION.md</code>)</label><input type=text id=simf-heldout name=heldout value="">
 <label for=simf-fit>What to fit, by group (optional; the simulator's guide lists them, e.g. drag added_mass)</label>
 <input type=text id=simf-fit name=fit value="">
 <label for=simf-hold>Hold values you measured, NAME=VALUE (optional)</label><input type=text id=simf-hold name=hold value="">
@@ -1213,10 +1236,7 @@ class StratheHandler(BaseHTTPRequestHandler):
                 src = ["--data", data]
             else:
                 raise ValueError("Give your logs: an ingestion spec, or a folder of Strathe CSVs.")
-            heldout = form.get("heldout", "").split()
-            for d in heldout:
-                if not re.fullmatch(r"\d{2}-\d{2}-\d{4}", d):
-                    raise ValueError(f"Held-out dates must look like 16-02-2024, got {d!r}")
+            heldout = _heldout_args(form.get("heldout", ""), data if not ingest_spec else None)[1:]
             out = os.path.join(cli.REPO_DIR, f"calibration_output_{name}")
             args = ["calibrate", *src, "--name", name, "--out", out]
             if form.get("vehicle_spec", "").strip():

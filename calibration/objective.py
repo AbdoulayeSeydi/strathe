@@ -155,7 +155,8 @@ class DatasetConfig:
 
     def current_for(self, filepath: str) -> Optional[tuple]:
         if self.current_by_file:
-            name = os.path.basename(filepath)
+            from data_split import recording_path
+            name = os.path.basename(recording_path(filepath))
             for f, c in self.current_by_file:
                 if f == name:
                     return tuple(c)
@@ -201,8 +202,12 @@ class RunData:
 # ---------------------------------------------------------------------------
 
 def read_run_csv(filepath: str) -> pd.DataFrame:
-    """Step 1: raw read, no interpretation."""
-    return pd.read_csv(filepath)
+    """Step 1: raw read, no interpretation. `path::rows=A-B` reads rows A..B-1 of the recording: the part of one
+    recording a one-session split trains or scores on (data_split.py, #93)."""
+    from data_split import parse_ref
+    path, a, b = parse_ref(filepath)
+    df = pd.read_csv(path)
+    return df if a is None else df.iloc[a:b].reset_index(drop=True)
 
 
 def validate_run_dataframe(df: pd.DataFrame, filepath: str) -> None:

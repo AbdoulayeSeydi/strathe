@@ -67,6 +67,11 @@ def _abs(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
 
 
+HELDOUT_HELP = ("dates or recordings to hold out for validation: e.g. 16-02-2024, or with one session the recordings "
+                "my_rov-16-02-2024-run7 (or one recording's last part, my_rov-16-02-2024-run1::last30%%); default: the "
+                "latest 30%% of dates, else of recordings, else the last 30%% of the one recording (ONE_SESSION.md)")
+
+
 def _tool(value: str) -> str:
     """A --replay-tool value: a path made absolute; `docker` / `docker:IMAGE` as they are (#92)."""
     return value if value == "docker" or value.startswith("docker:") else _abs(value)
@@ -1432,8 +1437,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--name", default="my_vehicle", help="short name for this calibration (names the output folder)")
     c.add_argument("--out", help="output folder (default: calibration_output_<name> in the repository)")
     c.add_argument("--spec", default=DEFAULT_SPEC, help="vehicle description (default: the BlueROV2 Heavy)")
-    c.add_argument("--heldout-dates", nargs="+",
-                   help="recording dates to hold out for validation, e.g. 16-02-2024 (default: the latest 30%% of dates, at least one)")
+    c.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+", help=HELDOUT_HELP)
     c.add_argument("--workers", type=int, default=default_workers(), help="CPU cores to use")
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--seed", type=int, help="the starting point's random seed (default: a new one, printed and "
@@ -1486,7 +1490,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--result", required=True)
     r.add_argument("--data", help="the logs it was calibrated on (enables the per-axis skill check)")
     r.add_argument("--spec", default=DEFAULT_SPEC)
-    r.add_argument("--heldout-dates", nargs="+")
+    r.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+",
+                   help="default: what the calibration held out")
     r.set_defaults(fn=cmd_report)
 
     v = sub.add_parser("validate", help="compare a calibration with the real vehicle on unseen recordings: position, "
@@ -1677,7 +1682,7 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--reference-point", type=float, nargs=3, required=True, metavar=("X", "Y", "Z"),
                     help="where the logs' velocity and forces are measured, in the robot's frame (forward-right-down, "
                          "m from the robot's origin), e.g. your URDF's base_link")
-    sf.add_argument("--heldout-dates", nargs="+", help="recording dates to hold out (default: the latest 30%%)")
+    sf.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+", help=HELDOUT_HELP)
     sf.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part to resize so the net buoyancy fits")
     sf.add_argument("--fit", nargs="+", choices=["drag", "added_mass", "buoyancy", "cg"],
                     help="what to fit (default: all; added mass needs the patched Stonefish)")
@@ -1745,7 +1750,8 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part to resize for the net buoyancy")
     ex.add_argument("--mass", type=float, help="the vehicle's mass, kg (default: the calibration's)")
     ex.add_argument("--data", help="the logs (default: the calibration's ingested_logs/)")
-    ex.add_argument("--heldout-dates", nargs="+", help="recording dates to score on (default: the calibration's)")
+    ex.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+",
+                    help="dates or recordings to score on (default: the calibration's)")
     ex.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     ex.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
     ex.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",

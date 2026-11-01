@@ -198,6 +198,28 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
     return verdicts
 
 
+def fit_note(metrics) -> Optional[str]:
+    """A fit no better than the starting description on its own training recordings failed; one that was retried from
+    more starting points says so (#93)."""
+    r = (metrics or {}).get("rmse") or {}
+    auto = ((metrics or {}).get("optimizer") or {}).get("auto_restart")
+    if r.get("calibrated_train") is not None and r.get("default_train") and \
+            r["calibrated_train"] >= 0.9 * r["default_train"]:
+        return (f"> ❌ **The fit failed.** On the recordings it trained on, the calibrated model is no better than your "
+                f"vehicle description's starting values (error {r['calibrated_train']:.3g} against "
+                f"{r['default_train']:.3g}){', even from ' + str(1 + auto['more_starts']) + ' starting points' if auto else ''}"
+                f". Its values aren't a calibration. Check the description's ranges (a value stuck at one, below) and "
+                f"the logs' data checks, or run again with --restarts 4.")
+    if auto:
+        first = ("ended where the simulation is too sensitive to these values to fit (a tiny change in them changed "
+                 "its training error by far more than it should, so the optimizer's slopes were noise)"
+                 if auto.get("why") == "rough" else "stopped no better than where it started")
+        return (f"> ℹ️ The first fit {first} (training cost {auto['first_cost']:.4g}), so Strathe tried "
+                f"{auto['more_starts']} more starting points and kept the lowest training cost "
+                f"({auto['best_cost']:.4g}).")
+    return None
+
+
 def restart_costs(result_dir, metrics):
     """Each starting point's training cost (#79): the first fit's, which with --estimate-current is round 1's."""
     first = os.path.join(result_dir, "current_round1", "metrics.json")
@@ -306,7 +328,11 @@ def water_note(metrics: Optional[dict], result_dir: str) -> Optional[str]:
     return None
 
 
-def skill_sentence(verdicts) -> str:
+UNSEEN_SESSIONS = "recording sessions the calibration never saw"
+UNSEEN_WITHIN = "recordings the calibration never saw (from the same session, not another day)"   # one session, #93
+
+
+def skill_sentence(verdicts, unseen: str = UNSEEN_SESSIONS) -> str:
     """Per-axis skill on unseen sessions, in words: never one average over the axes, which a badly wrong default
     on one or two axes would dominate (PROJECT_STATUS.md #50, #63)."""
     rated = [v for v in verdicts if v.get("skill") is not None and not v.get("excluded")]
@@ -315,11 +341,11 @@ def skill_sentence(verdicts) -> str:
                 "it with simply assuming no motion.")
     useful = sorted((v for v in rated if v["skill"] > 0), key=lambda v: -v["skill"])
     if not useful:
-        return ("On recording sessions the calibration never saw, it predicts no axis better than simply assuming "
+        return (f"On {unseen}, it predicts no axis better than simply assuming "
                 "the vehicle isn't moving.")
     parts = ", ".join(f"{v['label']} {v['skill']:+.2f}" for v in useful)
     rest = len(rated) - len(useful)
-    return (f"On recording sessions the calibration never saw, it predicts {len(useful)} of {len(rated)} axes better "
+    return (f"On {unseen}, it predicts {len(useful)} of {len(rated)} axes better "
             f"than simply assuming no motion (skill, where 1 is perfect: {parts})"
             + (f"; on the other {rest} it does no better." if rest else ".")
             + " Beating the default model alone can flatter a poor default, so each verdict below checks both.")
@@ -465,8 +491,12 @@ def validation_section(v: dict) -> list:
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 whole_fit=None, current_rounds=False):
+                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
+    if fit_note:     # the fit failed, or was retried from more starting points (#93)
+        L.append(fit_note + "\n")
+    if split_note:   # one session: an easier check than an unseen day (#93)
+        L.append("> ⚠️ " + split_note + "\n")
     if diverged:
         L.append("> ⚠️ " + diverged + "\n")
     if verdicts:
@@ -474,7 +504,7 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
         L.append("## Bottom line\n")
         L.append(f"It is trustworthy for **{len(good)} of 6** motion axes"
                  + (f": {', '.join(v['label'] for v in good)}." if good else ".")
-                 + " " + skill_sentence(verdicts) + "\n")
+                 + " " + skill_sentence(verdicts, UNSEEN_WITHIN if split_note else UNSEEN_SESSIONS) + "\n")
         L.append("## Can I trust it for this motion?\n")
         L.append("| Motion | Verdict | Why |")
         L.append("|---|---|---|")
@@ -638,7 +668,8 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  ident, steps, converged, water_note(metrics, result_dir), free_decay_note(metrics),
                  diverged_note(metrics), load_validation(result_dir), vehicle_note,
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
-                 whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")))
+                 whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")),
+                 ((metrics or {}).get("dataset") or {}).get("split_warning"), fit_note(metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 
@@ -650,7 +681,7 @@ def main(argv=None) -> int:
     ap.add_argument("--identifiability", help="JSON from automated_identifiability_report.py")
     ap.add_argument("--data-dir", help="logs, to compute held-out per-axis accuracy (and the no-motion baseline) "
                                        "if metrics.json lacks them")
-    ap.add_argument("--heldout-dates", nargs="+", default=None,
+    ap.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+", default=None,
                     help="default: the dates the calibration held out (metrics.json)")
     args = ap.parse_args(argv)
     r = build_report(args.result, args.spec, args.identifiability, args.data_dir, args.heldout_dates)

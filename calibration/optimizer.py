@@ -235,6 +235,9 @@ class CalibrationConfig:
     xtol: float = 1e-10
     gtol: float = 1e-10
     max_nfev: Optional[int] = None          # None = scipy's own size-based default
+    diff_step: Optional[float] = None       # finite-difference step for the Jacobian, relative (least_squares'
+        # diff_step); None = scipy's ~1.5e-8. See PROJECT_STATUS.md #93 on stuck fits.
+    measure_roughness: bool = False         # probe where each start ended (end_roughness): 3 more evaluations
     use_bounds_width_x_scale: bool = True   # scale each param by (ub-lb) unless x_scale given
     x_scale: Optional[np.ndarray] = None
     verbose: int = 0                        # NOT hardcoded at the call site
@@ -293,6 +296,7 @@ class RestartResult:
     message: str
     raw_result: object  # the actual scipy OptimizeResult — has .optimality, .njev,
                          # .jac, etc. that the plain fields above don't capture
+    roughness: Optional[float] = None  # end_roughness() where this start ended (config.measure_roughness)
 
 
 @dataclass
@@ -388,11 +392,40 @@ def _make_fixed_params_wrapper(residual_fn: Callable, full_template: np.ndarray,
     return wrapped
 
 
+ROUGHNESS_STEP = 1e-8    # end_roughness's nudge, as a fraction of each value's range
+ROUGHNESS_PROBES = 3
+
+
+def end_roughness(fn, x, lb, ub, args, step: float = ROUGHNESS_STEP, probes: int = ROUGHNESS_PROBES) -> float:
+    """How rough the training cost C (the sum of squared residuals) is at x: the largest |C(x+2d) - 2 C(x+d) + C(x)| / C(x)
+    over a few directions d of `step` of each value's range (random signs, a fixed seed, pointed inward at a bound).
+    A second difference: on a smooth cost the slope cancels and it is ~step^2, so a fit stopped early on a steep but
+    smooth cost doesn't read as rough. Where the simulated vehicle is barely damped, the long open-loop replay is
+    chaotic and the cost jumps for any change: the optimizer's finite-difference slopes are then noise, and it stalls
+    or wanders until its budget runs out (PROJECT_STATUS.md #93 has the measurements)."""
+    c0 = float(np.sum(np.asarray(fn(x, *args)) ** 2))
+    if not np.isfinite(c0) or c0 == 0.0:
+        return 0.0
+    rng = np.random.default_rng(0)
+    width = ub - lb
+    worst = 0.0
+    for _ in range(probes):
+        d = rng.choice([-1.0, 1.0], x.size) * step * width
+        d = np.where(x + 2 * d > ub, -np.abs(d), np.where(x + 2 * d < lb, np.abs(d), d))   # stay inside the bounds
+        try:
+            c1, c2 = (float(np.sum(np.asarray(fn(x + k * d, *args)) ** 2)) for k in (1, 2))
+        except (FloatingPointError, ValueError):
+            return float("inf")
+        worst = max(worst, abs(c2 - 2 * c1 + c0) / c0 if np.isfinite(c1 + c2) else float("inf"))
+    return worst
+
+
 class RestartsFailed(RuntimeError):
     """No starting point converged. Carries each start's training cost, so a run finished from its checkpoint
     still reports them (#79)."""
 
     def __init__(self, n_restarts: int, restarts: list):
+        self.restarts = list(restarts)
         self.restart_costs = [float(r.cost) for r in restarts]
         super().__init__(
             f"All {n_restarts} calibration restart(s) failed to converge. "
@@ -443,7 +476,7 @@ def _write_log(path: str, log: CalibrationLog, restarts: list) -> None:
 def _parallel_restart_worker(x0_free, lb_free, ub_free, x_scale_free,
                               full_template, free_mask, train_runs, vehicle,
                               dof_scales, normalize_by_run_length, method,
-                              loss, f_scale, ftol, xtol, gtol, max_nfev, horizon_samples=None):
+                              loss, f_scale, ftol, xtol, gtol, max_nfev, horizon_samples=None, diff_step=None):
     """
     Module-level (NOT a closure/lambda) so it's picklable under Windows'
     'spawn' multiprocessing start method - required, not a style choice.
@@ -466,7 +499,7 @@ def _parallel_restart_worker(x0_free, lb_free, ub_free, x_scale_free,
     result = least_squares(
         fun=wrapped_residual_fn, x0=x0_free, bounds=(lb_free, ub_free),
         method=method, loss=loss, f_scale=f_scale, ftol=ftol, xtol=xtol,
-        gtol=gtol, max_nfev=max_nfev, x_scale=x_scale_free, verbose=0,
+        gtol=gtol, max_nfev=max_nfev, x_scale=x_scale_free, verbose=0, diff_step=diff_step,
         args=(train_runs, vehicle, dof_scales, normalize_by_run_length, None, horizon_samples),
     )
     full_x0 = full_template.copy()
@@ -569,7 +602,7 @@ def calibrate_parallel(
                 full_template, free_mask, train_runs, vehicle, config.dof_scales,
                 config.normalize_by_run_length, config.method, config.loss,
                 config.f_scale, config.ftol, config.xtol, config.gtol, config.max_nfev,
-                config.horizon_samples,
+                config.horizon_samples, config.diff_step,
             )
             for x0_free in x0_list
         ]
@@ -653,6 +686,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
         from drag_reference import prior_residual_wrapper
         base_residual_fn = prior_residual_wrapper(base_residual_fn, list(param_names), config.prior_targets,
                                                   config.prior_weight)
+    plain_residual_fn = base_residual_fn   # for end_roughness: the same objective, without the checkpoint callback
     residual_fn = _wrap_residual_fn(base_residual_fn, config.on_iteration, config.stall_watchdog)
 
     # --- fixed_params: build the free/fixed split, subset everything the
@@ -697,6 +731,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
             gtol=config.gtol,
             max_nfev=config.max_nfev,
             x_scale=x_scale_free,
+            diff_step=config.diff_step,
             verbose=config.verbose,
             args=(train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn,
                   config.horizon_samples),
@@ -709,16 +744,25 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
         full_x0[free_mask] = x0_free
         full_x = full_template.copy()
         full_x[free_mask] = result.x
+        args = (train_runs, vehicle, config.dof_scales, config.normalize_by_run_length, config.simulate_fn,
+                config.horizon_samples)
         restarts.append(RestartResult(
             x0=full_x0, x=full_x, cost=result.cost, success=result.success,
             status=result.status, nfev=result.nfev, message=result.message,
             raw_result=result,
+            roughness=(end_roughness(_make_fixed_params_wrapper(plain_residual_fn, full_template, free_mask),
+                                     result.x, lb_free, ub_free, args) if config.measure_roughness else None),
         ))
-    runtime = time.monotonic() - start_time
+    return result_from_restarts(restarts, config, train_runs, vehicle, time.monotonic() - start_time)
 
+
+def result_from_restarts(restarts: list, config: CalibrationConfig, train_runs, vehicle,
+                         runtime: float) -> CalibrationResult:
+    """The lowest-cost start, as a CalibrationResult (also pools a retry's starts with the first fit's: #93). Raises
+    RestartsFailed if no start converged."""
     converged = [r for r in restarts if r.success]
     if not converged:
-        raise RestartsFailed(config.n_restarts, restarts)
+        raise RestartsFailed(len(restarts), restarts)
 
     best = _best_restart(restarts)
     best_params = CalibrationParameters.from_vector(best.x)
@@ -727,7 +771,7 @@ def _calibrate_with(loaded, train_runs, config, vehicle, param_names, x0_base, l
     log = CalibrationLog(
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         method=config.method, loss=config.loss,
-        n_restarts=config.n_restarts, n_converged=len(converged),
+        n_restarts=len(restarts), n_converged=len(converged),
         best_cost=best.cost, best_nfev=best.nfev, runtime_seconds=runtime,
     )
     if config.log_path:
