@@ -101,6 +101,48 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
 
+## Describe your vehicle for Strathe from your Stonefish model: `describe-stonefish`
+
+```bash
+python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 \
+    --mass 33 --find my_stonefish_pkg=/path/to/my_stonefish_pkg --out my_vehicle_spec.yaml
+```
+
+It writes the vehicle description `strathe calibrate --spec` needs, from what your model already says, so you don't
+fill in `templates/vehicle_spec_template.yaml` by hand. It takes:
+- **mass:** the model's, or `--mass` (weigh it: the model's can differ, and its rigid inertia is scaled to it);
+- **inertia:** roll, pitch and yaw, rigid plus added, about the logs' reference point;
+- **added mass** per axis: Stonefish's geometric estimate for each external part;
+- **drag** per axis: from the parts' coefficients and mesh areas, Stonefish's cubic law matched at `--cruise-speed`;
+- **pitch and yaw damping:** from the hull's length and diameter;
+- **net buoyancy:** the model's trim;
+- **the centre of gravity's offset** below the centre of buoyancy;
+- **the hull-lift terms:** with `--hull-lift`, for a slender hull.
+
+**Limits** come from the hull's size, not the model's values:
+- **inertia:** the model's rigid inertia plus slender-body added inertia, 1/5 to 3× (roll 1/5 to 10×);
+- **added mass:** surge up to the displaced mass, sway and heave up to 2× strip theory (ρπr²L);
+- **drag:** a drag coefficient of 0.05–8 on the frontal area (surge) and 0.03–2.5 on the side area (sway, heave,
+  and pitch and yaw by strip theory, up to 3× for fins); linear drag up to 1 m/s × the quadratic limit. Damping is
+  kept generous on purpose: in an open-loop replay it also absorbs what the model leaves out;
+- **net buoyancy:** ±12% of the weight around the model's trim; **CG below CB:** within the hull's radius.
+
+The model's values can be far off either way. ALPHA RISE's sway and heave added mass are 3× strip theory, and its nose
+drag is 20× smaller than the fitted one. With limits sized around those values (5× either way), the fit landed
+somewhere that matched the training mission and drifted 64 m on the unseen one. A model value outside the limits
+starts just inside them, and the command lists it.
+
+**Calibrate it with `--restarts 4`.** Limits sized from the hull are wide, so where the fit ends up depends on where it
+starts. On URI's ALPHA RISE (PROJECT_STATUS.md #77, #79), mean skill on the unseen mission:
+
+| Mission held out | One start | 4 starts | Hand-written description |
+|---|---|---|---|
+| Bay | −3.18 (blew up: 66 m drift at 60 s) | +0.191, 4.0 m at 60 s | +0.183, 4.0 m |
+| Pond | +0.159 | +0.205, 5.3 m at 60 s | +0.227, 3.5 m |
+
+Four starts take about four times as long. Strathe keeps the start with the lowest training cost, so the choice never
+uses the unseen mission, and the report lists each start's cost.
+
 ## Put your Strathe calibration into Stonefish: `export-stonefish`
 ```bash
 python strathe.py export-stonefish --calibration calibration_output_my_auv --scenario my_world.scn --robot my_auv \

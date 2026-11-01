@@ -2026,6 +2026,24 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
 - F20: shipped policies on another vehicle.
 - F11: missing web form fields.
 
+### 77. `strathe describe-stonefish`: the vehicle description from a lab's own Stonefish model (2026-10-19)
+
+**Why.** Filling in `vehicle_spec_template.yaml` by hand is the hardest step for a lab, and a lab with a Stonefish
+model already has most of it. `describe-stonefish` reads the model through the replay tool's `--info` and writes the
+description: mass, inertia, added mass, drag, pitch and yaw damping, net buoyancy, the CG's offset and, with
+`--hull-lift`, the hull-lift terms. Web card, LAB_GUIDE step, README line and a Stonefish README section.
+
+**The limits are what matter.** Validated on URI's ALPHA RISE against the hand-written description:
+- **Limits around the model's values** (5× either way): added mass up to 900 kg. The fit matched the training mission
+  and drifted 64 m on the unseen one. ALPHA RISE's model has sway and heave added mass 3× strip theory and nose drag
+  20× smaller than the fitted one.
+- **Limits sized from the hull, linear damping tight:** too tight to fit.
+- **Generous damping limits (V3, what ships):** the pond held out came close; the bay held out blew up (mean skill
+  −3.18) from one start.
+- **V3 with 4 starting points (#79):** +0.191 on the bay (hand-written +0.183) and +0.205 on the pond (+0.227). So
+  every guide, the written file's header, the command's last line and the web card say to calibrate it with
+  `--restarts 4`.
+
 ### 78. Unstable values don't stop a fit, and the web forms get the missing options (2026-10-19)
 
 **Why.** URI's re-run (#76) left two gaps.

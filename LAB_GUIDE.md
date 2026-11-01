@@ -72,8 +72,25 @@ allowed range for its inertia, drag, added mass and buoyancy. **Without `--spec`
 (11.2 kg).** That's right only for a BlueROV2 Heavy. Any other vehicle needs its own description, or the fit is poor
 and the simulation can blow up (a 33 kg AUV calibrated as a BlueROV2: no axis trustworthy, PROJECT_STATUS.md #70).
 
-Copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next to your
-logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
+**Have a Stonefish model of your vehicle?** Strathe writes the description from it, with no template to fill in:
+
+```bash
+python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --reference-point -0.76 0 0 --mass 33 --out my_vehicle_spec.yaml
+```
+
+- **What it reads:** the model's mass distribution, added mass, drag coefficients, hull size and the centres of
+  gravity and buoyancy.
+- **What `--mass` does:** give the weighed mass; the model's can differ, and its rigid inertia is then scaled to it.
+- **Limits:** sized from the hull (its length and diameter, displaced volume and mass distribution), not from the
+  model's values, with the model's values as starting points. A model value outside them (Stonefish's geometric added
+  mass can be several times strip theory) starts just inside, and the command says so.
+- **Then check two things:** the thruster count, and anything you know better.
+- **Calibrate it with `--restarts 4`.** Its limits are wide, so one starting point isn't reliable: on URI's ALPHA RISE,
+  one start blew up on the unseen mission (mean skill −3.18) and four matched the hand-written description (+0.191
+  against +0.183). It takes about 4× as long.
+
+Otherwise, copy [calibration/templates/vehicle_spec_template.yaml](calibration/templates/vehicle_spec_template.yaml) next
+to your logs and fill it in. You need the vehicle's **mass** and its **size**; the template's comments give the formulas for
 the rest:
 
 | Value | First guess | Allowed range |
