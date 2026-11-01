@@ -37,7 +37,7 @@ T0 = 1_707_000_000.0  # 2024-02-03 22:40 UTC
 
 def test_every_template_loads_and_builds_its_thrusters(tmp_path):
     names = sorted(glob.glob(os.path.join(TEMPLATES, "ingest_*.yaml")))
-    assert len(names) == 12   # + PX4, MOOS-IvP and LCM (#94)
+    assert len(names) == 14   # + PX4, MOOS-IvP and LCM (#94); + ArduSub with no DVL, and a ROS vehicle's sensors (#96)
     for path in names:
         spec = load_ingest_spec(path)
         if spec.wrench.thrusters is not None:

@@ -29,7 +29,11 @@ Each format has its own way of naming a column. Every other part of the spec is 
 - `frame: frd | flu`;
 - world or body velocity;
 - a rotated sensor mount;
-- forces, or thruster PWM or normalized commands with your thruster layout.
+- forces, or thruster PWM or normalized commands with your thruster layout;
+- your vehicle's own sensors: depth or pressure, position fixes or GPS, an accelerometer, a DVL with its gaps
+  kept (`SENSORS.md`). Every format reads them the same way: each reading at its own time, never interpolated.
+  MOOS-IvP: use the raw `GPS_X`/`GPS_Y` or `USBL_*` fixes and `DEPTH`, not `NAV_*` (the vehicle's filtered
+  estimate).
 
 | | Write a column as | Examples |
 |---|---|---|

@@ -100,6 +100,7 @@ def _get(msg, path: str, ref: str):
 
 def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns: Sequence[str] = (),
              quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None,
+             native_columns: Sequence[str] = (), span_exempt: Sequence[str] = (),
              type_files: Sequence[str] = (), stamp: str = "header") -> tuple:
     """Returns (DataFrame with the time column + one column per reference on a uniform grid, report)."""
     try:
@@ -169,7 +170,8 @@ def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns
     if damaged:
         report["warnings"].append("the log ends in a damaged event; it was read up to there")
     df, report = series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report, clock, LcmLogError,
-                                angle_columns=angle_columns, source_word="channel")
+                                angle_columns=angle_columns, source_word="channel",
+                                native_columns=native_columns, span_exempt=span_exempt)
     report["clock"] = ", ".join(sorted(set(clock.values())))
     return df, report
 

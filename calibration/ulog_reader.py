@@ -62,7 +62,8 @@ def _utc_offset_us(ulog) -> Optional[float]:
 
 
 def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns: Sequence[str] = (),
-             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None) -> tuple:
+             quaternion_groups: Sequence[Sequence[str]] = (), angle_columns: Optional[dict] = None,
+             native_columns: Sequence[str] = (), span_exempt: Sequence[str] = ()) -> tuple:
     """Returns (DataFrame with the time column + one column per reference on a uniform grid, report)."""
     try:
         from pyulog import ULog
@@ -117,7 +118,8 @@ def read_log(path: str, columns: Sequence[str], resample_hz: float, hold_columns
         series[name] = (t, vals)
         clock[name] = "UTC (from the log's GPS)" if offset is not None else "time since boot (no GPS time in the log)"
     df, report = series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report, clock, ULogError,
-                                angle_columns=angle_columns)
+                                angle_columns=angle_columns,
+                                native_columns=native_columns, span_exempt=span_exempt)
     report["clock"] = next(iter(clock.values()))
     if offset is None:
         report["recording_start_unix_s"] = None

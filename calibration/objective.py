@@ -216,10 +216,21 @@ def validate_run_dataframe(df: pd.DataFrame, filepath: str) -> None:
         raise ValueError(f"Empty CSV, no rows: {filepath}")
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    sensors = [c for c in df.columns if c.startswith(("pos_", "depth_", "acc_"))]
+    if missing and set(missing) <= {"Bu", "Bv", "Bw"} and sensors:
+        what = sorted({"the accelerometer" if c.startswith("acc_") else c.rsplit("_", 1)[0] if c.startswith("pos_")
+                       else c for c in sensors})
+        raise ValueError(f"{filepath} has no body velocity (no DVL): its motion comes from {', '.join(what)}. This "
+                         f"calibration fits to body velocity; calibrating from position, depth and the IMU alone is "
+                         f"the sensor suite (PROJECT_STATUS.md #96), which this version doesn't calibrate with yet")
     if missing:
         raise ValueError(f"{filepath} is missing required column(s): {missing}")
 
     nan_cols = [c for c in REQUIRED_COLUMNS if df[c].isna().any()]
+    if nan_cols and set(nan_cols) <= {"Bu", "Bv", "Bw"}:
+        raise ValueError(f"{filepath} has gaps in its DVL readings (NaN in {nan_cols}: ingested with "
+                         f"body_velocity.linear_gaps: keep). This calibration needs a reading at every sample: ingest "
+                         f"with linear_gaps: interpolate (the default) for now (PROJECT_STATUS.md #96)")
     if nan_cols:
         raise ValueError(f"{filepath} contains NaN in required column(s): {nan_cols}")
 

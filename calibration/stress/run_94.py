@@ -134,7 +134,153 @@ def values(r: Rec, v: dict) -> dict:
     if v["position"] != "none":
         s = {"m": 1, "cm": 100, "mm": 1000}[v["position"]]
         out.update({c: x * s for c, x in zip(("px", "py", "pz"), (Rw @ xyz.T))})
+    if v.get("sensors", "none") != "none":
+        out.update(sensor_values(r, v, R, B, xyz, Rw))
     return out
+
+
+# --- the sensor suite (#96): a vehicle's own sensors, as each format logs them ----------------------------------------
+# Each sensor is its own topic, with a message only where it read (a 1 Hz fix, a 5 Hz pressure, GPS only while
+# surfaced, a DVL with dropouts); the CSV route has the same readings in the same rows and empty cells elsewhere.
+# Every case also keeps the gyro and the force direction check honest, so it round-trips with the variant's DVL.
+SENSOR_COLS = {"ux": "usbl", "uy": "usbl", "uz": "usbl", "glat": "gps", "glon": "gps", "gstat": "gps",
+               "dep": "depth", "pres": "press", "ax": "acc", "ay": "acc", "az": "acc", "du": "dvlg", "dv": "dvlg",
+               "dw": "dvlg", "surf": "flag"}
+SENSOR_CASES = {   # case: (sensor groups written, spec blocks) -- spec built in sensor_spec()
+    "usbl": "a USBL fix at 1 Hz, delayed 0.3 s, use: calibrate, source usbl, its own tolerance (noise_m)",
+    "mocap_cm": "motion capture in cm at 2 Hz (use: calibrate, source mocap, max_speed_mps)",
+    "lbl_xy": "an LBL fix with no vertical (x, y), source lbl",
+    "other_check": "position use: check from a source 'other' (the original orientation check)",
+    "odometry_check": "an odometry position for use: check (allowed; use: calibrate is refused)",
+    "gps_deg": "GPS lat/lon in degrees, a fix only while surfaced (drop_when on the fix status, below)",
+    "gps_rad": "GPS lat/lon in radians, dropped by a surfaced flag (drop_when above)",
+    "depth_m": "a depth sensor in m, positive down, named, delay_s, drop_when",
+    "depth_cm_up": "depth in cm, positive up",
+    "depth_mm": "depth in mm",
+    "press_Pa": "pressure in Pa, fresh water, surface given",
+    "press_hPa": "pressure in hPa, salt water, surface auto",
+    "press_kPa": "pressure in kPa",
+    "press_mbar": "pressure in mbar",
+    "press_bar": "pressure in bar",
+    "press_psi": "pressure in psi, salt water",
+    "acc": "an accelerometer in m/s^2, delay_s, drop_when",
+    "acc_g_mount": "an accelerometer in g, mounted yawed 90 degrees",
+    "dvl_keep": "a DVL with dropouts, linear_gaps: keep",
+    "dvl_interpolate": "the DVL, linear_gaps: interpolate (the default) stated",
+    "skips": "every sensor check listed in skip_checks",
+}
+SENSOR_RATE_EVERY = {"usbl": 10, "gps": 10, "depth": 2, "press": 2, "acc": 1, "dvlg": 1, "flag": 1}
+G0, LAT0, LON0 = 9.80665, 41.4436494, -71.42388341
+
+
+def sensor_values(r: Rec, v: dict, R, B, xyz, Rw) -> dict:
+    """The sensors' readings at the recording's 10 Hz instants, NaN where the sensor didn't read; in the variant's
+    world frame (Rw) and body frame for the accelerometer. Depth is the position's down (NED) whatever the frame."""
+    case = v["sensors"]
+    n = r.n
+    k = np.arange(n)
+    pos_w = (Rw @ xyz.T).T                              # the variant's world frame
+    down = xyz[:, 2] if v["frame"] == "frd" else -pos_w[:, 2]
+    out = {}
+
+    def every(m, offset=0):
+        x = np.full(n, False)
+        x[offset::m] = True
+        return x
+    if case in ("usbl", "mocap_cm", "lbl_xy", "other_check", "odometry_check"):
+        # use: check positions are a track (motion capture at the recording's rate), the others fixes
+        m = every(1 if case.endswith("_check") else 5 if case == "mocap_cm" else 10)
+        scale = 100.0 if case == "mocap_cm" else 1.0
+        lag = 3 if case == "usbl" else 0                  # 0.3 s late: the reading is where the vehicle was 3 rows back
+        src = np.clip(k - lag, 0, n - 1)
+        for c, j in (("ux", 0), ("uy", 1), ("uz", 2)):
+            if case == "lbl_xy" and c == "uz":
+                continue
+            out[c] = np.where(m, pos_w[src, j] * scale, np.nan)
+    if case in ("gps_deg", "gps_rad"):
+        m = every(10, 3)
+        lat = LAT0 + np.degrees(xyz[:, 0] / 6378137.0)
+        lon = LON0 + np.degrees(xyz[:, 1] / (6378137.0 * np.cos(np.radians(LAT0))))
+        f = (np.radians if case == "gps_rad" else (lambda x: x))
+        out["glat"], out["glon"] = np.where(m, f(lat), np.nan), np.where(m, f(lon), np.nan)
+        surfaced = k < n // 2
+        if case == "gps_deg":
+            out["gstat"] = np.where(m, np.where(surfaced, 0.0, -1.0), np.nan)
+        else:
+            out["surf"] = np.where(surfaced, 0.0, 1.0)     # a dense flag: 1 = underwater
+    if case.startswith("depth") or case == "skips":
+        m = every(2)
+        s = {"depth_m": 1.0, "depth_cm_up": -100.0, "depth_mm": 1000.0, "skips": 1.0}[case]
+        out["dep"] = np.where(m, down * s, np.nan)
+    if case.startswith("press"):
+        m = every(2)
+        unit = case.split("_")[1]
+        rho = 1025.0 if unit in ("hPa", "psi") else 997.0
+        pa = 101325.0 + rho * G0 * (down - down.min())
+        out["pres"] = np.where(m, pa / {"Pa": 1, "hPa": 100, "kPa": 1000, "mbar": 100, "bar": 1e5, "psi": 6894.757}[unit],
+                               np.nan)
+    if case.startswith("acc") or case == "skips":
+        Rb = R.as_matrix()
+        lin, ang = B[:, :3], B[:, 3:]
+        if v["frame"] == "flu":                            # the variant's body frame
+            Rb = T_FLU @ Rb @ TB
+            lin, ang = lin @ TB, ang @ TB
+        g = np.array([0.0, 0.0, -G0]) if v["frame"] == "frd" else np.array([0.0, 0.0, G0])
+        f = np.gradient(lin, 0.1, axis=0) + np.cross(ang, lin) + np.einsum("nji,j->ni", Rb, g)
+        if case == "acc_g_mount":   # mounted yawed 90 deg: the readings in the sensor's own axes, in g
+            f = Rotation.from_euler("xyz", [0, 0, 90], degrees=True).inv().apply(f) / G0
+        out["ax"], out["ay"], out["az"] = f[:, 0], f[:, 1], f[:, 2]
+    if case == "dvl_keep":
+        m = (k // 37) % 4 != 0                               # bottom lock lost a quarter of the time
+        lin = B[:, :3] if v["frame"] == "frd" else B[:, :3] @ TB
+        for c, j in (("du", 0), ("dv", 1), ("dw", 2)):
+            out[c] = np.where(m, lin[:, j], np.nan)
+    return out
+
+
+def sensor_spec(case: str, col) -> dict:
+    """The spec blocks for a sensor case (col: a column's name in the route's own naming)."""
+    s = {}
+    if case in ("usbl", "mocap_cm", "lbl_xy", "other_check", "odometry_check"):
+        pos = {"x": col("ux"), "y": col("uy")}
+        if case != "lbl_xy":
+            pos["z"] = col("uz")
+        pos.update({"usbl": {"use": "calibrate", "source": "usbl", "name": "usbl", "delay_s": 0.3, "noise_m": 0.5},
+                    "mocap_cm": {"use": "calibrate", "source": "mocap", "unit": "cm", "max_speed_mps": 4.0},
+                    "lbl_xy": {"use": "calibrate", "source": "lbl"},
+                    "other_check": {"use": "check", "source": "other"},
+                    "odometry_check": {"use": "check", "source": "odometry"}}[case])
+        s["position"] = pos
+    if case == "gps_deg":
+        s["position"] = {"use": "calibrate", "source": "gps", "latlon": {"lat": col("glat"), "lon": col("glon")},
+                         "drop_when": [{"column": col("gstat"), "below": 0}]}
+    if case == "gps_rad":
+        s["position"] = {"use": "calibrate", "source": "gps",
+                         "latlon": {"lat": col("glat"), "lon": col("glon"), "unit": "rad"},
+                         "drop_when": [{"column": col("surf"), "above": 0.5}]}
+    if case == "depth_m":
+        s["depth"] = {"column": col("dep"), "unit": "m", "positive": "down", "name": "baro", "delay_s": 0.1,
+                      "drop_when": [{"column": col("dep"), "above": 1e6}]}
+    if case == "depth_cm_up":
+        s["depth"] = {"column": col("dep"), "unit": "cm", "positive": "up"}
+    if case == "depth_mm":
+        s["depth"] = {"column": col("dep"), "unit": "mm"}
+    if case.startswith("press"):
+        unit = case.split("_")[1]
+        pr = {"column": col("pres"), "unit": unit, "water": "salt" if unit in ("hPa", "psi") else "fresh"}
+        if unit == "Pa":
+            pr["surface"] = 101325.0
+        s["depth"] = {"pressure": pr}
+    if case == "acc":
+        s["accelerometer"] = {"x": col("ax"), "y": col("ay"), "z": col("az"), "unit": "m/s^2", "delay_s": 0.0,
+                              "drop_when": [{"column": col("az"), "above": 1e6}]}
+    if case == "acc_g_mount":
+        s["accelerometer"] = {"x": col("ax"), "y": col("ay"), "z": col("az"), "unit": "g", "mount_rpy_deg": [0, 0, 90]}
+    if case == "skips":
+        s["depth"] = {"column": col("dep")}
+        s["accelerometer"] = {"x": col("ax"), "y": col("ay"), "z": col("az")}
+        s["skip_checks"] = ["gyro_vs_orientation", "accelerometer", "depth_vs_position", "heading_vs_position"]
+    return s
 
 
 HOLD = {"m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7"}
@@ -143,6 +289,8 @@ TOPIC_OF = {**{f"q{c}": "att" for c in "xyzw"}, "roll": "att", "pitch": "att", "
             **{c: "act" for c in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz", "m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7")},
             "volt": "batt", "px": "pos", "py": "pos", "pz": "pos"}
 RATE = {"att": 50, "gyro": 50, "vel": 10, "act": 20, "batt": 10, "pos": 10}
+TOPIC_OF.update(SENSOR_COLS)
+NATIVE_GROUPS = {"usbl", "gps", "depth", "press", "acc", "dvlg", "flag"}   # messages only where the sensor read
 
 
 def upsample(t: np.ndarray, cols: dict, rate: int) -> tuple:
@@ -167,24 +315,45 @@ def topics_of(r: Rec, vals: dict) -> dict:
     groups = {}
     for c, x in vals.items():
         groups.setdefault(TOPIC_OF[c], {})[c] = x
-    return {g: upsample(r.t, cols, RATE[g]) for g, cols in groups.items()}
+    out = {}
+    for g, cols in groups.items():
+        if g in NATIVE_GROUPS:   # a sensor: a message where it read, at the recording's own instants
+            ok = np.all([np.isfinite(x) for x in cols.values()], axis=0)
+            out[g] = (r.t[ok], {c: x[ok] for c, x in cols.items()})
+        else:
+            out[g] = upsample(r.t, cols, RATE[g])
+    return out
 
 
 # --- each format's names --------------------------------------------------------------------------------------------
 PX4_NAMES = {"att": "vehicle_attitude", "gyro": "vehicle_angular_velocity", "vel": "dvl_velocity",
-             "act": "actuator_outputs", "batt": "battery_status", "pos": "vehicle_local_position"}
+             "act": "actuator_outputs", "batt": "battery_status", "pos": "vehicle_local_position",
+             "usbl": "usbl_fix", "gps": "vehicle_gps_position", "depth": "depth_sensor", "press": "sensor_baro",
+             "acc": "sensor_accel", "dvlg": "dvl_bottom_lock", "flag": "vehicle_status"}
 PX4_FIELD = {"qw": "q[0]", "qx": "q[1]", "qy": "q[2]", "qz": "q[3]", "p": "xyz[0]", "q": "xyz[1]", "r": "xyz[2]",
              "u": "vx", "v": "vy", "w": "vz", "volt": "voltage_v", "px": "x", "py": "y", "pz": "z",
-             **{f"m{i}": f"output[{i}]" for i in range(8)}}
+             **{f"m{i}": f"output[{i}]" for i in range(8)},
+             "ux": "x", "uy": "y", "uz": "z", "glat": "lat", "glon": "lon", "gstat": "fix_type", "dep": "depth",
+             "pres": "pressure", "ax": "x", "ay": "y", "az": "z", "du": "vx", "dv": "vy", "dw": "vz",
+             "surf": "underwater"}
 MOOS_VAR = {"qx": "NAV_QX", "qy": "NAV_QY", "qz": "NAV_QZ", "qw": "NAV_QW", "roll": "NAV_ROLL", "pitch": "NAV_PITCH",
             "yaw": "NAV_YAW", "p": "IMU_P", "q": "IMU_Q", "r": "IMU_R", "u": "DVL_U", "v": "DVL_V", "w": "DVL_W",
             "volt": "BATT_VOLTAGE", "px": "NAV_X", "py": "NAV_Y", "pz": "NAV_DEPTH",
             **{f"m{i}": f"THRUSTER_{i + 1}" for i in range(8)},
-            **{c: f"WRENCH_{c.upper()}" for c in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")}}
-LCM_CH = {"att": "ATTITUDE", "gyro": "GYRO", "vel": "DVL", "act": "THRUSTERS", "batt": "BATTERY", "pos": "POSE"}
+            **{c: f"WRENCH_{c.upper()}" for c in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")},
+            "ux": "USBL_X", "uy": "USBL_Y", "uz": "USBL_Z", "glat": "GPS_LAT", "glon": "GPS_LON",
+            "gstat": "GPS_STATUS", "dep": "DEPTH", "pres": "PRESSURE", "ax": "ACC_X", "ay": "ACC_Y", "az": "ACC_Z",
+            "du": "DVL_BL_U", "dv": "DVL_BL_V", "dw": "DVL_BL_W", "surf": "UNDERWATER"}
+LCM_CH = {"att": "ATTITUDE", "gyro": "GYRO", "vel": "DVL", "act": "THRUSTERS", "batt": "BATTERY", "pos": "POSE",
+          "usbl": "USBL", "gps": "GPS", "depth": "DEPTH", "press": "PRESSURE", "acc": "ACCEL", "dvlg": "BOTTOMLOCK",
+          "flag": "STATUS"}
 LCM_FIELD = {"qx": "q[0]", "qy": "q[1]", "qz": "q[2]", "qw": "q[3]", "p": "rate[0]", "q": "rate[1]", "r": "rate[2]",
              "u": "vel[0]", "v": "vel[1]", "w": "vel[2]", "volt": "volts", "px": "xyz[0]", "py": "xyz[1]",
-             "pz": "xyz[2]", **{f"m{i}": f"cmd[{i}]" for i in range(8)}}
+             "pz": "xyz[2]", **{f"m{i}": f"cmd[{i}]" for i in range(8)},
+             # each channel's fields its own: LCM types with the same fields have the same fingerprint
+             "ux": "fix[0]", "uy": "fix[1]", "uz": "fix[2]", "glat": "lat", "glon": "lon", "gstat": "status",
+             "dep": "depth", "pres": "pressure", "ax": "acc[0]", "ay": "acc[1]", "az": "acc[2]", "du": "bl[0]",
+             "dv": "bl[1]", "dw": "bl[2]", "surf": "underwater"}
 
 
 def ref_of(fmt: str, c: str, kind=None) -> str:
@@ -330,6 +499,17 @@ def spec_for(fmt: str, v: dict, files_glob: str, _unused, folder: str, kind=None
         s["skip_checks"] = ["force_direction" if v["checks"] == "skip_force" else "orientation_vs_position"]
     if v["stamp"] != "default" and fmt == "lcm":
         s["source"]["stamp"] = v["stamp"]
+    case = v.get("sensors", "none")
+    if case != "none":
+        extra = sensor_spec(case, col)
+        if "skip_checks" in extra:
+            s["skip_checks"] = list(dict.fromkeys(s.get("skip_checks", []) + extra.pop("skip_checks")))
+        s.update(extra)
+        if case == "dvl_keep":
+            s["body_velocity"]["columns"].update({c: col(d) for c, d in zip("uvw", ("du", "dv", "dw"))})
+            s["body_velocity"]["linear_gaps"] = "keep"
+        if case == "dvl_interpolate":
+            s["body_velocity"]["linear_gaps"] = "interpolate"
     return s
 
 
@@ -380,10 +560,16 @@ def compare(a: str, b: str, v: dict) -> dict:
         rows += n
         if abs(len(x) - len(y)) > (1 if v["resample"] != 10 else 0):
             return {"same_files": True, "rows_differ": [f, len(x), len(y)]}
-        for c in di.CANONICAL_COLUMNS:
+        if list(x.columns) != list(y.columns):
+            return {"same_files": True, "columns_differ": [f, list(x.columns), list(y.columns)]}
+        for c in x.columns:
             if c in ("qx", "qy", "qz", "qw"):
                 continue
-            d = float(np.max(np.abs(x[c].to_numpy()[:n] - y[c].to_numpy()[:n])))
+            a_, b_ = x[c].to_numpy(dtype=float)[:n], y[c].to_numpy(dtype=float)[:n]
+            if not np.array_equal(np.isnan(a_), np.isnan(b_)):   # a reading on one route and none on the other
+                return {"same_files": True, "readings_differ": [f, c, int(np.isnan(a_).sum()), int(np.isnan(b_).sum())]}
+            ok = ~np.isnan(a_)
+            d = float(np.max(np.abs(a_[ok] - b_[ok]))) if ok.any() else 0.0
             worst[c] = max(worst.get(c, 0.0), d)
         # orientation: q and -q are the same rotation (the model uses it sign-free), so compare the rotations
         qa, qb = x[["qx", "qy", "qz", "qw"]].to_numpy()[:n], y[["qx", "qy", "qz", "qw"]].to_numpy()[:n]
@@ -397,7 +583,33 @@ TOL = 1e-6   # well under any sensor's resolution; the routes differ only by flo
 
 
 def _ok(res: dict) -> bool:
-    return "error" not in res and res.get("same_files") and "rows_differ" not in res and res["max_abs_diff"] < TOL
+    return ("error" not in res and res.get("same_files") and "rows_differ" not in res and "columns_differ" not in res
+            and "readings_differ" not in res and res["max_abs_diff"] < TOL)
+
+
+def s_sensors() -> None:
+    """The sensor suite (#96): each sensor case through each format against the CSV route: the same readings, in the
+    same samples, converted the same, and the same sensor columns, NaN in the same places."""
+    recs = recordings("sample")[:2]
+    for fmt in FORMATS:
+        for case, what in SENSOR_CASES.items():
+            v = {**BASE, "sensors": case}
+            res = round_trip(fmt, recs, v, f"SN-{fmt}-{case}")
+            sens = None
+            if "error" not in res:
+                root = os.path.join(DATA, f"SN-{fmt}-{case}", fmt, "ingested")
+                try:
+                    rep = json.load(open(os.path.join(root, "ingest_report.json")))
+                    sens = {k: {"readings": c["readings"], "rate_hz": c["rate_hz"]}
+                            for k, c in (rep.get("sensors") or {}).get("sensors", {}).items()}
+                    res["axes_not_seen"] = (rep.get("sensors") or {}).get("axes_not_seen")
+                except (OSError, ValueError):
+                    pass
+            res["sensors"] = sens
+            ok = _ok(res) and (case in ("other_check", "odometry_check", "dvl_interpolate") or bool(sens))
+            record(F, f"SN-{fmt}-{case}", "sensor", case, f"{fmt}: {what}", "bluerov sample", res,
+                   f"same as the CSV route (< {TOL:g}), sensor readings in the same samples", ok,
+                   res.get("seconds", 0))
 
 
 # --- fast rows ------------------------------------------------------------------------------------------------------
@@ -847,6 +1059,7 @@ def all_rows() -> set:
         rows |= {f"X-{f}-{x}" for x in ("time_block", "no_resample", "message_types",
                                        *(("stamp", "lcm_types_elsewhere") if f != "lcm" else ("lcm_without_types",)))}
         rows |= {f"E-bluerov-{f}", f"E-uri-{f}"}
+        rows |= {f"SN-{f}-{c}" for c in SENSOR_CASES}   # the sensor suite (#96)
     rows |= {"D-moos-string_value", "D-lcm-wrong_types", "K-px4-multi_instance", "K-moos-keyvalue", "K-moos-source",
              "K-lcm-nested", "M-frame_sign_flipped", "M-PX4_time_unit_wrong_by_1000", "M-array_index_dropped",
              "I-lcm-logger", *(f"E-mujoco-{f}" for f in FORMATS)}
@@ -1000,7 +1213,7 @@ def e_mujoco_routes() -> None:
 def fast() -> int:
     os.makedirs(DATA, exist_ok=True)
     for step in (r_full, v_one_at_a_time, p_pairwise, k_field_kinds, d_damage, d_fuzz, s_size, x_spec_rules, i_independent,
-                 e_entry_points, c_check):
+                 e_entry_points, c_check, s_sensors):
         print(f"--- {step.__name__} ({time.strftime('%H:%M')})", flush=True)
         try:
             step()

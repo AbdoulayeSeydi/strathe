@@ -119,8 +119,8 @@ def test_exclude_samples_splits_recordings_at_the_dropped_stretches(tmp_path):
                                                "*.csv")), reason="DFKI dataset not prepared")
 def test_dfki_with_a_mirrored_heading_is_flagged(tmp_path):
     """ArduSub's own yaw on DFKI is mirrored and ~175 deg off the basin's frame. With world-frame velocity that
-    takes surge from +0.79 to about 0 instead of below -0.2, so it isn't refused; it must be flagged
-    (PROJECT_STATUS.md #63)."""
+    takes surge from +0.79 to about 0 instead of below -0.2, so the force check doesn't refuse it; it must be flagged
+    (PROJECT_STATUS.md #63). The gyro check (#96) refuses it: the logged yaw rate turns against the mirrored heading."""
     src = os.path.join(os.path.dirname(CAL), "data", "raw", "dfki_rov_tether", "strathe_csv")
     raw = tmp_path / "raw"
     raw.mkdir()
@@ -131,8 +131,14 @@ def test_dfki_with_a_mirrored_heading_is_flagged(tmp_path):
     spec = yaml.safe_load(open(os.path.join(CAL, "examples", "dfki_tether", "ingest_dfki_tether.yaml")))
     spec["source"]["files"] = str(raw / "*.csv")
     (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec))
+    # since #96 the gyro catches it outright: the logged yaw rate turns the opposite way to the mirrored heading
+    with pytest.raises(IngestError, match=r"r: the gyro turns the opposite way to the orientation"):
+        ingest(load_ingest_spec(str(tmp_path / "s.yaml")), str(tmp_path / "refused"))
+    spec["skip_checks"] = list(spec.get("skip_checks", [])) + ["gyro_vs_orientation"]
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec))
     s = ingest(load_ingest_spec(str(tmp_path / "s.yaml")), str(tmp_path / "out"))
     assert set(s["force_direction"]["weak_axes"]) >= {"surge"}
+    spec["skip_checks"].remove("gyro_vs_orientation")
     assert any("heading used to turn it is probably wrong" in w for w in s["warnings"])
     spec["source"]["files"] = os.path.join(src, "*.csv")  # the correct heading: no such warning
     (tmp_path / "ok.yaml").write_text(yaml.safe_dump(spec))

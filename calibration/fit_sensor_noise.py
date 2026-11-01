@@ -94,13 +94,34 @@ def held_fraction(block: np.ndarray) -> float:
     return float(np.mean(missing | same))
 
 
+def _sensor_columns(df: pd.DataFrame) -> dict:
+    """The sensor suite's channels (#96) measured here: the first position fix's n/e as x/y, the first depth sensor as
+    z (a logged x/y/z, the reference dataset's motion capture, is used when there's no such channel)."""
+    out = {}
+    pos = sorted(c[:-2] for c in df.columns if c.startswith("pos_") and c.endswith("_n"))
+    if pos:
+        out["x"], out["y"] = pos[0] + "_n", pos[0] + "_e"
+    depth = sorted(c for c in df.columns if c.startswith("depth_"))
+    if depth:
+        out["z"] = depth[0]
+    return out
+
+
 def fit_recording(df: pd.DataFrame) -> dict:
     from scipy.spatial.transform import Rotation
     out = {}
-    for col in ("Bu", "Bv", "Bw", "Bp", "Bq", "Br", "x", "y", "z"):
+    channel = {c: c for c in ("Bu", "Bv", "Bw", "Bp", "Bq", "Br", "x", "y", "z")}
+    channel.update(_sensor_columns(df))
+    for key, col in channel.items():
         if col in df:
-            out[col] = white_noise_std(df[col].values)
-            out[f"{col}_corr"] = noise_correlation(df[col].values)
+            # a sensor's own readings only: a column with gaps (a DVL whose dropouts were kept, a 1 Hz fix) is NaN
+            # between readings, and the second difference is taken over consecutive readings
+            x = df[col].to_numpy(dtype=float)
+            x = x[np.isfinite(x)]
+            if len(x) < 5:
+                continue
+            out[key] = white_noise_std(x)
+            out[f"{key}_corr"] = noise_correlation(x)
     if all(c in df for c in ("qx", "qy", "qz", "qw")):
         q = df[["qx", "qy", "qz", "qw"]].values
         ok = np.all(np.isfinite(q), axis=1) & (np.linalg.norm(q, axis=1) > 0.5)
@@ -112,6 +133,12 @@ def fit_recording(df: pd.DataFrame) -> dict:
         out["held"] = held_fraction(df[["Bu", "Bv", "Bw"]].values)
     out["samples"] = len(df)
     return out
+
+
+def _typical_preset() -> dict:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensor_noise", "typical_dvl_ahrs.yaml"),
+              encoding="utf-8") as f:
+        return (yaml.safe_load(f) or {}).get("sensors", {})
 
 
 def _median(rows, key):
@@ -155,12 +182,20 @@ def fit(files: list, position: str = None) -> tuple:
         corr = [m for m in (_median(rows, f"{c}_corr") for c in cols) if m is not None]
         if corr and float(np.median(corr)) > FILTERED_ABOVE:
             if preset is None:
-                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensor_noise",
-                                       "typical_dvl_ahrs.yaml"), encoding="utf-8") as f:
-                    preset = (yaml.safe_load(f) or {}).get("sensors", {})
+                preset = _typical_preset()
             filtered[key] = {"measured": sensors[key], "second_difference_correlation": round(float(np.median(corr)), 3),
                              "written": preset.get(key, sensors[key])}
             sensors[key] = preset.get(key, sensors[key])
+    # a sensor the vehicle doesn't have (#96: no DVL, no depth sensor) isn't measured as perfect: the preset's value
+    # is written, and the note says it wasn't measured
+    absent = {}
+    for key, cols, what in (("velocity_std_mps", ("Bu", "Bv", "Bw"), "no DVL"), ("depth_std_m", ("z",), "no depth")):
+        if not any(_median(rows, c) is not None for c in cols):
+            preset = preset or _typical_preset()
+            absent[key] = {"why": f"{what} in these logs", "written": preset.get(key, sensors[key])}
+            sensors[key] = preset.get(key, sensors[key])
+    if absent:
+        filtered.update({k: {**v, "second_difference_correlation": None, "measured": None} for k, v in absent.items()})
     return sensors, rows, filtered
 
 
@@ -196,6 +231,12 @@ def main(argv=None) -> int:
                      f"guide to per-tick noise in the simulator.")
     notes.append("Biases (a constant offset per dive) can't be measured from logs without an independent reference; "
                  "they are 0 here. Put your sensors' datasheet values in if you know them.")
+    absent = {k: v for k, v in filtered.items() if v.get("why")}
+    filtered = {k: v for k, v in filtered.items() if not v.get("why")}
+    if absent:
+        notes.append("Not measured: " + ", ".join(f"{k} ({v['why']})" for k, v in absent.items())
+                     + ". The `typical` preset's values are written for those; the simulators model a DVL and a depth "
+                       "sensor on every vehicle (calibration/SENSORS.md).")
     if filtered:
         notes.append("These logs look smoothed (filtered by the vehicle, or resampled by interpolating between "
                      "samples) for " + ", ".join(
@@ -209,7 +250,8 @@ def main(argv=None) -> int:
     doc = {"sensors": sensors, "provenance": "measured",
            "fit": {"date": date.today().isoformat(), "method": "fit_sensor_noise.py (robust second difference)",
                    "logs": os.path.basename(os.path.abspath(args.data_dir)), "recordings": len(rows),
-                   "sampling_rate_hz": rate, "notes": notes, "not_measurable_filtered": filtered or None},
+                   "sampling_rate_hz": rate, "notes": notes, "not_measurable_filtered": filtered or None,
+                   **({"not_measured_absent": absent} if absent else {})},
            "per_recording": [{k: (round(v, 6) if isinstance(v, float) else v) for k, v in r.items()} for r in rows]}
     from sensor_noise import load_sensor_noise
     with open(args.out, "w", encoding="utf-8") as f:

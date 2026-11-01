@@ -122,8 +122,10 @@ def _open(path: str, message_types: Sequence[str]):
 
 def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str = "header",
              hold_columns: Sequence[str] = (), quaternion_groups: Sequence[Sequence[str]] = (),
-             message_types: Sequence[str] = (), angle_columns: Optional[dict] = None) -> tuple:
-    """Returns (DataFrame with TIME_COLUMN + one column per reference on a uniform grid, report)."""
+             message_types: Sequence[str] = (), angle_columns: Optional[dict] = None,
+             native_columns: Sequence[str] = (), span_exempt: Sequence[str] = ()) -> tuple:
+    """Returns (DataFrame with TIME_COLUMN + one column per reference on a uniform grid, report); native_columns and
+    span_exempt: see series_to_grid."""
     wanted: dict = {}
     for ref in dict.fromkeys(columns):
         topic, parts = split_reference(ref)
@@ -185,7 +187,7 @@ def read_bag(path: str, columns: Sequence[str], resample_hz: float, stamp: str =
                 f"{delay / 86400:.1f} days ({delay:.0f} s) after their header stamps (a re-recorded bag?): moved onto "
                 f"the header clock, so every topic lines up and the session date is the mission's")
     return series_to_grid(path, series, resample_hz, hold_columns, quaternion_groups, report, timestamps, BagError,
-                          angle_columns=angle_columns)
+                          angle_columns=angle_columns, native_columns=native_columns, span_exempt=span_exempt)
 
 
 STRAY_GAP_S = 60.0          # a stretch cut off from the rest of a log by over a minute (or 1000 messages)...
@@ -214,15 +216,24 @@ def _drop_stray(t, cols: dict, topic: str, report: dict) -> tuple:
 
 def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, quaternion_groups, report: dict,
                    timestamps: dict, error_cls=BagError, angle_columns: Optional[dict] = None,
-                   source_word: str = "topic") -> tuple:
+                   source_word: str = "topic", native_columns: Sequence[str] = (),
+                   span_exempt: Sequence[str] = ()) -> tuple:
     """Per-source time series -> one uniform grid (shared by the ROS bag and ArduPilot readers).
 
     series: {source: (times, {column: values})}; the grid spans only the time every source covers.
     Continuous columns are linearly interpolated, hold_columns (commands) keep their last value,
     quaternion groups are slerped, and angle_columns ({column: period}) are unwrapped first so an
-    angle crossing +-180 deg isn't interpolated the long way round."""
+    angle crossing +-180 deg isn't interpolated the long way round.
+
+    native_columns (sensor readings: a USBL or GPS fix, a pressure sensor, an accelerometer, a DVL whose dropouts are
+    kept) aren't put on the grid here: report["native"][column] = (times, values), their own finite readings, for the
+    caller to place (data_ingestion.place_on_grid; interpolating a 1 Hz fix onto a 10 Hz grid would invent the samples
+    in between). A source whose columns are all native or span_exempt doesn't limit the grid's span: GPS that only has a
+    fix at the surface mustn't cut the recording to the surfaced stretch. span_exempt columns (what a sensor's
+    drop_when rules read) keep their last value like hold_columns, and are NaN outside their own source's span."""
     angle_columns = angle_columns or {}
-    frames = {}
+    native_columns, span_exempt = set(native_columns), set(span_exempt)
+    frames, native = {}, {}
     for topic, (times, vals) in series.items():
         t = np.asarray(times, dtype=float)
         if len(t) < 2:
@@ -234,6 +245,17 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
             report["warnings"].append(f"{topic}: dropped {int((~keep).sum())} message(s) with a repeated timestamp")
         t = t[keep]
         cols = {ref: np.asarray(v, dtype=float)[order][keep] for ref, v in vals.items()}
+        for ref in [r for r in cols if r in native_columns]:
+            # also kept on the grid when a drop_when rule reads it (e.g. GPS dropped below 0.5 m of depth)
+            v = cols[ref] if ref in span_exempt else cols.pop(ref)
+            native[ref] = (t[np.isfinite(v)], v[np.isfinite(v)])
+            report.setdefault("native_sources", {})[ref] = topic
+        if not cols:   # a source of sensor readings only: they are placed by the caller
+            med = float(np.median(np.diff(t))) if len(t) > 1 else float("nan")
+            report["topics"][topic] = {"messages": int(len(t)), "rate_hz": round(1.0 / med, 3) if med > 0 else None,
+                                       "timestamps": timestamps.get(topic, ""), "gaps": None,
+                                       "sensor_readings": True}
+            continue
         bad = {ref: int(np.sum(~np.isfinite(v))) for ref, v in cols.items() if not np.all(np.isfinite(v))}
         if bad:
             ok = np.all([np.isfinite(v) for v in cols.values()], axis=0)
@@ -252,8 +274,12 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
                                       f"across them")
         frames[topic] = (t, cols)
 
-    start = max(t[0] for t, _ in frames.values())
-    end = min(t[-1] for t, _ in frames.values())
+    limiting = [t for t, cols in frames.values() if any(r not in span_exempt for r in cols)]
+    if not limiting:
+        raise error_cls(f"{path}: every {source_word} holds only sensor readings or drop_when columns; the grid "
+                        f"needs the orientation, rates and thruster commands")
+    start = max(t[0] for t in limiting)
+    end = min(t[-1] for t in limiting)
     if end - start < 10.0 / resample_hz:
         raise error_cls(f"{path}: the {source_word}s overlap for only {max(end - start, 0):.2f} s; they need a "
                         f"common span")
@@ -288,16 +314,20 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
         for ref, v in cols.items():
             if ref in quat_members:
                 continue
-            if ref in hold_columns:
+            if ref in hold_columns or ref in span_exempt:
                 # 1 us tolerance so a grid point that lands on a message's own stamp (to rounding) uses it
                 idx = np.clip(np.searchsorted(t, grid + 1e-6, side="right") - 1, 0, len(t) - 1)
                 out[ref] = v[idx]
+                if ref in span_exempt:   # unknown outside its own span: a reading there is dropped
+                    out[ref] = np.where((grid < t[0] - 1e-6) | (grid > t[-1] + 1e-6), np.nan, out[ref])
             else:
                 if ref in angle_columns:
                     v = np.unwrap(v, period=angle_columns[ref])
                 out[ref] = np.interp(grid, t, v)
     report["span_s"] = round(float(grid[-1] - grid[0]), 3)
     report["recording_start_unix_s"] = float(start)
+    if native_columns:
+        report["native"] = {ref: native.get(ref, (np.empty(0), np.empty(0))) for ref in native_columns}
     return pd.DataFrame(out), report
 
 
