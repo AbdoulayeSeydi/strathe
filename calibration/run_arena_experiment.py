@@ -56,11 +56,15 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 TASKS = ("waypoint", "station_keeping", "docking", "obstacle_avoidance")
 TASK_PLAIN = {
-    "waypoint": "reach a target point (within 0.5 m) that is up to 3 m away in each direction",
-    "station_keeping": "reach a target point and stay within 0.5 m of it for 20 consecutive steps (2 s)",
-    "docking": "reach a target point slowly (under 0.3 m/s) and level (within 0.2 rad)",
-    "obstacle_avoidance": "reach a target point while routing around an obstacle",
+    "waypoint": "reach a target point (within {r:g} m) that is up to {d:g} m away in each direction",
+    "station_keeping": "reach a target point and stay within {r:g} m of it for 20 consecutive steps (2 s)",
+    "docking": "reach a target point (within {r:g} m) slowly (under 0.3 m/s) and level (within 0.2 rad)",
+    "obstacle_avoidance": "reach a target point (within {r:g} m) while routing around an obstacle",
 }
+
+
+def task_plain(meta: dict) -> str:
+    return TASK_PLAIN[meta["task"]].format(r=meta.get("target_radius_m") or 0.5, d=meta.get("target_range_m") or 3.0)
 
 
 # ----------------------------------------------------------------- environment
@@ -91,8 +95,10 @@ def make_env(params, ek: dict, backend: str = "stand_in"):
     if ek.get("buoyancy"):
         from buoyancy import BuoyancyConfig
         buoyancy = BuoyancyConfig.from_dict(ek["buoyancy"])
+    geometry = {k: ek[k] for k in ("waypoint_radius", "waypoint_range") if ek.get(k) is not None}
     return Arena(params, vehicle, task=ek["task"], max_episode_steps=ek["max_episode_steps"], current=current,
-                 thrusters=thrusters, backend=backend, disturbance=disturbance, sensor_noise=noise, buoyancy=buoyancy)
+                 thrusters=thrusters, backend=backend, disturbance=disturbance, sensor_noise=noise, buoyancy=buoyancy,
+                 **geometry)
 
 
 def clean_env_kwargs(ek: dict) -> dict:
@@ -181,13 +187,32 @@ def evaluate_job(job: dict) -> list:
 
 # ----------------------------------------------------------------- statistics and report
 
+def cluster_ci(values_by_seed: dict, n_boot: int = 2000, seed: int = 0) -> tuple:
+    """95% interval of the mean of per-episode values grouped by training seed (F15): resample the training seeds, then
+    the episodes within each, so the interval includes how much results change from one trained policy to the next.
+    Episodes of one policy aren't independent of each other. With one training seed it can only resample episodes."""
+    groups = [np.asarray(v, dtype=float) for v in values_by_seed.values() if len(v)]
+    if not groups:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    boots = np.empty(n_boot)
+    for b in range(n_boot):
+        picked = [groups[i] for i in rng.integers(0, len(groups), len(groups))] if len(groups) > 1 else groups
+        boots[b] = np.concatenate([g[rng.integers(0, len(g), len(g))] for g in picked]).mean()
+    return float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))
+
+
 def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
     from fleet_stats import wilson_ci
     r = [x for x in rows if x["controller"] == label and x.get("engine", "stand_in") == engine]
     n, s = len(r), sum(x["success"] for x in r)
-    lo, hi = wilson_ci(s, n)
+    by_seed = {}
+    for x in r:
+        by_seed.setdefault(x.get("seed"), []).append(float(x["success"]))
+    lo, hi = cluster_ci(by_seed) if len(by_seed) > 1 else wilson_ci(s, n)
     ok = [x["steps"] for x in r if x["success"]]
     return {"controller": label, "engine": engine, "episodes": n, "success_rate": s / n if n else float("nan"), "ci": [lo, hi],
+            "training_seeds": len(by_seed),
             "collision_rate": sum(x["collision"] for x in r) / n if n else float("nan"),
             "mean_time_to_success_s": round(0.1 * float(np.mean(ok)), 2) if ok else None,
             "mean_final_distance_m": round(float(np.mean([x["final_distance_m"] for x in r])), 3) if r else None,
@@ -198,7 +223,9 @@ def summarize(rows: list, label: str, engine: str = "stand_in") -> dict:
 
 def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int = 0,
                       engine: str = "stand_in") -> Optional[dict]:
-    """Success(a) - success(b), paired by (training seed, episode seed); 95% bootstrap CI over episodes."""
+    """Success(a) - success(b), paired by (training seed, episode seed); 95% interval resampling training seeds and the
+    episodes within them (F15: a bootstrap over pooled episodes made a +25-point docking result look surer than it was;
+    a rerun gave +12)."""
     rows = [x for x in rows if x.get("engine", "stand_in") == engine]
     ra = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == a}
     rb = {(x["seed"], x["episode_seed"]): x["success"] for x in rows if x["physics"] == b}
@@ -206,10 +233,12 @@ def paired_difference(rows: list, a: str, b: str, n_boot: int = 2000, seed: int 
     if not keys:
         return None
     d = np.array([ra[k] - rb[k] for k in keys], dtype=float)
-    rng = np.random.default_rng(seed)
-    boots = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
-    return {"diff": float(d.mean()), "ci": [float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))],
-            "n_pairs": len(keys)}
+    by_seed = {}
+    for k, v in zip(keys, d):
+        by_seed.setdefault(k[0], []).append(v)
+    lo, hi = cluster_ci(by_seed, n_boot, seed)
+    return {"diff": float(d.mean()), "ci": [lo, hi], "n_pairs": len(keys), "training_seeds": len(by_seed),
+            "per_seed_diff": {str(s_): float(np.mean(v)) for s_, v in by_seed.items()}}
 
 
 def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> None:
@@ -217,7 +246,7 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
     L = [f"# Single-vehicle experiment: {meta['name']}\n",
          f"{datetime.now():%Y-%m-%d %H:%M} · {meta['n_episodes']} evaluation episodes per controller · "
          f"{meta['elapsed_s'] / 60:.1f} min\n", "## What was tested\n",
-         f"One simulated vehicle must {TASK_PLAIN[meta['task']]}, within {meta['max_episode_steps']} steps "
+         f"One simulated vehicle must {task_plain(meta)}, within {meta['max_episode_steps']} steps "
          f"(0.1 s each). **The vehicle** is your calibrated physics (`{os.path.basename(meta['params'])}`, "
          f"`{os.path.basename(meta['spec'])}`)"
          + (f", in a water current: {meta['current_described']}" if meta.get("current_described") else ", in still water")
@@ -287,11 +316,18 @@ def write_report(path: str, meta: dict, summaries: list, contrasts: dict) -> Non
                  + (f" ({ENGINE_PLAIN[engine]})" if len(contrasts) > 1 else "") + "\n")
         L.append(f"Policies trained on your calibration succeed {100 * contrast['diff']:+.0f} points "
                  f"({100 * contrast['ci'][0]:+.0f} to {100 * contrast['ci'][1]:+.0f}, 95% CI; "
-                 f"{contrast['n_pairs']} paired episodes) compared with policies trained on default physics. "
+                 f"{contrast['n_pairs']} paired episodes, {contrast.get('training_seeds', '?')} training seed(s)) "
+                 f"compared with policies trained on default physics. "
                  + ("That difference is clear of zero." if sig else
                     "That interval includes zero: on this task, this experiment can't tell the two apart.")
-                 + " Training-seed variation is real in reinforcement learning; per-seed numbers are in "
-                   "`results.json`, and more seeds (`--seeds`) narrow the interval.\n")
+                 + (" The interval resamples the training seeds as well as the episodes, because a trained policy's "
+                    "quirks show in all its episodes; per-seed differences: "
+                    + ", ".join(f"seed {k} {100 * v:+.0f}" for k, v in (contrast.get("per_seed_diff") or {}).items())
+                    + ". More seeds (`--seeds`) narrow it.\n"
+                    if (contrast.get("training_seeds") or 0) > 1 else
+                    " **One training seed:** the interval covers episode-to-episode variation only, not how much "
+                    "another training run would differ, which in reinforcement learning is often larger. Run "
+                    "`--seeds 3` or more before relying on it.\n"))
         if contrast["ci"][1] < 0:
             L.append("Training on your calibration did *worse* here. That usually means the training budget was too "
                      "short for your vehicle, not that the calibration is wrong. Every policy is tested on your "
@@ -356,6 +392,7 @@ def run(args) -> dict:
         raise ValueError("--compare-clean-training compares training with and without sensor noise and roll/pitch "
                          "disturbance, but both are off; add --mode noisy (or --noise / --disturbance)")
     ek = {"spec": os.path.abspath(args.spec), "task": args.task, "max_episode_steps": args.max_episode_steps,
+          "waypoint_radius": args.target_radius, "waypoint_range": args.target_range,
           "current": current, "thrusters": args.thrusters, "disturbance": dist_path,
           "disturbance_scale": args.disturbance_scale, "noise": noise_ref, "noise_scale": args.noise_scale,
           "start_fix": args.start_fix_error if noise_ref is not None else None,
@@ -433,6 +470,7 @@ def run(args) -> dict:
         w.writeheader()
         w.writerows(rows)
     meta = {"name": args.name or os.path.basename(os.path.abspath(args.out)), "task": args.task,
+            "target_radius_m": args.target_radius, "target_range_m": args.target_range,
             "params": params, "spec": os.path.abspath(args.spec), "current": current,
             "current_described": CurrentConfig.from_dict(current).describe(teammates=False) if current else None,
             "thrusters": args.thrusters, "thrusters_described": thr_desc, "seeds": args.seeds,
@@ -482,6 +520,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="training steps per policy (450k: 150k was too short for heavily damped vehicles, #56, #63)")
     ap.add_argument("--episodes", type=int, default=100, help="evaluation episodes per controller")
     ap.add_argument("--max-episode-steps", type=int, default=200)
+    ap.add_argument("--target-radius", type=float, metavar="M",
+                    help="how close to the target counts as reaching it (default 0.5; #91, set it for a bigger vehicle)")
+    ap.add_argument("--target-range", type=float, metavar="M",
+                    help="how far away targets are placed in each direction (default 3)")
     ap.add_argument("--compare-generic", action="store_true",
                     help="also train on the default (uncalibrated) physics and compare")
     ap.add_argument("--policy", help="evaluate this trained policy (.zip; PPO, SAC or TD3, read from the file) "

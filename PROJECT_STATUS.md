@@ -1660,10 +1660,10 @@ one gap that made the documented path fail for any vehicle but a BlueROV2.
 - **The warning:** it fires for a custom layout with the default spec, and not for the BlueROV2 preset, a given
   `--spec` or logged forces. The report section and next step appear only then.
 
-**Still open, from the same run** (each in the run's friction log): per-thruster thrust curves and limits; a sensor
-mount rotation in ingest specs; `--finish` for `--estimate-current` runs; `train-fleet` and arena task geometry
-(formation spacing, target distance) for vehicles bigger than a BlueROV2; `fleet --workers`; mixed header and
-receive timestamps in re-recorded bags; and session dates from header stamps.
+**Still open, from the same run** (each in the run's friction log): ~~per-thruster thrust curves and limits~~ (fixed, #91); ~~a sensor
+mount rotation in ingest specs~~ (fixed, #91); ~~`--finish` for `--estimate-current` runs~~ (fixed, #79); ~~`train-fleet` and arena task geometry
+(formation spacing, target distance) for vehicles bigger than a BlueROV2~~ (fixed, #91); ~~`fleet --workers`~~ (fixed, #91); ~~mixed header and
+receive timestamps in re-recorded bags; and session dates from header stamps~~ (fixed, #91).
 
 ### 71. Torpedo-hull physics, and Strathe against Stonefish on URI's own vehicle model (2026-10-10)
 
@@ -2019,12 +2019,14 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   running: the final fit from its checkpoint with the last round's currents, or the latest round from its checkpoint
   with that round's input currents. The reason recorded and reported says which, and that the later steps didn't
   run. With `--restart-whole-fit` it keeps finished starts and finishes the interrupted one.
-- F1, F2: header stamps; recording-date sessions.
-- F5: noise from filtered logs.
-- F15: arena intervals ignore seed variance.
-- F18: `fleet` has no `--workers`.
-- F20: shipped policies on another vehicle.
-- F11: missing web form fields.
+- ~~F1, F2: header stamps; recording-date sessions.~~ Fixed (#91).
+- ~~F5: noise from filtered logs.~~ Fixed (#91).
+- ~~F15: arena intervals ignore seed variance.~~ Fixed (#91).
+- ~~F18: `fleet` has no `--workers`.~~ Fixed (#91).
+- F20: shipped policies on another vehicle. The fleet report warns when the policies were trained on another vehicle
+  and says to train on yours (`trained_elsewhere_note`); the effect itself is real.
+- ~~F11: missing web form fields.~~ Fixed in #78 (calibrate: workers, current rounds, drag, torque offset; Stonefish
+  forms: replay tool, iterations, workers).
 
 ### 77. `strathe describe-stonefish`: the vehicle description from a lab's own Stonefish model (2026-10-19)
 
@@ -2842,6 +2844,97 @@ cost of 874):
     gains `finished_from_checkpoint: []`.
 
 
+### 91. The URI re-run's open friction items, closed (2026-10-22)
+
+The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed in #79's branch. The rest:
+- **F18: `fleet --workers N`.** The experiment file had `evaluation.workers`, but there was no flag or web field. Now
+  there are, and they combine with `--seeds`.
+- **F15: arena intervals include seed-to-seed variance.** The paired calibrated-against-generic difference, and each
+  controller's success rate, pooled every episode as if independent. But all the episodes of one trained policy share
+  its quirks, and the re-run saw a +25-point docking result drop to +12.
+  - **The fix:** a two-level bootstrap (`cluster_ci`) that resamples training seeds, then episodes within each.
+  - **The report** gives the number of seeds and each seed's difference. With one seed it says the interval covers
+    episodes only, and to run `--seeds 3` or more.
+  - **Tested:** two seeds that disagree (+50 and 0) now give an interval that includes 0; the old pooled bootstrap
+    excluded it.
+- **F5: `fit-noise` on smoothed logs.** For white noise, consecutive second differences correlate at −2/3. Smoothing
+  pulls that up: an 8-sample moving average of noise gives −0.46, and smooth motion is positive.
+  - **The fix:** a channel above −0.55 is flagged as not measurable. The `typical` preset's value is written instead
+    of the near-zero reading, with a note naming the cause: filtered by the vehicle, or resampled by interpolation
+    at ingestion.
+  - **On real logs:** oceansystemslab's BlueROV2 logs (filtered odometry) have velocity and rates at about +0.65.
+    URI's ALPHA RISE logs, resampled to 10 Hz, have attitude and heading at +0.75 and velocity at −0.54. Both are
+    flagged.
+  - **Tested** on raw and smoothed signals.
+- **F1, F2: re-recorded ROS bags.** URI's missions (Dec 2025, Mar 2026) were replayed and re-recorded on 7 Oct 2026.
+  - **The problem:** topics with header stamps kept the missions' clock; the thruster topic, with none, carried the
+    re-recording's. With header stamps (I6) the topics "overlap for only 0.00 s"; with receive times (I10) both
+    missions landed on 07-10-2026, one session, so nothing could be held out.
+  - **The fix:** the bag reader measures the median (receive time − header stamp) on the topics that have both. When
+    it is over a second (re-recorded, not transport delay), it moves the header-less topics onto the header clock and
+    says so in the ingest report. With `stamp: receive` on such a bag, it warns that the dates are the
+    re-recording's.
+  - **On URI's real bags:** I6 now ingests, as 05-12-2025 and 27-03-2026. With `session_date: {from: recording}` the
+    missions get those dates too, so held-out-by-date calibration works on them.
+  - **Tested** with a bag re-recorded 600 days later (ROS 1 and ROS 2 .mcap): the mission's date and forces line up
+    with the motion, and receive times warn. LIMITS has a row.
+- **A rotated sensor mount in ingest specs** (open since the first URI run). URI's DVL is mounted rolled 180°, so its
+  raw velocity was refused (heave force against motion, F4 of that run).
+  - **The fix:** `body_velocity.linear_mount_rpy_deg` / `angular_mount_rpy_deg` (roll, pitch, yaw in degrees, in the
+    spec's frame) turn the readings into the vehicle's axes. The ingest report records the mounts.
+  - **On URI's raw DVL:** heave goes from −0.48 (refused) to +0.48.
+  - **Tested:** a DVL rolled 180° and a gyro yawed 90° come back exactly.
+  - **Not handled:** a DVL's lever arm (its velocity includes ω × r at its position).
+- **Per-thruster thrust curves and limits** (open since the first URI run). Every thruster shared one curve and its
+  maxima.
+  - **New per-entry keys in a `layout:`:**
+    - `curve_csv`: the thruster's own table;
+    - `thrust_scale`: a multiplier on the curve;
+    - `max_forward_n` / `max_reverse_n`: caps.
+  - **What uses them:** `ThrusterConfig` applies them in thrust, battery-voltage rescaling and `achievable_wrench`
+    (what the simulators deliver), and they survive `for_simulation`.
+  - **Refused, with a plain message:** battery-voltage rescaling of a thruster with its own table, which would need T200
+    data; mixed curve units; unknown or non-positive keys.
+  - **Tested** in `tests/test_per_thruster.py`. All existing thruster tests are unchanged.
+- **Task geometry for vehicles bigger than a BlueROV2** (open since the first URI run).
+  - **The problem:** `train-fleet` always trained a 2 m ± 0.2 m formation with 0.5 m collisions, and the arena always
+    used 0.5 m targets up to 3 m away. `strathe fleet` could already *test* other geometries, so a 2 m vehicle could be
+    tested on a task it was never trained for.
+  - **`train-fleet`** now takes `--target-separation`, `--tolerance`, `--collision-radius`, `--hold-steps`,
+    `--separations MIN MAX` and `--episode-steps`. The proximity shaping radius grows with the collision radius, a
+    geometry that can't work is refused, and the policy's metadata records it.
+  - **`fleet`** warns when the experiment's separation differs from the one a policy was trained for, and gives the
+    `train-fleet` command.
+  - **The arena** takes `--target-radius` and `--target-range`, and its report states them.
+  - **Web forms** have the fields.
+  - **Tested:** a short training run with a 6 m geometry, the refusal, the flags passed through, the arena environment
+    and text, the caution, and the web forms.
+- **The `Mq`/`Mqq` identifiability re-check** ("what's next" item 6, flagged in #10, done for `Zww` and `Nrr` in #29
+  but never for this pair). The method: the current production calibration (`calibration_output_armfix` = the fleet's
+  `calibrated_parameters_fleet_truth.yaml`) through `automated_identifiability_report.py`, against the raw-data
+  baseline from `check_damping_identifiability.py` (reference data, 10 Hz, 16/19 Feb held out).
+  Linear-against-quadratic damping correlation, absolute values:
+
+  | Pair | Raw data (baseline) | Fitted model's Jacobian now | Excess over the data |
+  |---|---|---|---|
+  | `Xu`/`Xuu` | 0.948 | 0.922 | −0.026 |
+  | `Yv`/`Yvv` | 0.887 | 0.907 | +0.020 |
+  | `Zw`/`Zww` | 0.918 | 0.826 | −0.092 (as #29) |
+  | `Kp`/`Kpp` | 0.795 | under 0.8 | – |
+  | **`Mq`/`Mqq`** | **0.764** | **0.834** (0.93 before Coriolis) | **+0.070** (+0.166 before) |
+  | `Nr`/`Nrr` | 0.864 | 0.875 | +0.011 (as #29) |
+
+  - **Coriolis removed more than half of `Mq`/`Mqq`'s excess:** 0.166 → 0.070. That's what the Coriolis fix was
+    hoped to do.
+  - **It is still the largest excess of any pair.** For the other pairs, the fitted correlation is about what the
+    data's speeds allow. For pitch, the model still couples the two terms more than the data does. That fits the
+    known gap in thruster-driven pitch (#50, #64): it's a model-structure symptom, not only data coverage.
+  - **Also in the report:** the added-mass terms are correlated with each other (`Xu_dot`–`Yv_dot` 0.92, `–Zw_dot`
+    0.91, `Yv_dot`–`Zw_dot` 0.89), and `Ieff_roll` and `Ieff_pitch` are the barely-pinned directions. Both are
+    known (#18, #28, #29).
+- **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
+  addressed; the list said otherwise.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -2867,11 +2960,11 @@ cost of 874):
 
 ## What's actually next
 
-0. **Calibrate any simulator a lab uses, not only Stonefish** (asked 2026-10-19, deferred): HoloOcean, Gazebo (UUV Simulator / DAVE / Plankton use the same Fossen model, so values map directly), MuJoCo, and a generic replay adapter so any simulator can be fitted through like `fit-stonefish`; with commands and docs a lab or company can run on its own.
+0. ~~**Calibrate any simulator a lab uses, not only Stonefish**~~: done in #81–#90 (`fit-sim` / `export-sim` / `convert-sim` for Stonefish, Gazebo, MuJoCo, HoloOcean and any simulator through a replay contract). HoloOcean's in-engine check still waits for a Windows machine (item 1).
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
 4. **Thruster lag against inertia** (#66): the full refit with the lag free trades it against yaw inertia and added mass, which go to their bounds. Pin one of them (a bench measurement of thruster spin-up, or CAD/pendulum inertia), then refit; only then decide on making `thruster_dynamics` part of the default spec.
 5. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.
-6. Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian (flagged in finding #10, still not done).
+6. ~~Re-run `check_damping_identifiability.py`'s `Mq`/`Mqq` comparison against the current Coriolis-aware Jacobian~~: done (#91). Coriolis cut the excess correlation from 0.166 to 0.070 over the data's 0.764; still the largest of any pair, consistent with the thruster-driven pitch gap (item 3).
 7. If the corrected HoloOcean numbers still show a rotational gap, the next model-structure levers remain: off-diagonal added mass with a properly time-budgeted test, thruster/actuator nonlinearity, cross-axis damping.

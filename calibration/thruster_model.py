@@ -213,6 +213,12 @@ class ThrusterConfig:
     # stopped value (PROJECT_STATUS.md #67)
     command_range: Optional[tuple] = None
     command_neutral: float = 1500.0
+    # per-thruster differences (#91; a layout entry's curve_csv, thrust_scale, max_forward_n / max_reverse_n): a
+    # thruster with its own table, one rated or set to a fraction of the curve, or capped. None: all the same
+    curves: Optional[tuple] = None          # one ThrustCurve per thruster (None entries: the shared curve)
+    thrust_scales: Optional[tuple] = None   # multiplier per thruster
+    max_forward: Optional[tuple] = None     # cap per thruster, N (None: the curve's own)
+    max_reverse: Optional[tuple] = None
 
     def __post_init__(self):
         B = np.asarray(self.allocation, dtype=float)
@@ -224,6 +230,47 @@ class ThrusterConfig:
             raise ValueError("directions must be +1 or -1")
         if np.linalg.matrix_rank(B) == 0:
             raise ValueError("allocation matrix is all zeros (rank 0): the thrusters can't push the vehicle at all")
+        for name in ("curves", "thrust_scales", "max_forward", "max_reverse"):
+            v = getattr(self, name)
+            if v is not None and len(v) != B.shape[1]:
+                raise ValueError(f"{name}: {len(v)} entries for {B.shape[1]} thrusters")
+
+    @property
+    def per_thruster(self) -> bool:
+        return any(getattr(self, n) is not None for n in ("curves", "thrust_scales", "max_forward", "max_reverse"))
+
+    def curve_of(self, i: int) -> "ThrustCurve":
+        c = self.curves[i] if self.curves is not None else None
+        return c if c is not None else self.curve
+
+    def _raw_thrusts(self, pwm) -> np.ndarray:
+        ep = self.effective_pwm(pwm)
+        if self.curves is None:
+            return self.curve(ep)
+        return np.stack([self.curve_of(i)(ep[..., i]) for i in range(self.n_thrusters)], axis=-1)
+
+    def _finish(self, t) -> np.ndarray:
+        """Per-thruster scale, then per-thruster caps."""
+        if self.thrust_scales is not None:
+            t = t * np.asarray(self.thrust_scales, dtype=float)
+        if self.max_forward is not None or self.max_reverse is not None:
+            t = np.clip(t, -self.reverse_limits(), self.forward_limits())
+        return t
+
+    def forward_limits(self) -> np.ndarray:
+        """(n,) the most each thruster can push forward, N."""
+        sc = np.ones(self.n_thrusters) if self.thrust_scales is None else np.asarray(self.thrust_scales, dtype=float)
+        f = np.array([self.curve_of(i).max_forward_n for i in range(self.n_thrusters)]) * sc
+        if self.max_forward is not None:
+            f = np.minimum(f, [np.inf if m is None else m for m in self.max_forward])
+        return f
+
+    def reverse_limits(self) -> np.ndarray:
+        sc = np.ones(self.n_thrusters) if self.thrust_scales is None else np.asarray(self.thrust_scales, dtype=float)
+        r = np.array([self.curve_of(i).max_reverse_n for i in range(self.n_thrusters)]) * sc
+        if self.max_reverse is not None:
+            r = np.minimum(r, [np.inf if m is None else m for m in self.max_reverse])
+        return r
 
     @property
     def n_thrusters(self) -> int:
@@ -239,7 +286,7 @@ class ThrusterConfig:
         pwm = np.asarray(pwm, dtype=float)
         if pwm.shape[-1] != self.n_thrusters:
             raise ValueError(f"expected {self.n_thrusters} PWM values per sample, got {pwm.shape[-1]}")
-        return self.curve(self.effective_pwm(pwm))
+        return self._finish(self._raw_thrusts(pwm))
 
     def wrench(self, pwm) -> np.ndarray:
         """(..., n) PWM -> (..., 6) body-frame [Fx, Fy, Fz, Tx, Ty, Tz]."""
@@ -251,10 +298,17 @@ class ThrusterConfig:
         12-20 V, callers clip). The base curve must not be one already rescaled: the built-in T200 dataset curve
         (PROJECT_STATUS.md #63), or a lab's own T200 table with its curve_voltage (#69)."""
         volts = np.asarray(volts, dtype=float)
-        t = self.thrusts(pwm)
+        if self.curves is not None and any(c is not None for c in self.curves):
+            raise ValueError("a thruster with its own curve_csv can't be rescaled by battery voltage (that uses "
+                             "Blue Robotics' published T200 data): drop voltage_column, or give every thruster the "
+                             "shared curve")
+        pwm = np.asarray(pwm, dtype=float)
+        if pwm.shape[-1] != self.n_thrusters:
+            raise ValueError(f"expected {self.n_thrusters} PWM values per sample, got {pwm.shape[-1]}")
+        t = self._raw_thrusts(pwm)
         fs, rs = self.curve.voltage_scales(volts)
         t = np.where(t >= 0, t * np.asarray(fs)[:, None], t * np.asarray(rs)[:, None])
-        return t @ np.asarray(self.allocation).T
+        return self._finish(t) @ np.asarray(self.allocation).T
 
     def for_simulation(self) -> "ThrusterConfig":
         """The same thrusters with torques taken about the physics model's reference point
@@ -262,10 +316,10 @@ class ThrusterConfig:
         r = np.asarray(self.torque_reference_offset_m, dtype=float)
         if not np.any(r):
             return self
+        from dataclasses import replace
         B = np.array(self.allocation, dtype=float, copy=True)
         B[3:6] = B[3:6] - np.cross(r, B[0:3].T).T
-        return ThrusterConfig(B, self.directions, self.curve, self.label, (0.0, 0.0, 0.0), self.command_range,
-                              self.command_neutral)
+        return replace(self, allocation=B, torque_reference_offset_m=(0.0, 0.0, 0.0))
 
     def unreachable_axes(self, tol: float = 1e-6) -> list:
         """Names of the body axes no combination of thrusts can push on its own."""
@@ -281,7 +335,8 @@ class ThrusterConfig:
         tau = np.asarray(tau, dtype=float)
         B = np.asarray(self.allocation, dtype=float)
         t = tau @ np.linalg.pinv(B).T
-        fwd, rev = self.curve.max_forward_n, self.curve.max_reverse_n
+        fwd, rev = ((self.forward_limits(), self.reverse_limits()) if self.per_thruster
+                    else (self.curve.max_forward_n, self.curve.max_reverse_n))
         with np.errstate(divide="ignore", invalid="ignore"):
             ratio = np.where(t > 0, t / fwd, np.where(t < 0, -t / rev, 0.0))
         worst = np.max(ratio, axis=-1, keepdims=True)
@@ -362,7 +417,18 @@ def with_command_units(cfg: ThrusterConfig, command: str = "pwm_us", command_ran
     elif curve.unit == "pwm_us":
         raise ValueError("with command: normalized, give curve_csv in your command's units (header "
                          "command,thrust_n) or use the built-in T200 curve")
-    return replace(cfg, curve=curve, command_range=(lo, hi), command_neutral=0.5 * (lo + hi))
+    curves = cfg.curves
+    if curves is not None:
+        mapped = []
+        for c in curves:
+            if c is not None and c.unit == "pwm_us":
+                if not c.label.startswith("T200"):
+                    raise ValueError("with command: normalized, every thruster's curve_csv must be in your command's "
+                                     "units (header command,thrust_n)")
+                c = c.for_normalized_commands(lo, hi)
+            mapped.append(c)
+        curves = tuple(mapped)
+    return replace(cfg, curve=curve, command_range=(lo, hi), command_neutral=0.5 * (lo + hi), curves=curves)
 
 
 def thruster_block(block, base_dir: str = ".") -> ThrusterConfig:
@@ -451,9 +517,14 @@ def _thruster_block_body(block: dict, base_dir: str) -> ThrusterConfig:
         for i, th in enumerate(layout, 1):
             if not isinstance(th, dict) or {"position_m", "direction"} - set(th):
                 raise ValueError(f"layout thruster {i} needs position_m and direction")
-            if set(th) - {"position_m", "direction", "reversed"}:
-                raise ValueError(f"layout thruster {i}: unknown key(s) "
-                                 f"{sorted(set(th) - {'position_m', 'direction', 'reversed'})}")
+            allowed = {"position_m", "direction", "reversed", "curve_csv", "thrust_scale", "max_forward_n",
+                       "max_reverse_n"}
+            if set(th) - allowed:
+                raise ValueError(f"layout thruster {i}: unknown key(s) {sorted(set(th) - allowed)}; allowed: "
+                                 f"{sorted(allowed)}")
+            for k in ("thrust_scale", "max_forward_n", "max_reverse_n"):
+                if th.get(k) is not None and not float(th[k]) > 0:
+                    raise ValueError(f"layout thruster {i}: {k} must be positive, got {th[k]}")
             if len(th["position_m"]) != 3 or len(th["direction"]) != 3:
                 raise ValueError(f"layout thruster {i}: position_m and direction need 3 numbers each")
             if np.linalg.norm(np.asarray(th["direction"], dtype=float)) < 1e-9:
@@ -461,7 +532,24 @@ def _thruster_block_body(block: dict, base_dir: str) -> ThrusterConfig:
         if block.get("directions") is not None:
             raise ValueError("with layout, mark reversed thrusters with reversed: true (directions is for "
                              "allocation_csv)")
-        return thruster_config_from_layout(layout, curve)
+        cfg = thruster_config_from_layout(layout, curve)
+        if any(k in th for th in layout for k in ("curve_csv", "thrust_scale", "max_forward_n", "max_reverse_n")):
+            from dataclasses import replace
+            own = [ThrustCurve.from_csv(_path(th["curve_csv"])) if th.get("curve_csv") else None for th in layout]
+            units = {c.unit for c in own if c is not None} | {curve.unit}
+            if len(units) > 1:
+                raise ValueError("every thruster's curve must be in the same units as the logged commands (pwm_us "
+                                 "or command)")
+            cfg = replace(cfg,
+                          curves=tuple(own) if any(c is not None for c in own) else None,
+                          thrust_scales=(tuple(float(th.get("thrust_scale", 1.0)) for th in layout)
+                                         if any("thrust_scale" in th for th in layout) else None),
+                          max_forward=(tuple(th.get("max_forward_n") for th in layout)
+                                       if any("max_forward_n" in th for th in layout) else None),
+                          max_reverse=(tuple(th.get("max_reverse_n") for th in layout)
+                                       if any("max_reverse_n" in th for th in layout) else None),
+                          label="custom layout, per-thruster curves/limits")
+        return cfg
 
     if block.get("directions") is None:
         raise ValueError("allocation_csv needs directions: [1 or -1 per thruster]")
@@ -472,7 +560,11 @@ def _thruster_block_body(block: dict, base_dir: str) -> ThrusterConfig:
 def describe(cfg: ThrusterConfig) -> str:
     unreach = cfg.unreachable_axes()
     mw = cfg.max_wrench()
+    per = ""
+    if cfg.per_thruster:
+        f, r = cfg.forward_limits(), cfg.reverse_limits()
+        per = " per thruster: " + ", ".join(f"{i + 1}: +{a:.0f}/-{b:.0f} N" for i, (a, b) in enumerate(zip(f, r))) + ";"
     return (f"{cfg.label}: {cfg.n_thrusters} thrusters, curve {cfg.curve.label} (+{cfg.curve.max_forward_n:.1f} N / "
-            f"-{cfg.curve.max_reverse_n:.1f} N); max force {mw[0]:.0f}/{mw[1]:.0f}/{mw[2]:.0f} N, max torque "
+            f"-{cfg.curve.max_reverse_n:.1f} N);{per} max force {mw[0]:.0f}/{mw[1]:.0f}/{mw[2]:.0f} N, max torque "
             f"{mw[3]:.1f}/{mw[4]:.1f}/{mw[5]:.1f} N*m (surge/sway/heave, roll/pitch/yaw)"
             + (f"; can't push: {', '.join(unreach)}" if unreach else ""))

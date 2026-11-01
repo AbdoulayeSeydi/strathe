@@ -15,7 +15,7 @@ source:
   stamp: header                # header: the message's own timestamp (default) | receive: when the bag recorded it
   # message_types: [msgs/mavros_msgs/msg/RCOut.msg]   # only for ROS 2 .db3 bags with non-standard messages
 resample_hz: 10                # every topic is put on this one time grid
-session_date: {from: recording}    # the date the bag was recorded
+session_date: {from: recording}    # the date the data was recorded (the mission's, even for a re-recorded bag)
 frame: flu                     # ROS convention (REP-103): FLU body, ENU world; converted to FRD/NED
 body_velocity:
   columns:

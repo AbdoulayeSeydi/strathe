@@ -206,6 +206,14 @@ def main():
                     help="limit commands to what the thrusters can deliver: bluerov2_heavy, or a YAML file with a "
                          "thrusters block (an ingest spec works). Default: no thruster limits")
     sim_mode_flags.add_link_args(ap)
+    g = ap.add_argument_group("task geometry (default: sized for a BlueROV2; #91, for bigger vehicles)")
+    g.add_argument("--target-separation", type=float, metavar="M", help="distance to hold between the vehicles (2)")
+    g.add_argument("--tolerance", type=float, metavar="M", help="how close to it counts as holding (0.2)")
+    g.add_argument("--collision-radius", type=float, metavar="M", help="closer than this is a collision (0.5)")
+    g.add_argument("--hold-steps", type=int, metavar="N", help="0.1 s ticks to hold it for (20)")
+    g.add_argument("--separations", type=float, nargs=2, metavar=("MIN", "MAX"),
+                   help="starting separations to train on (2 5.5)")
+    g.add_argument("--episode-steps", type=int, metavar="N", help="episode length in 0.1 s ticks (200)")
     ap.add_argument("--out", required=True, help="output path without .zip")
     args = ap.parse_args()
     import sim_mode
@@ -241,7 +249,25 @@ def main():
             speed_std_mps=args.current_speed_std, direction_std_deg=args.current_direction_std,
             time_scale_s=args.current_time_scale, known_to_beliefs=not args.current_unknown_to_beliefs)
         fleet_kwargs["current"].validate()
-    fleet_config = FleetConfig(**fleet_kwargs) if fleet_kwargs else None
+    task_kwargs = {k: v for k, v in (("target_separation", args.target_separation), ("tolerance", args.tolerance),
+                                     ("safety_radius", args.collision_radius), ("hold_steps", args.hold_steps))
+                   if v is not None}
+    if task_kwargs:
+        from formation_hold_task import FormationHoldConfig
+        base = FormationHoldConfig()
+        safety = task_kwargs.get("safety_radius", base.safety_radius)
+        task_kwargs["influence_radius"] = max(base.influence_radius, 3.0 * safety)  # proximity shaping beyond it
+        fleet_kwargs["task"] = FormationHoldConfig(**task_kwargs)
+    if args.separations:
+        fleet_kwargs["initial_separation_range"] = tuple(args.separations)
+    if args.episode_steps:
+        fleet_kwargs["max_episode_steps"] = args.episode_steps
+    try:
+        fleet_config = FleetConfig(**fleet_kwargs) if fleet_kwargs else None
+        if fleet_config is not None:
+            fleet_config.validate()
+    except ValueError as e:
+        ap.error(f"these task settings don't make a valid task: {e}")
 
     import torch
     from stable_baselines3.common.vec_env import VecMonitor
@@ -266,7 +292,9 @@ def main():
         "training_distribution": {"belief": args.belief, "severities": list(TRAIN_SEVERITIES),
                                   "beacon_intervals_s": list(TRAIN_BEACON_INTERVALS_S),
                                   "belief_mix": BELIEF_MIX if args.belief == "mix" else None,
-                                  "initial_separation_range_m": list(FleetConfig().initial_separation_range),
+                                  "initial_separation_range_m": list((fleet_config or FleetConfig()).initial_separation_range),
+                                  "task": {k: getattr((fleet_config or FleetConfig()).task, k) for k in
+                                           ("target_separation", "tolerance", "safety_radius", "hold_steps")},
                                   "initial_closing_speed_range_mps": list(FleetConfig().initial_closing_speed_range),
                                   "disturbance": (None if fleet_config is None or fleet_config.disturbance is None
                                                   else {"file": fleet_config.disturbance.source,

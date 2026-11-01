@@ -50,6 +50,7 @@ Example spec (every key shown; most have defaults):
       columns: {u: vx, v: vy, w: vz, p: wx, q: wy, r: wz}
       linear_unit: m/s                      # m/s | cm/s | mm/s | knots
       angular_unit: deg/s                   # rad/s | deg/s
+      linear_mount_rpy_deg: [180, 0, 0]     # optional: a DVL mounted rotated (roll pitch yaw, deg; also angular_)
     orientation:
       quaternion: {x: qx, y: qy, z: qz, w: qw}
       # or euler: {roll: roll, pitch: pitch, yaw: yaw, unit: deg}
@@ -168,12 +169,23 @@ class VelocitySpec(BaseModel):
     # "world": u, v, w are world-frame (NED, or ENU with frame: flu) velocities, as ArduPilot's EKF and
     # most odometry-in-map-frame logs give; they are rotated into the body frame with the orientation
     linear_frame: Literal["body", "world"] = "body"
+    # a sensor mounted rotated in the vehicle (#91: URI's DVL is rolled 180 deg): its roll, pitch, yaw in degrees, in
+    # the same axes as the spec's frame; readings are rotated into the vehicle's axes. Body-frame velocity only.
+    linear_mount_rpy_deg: Optional[list[float]] = None
+    angular_mount_rpy_deg: Optional[list[float]] = None
 
     @model_validator(mode="after")
     def _all(self):
         missing = {"u", "v", "w", "p", "q", "r"} - set(self.columns)
         if missing:
             raise ValueError(f"body_velocity.columns is missing {sorted(missing)}")
+        for name in ("linear_mount_rpy_deg", "angular_mount_rpy_deg"):
+            v = getattr(self, name)
+            if v is not None and len(v) != 3:
+                raise ValueError(f"body_velocity.{name} is three angles in degrees: roll pitch yaw, got {v}")
+        if self.linear_mount_rpy_deg is not None and self.linear_frame == "world":
+            raise ValueError("body_velocity.linear_mount_rpy_deg is for a body-frame sensor (a DVL); "
+                             "world-frame velocity (linear_frame: world) has no mount to undo")
         return self
 
 
@@ -467,6 +479,16 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     vc = spec.body_velocity.columns
     lin = np.stack([_col(df, vc[k], path) for k in "uvw"], 1) * LINEAR_UNITS[spec.body_velocity.linear_unit]
     ang = np.stack([_col(df, vc[k], path) for k in "pqr"], 1) * ANGULAR_UNITS[spec.body_velocity.angular_unit]
+    # a rotated sensor mount: readings in the sensor's axes -> the vehicle's (still in the spec's frame convention)
+    for name, which in (("linear_mount_rpy_deg", "lin"), ("angular_mount_rpy_deg", "ang")):
+        rpy = getattr(spec.body_velocity, name)
+        if rpy is not None and any(rpy):
+            M = Rotation.from_euler("xyz", rpy, degrees=True).as_matrix()
+            if which == "lin":
+                lin = lin @ M.T
+            else:
+                ang = ang @ M.T
+            report.setdefault("sensor_mounts", {})[name] = list(map(float, rpy))
     o = spec.orientation
     if o.quaternion is not None:
         q = np.stack([_col(df, getattr(o.quaternion, k), path) for k in "xyzw"], 1)
