@@ -1,6 +1,6 @@
 # Stress test: #93-#95
 
-Written by `calibration/stress/report.py` on 2026-10-27 10:13. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-10-27 16:37. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -140,4 +140,40 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E23-sound_untouched-check | fit = sound fit untouched | no retry, same cost to the last bit | bluerov_19-02-2024 | ✅ | {"cost": 7.102579181661516, "E4_cost": 7.102579181661516, "retried": false} | 0 min |
 | E24-wandering | fit = wandering fit retried | #94's CSV route, seed 94: a fit that wandered out of budget | ingested | ✅ | {"exit": 0, "mode": "dates", "held": ["16-02-2024", "19-02-2024"], "converged": true, "within": {"skill": [0.723, 0.508, 0.59, -0.026, -0.103, 0.581], "mean_ski... | 824 min |
 | E24-wandering-check | fit = wandering fit retried | caught as rough, retried, a better fit kept | ingested | ✅ | {"auto_restart": {"reason": "the first fit ended where the training cost is rough (a chaotic replay)", "why": "rough", "first_cost": 102.50482563582999, "first_... | 0 min |
+
+## #94. PX4, MOOS-IvP and LCM logs, read directly
+
+**349 of 349 rows pass** (294 variables found in the code, each with a row).
+
+
+### Deliberate faults (each must be caught)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| M-frame_sign_flipped | mutant = frame sign flipped | deliberate fault: frame sign flipped | round trips | ✅ | {"formats_failed": ["px4", "moos", "lcm"], "formats_it_touches": ["lcm", "moos", "px4"]} | 0 min |
+| M-PX4_time_unit_wrong_by_1000 | mutant = PX4 time unit wrong by 1000 | deliberate fault: PX4 time unit wrong by 1000 | round trips | ✅ | {"formats_failed": ["px4"], "formats_it_touches": ["px4"]} | 0 min |
+| M-array_index_dropped | mutant = array index dropped | deliberate fault: array index dropped | round trips | ✅ | {"formats_failed": ["px4"], "formats_it_touches": ["px4"]} | 0 min |
+
+### End to end on real data
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| EP-px4-ingest | entry = strathe ingest | px4: strathe ingest --spec | odom-12-01-2024-run1.csv | ✅ | {"exit": 0, "files": 1} | 0 min |
+| EP-px4-web | entry = web Convert logs | px4: the web page's Convert logs card | odom-12-01-2024-run1.csv | ✅ | {"exit": 0} | 0 min |
+| EP-moos-ingest | entry = strathe ingest | moos: strathe ingest --spec | odom-12-01-2024-run1.csv | ✅ | {"exit": 0, "files": 1} | 0 min |
+| EP-moos-web | entry = web Convert logs | moos: the web page's Convert logs card | odom-12-01-2024-run1.csv | ✅ | {"exit": 0} | 0 min |
+| EP-lcm-ingest | entry = strathe ingest | lcm: strathe ingest --spec | odom-12-01-2024-run1.csv | ✅ | {"exit": 0, "files": 1} | 0 min |
+| EP-lcm-web | entry = web Convert logs | lcm: the web page's Convert logs card | odom-12-01-2024-run1.csv | ✅ | {"exit": 0} | 0 min |
+| EP-px4-calibrate | entry = calibrate --ingest-spec | px4: calibrate straight from the logs | bluerov 3 days | ✅ | {"exit": 0} | 4 min |
+| EP-moos-calibrate | entry = calibrate --ingest-spec | moos: calibrate straight from the logs | bluerov 3 days | ✅ | {"exit": 0} | 5 min |
+| EP-lcm-calibrate | entry = calibrate --ingest-spec | lcm: calibrate straight from the logs | bluerov 3 days | ✅ | {"exit": 0} | 4 min |
+| E-bluerov-px4-cal | calibration = px4 | calibrate bluerov from the px4 route | bluerov | ✅ | {"exit": 0} | 111 min |
+| E-bluerov-csv-cal | calibration = csv | calibrate bluerov from the csv route | bluerov | ✅ | {"exit": 0} | 189 min |
+| E-bluerov-moos-cal | calibration = moos | calibrate bluerov from the moos route | bluerov | ✅ | {"exit": 0} | 236 min |
+| E-bluerov-px4 | calibration = px4 | bluerov: the calibration problem from px4 vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 2 min |
+| E-bluerov-moos | calibration = moos | bluerov: the calibration problem from moos vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 4 min |
+| E-bluerov-lcm | calibration = lcm | bluerov: the calibration problem from lcm vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 6 min |
+| E-uri-px4 | calibration = px4 | uri: the calibration problem from px4 vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_px4": {"start": 367.69970365066933... | 1 min |
+| E-uri-moos | calibration = moos | uri: the calibration problem from moos vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_moos": {"start": 367.6997036506693... | 1 min |
+| E-uri-lcm | calibration = lcm | uri: the calibration problem from lcm vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_lcm": {"start": 367.69970365066933... | 1 min |
 

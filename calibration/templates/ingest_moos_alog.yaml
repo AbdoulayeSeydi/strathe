@@ -1,0 +1,41 @@
+# Ingest spec: MOOS-IvP logs (.alog, written by pLogger), read directly (calibration/LOG_FORMATS.md).
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_auv
+#
+# Columns are MOOS variables: NAV_HEADING; VARIABLE.key for one key of a key=value posting (NODE_REPORT_LOCAL.SPD,
+# or your DVL driver's report); VARIABLE@app for what one app posted, when several post the same variable (a
+# simulator left running next to the real driver). List your variables with `aloggrep` or `alogscan my.alog`.
+#
+# Every app's names differ: replace the right-hand sides with your vehicle's. MOOS-IvP's own NAV_HEADING is a compass
+# heading in degrees, which is NED yaw; NAV_ROLL and NAV_PITCH are degrees too. Strathe needs body velocity (your DVL
+# driver's) and what each thruster was told (your thruster driver's posting), not DESIRED_SPEED or DESIRED_THRUST.
+
+vehicle: my_moos_auv
+source:
+  files: "logs/*.alog"
+  format: moos
+resample_hz: 10                # every variable is put on this one time grid
+session_date: {from: recording}  # the log's LOGSTART clock
+frame: frd                     # NED: MOOS-IvP's NAV_ variables are x east, y north; give your velocity in body FRD
+body_velocity:
+  columns:
+    u: DVL_REPORT.VX           # body-frame velocity from your DVL driver (key=value posting), m/s
+    v: DVL_REPORT.VY
+    w: DVL_REPORT.VZ
+    p: IMU_GYRO_X              # body rates from your IMU driver
+    q: IMU_GYRO_Y
+    r: IMU_GYRO_Z
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: NAV_ROLL, pitch: NAV_PITCH, yaw: NAV_HEADING, unit: deg}
+wrench:
+  thrusters:
+    pwm_columns: [THRUSTER_CMD.T1, THRUSTER_CMD.T2, THRUSTER_CMD.T3, THRUSTER_CMD.T4]   # your thruster driver's commands
+    command: normalized        # e.g. -1..1; leave out for ESC PWM in µs
+    command_range: [-1, 1]
+    curve_csv: thrust_curve_normalized_template.csv   # your command,thrust_n table (copy this template)
+    layout:                    # one entry per command, in the same order (ingest_csv_pwm_custom_thrusters.yaml)
+      - {position_m: [-0.4, 0.15, 0.0], direction: [1, 0, 0]}
+      - {position_m: [-0.4, -0.15, 0.0], direction: [1, 0, 0]}
+      - {position_m: [0.0, 0.0, -0.1], direction: [0, 0, 1]}
+      - {position_m: [0.3, 0.0, 0.0], direction: [0, 1, 0]}

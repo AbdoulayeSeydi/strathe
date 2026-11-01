@@ -61,10 +61,15 @@ column or topic names, units and frame. Each template's comments say what every 
 | ROS 1 / ROS 2 bags, EKF or DVL + normalized commands | `ingest_rosbag_normalized_thrusters.yaml` |
 | ArduSub DataFlash `.bin` / `.log` | `ingest_ardupilot_bin.yaml` |
 | MAVLink `.tlog` from a ground station | `ingest_mavlink_tlog.yaml` |
+| PX4 `.ulg` | `ingest_px4_ulog.yaml` |
+| MOOS-IvP `.alog` | `ingest_moos_alog.yaml` |
+| LCM logs, with your `.lcm` types | `ingest_lcm.yaml` (`pip install lcm`) |
 | Free-decay tank tests on ArduSub | `ingest_free_decay_ardupilot.yaml` |
 
 **Other formats:**
-- **PX4 `.ulg`, MOOS, LCM, vendor binaries:** export to CSV, one table per recording.
+- **PX4, MOOS-IvP and LCM** are read directly: how to name what to read, and what happens to a damaged log, is in
+  [calibration/LOG_FORMATS.md](calibration/LOG_FORMATS.md).
+- **DUNE/IMC, vendor binaries:** export to CSV, one table per recording.
 - **One CSV per sensor:** merge the files onto one time base first ([examples/dfki_tether/](calibration/examples/dfki_tether/README.md) does exactly that, step by step).
 
 **Thrusters:**

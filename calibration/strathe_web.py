@@ -761,8 +761,8 @@ def home_page(manager: JobManager, token: str) -> bytes:
 <p class=muted>Checks your logs, fits the simulator to them, checks which values the data can pin down, and writes a
 plain-language report. About an hour on the reference dataset; the computer is kept awake while it runs.</p>
 <form method=post action=/jobs/calibrate>{tok}
-<label for=cal-ingest>Your raw logs: the ingestion spec YAML that describes them, full path (CSV or ROS bags, forces or
-thruster PWM; templates in <code>calibration/templates/</code>)</label>
+<label for=cal-ingest>Your raw logs: the ingestion spec YAML that describes them, full path (CSV, ROS bags, ArduPilot, PX4
+.ulg, MOOS-IvP .alog or LCM logs; forces or thruster PWM; templates in <code>calibration/templates/</code>)</label>
 <input type=text id=cal-ingest name=ingest_spec value="">
 <label for=cal-data>…or a folder of logs already in Strathe's CSV layout (ignored when an ingestion spec is given)</label>
 <input type=text id=cal-data name=data value="{html.escape(default_data)}">
@@ -1107,7 +1107,8 @@ the model file (optional)</label><input type=text id=simx-second name=second val
 <button>Put it into the simulator</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
-<label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
+<label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code> for CSV, ROS bags,
+ArduPilot, PX4 <code>.ulg</code>, MOOS-IvP <code>.alog</code> and LCM logs: <code>calibration/LOG_FORMATS.md</code>)</label><input type=text id=ing-spec name=spec required>
 <label for=ing-out>Output folder</label><input type=text id=ing-out name=out required>
 <button>Convert</button></form></div>
 <div class=card><h2>Jobs</h2>{'<table><tr><th>Job</th><th>Status</th><th>Started</th></tr>' + jobs + '</table>'

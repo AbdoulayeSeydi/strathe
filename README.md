@@ -36,6 +36,7 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Use CSV logs with your own column names and units | a CSV template in `calibration/templates/` |
 | Use ROS 1 / ROS 2 bags | read directly: `templates/ingest_rosbag_mavros.yaml` |
 | Use ArduSub / ArduPilot logs | read directly: `.bin` from the SD card (`templates/ingest_ardupilot_bin.yaml`), `.tlog` from the ground station (`templates/ingest_mavlink_tlog.yaml`) |
+| Use PX4, MOOS-IvP or LCM logs | read directly: `templates/ingest_px4_ulog.yaml`, `ingest_moos_alog.yaml`, `ingest_lcm.yaml` (`calibration/LOG_FORMATS.md`) |
 | Use logs with only thruster PWM, no forces | BlueROV2 Heavy preset, or any vehicle's thruster `layout:` |
 | Calibrate logs recorded in a known current | `calibrate --current-world-mps VX VY VZ` |
 | Calibrate logs recorded in an unknown current | `calibrate --estimate-current`: each recording's current is estimated from the logs |
@@ -250,7 +251,7 @@ python strathe.py check
 | Command | What it does |
 |---|---|
 | `python strathe.py web` | Opens a local web page in your browser. From it you can calibrate, run single-vehicle and fleet experiments, train fleet policies, watch jobs run, and read the reports. |
-| `python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`; forces, thruster PWM or normalized thruster commands): converts, checks, calibrates, checks which values the data can pin down, compares the simulation with the real vehicle on unseen recordings (`validation/`: position, orientation, response, plots), and writes the plain-language report. `--spec` is your vehicle's description (mass, inertia, drag; `calibration/templates/vehicle_spec_template.yaml`; without it, a BlueROV2 Heavy). Add `--estimate-current` for open-water logs in an unknown current, `--free-decay free_decay.yaml` to use tank-measured roll and pitch. Templates: `calibration/templates/`. |
+| `python strathe.py calibrate --ingest-spec my_rov.yaml --spec my_vehicle_spec.yaml --name my_rov` | From your raw logs (CSV, ROS bags, ArduPilot `.bin` or MAVLink `.tlog`, PX4 `.ulg`, MOOS-IvP `.alog`, LCM; forces, thruster PWM or normalized thruster commands): converts, checks, calibrates, checks which values the data can pin down, compares the simulation with the real vehicle on unseen recordings (`validation/`: position, orientation, response, plots), and writes the plain-language report. `--spec` is your vehicle's description (mass, inertia, drag; `calibration/templates/vehicle_spec_template.yaml`; without it, a BlueROV2 Heavy). Add `--estimate-current` for open-water logs in an unknown current, `--free-decay free_decay.yaml` to use tank-measured roll and pitch. Templates: `calibration/templates/`. |
 | `python strathe.py calibrate --data <logs folder> --name my_rov` | The same, for logs already in Strathe's CSV layout. |
 | `python strathe.py arena --params <your calibrated_parameters.yaml> --task station_keeping --compare-generic` | One vehicle: trains controllers on your calibrated vehicle and tests them on a task (reach a point, hold station, dock, avoid an obstacle). Add `--algorithm sac` (or `td3`), `--mode noisy` (with `--compare-clean-training`), `--buoyancy -3`, `--backend mujoco` (or `both`), `--disturbance fitted`, `--current-speed ...` and `--thrusters ...` as needed. |
 | `python strathe.py fleet` | Two vehicles: runs the shipped fleet experiment. Add `--config my_experiment.yaml` for your own. `--params`, `--vehicle-spec`, `--thrusters` and `--current-speed` use your vehicle, its thrusters and a current. `--comm`, `--beacon-interval`, `--modem-delay`, `--bandwidth-bytes`, `--workers`, `--beliefs`, `--target-separation`, `--seeds`, `--backend`, `--disturbance`, `--mode clean\|noisy\|both`, `--noise`, `--buoyancy` and `--policies ppo=... sac=...` (and more; `--help`) change the experiment without editing YAML. |
@@ -517,6 +518,7 @@ Start from a template in [`calibration/templates/`](calibration/templates/README
 | ROS bags | `ingest_rosbag_mavros.yaml` |
 | ArduSub / ArduPilot DataFlash logs (`.bin`) | `ingest_ardupilot_bin.yaml` |
 | MAVLink telemetry logs (`.tlog`) | `ingest_mavlink_tlog.yaml` |
+| PX4 (`.ulg`), MOOS-IvP (`.alog`), LCM logs | `ingest_px4_ulog.yaml`, `ingest_moos_alog.yaml`, `ingest_lcm.yaml` (`calibration/LOG_FORMATS.md`) |
 
 **ArduPilot logs are read directly** (`ardupilot_reader.py`, using pymavlink):
 - DataFlash `.bin`/`.log` from the autopilot's SD card, and MAVLink `.tlog` from a ground station such as QGroundControl.
@@ -790,7 +792,7 @@ test suite (`calibration/tests/`, CI-verified on every pull request).
 - **`calibration/stall_watchdog.py`** — times every calibration evaluation on three clocks and dumps stack traces for a stalled one (`eval_timing.csv`, `stall_log.txt`).
 - **`calibration/verify_holoocean_frame_conventions.py`, `diagnose_rotational_weakness.py`** — the HoloOcean frame check (needs a HoloOcean machine), and a per-axis comparison of held-out results across calibrations.
 - **`calibration/mujoco_backend.py`** — the MuJoCo physics backend (used as an independent "truth" engine for fleet evaluation).
-- **`calibration/thruster_model.py`, `data_ingestion.py`, `rosbag_reader.py`, `calibration_report.py`, `templates/`** — PWM → force for any thruster layout (and thruster limits for the simulators), lab log ingestion from CSV or ROS bags, plain-language calibration reports, and ready-to-edit ingestion specs (see "Bring your own vehicle's logs").
+- **`calibration/thruster_model.py`, `data_ingestion.py`, `rosbag_reader.py`, `calibration_report.py`, `templates/`** — PWM → force for any thruster layout (and thruster limits for the simulators), lab log ingestion from CSV, ROS bags, ArduPilot, PX4, MOOS-IvP and LCM logs (`ulog_reader.py`, `moos_reader.py`, `lcm_reader.py`), plain-language calibration reports, and ready-to-edit ingestion specs (see "Bring your own vehicle's logs").
 - **`calibration/run_arena_experiment.py`** — the single-vehicle experiment on a lab's own calibrated vehicle, on the stand-in or MuJoCo, with optional disturbance, current and thruster limits (`strathe arena`).
 - **`calibration/ardupilot_reader.py`** — reads ArduPilot DataFlash `.bin` and MAVLink `.tlog` logs for ingestion.
 - **`calibration/estimate_current.py`** — estimates each open-water recording's water current from the logs (`strathe estimate-current`, `calibrate --estimate-current`).

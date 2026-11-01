@@ -1,0 +1,295 @@
+variable,rows,note
+px4|spec:vehicle=given,R-px4,the baseline round trip uses it
+px4|spec:source=given,R-px4,the baseline round trip uses it
+px4|spec:source.files=given,R-px4,the baseline round trip uses it
+px4|spec:source.format=px4,R-px4,the baseline round trip uses it
+px4|spec:source.delimiter=given,exempt,"CSV only: a log's reader has no delimiter, and ingestion ignores the key for logs"
+px4|spec:source.stamp=header,X-px4-stamp,refused: only rosbag and LCM have two clocks
+px4|spec:source.stamp=receive,X-px4-stamp,refused: only rosbag and LCM have two clocks
+px4|spec:source.message_types=given,X-px4-message_types,refused: rosbag only
+px4|spec:source.lcm_types=given,X-px4-lcm_types_elsewhere,refused: LCM only
+px4|spec:time=given,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.column=given,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.unit=s,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.unit=ms,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.unit=us,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.unit=ns,X-px4-time_block,refused: a log has its own clock
+px4|spec:time.sampling_rate_hz=given,X-px4-time_block,refused: a log has its own clock
+px4|spec:resample_hz=given,R-px4 V-px4-resample-5 V-px4-resample-20 X-px4-no_resample,"5, 10, 20 Hz; missing refused"
+px4|spec:session_date=given,R-px4,the baseline round trip uses it
+px4|spec:session_date.from=filename,V-px4-date-filename,where the session date comes from
+px4|spec:session_date.from=constant,V-px4-date-constant,where the session date comes from
+px4|spec:session_date.from=recording,R-px4,where the session date comes from
+px4|spec:session_date.pattern=given,V-px4-date-filename,from the file name
+px4|spec:session_date.format=given,V-px4-date-filename,from the file name
+px4|spec:session_date.value=given,V-px4-date-constant,a constant date
+px4|spec:frame=frd,R-px4,FRD/NED or FLU/ENU
+px4|spec:frame=flu,V-px4-frame-flu,FRD/NED or FLU/ENU
+px4|spec:body_velocity=given,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=u,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=v,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=w,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=p,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=q,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.columns=r,R-px4,the baseline round trip uses it
+px4|spec:body_velocity.linear_unit=m/s,R-px4,the unit
+px4|spec:body_velocity.linear_unit=cm/s,V-px4-lin_unit-cm/s,the unit
+px4|spec:body_velocity.linear_unit=mm/s,V-px4-lin_unit-mm/s,the unit
+px4|spec:body_velocity.linear_unit=knots,V-px4-lin_unit-knots,the unit
+px4|spec:body_velocity.angular_unit=rad/s,R-px4,the unit
+px4|spec:body_velocity.angular_unit=deg/s,V-px4-ang_unit-deg/s,the unit
+px4|spec:body_velocity.linear_frame=body,R-px4,body or world
+px4|spec:body_velocity.linear_frame=world,V-px4-velocity-world,body or world
+px4|spec:body_velocity.linear_mount_rpy_deg=given,V-px4-velocity-mount,a rotated DVL and gyro
+px4|spec:body_velocity.angular_mount_rpy_deg=given,V-px4-velocity-mount,a rotated DVL and gyro
+px4|spec:orientation=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.quaternion=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.quaternion.x=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.quaternion.y=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.quaternion.z=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.quaternion.w=given,R-px4,the baseline round trip uses it
+px4|spec:orientation.euler=given,V-px4-orientation-euler_deg V-px4-orientation-euler_rad,Euler angles
+px4|spec:orientation.euler.roll=given,V-px4-orientation-euler_deg V-px4-orientation-euler_rad,Euler angles
+px4|spec:orientation.euler.pitch=given,V-px4-orientation-euler_deg V-px4-orientation-euler_rad,Euler angles
+px4|spec:orientation.euler.yaw=given,V-px4-orientation-euler_deg V-px4-orientation-euler_rad,Euler angles
+px4|spec:orientation.euler.unit=rad,V-px4-orientation-euler_rad,deg or rad
+px4|spec:orientation.euler.unit=deg,V-px4-orientation-euler_deg,deg or rad
+px4|spec:wrench=given,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Fx,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Fy,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Fz,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Tx,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Ty,R-px4,the baseline round trip uses it
+px4|spec:wrench.columns=Tz,R-px4,the baseline round trip uses it
+px4|spec:wrench.thrusters=given,V-px4-actuation-pwm_preset,PWM
+px4|spec:wrench.thrusters.pwm_columns=given,V-px4-actuation-pwm_preset,PWM
+px4|spec:wrench.thrusters.voltage_column=given,V-px4-actuation-pwm_voltage V-px4-actuation-pwm_curve_voltage,the logged voltage
+px4|spec:position=given,V-px4-position-m,a position track
+px4|spec:position.x=given,V-px4-position-m,a position track
+px4|spec:position.y=given,V-px4-position-m,a position track
+px4|spec:position.z=given,V-px4-position-m,a position track
+px4|spec:position.unit=m,V-px4-position-m,the unit
+px4|spec:position.unit=cm,V-px4-position-cm,the unit
+px4|spec:position.unit=mm,V-px4-position-mm,the unit
+px4|spec:skip_checks=force_direction,V-px4-checks-skip_force,a check skipped
+px4|spec:skip_checks=orientation_vs_position,V-px4-checks-skip_orient,a check skipped
+px4|spec:exclude_samples=given,V-px4-exclude-rule,an above rule
+px4|spec:exclude_samples.column=given,V-px4-exclude-rule,an above rule
+px4|spec:exclude_samples.above=given,V-px4-exclude-rule,an above rule
+px4|spec:exclude_samples.below=given,V-px4-exclude-rule_below,a below rule
+px4|spec:min_segment_s=given,V-px4-exclude-rule_minseg30,short pieces discarded
+px4|thrusters:allocation_csv,V-px4-actuation-pwm_allocation,the thruster block's allocation_csv
+px4|thrusters:command,V-px4-actuation-norm_t200,the thruster block's command
+px4|thrusters:command_range,V-px4-actuation-norm_range01,the thruster block's command_range
+px4|thrusters:curve,V-px4-actuation-pwm_t200_layout,the thruster block's curve
+px4|thrusters:curve_csv,V-px4-actuation-norm_custom V-px4-actuation-pwm_curve_voltage,the thruster block's curve_csv
+px4|thrusters:curve_voltage,V-px4-actuation-pwm_curve_voltage,the thruster block's curve_voltage
+px4|thrusters:directions,V-px4-actuation-pwm_allocation,the thruster block's directions
+px4|thrusters:layout,V-px4-actuation-pwm_layout,the thruster block's layout
+px4|thrusters:preset,V-px4-actuation-pwm_preset,the thruster block's preset
+px4|thrusters:voltage,V-px4-actuation-pwm_nominal_voltage,the thruster block's voltage
+px4|command:pwm_us,V-px4-actuation-pwm_preset,command units
+px4|command:normalized,V-px4-actuation-norm_t200,command units
+px4|column:scalar,R-px4,a column reference kind
+px4|column:array element,R-px4,a column reference kind
+px4|column:multi-instance topic,K-px4-multi_instance,a column reference kind
+px4|entry:strathe ingest,EP-px4-ingest,an entry point
+px4|entry:calibrate --ingest-spec,EP-px4-calibrate E-bluerov-px4 E-uri-px4,an entry point
+px4|entry:web Convert logs,EP-px4-web,an entry point
+px4|entry:strathe check,C-check,an entry point
+moos|spec:vehicle=given,R-moos,the baseline round trip uses it
+moos|spec:source=given,R-moos,the baseline round trip uses it
+moos|spec:source.files=given,R-moos,the baseline round trip uses it
+moos|spec:source.format=moos,R-moos,the baseline round trip uses it
+moos|spec:source.delimiter=given,exempt,"CSV only: a log's reader has no delimiter, and ingestion ignores the key for logs"
+moos|spec:source.stamp=header,X-moos-stamp,refused: only rosbag and LCM have two clocks
+moos|spec:source.stamp=receive,X-moos-stamp,refused: only rosbag and LCM have two clocks
+moos|spec:source.message_types=given,X-moos-message_types,refused: rosbag only
+moos|spec:source.lcm_types=given,X-moos-lcm_types_elsewhere,refused: LCM only
+moos|spec:time=given,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.column=given,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.unit=s,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.unit=ms,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.unit=us,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.unit=ns,X-moos-time_block,refused: a log has its own clock
+moos|spec:time.sampling_rate_hz=given,X-moos-time_block,refused: a log has its own clock
+moos|spec:resample_hz=given,R-moos V-moos-resample-5 V-moos-resample-20 X-moos-no_resample,"5, 10, 20 Hz; missing refused"
+moos|spec:session_date=given,R-moos,the baseline round trip uses it
+moos|spec:session_date.from=filename,V-moos-date-filename,where the session date comes from
+moos|spec:session_date.from=constant,V-moos-date-constant,where the session date comes from
+moos|spec:session_date.from=recording,R-moos,where the session date comes from
+moos|spec:session_date.pattern=given,V-moos-date-filename,from the file name
+moos|spec:session_date.format=given,V-moos-date-filename,from the file name
+moos|spec:session_date.value=given,V-moos-date-constant,a constant date
+moos|spec:frame=frd,R-moos,FRD/NED or FLU/ENU
+moos|spec:frame=flu,V-moos-frame-flu,FRD/NED or FLU/ENU
+moos|spec:body_velocity=given,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=u,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=v,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=w,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=p,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=q,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.columns=r,R-moos,the baseline round trip uses it
+moos|spec:body_velocity.linear_unit=m/s,R-moos,the unit
+moos|spec:body_velocity.linear_unit=cm/s,V-moos-lin_unit-cm/s,the unit
+moos|spec:body_velocity.linear_unit=mm/s,V-moos-lin_unit-mm/s,the unit
+moos|spec:body_velocity.linear_unit=knots,V-moos-lin_unit-knots,the unit
+moos|spec:body_velocity.angular_unit=rad/s,R-moos,the unit
+moos|spec:body_velocity.angular_unit=deg/s,V-moos-ang_unit-deg/s,the unit
+moos|spec:body_velocity.linear_frame=body,R-moos,body or world
+moos|spec:body_velocity.linear_frame=world,V-moos-velocity-world,body or world
+moos|spec:body_velocity.linear_mount_rpy_deg=given,V-moos-velocity-mount,a rotated DVL and gyro
+moos|spec:body_velocity.angular_mount_rpy_deg=given,V-moos-velocity-mount,a rotated DVL and gyro
+moos|spec:orientation=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.quaternion=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.quaternion.x=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.quaternion.y=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.quaternion.z=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.quaternion.w=given,R-moos,the baseline round trip uses it
+moos|spec:orientation.euler=given,V-moos-orientation-euler_deg V-moos-orientation-euler_rad,Euler angles
+moos|spec:orientation.euler.roll=given,V-moos-orientation-euler_deg V-moos-orientation-euler_rad,Euler angles
+moos|spec:orientation.euler.pitch=given,V-moos-orientation-euler_deg V-moos-orientation-euler_rad,Euler angles
+moos|spec:orientation.euler.yaw=given,V-moos-orientation-euler_deg V-moos-orientation-euler_rad,Euler angles
+moos|spec:orientation.euler.unit=rad,V-moos-orientation-euler_rad,deg or rad
+moos|spec:orientation.euler.unit=deg,V-moos-orientation-euler_deg,deg or rad
+moos|spec:wrench=given,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Fx,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Fy,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Fz,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Tx,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Ty,R-moos,the baseline round trip uses it
+moos|spec:wrench.columns=Tz,R-moos,the baseline round trip uses it
+moos|spec:wrench.thrusters=given,V-moos-actuation-pwm_preset,PWM
+moos|spec:wrench.thrusters.pwm_columns=given,V-moos-actuation-pwm_preset,PWM
+moos|spec:wrench.thrusters.voltage_column=given,V-moos-actuation-pwm_voltage V-moos-actuation-pwm_curve_voltage,the logged voltage
+moos|spec:position=given,V-moos-position-m,a position track
+moos|spec:position.x=given,V-moos-position-m,a position track
+moos|spec:position.y=given,V-moos-position-m,a position track
+moos|spec:position.z=given,V-moos-position-m,a position track
+moos|spec:position.unit=m,V-moos-position-m,the unit
+moos|spec:position.unit=cm,V-moos-position-cm,the unit
+moos|spec:position.unit=mm,V-moos-position-mm,the unit
+moos|spec:skip_checks=force_direction,V-moos-checks-skip_force,a check skipped
+moos|spec:skip_checks=orientation_vs_position,V-moos-checks-skip_orient,a check skipped
+moos|spec:exclude_samples=given,V-moos-exclude-rule,an above rule
+moos|spec:exclude_samples.column=given,V-moos-exclude-rule,an above rule
+moos|spec:exclude_samples.above=given,V-moos-exclude-rule,an above rule
+moos|spec:exclude_samples.below=given,V-moos-exclude-rule_below,a below rule
+moos|spec:min_segment_s=given,V-moos-exclude-rule_minseg30,short pieces discarded
+moos|thrusters:allocation_csv,V-moos-actuation-pwm_allocation,the thruster block's allocation_csv
+moos|thrusters:command,V-moos-actuation-norm_t200,the thruster block's command
+moos|thrusters:command_range,V-moos-actuation-norm_range01,the thruster block's command_range
+moos|thrusters:curve,V-moos-actuation-pwm_t200_layout,the thruster block's curve
+moos|thrusters:curve_csv,V-moos-actuation-norm_custom V-moos-actuation-pwm_curve_voltage,the thruster block's curve_csv
+moos|thrusters:curve_voltage,V-moos-actuation-pwm_curve_voltage,the thruster block's curve_voltage
+moos|thrusters:directions,V-moos-actuation-pwm_allocation,the thruster block's directions
+moos|thrusters:layout,V-moos-actuation-pwm_layout,the thruster block's layout
+moos|thrusters:preset,V-moos-actuation-pwm_preset,the thruster block's preset
+moos|thrusters:voltage,V-moos-actuation-pwm_nominal_voltage,the thruster block's voltage
+moos|command:pwm_us,V-moos-actuation-pwm_preset,command units
+moos|command:normalized,V-moos-actuation-norm_t200,command units
+moos|column:scalar,R-moos,a column reference kind
+moos|column:key=value posting,K-moos-keyvalue,a column reference kind
+moos|column:one app's postings,K-moos-source,a column reference kind
+moos|entry:strathe ingest,EP-moos-ingest,an entry point
+moos|entry:calibrate --ingest-spec,EP-moos-calibrate E-bluerov-moos E-uri-moos,an entry point
+moos|entry:web Convert logs,EP-moos-web,an entry point
+moos|entry:strathe check,C-check,an entry point
+lcm|spec:vehicle=given,R-lcm,the baseline round trip uses it
+lcm|spec:source=given,R-lcm,the baseline round trip uses it
+lcm|spec:source.files=given,R-lcm,the baseline round trip uses it
+lcm|spec:source.format=lcm,R-lcm,the baseline round trip uses it
+lcm|spec:source.delimiter=given,exempt,"CSV only: a log's reader has no delimiter, and ingestion ignores the key for logs"
+lcm|spec:source.stamp=header,V-lcm-stamp-header,LCM: header (utime) and receive time
+lcm|spec:source.stamp=receive,V-lcm-stamp-receive,LCM: header (utime) and receive time
+lcm|spec:source.message_types=given,X-lcm-message_types,refused: rosbag only
+lcm|spec:source.lcm_types=given,R-lcm X-lcm-lcm_without_types D-lcm-wrong_types,the types; missing; wrong
+lcm|spec:time=given,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.column=given,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.unit=s,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.unit=ms,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.unit=us,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.unit=ns,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:time.sampling_rate_hz=given,X-lcm-time_block,refused: a log has its own clock
+lcm|spec:resample_hz=given,R-lcm V-lcm-resample-5 V-lcm-resample-20 X-lcm-no_resample,"5, 10, 20 Hz; missing refused"
+lcm|spec:session_date=given,R-lcm,the baseline round trip uses it
+lcm|spec:session_date.from=filename,V-lcm-date-filename,where the session date comes from
+lcm|spec:session_date.from=constant,V-lcm-date-constant,where the session date comes from
+lcm|spec:session_date.from=recording,R-lcm,where the session date comes from
+lcm|spec:session_date.pattern=given,V-lcm-date-filename,from the file name
+lcm|spec:session_date.format=given,V-lcm-date-filename,from the file name
+lcm|spec:session_date.value=given,V-lcm-date-constant,a constant date
+lcm|spec:frame=frd,R-lcm,FRD/NED or FLU/ENU
+lcm|spec:frame=flu,V-lcm-frame-flu,FRD/NED or FLU/ENU
+lcm|spec:body_velocity=given,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=u,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=v,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=w,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=p,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=q,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.columns=r,R-lcm,the baseline round trip uses it
+lcm|spec:body_velocity.linear_unit=m/s,R-lcm,the unit
+lcm|spec:body_velocity.linear_unit=cm/s,V-lcm-lin_unit-cm/s,the unit
+lcm|spec:body_velocity.linear_unit=mm/s,V-lcm-lin_unit-mm/s,the unit
+lcm|spec:body_velocity.linear_unit=knots,V-lcm-lin_unit-knots,the unit
+lcm|spec:body_velocity.angular_unit=rad/s,R-lcm,the unit
+lcm|spec:body_velocity.angular_unit=deg/s,V-lcm-ang_unit-deg/s,the unit
+lcm|spec:body_velocity.linear_frame=body,R-lcm,body or world
+lcm|spec:body_velocity.linear_frame=world,V-lcm-velocity-world,body or world
+lcm|spec:body_velocity.linear_mount_rpy_deg=given,V-lcm-velocity-mount,a rotated DVL and gyro
+lcm|spec:body_velocity.angular_mount_rpy_deg=given,V-lcm-velocity-mount,a rotated DVL and gyro
+lcm|spec:orientation=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.quaternion=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.quaternion.x=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.quaternion.y=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.quaternion.z=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.quaternion.w=given,R-lcm,the baseline round trip uses it
+lcm|spec:orientation.euler=given,V-lcm-orientation-euler_deg V-lcm-orientation-euler_rad,Euler angles
+lcm|spec:orientation.euler.roll=given,V-lcm-orientation-euler_deg V-lcm-orientation-euler_rad,Euler angles
+lcm|spec:orientation.euler.pitch=given,V-lcm-orientation-euler_deg V-lcm-orientation-euler_rad,Euler angles
+lcm|spec:orientation.euler.yaw=given,V-lcm-orientation-euler_deg V-lcm-orientation-euler_rad,Euler angles
+lcm|spec:orientation.euler.unit=rad,V-lcm-orientation-euler_rad,deg or rad
+lcm|spec:orientation.euler.unit=deg,V-lcm-orientation-euler_deg,deg or rad
+lcm|spec:wrench=given,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Fx,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Fy,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Fz,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Tx,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Ty,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.columns=Tz,R-lcm,the baseline round trip uses it
+lcm|spec:wrench.thrusters=given,V-lcm-actuation-pwm_preset,PWM
+lcm|spec:wrench.thrusters.pwm_columns=given,V-lcm-actuation-pwm_preset,PWM
+lcm|spec:wrench.thrusters.voltage_column=given,V-lcm-actuation-pwm_voltage V-lcm-actuation-pwm_curve_voltage,the logged voltage
+lcm|spec:position=given,V-lcm-position-m,a position track
+lcm|spec:position.x=given,V-lcm-position-m,a position track
+lcm|spec:position.y=given,V-lcm-position-m,a position track
+lcm|spec:position.z=given,V-lcm-position-m,a position track
+lcm|spec:position.unit=m,V-lcm-position-m,the unit
+lcm|spec:position.unit=cm,V-lcm-position-cm,the unit
+lcm|spec:position.unit=mm,V-lcm-position-mm,the unit
+lcm|spec:skip_checks=force_direction,V-lcm-checks-skip_force,a check skipped
+lcm|spec:skip_checks=orientation_vs_position,V-lcm-checks-skip_orient,a check skipped
+lcm|spec:exclude_samples=given,V-lcm-exclude-rule,an above rule
+lcm|spec:exclude_samples.column=given,V-lcm-exclude-rule,an above rule
+lcm|spec:exclude_samples.above=given,V-lcm-exclude-rule,an above rule
+lcm|spec:exclude_samples.below=given,V-lcm-exclude-rule_below,a below rule
+lcm|spec:min_segment_s=given,V-lcm-exclude-rule_minseg30,short pieces discarded
+lcm|thrusters:allocation_csv,V-lcm-actuation-pwm_allocation,the thruster block's allocation_csv
+lcm|thrusters:command,V-lcm-actuation-norm_t200,the thruster block's command
+lcm|thrusters:command_range,V-lcm-actuation-norm_range01,the thruster block's command_range
+lcm|thrusters:curve,V-lcm-actuation-pwm_t200_layout,the thruster block's curve
+lcm|thrusters:curve_csv,V-lcm-actuation-norm_custom V-lcm-actuation-pwm_curve_voltage,the thruster block's curve_csv
+lcm|thrusters:curve_voltage,V-lcm-actuation-pwm_curve_voltage,the thruster block's curve_voltage
+lcm|thrusters:directions,V-lcm-actuation-pwm_allocation,the thruster block's directions
+lcm|thrusters:layout,V-lcm-actuation-pwm_layout,the thruster block's layout
+lcm|thrusters:preset,V-lcm-actuation-pwm_preset,the thruster block's preset
+lcm|thrusters:voltage,V-lcm-actuation-pwm_nominal_voltage,the thruster block's voltage
+lcm|command:pwm_us,V-lcm-actuation-pwm_preset,command units
+lcm|command:normalized,V-lcm-actuation-norm_t200,command units
+lcm|column:scalar,R-lcm,a column reference kind
+lcm|column:array element,R-lcm,a column reference kind
+lcm|column:nested type,K-lcm-nested,a column reference kind
+lcm|entry:strathe ingest,EP-lcm-ingest,an entry point
+lcm|entry:calibrate --ingest-spec,EP-lcm-calibrate E-bluerov-lcm E-uri-lcm,an entry point
+lcm|entry:web Convert logs,EP-lcm-web,an entry point
+lcm|entry:strathe check,C-check,an entry point

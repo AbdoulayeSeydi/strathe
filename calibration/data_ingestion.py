@@ -29,7 +29,9 @@ or your own allocation matrix file; the T200 curve or your own curve file.
 
 ROS bags (ROS 1 .bag, ROS 2 bag folders with .db3 or .mcap) are read directly
 with `source: {format: rosbag}`; columns are then `<topic>.<field>` and every
-topic is put on one grid at resample_hz (rosbag_reader.py).
+topic is put on one grid at resample_hz (rosbag_reader.py). ArduPilot (format:
+ardupilot), PX4 .ulg (px4), MOOS-IvP .alog (moos) and LCM logs (lcm, with
+lcm_types:) are read the same way (LOG_FORMATS.md, #94).
 
 Every output comes with ingest_report.json: detected sampling rate and
 jitter, resampling, time gaps, dropped rows, and sanity checks that catch the
@@ -129,12 +131,17 @@ class IngestError(ValueError):
 
 # ----------------------------------------------------------------- spec schema
 
+# Log formats read by a module's read_log() and log_paths(), put on one grid at resample_hz (#94: px4, moos, lcm)
+LOG_FORMATS = {"rosbag": "rosbag_reader", "ardupilot": "ardupilot_reader", "px4": "ulog_reader",
+               "moos": "moos_reader", "lcm": "lcm_reader"}
+
 class SourceSpec(BaseModel):
     files: str
-    format: Literal["csv", "rosbag", "ardupilot"] = "csv"
+    format: Literal["csv", "rosbag", "ardupilot", "px4", "moos", "lcm"] = "csv"
     delimiter: str = ","
-    stamp: Literal["header", "receive"] = "header"   # rosbag: message header.stamp, or bag receive time
+    stamp: Literal["header", "receive"] = "header"   # rosbag: header.stamp or receive time; lcm: utime or receive
     message_types: list[str] = Field(default_factory=list)  # rosbag: .msg files for custom types in .db3 bags
+    lcm_types: list[str] = Field(default_factory=list)      # lcm: your .lcm message definitions (globs) (#94)
 
 
 class TimeSpec(BaseModel):
@@ -306,7 +313,7 @@ class IngestSpec(BaseModel):
     def _time_source(self):
         if self.source.format == "csv" and self.time is None:
             raise ValueError("a CSV source needs time: {column: ..., unit: ...} or time: {sampling_rate_hz: ...}")
-        if self.source.format in ("rosbag", "ardupilot"):
+        if self.source.format in LOG_FORMATS:
             what = "bag" if self.source.format == "rosbag" else "log"
             if self.time is not None:
                 raise ValueError(f"a {self.source.format} source takes its time from the {what}; remove the time: block")
@@ -315,6 +322,13 @@ class IngestSpec(BaseModel):
                                  f"rates and are put on one grid")
         if self.source.format != "rosbag" and self.source.message_types:
             raise ValueError("message_types only applies to rosbag sources")
+        if self.source.format == "lcm" and not self.source.lcm_types:
+            raise ValueError("an lcm source needs lcm_types: your message definitions (.lcm files), e.g. "
+                             "lcm_types: [my_types/*.lcm]")
+        if self.source.format != "lcm" and self.source.lcm_types:
+            raise ValueError("lcm_types only applies to lcm sources")
+        if "stamp" in self.source.model_fields_set and self.source.format not in ("rosbag", "lcm"):
+            raise ValueError(f"stamp only applies to rosbag and lcm sources (a {self.source.format} log has one clock)")
         return self
 
     def columns(self) -> list:
@@ -421,11 +435,15 @@ def _read_source(spec: IngestSpec, path: str) -> tuple:
         except rb.BagError as e:
             raise IngestError(str(e)) from e
         key = "bag"
-    else:
-        import ardupilot_reader as ar
+    else:   # ArduPilot, PX4, MOOS-IvP, LCM: one read_log interface (#94)
+        import importlib
+        reader = importlib.import_module(LOG_FORMATS[spec.source.format])
+        extra = ({"type_files": spec.source.lcm_types, "stamp": spec.source.stamp}
+                 if spec.source.format == "lcm" else {})
         try:
-            df, src_rep = ar.read_log(path, spec.columns(), spec.resample_hz, hold, quat, angle_columns=angles)
-        except ar.ArduPilotLogError as e:
+            df, src_rep = reader.read_log(path, spec.columns(), spec.resample_hz, hold, quat, angle_columns=angles,
+                                          **extra)
+        except ValueError as e:   # each reader's error is a ValueError with a plain message
             raise IngestError(str(e)) from e
         key = "log"
     report = {"file": path, "rows_in": int(len(df)), "warnings": src_rep.pop("warnings"), key: src_rep}
@@ -441,7 +459,7 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     start_unix_s = None
 
     # time base
-    if spec.source.format in ("rosbag", "ardupilot"):
+    if spec.source.format in LOG_FORMATS:
         import rosbag_reader as rb
         t = df[rb.TIME_COLUMN].to_numpy(dtype=float)
         rate = spec.resample_hz
@@ -516,6 +534,25 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         pwm = np.stack([_col(df, c, path) for c in th.pwm_columns], 1)
         lo_hi = cfg.command_range
         what = "PWM" if lo_hi is None else "normalized commands"
+        if lo_hi is None and np.any(pwm == 0):
+            # PWM 0 is no signal: an autopilot writes it for an output it doesn't drive or while disarmed (PX4 does
+            # both). An ESC with no signal stops its thruster, so those samples are taken as stopped (#94)
+            off = pwm == 0
+            dead = [th.pwm_columns[j] for j in range(pwm.shape[1]) if off[:, j].all()]
+            some = int(off[:, [j for j in range(pwm.shape[1]) if not off[:, j].all()]].any(axis=1).sum()) \
+                if len(dead) < pwm.shape[1] else 0
+            if len(dead) == pwm.shape[1]:
+                raise IngestError(f"{path}: every thruster command is 0 throughout: no output was driven (disarmed for "
+                                  f"the whole log, or the wrong columns)")
+            if dead:
+                report["warnings"].append(f"{', '.join(dead)} are 0 throughout: no signal, so those thrusters are taken "
+                                          f"as stopped. If they are thrusters that ran, the autopilot sent them on other "
+                                          f"outputs: check the pwm_columns")
+            if some:
+                report["warnings"].append(f"{some} sample(s) have a command of 0 (no signal: disarmed, or an output "
+                                          f"switched off), taken as stopped; drop disarmed stretches with exclude_samples "
+                                          f"(PX4: column actuator_armed.armed, below: 0.5)")
+            pwm = np.where(off, cfg.command_neutral, pwm)
         if lo_hi is None and (np.nanmin(pwm) < 900 or np.nanmax(pwm) > 2100):
             raise IngestError(f"{path}: PWM values span {np.nanmin(pwm):.0f}-{np.nanmax(pwm):.0f}; expected ESC "
                               f"microseconds (~1100-1900). If your commands are normalized (e.g. -1..1), add "
@@ -719,9 +756,9 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
     if spec.source.format == "rosbag":
         import rosbag_reader as rb
         files = rb.bag_paths(spec.source.files)
-    elif spec.source.format == "ardupilot":
-        import ardupilot_reader as ar
-        files = ar.log_paths(spec.source.files)
+    elif spec.source.format in LOG_FORMATS:
+        import importlib
+        files = importlib.import_module(LOG_FORMATS[spec.source.format]).log_paths(spec.source.files)
     else:
         files = sorted(glob.glob(spec.source.files))
     if not files:

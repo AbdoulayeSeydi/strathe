@@ -3,7 +3,7 @@ strathe_cli.py -- one command for everything a lab does with Strathe.
 
     python strathe.py check                              is my machine set up?
     python strathe.py calibrate --data <logs folder>     calibrate a vehicle, end to end
-    python strathe.py calibrate --ingest-spec my.yaml    ... straight from your own logs (CSV or ROS bags)
+    python strathe.py calibrate --ingest-spec my.yaml    ... straight from your own logs (CSV, bags, ArduPilot, PX4, MOOS, LCM)
     python strathe.py report --result <output folder>    plain-language report for a result
     python strathe.py validate --result <output folder>  simulation vs the real vehicle: position, orientation, plots
     python strathe.py estimate-current --data <logs>     the water current in each open-water recording
@@ -59,6 +59,8 @@ REQUIRED_PACKAGES = [("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"
                      ("torch", "torch")]
 OPTIONAL_PACKAGES = [("rosbags", "rosbags", "reading ROS 1/ROS 2 bags directly"),
                      ("pymavlink", "pymavlink", "reading ArduPilot .bin / MAVLink .tlog logs directly"),
+                     ("pyulog", "pyulog", "reading PX4 .ulg logs directly"),
+                     ("lcm", "lcm", "reading LCM logs directly; no wheel for Intel Macs (LOG_FORMATS.md)"),
                      ("mlflow", "mlflow", "experiment tracking")]
 # HoloOcean has its own `check` line with the simulators (#88: it was listed twice)
 

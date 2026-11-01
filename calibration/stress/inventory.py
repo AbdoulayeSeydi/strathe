@@ -109,7 +109,71 @@ def variables_93() -> list:
     return rows
 
 
-FEATURES = {"93": variables_93}
+LOG_READERS = {"px4": "ulog_reader", "moos": "moos_reader", "lcm": "lcm_reader"}
+
+
+def _schema(model, prefix="") -> list:
+    """(path, values) for every field of a pydantic model, recursively: a Literal's values (also inside Optional,
+    list or a dict's keys), else 'given'."""
+    import typing
+    from pydantic import BaseModel
+
+    def literal_or_model(t):
+        o = typing.get_origin(t)
+        if o is typing.Literal:
+            return t
+        if o is typing.Union:
+            for a in typing.get_args(t):
+                if a is not type(None):
+                    r = literal_or_model(a)
+                    if r is not None:
+                        return r
+            return None
+        if o in (list, dict):
+            for a in typing.get_args(t):
+                r = literal_or_model(a)
+                if r is not None:
+                    return r
+            return None
+        return t if isinstance(t, type) and issubclass(t, BaseModel) else None
+
+    out = []
+    for name, f in model.model_fields.items():
+        path = f"{prefix}{f.alias or name}"
+        inner = literal_or_model(f.annotation)
+        if inner is not None and typing.get_origin(inner) is typing.Literal:
+            out.append((path, tuple(typing.get_args(inner))))
+        elif inner is not None:
+            out.append((path, ("given",)))
+            out += _schema(inner, path + ".")
+        else:
+            out.append((path, ("given",)))
+    return out
+
+
+def variables_94() -> list:
+    """Per log format: every ingest-spec field and option value, the thruster block's keys and command units, the
+    reader's column kinds, and the entry points."""
+    import importlib
+    import data_ingestion as di
+    import thruster_model as tm
+    rows = []
+    for fmt, mod in LOG_READERS.items():
+        for path, vals in _schema(di.IngestSpec):
+            for v in vals:
+                if path == "source.format" and v != fmt:   # each format's own value
+                    continue
+                rows.append(("94", f"{fmt}|spec:{path}={v}", "ingest spec field / value", v))
+        rows += [("94", f"{fmt}|thrusters:{k}", "thruster block key", k) for k in sorted(tm.THRUSTER_BLOCK_KEYS)]
+        rows += [("94", f"{fmt}|command:{k}", "thruster command units", k) for k in tm.COMMAND_UNITS]
+        rows += [("94", f"{fmt}|column:{k}", "column reference kind", k)
+                 for k in importlib.import_module(mod).COLUMN_KINDS]
+        rows += [("94", f"{fmt}|entry:{k}", "entry point", k) for k in ("strathe ingest", "calibrate --ingest-spec",
+                                                                         "web Convert logs", "strathe check")]
+    return rows
+
+
+FEATURES = {"93": variables_93, "94": variables_94}
 
 
 def inventory(features=None) -> list:

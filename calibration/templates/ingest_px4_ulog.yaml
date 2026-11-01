@@ -1,0 +1,54 @@
+# Ingest spec: PX4 logs (.ulg from the flight controller's SD card, or downloaded with QGroundControl), read
+# directly (calibration/LOG_FORMATS.md).
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+#
+# Columns are <topic>.<field>; [i] after the topic picks one instance of a topic logged for several devices
+# (actuator_outputs[0]). Arrays are field[i] (q[0]). List what your log has with `ulog_info -v my.ulg` (comes with
+# pyulog) or PX4 Flight Review.
+#
+# PX4 is FRD body / NED world already. Its attitude quaternion is w, x, y, z (q[0] is w). Its velocity is in the world
+# frame (linear_frame: world): with a DVL or an underwater positioning system it's usable; with none, the EKF's
+# velocity is dead reckoning and won't calibrate anything useful.
+
+vehicle: my_px4_auv
+source:
+  files: "logs/*.ulg"
+  format: px4
+resample_hz: 10                # every topic is put on this one time grid
+session_date: {from: recording}  # the log's GPS (UTC) time; underwater logs often have none: then use
+                               # {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+                               # or {from: constant, value: "2025-06-01"}
+frame: frd
+body_velocity:
+  columns:
+    u: vehicle_local_position.vx         # north, east, down velocity (m/s)
+    v: vehicle_local_position.vy
+    w: vehicle_local_position.vz
+    p: "vehicle_angular_velocity.xyz[0]"   # body rates, rad/s
+    q: "vehicle_angular_velocity.xyz[1]"
+    r: "vehicle_angular_velocity.xyz[2]"
+  linear_frame: world
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion: {w: "vehicle_attitude.q[0]", x: "vehicle_attitude.q[1]", y: "vehicle_attitude.q[2]", z: "vehicle_attitude.q[3]"}
+wrench:
+  thrusters:
+    # PWM sent to the ESCs (µs); on PX4 1.14+ you can use the normalized actuator_motors.control[i] instead, with
+    # command: normalized and command_range: [-1, 1] (see ingest_csv_normalized_thrusters.yaml)
+    pwm_columns:
+      - "actuator_outputs[0].output[0]"
+      - "actuator_outputs[0].output[1]"
+      - "actuator_outputs[0].output[2]"
+      - "actuator_outputs[0].output[3]"
+      - "actuator_outputs[0].output[4]"
+      - "actuator_outputs[0].output[5]"
+      - "actuator_outputs[0].output[6]"
+      - "actuator_outputs[0].output[7]"
+    preset: bluerov2_heavy     # or layout: (see ingest_csv_pwm_custom_thrusters.yaml)
+    voltage: 15.0
+    # voltage_column: battery_status.voltage_v   # thrust scaled to each sample's battery voltage
+# PX4 writes PWM 0 for outputs it doesn't drive and while disarmed: taken as stopped. To leave the disarmed stretches
+# out of the calibration altogether:
+# exclude_samples:
+#   - {column: actuator_armed.armed, below: 0.5}
