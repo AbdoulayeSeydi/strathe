@@ -36,7 +36,7 @@ def windows(run, length_s: float, stride_s: float) -> list:
 
 def _nu(run):
     """The velocity a replay starts from: logged, or with the sensor suite the estimated start (simfit/sensors.py)."""
-    if run.channels is not None:
+    if getattr(run, "channels", None) is not None:
         from simfit.sensors import start_nu
         return start_nu(run)
     return run.real_nu
@@ -56,7 +56,7 @@ def path(V, Q, dt):
 def score(runs_wins: list, preds: list, horizons=HORIZONS_S) -> dict:
     """Median drift, velocity RMSE per axis and attitude error per horizon, over all windows of all recordings. From
     the sensors (no DVL, #96): drift against the position fixes, simfit/sensors.score."""
-    if runs_wins and runs_wins[0][0].channels is not None:
+    if runs_wins and getattr(runs_wins[0][0], "channels", None) is not None:
         from simfit.sensors import score as sensor_score
         return sensor_score(runs_wins, preds, horizons)
     vel = {h: [] for h in horizons}
@@ -170,7 +170,7 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
     if not any(w for _, w in runs_wins):
         raise SimFitError(f"the training recordings are shorter than one {FIT_WINDOW_S:g} s window")
     rows = [window_rows(run, w) for run, w in runs_wins]
-    sensor = train[0].channels is not None   # no DVL (#96): each sensor against what the simulator would have read
+    sensor = getattr(train[0], "channels", None) is not None   # no DVL (#96): each sensor against what the simulator would have read
     if sensor:
         from simfit import sensors as SN
         sens_scale, lay = SN.scales(runs_wins), SN.layout(runs_wins)
@@ -305,11 +305,11 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
         rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
     cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
     train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
-    if len({r.channels is not None for r in train + held}) > 1:   # one objective for all, as calibrate does
+    if len({getattr(r, "channels", None) is not None for r in train + held}) > 1:   # one objective for all, as calibrate does
         from dataclasses import replace as _replace
         cfg = _replace(cfg, sensors=("all",))
         train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
-    if any(r.channels is not None for r in train + held):
+    if any(getattr(r, "channels", None) is not None for r in train + held):
         # no DVL (#96): each window starts from the estimated velocity (a physics-free smoother: the simulator's
         # model may be of any vehicle), and the simulator is scored against the sensors (simfit/sensors.py)
         from simfit.sensors import set_starts

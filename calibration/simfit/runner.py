@@ -147,7 +147,7 @@ def _print_results(results) -> None:
 def _physics_starts(runs, params, mass) -> None:
     """No DVL (#96): with a Strathe calibration at hand, each window starts from the smoother run with its physics
     (about 4x closer to the truth than physics-free in tests/test_simfit_sensors.py) instead of without."""
-    if mass and runs and runs[0].channels is not None:
+    if mass and runs and getattr(runs[0], "channels", None) is not None:
         from dynamics_model import VehicleConstants
         from simfit.sensors import set_starts
         set_starts(runs, params, VehicleConstants(float(mass)))

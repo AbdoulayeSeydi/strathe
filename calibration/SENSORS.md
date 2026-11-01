@@ -77,6 +77,18 @@ measured it.
 **Validation.** Position drift is measured against your vehicle's own position fixes (or depth): an independent
 measurement, not its velocity.
 
+**Your own simulator.** `fit-sim` and `export-sim` work from the sensors too: Stonefish, Gazebo, MuJoCo,
+HoloOcean and external simulators.
+- Your simulator runs free over each window, as with a DVL.
+- It starts from the estimated velocity.
+- It's scored against what each sensor read: its path, under its own attitude, against the fixes and depth; its rates
+  against the gyro; and its velocity against the DVL where the DVL read.
+- Drift is measured against the position fixes.
+
+Starting velocities come from a physics-free smoother, since your simulator may model any vehicle. Give a Strathe
+calibration (`--from-strathe`; `export-sim` always has one) and they come from its physics instead, which was about
+4x closer to the truth in our tests (2 against 8 cm/s from 1 Hz fixes).
+
 **Everything else works the same with sensors:**
 - `--restarts`, the automatic retry of a failed fit, `--finish`;
 - `--estimate-current`, `--drag prior`, `--free-decay`, `--exclude-axes`;

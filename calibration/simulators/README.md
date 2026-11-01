@@ -76,6 +76,9 @@ You choose; each guide shows both.
     tilts on its own.
   - The report gives the drift after 10, 30 and 60 s, plus the velocity and attitude error.
   - It compares against your original model and two baselines: "no motion" and "keeps its starting velocity".
+  - **No DVL?** It works from your vehicle's other sensors (depth, position fixes, GPS, the gyro). Each window starts
+    from the estimated velocity, the simulator is scored against what each sensor read, and drift is measured
+    against the position fixes (`../SENSORS.md`).
 - **`--density-by-date DATE=RHO`:** use it only if the vehicle kept the same ballast in fresh and salt water.
   - **Why:** a vehicle re-trimmed for each water, as is usual, is about neutral in both. Forcing the density makes it
     2–3% heavy or light in the simulator.
