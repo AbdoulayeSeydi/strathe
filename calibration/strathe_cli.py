@@ -363,9 +363,27 @@ def cmd_calibrate(args, runner=None) -> int:
         print(warn, flush=True)
 
     import secrets
+    restarts = getattr(args, "restarts", 1)
+    restarts = 1 if restarts is None else restarts
+    if restarts < 1:
+        print("❌ --restarts must be at least 1")
+        return 2
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31 - 1)
     print(f"ℹ️  Starting-point seed {seed}: the fit starts from a randomly perturbed point, so a hard calibration can "
           f"land differently on another run. `--seed {seed}` repeats this one exactly.", flush=True)
+    whole = bool(getattr(args, "restart_whole_fit", False))
+    if whole and restarts < 2:
+        print("❌ --restart-whole-fit needs --restarts 2 or more (how many times to run the whole fit)")
+        return 2
+    if whole and not args.estimate_current:
+        print("ℹ️  --restart-whole-fit only matters with --estimate-current (there's one round otherwise); "
+              "--restarts alone does the same for a one-round fit.")
+        whole = False
+    if whole:
+        return _calibrate_whole_fit_restarts(args, runner, out, restarts, seed)
+    if restarts > 1:
+        print(f"ℹ️  Starting the fit from {restarts} points and keeping the lowest training cost: the first fit takes "
+              f"about {restarts}x as long.", flush=True)
     memo = {}
 
     def settings():
@@ -421,6 +439,8 @@ def cmd_calibrate(args, runner=None) -> int:
         rate, extra = settings()
         argv = calibrate_argv(data, dest, spec, args.heldout_dates, args.workers, args.max_nfev,
                               extra + ["--seed", str(seed)], rate)  # every round starts from the same recorded seed
+        if restarts > 1 and not warm:  # the first fit chooses where to start; later rounds start from its result
+            argv += ["--n-restarts", str(restarts)]
         if currents:
             argv += ["--currents-file", currents]
         if warm and os.path.exists(warm):
@@ -451,35 +471,56 @@ def cmd_calibrate(args, runner=None) -> int:
         steps.append((fit_title, lambda: fit_argv(out, currents_file), fit_hint, True))
     if args.finish:
         # an interrupted fit: keep its best parameters, with the settings this command gives the fit
+        ck_dir, finish_currents = out, currents_file
+        why = "interrupted; finished from its checkpoint with strathe calibrate --finish"
         if args.estimate_current:
-            print("❌ --finish doesn't support --estimate-current runs; re-run them, or use "
-                  "calibration/finalize_checkpoint.py on the last round's checkpoint")
-            return 2
-        if not os.path.exists(os.path.join(out, "checkpoint.yaml")):
+            # the latest step that started: the final fit (with the last round's currents), else the latest round
+            rounds = max(1, args.current_rounds)
+            if os.path.exists(os.path.join(out, "checkpoint.yaml")):
+                finish_currents = os.path.join(out, f"current_round{rounds}", "currents.csv")
+                why = (f"interrupted in the final fit, after {rounds} current round(s); finished from its checkpoint "
+                       f"with strathe calibrate --finish")
+            else:
+                k = next((k for k in range(rounds, 0, -1)
+                          if os.path.exists(os.path.join(out, f"current_round{k}", "checkpoint.yaml"))), None)
+                if k is None:
+                    print(f"❌ --finish: no checkpoint in {out} or its current_round folders; nothing to finish (did "
+                          f"the fit start?)")
+                    return 2
+                ck_dir = os.path.join(out, f"current_round{k}")
+                finish_currents = None if k == 1 else os.path.join(out, f"current_round{k - 1}", "currents.csv")
+                why = (f"interrupted in current round {k} of {rounds}: the later rounds and the final fit didn't run; "
+                       f"finished from round {k}'s checkpoint with strathe calibrate --finish")
+            if finish_currents and not os.path.exists(finish_currents):
+                print(f"❌ --finish: {finish_currents} is missing, so the interrupted step's currents aren't known; "
+                      f"re-run without --finish")
+                return 2
+        elif not os.path.exists(os.path.join(out, "checkpoint.yaml")):
             print(f"❌ --finish: no checkpoint.yaml in {out}; nothing to finish (did the fit start?)")
             return 2
         if args.ingest_spec and os.path.isdir(data):
             steps = [st for st in steps if not st[0].startswith("Converting")]  # already converted
-        steps = [st for st in steps if not st[0].startswith(("Checking your data", "Calibrating"))]
+        steps = [st for st in steps if not st[0].startswith(("Checking your data", "Calibrating", "Current round"))]
+        if args.estimate_current:
+            print(f"ℹ️  Finishing: {why.split(';')[0]}.", flush=True)
 
         def finish_argv():
             rate, extra = settings()
-            cur = ["--currents-file", currents_file] if currents_file else []
-            return finalize_argv(out, data, spec, args.heldout_dates, rate, extra + cur,
-                                 "interrupted; finished from its checkpoint with strathe calibrate --finish")
+            cur = ["--currents-file", finish_currents] if finish_currents else []
+            return finalize_argv(ck_dir, data, spec, args.heldout_dates, rate, extra + cur, why) + \
+                (["--output-dir", _abs(out)] if ck_dir != out else [])
         steps.append(("Turning the interrupted fit's best result into a calibration (marked not converged)",
                       finish_argv, "The checkpoint couldn't be turned into a result; the message above says why.",
                       True))
-    if not args.skip_identifiability:
+    if getattr(args, "fit_only", False):  # one start of --restart-whole-fit: the checks run once, on the chosen one
+        pass
+    elif not args.skip_identifiability:
         steps.append(("Checking which values your data can pin down (a few minutes)",
                       lambda: identifiability_argv(out, data, spec, args.workers),
                       "The check of which values the data can pin down failed; the report is written without "
                       "that section.", False))
-    steps.append(("Comparing the simulation with the real vehicle on unseen recordings: position, orientation, "
-                  "response, plots (a few minutes)", lambda: validation_argv(out, data, spec),
-                  "The comparison with the real vehicle failed; the report is written without that section.", False))
-    steps.append(("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
-                  "The report couldn't be written; the calibration itself is saved in the output folder.", True))
+    if not getattr(args, "fit_only", False):
+        steps += checks_and_report_steps(out, data, spec, args)
     for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
         _banner(i, len(steps), title)
         argv = make_argv()
@@ -508,6 +549,96 @@ def cmd_calibrate(args, runner=None) -> int:
             return rc
         if rc != 0:
             print(f"\n⚠️  Step {i} failed (exit code {rc}). {hint}")
+    report = os.path.join(out, "calibration_report.md")
+    print(f"\n✅ Done.\n   Report:     {report}\n   Parameters: {os.path.join(out, 'calibrated_parameters.yaml')}")
+    if runner is None and os.path.exists(report):
+        _print_bottom_line(report)
+    return 0
+
+
+def checks_and_report_steps(out: str, data: str, spec: str, args) -> list:
+    return [("Comparing the simulation with the real vehicle on unseen recordings: position, orientation, "
+             "response, plots (a few minutes)", lambda: validation_argv(out, data, spec),
+             "The comparison with the real vehicle failed; the report is written without that section.", False),
+            ("Writing the plain-language report", lambda: report_argv(out, data, spec, args.heldout_dates),
+             "The report couldn't be written; the calibration itself is saved in the output folder.", True)]
+
+
+WHOLE_FIT_FILE = "whole_fit_starts.json"
+
+
+def _final_cost(folder: str):
+    try:
+        with open(os.path.join(folder, "metrics.json"), encoding="utf-8") as f:
+            return float(json.load(f)["optimizer"]["cost"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _round_costs(folder: str) -> list:
+    out, k = [], 1
+    while os.path.isdir(os.path.join(folder, f"current_round{k}")):
+        out.append(_final_cost(os.path.join(folder, f"current_round{k}")))
+        k += 1
+    return out + [_final_cost(folder)]
+
+
+def _calibrate_whole_fit_restarts(args, runner, out: str, restarts: int, seed: int) -> int:
+    """--restart-whole-fit (#79): the whole fit, every current round, from `restarts` starting points (seeds seed,
+    seed+1, ...), each in out/startK; keep the one with the lowest FINAL training cost. On URI's B8, the start with
+    the lower round-1 cost ended worse (4.17 against 3.86): choosing in round 1 is too early."""
+    import copy
+    import shutil
+    print(f"ℹ️  Running the whole fit (every current round) from {restarts} starting points, seeds {seed} to "
+          f"{seed + restarts - 1}, and keeping the lowest final training cost: about {restarts}x as long.", flush=True)
+    starts = []
+    for k in range(restarts):
+        sub = copy.copy(args)
+        sub.restarts, sub.restart_whole_fit, sub.fit_only = 1, False, True
+        sub.seed = seed + k
+        sub.out = os.path.join(out, f"start{k + 1}")
+        print(f"\n{'#' * 70}\n# Start {k + 1} of {restarts} (seed {sub.seed})\n{'#' * 70}", flush=True)
+        if args.finish and os.path.exists(os.path.join(sub.out, "metrics.json")):
+            rc = 0   # this start had finished: keep it as it is
+            print("ℹ️  This start had finished; kept as it is.", flush=True)
+        elif args.finish and not os.path.isdir(sub.out):
+            rc = 2   # never started: nothing to finish
+            print("ℹ️  This start hadn't begun; left out.", flush=True)
+        else:
+            rc = cmd_calibrate(sub, runner)
+        starts.append({"start": k + 1, "seed": sub.seed, "folder": sub.out, "exit_code": rc,
+                       "round_costs": _round_costs(sub.out), "final_cost": _final_cost(sub.out)})
+    done = [s for s in starts if s["final_cost"] is not None]
+    if not done:
+        print("\n❌ None of the starts produced a calibration; the messages above say why.")
+        return 1
+    best = min(done, key=lambda s: s["final_cost"])
+    for name in os.listdir(best["folder"]):
+        src, dst = os.path.join(best["folder"], name), os.path.join(out, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+    with open(os.path.join(out, WHOLE_FIT_FILE), "w", encoding="utf-8") as f:
+        json.dump({"chosen": best["start"], "starts": starts}, f, indent=2)
+    print(f"\nℹ️  Final training costs: " + ", ".join(f"start {s['start']} (seed {s['seed']}) "
+                                                      f"{s['final_cost']:.4g}" for s in done)
+          + f". Keeping start {best['start']}.", flush=True)
+    data = os.path.join(out, "ingested_logs") if args.ingest_spec else _abs(args.data)
+    spec = spec_path(args.spec)
+    steps = checks_and_report_steps(out, data, spec, args)
+    if not args.skip_identifiability:
+        steps.insert(0, ("Checking which values your data can pin down (a few minutes)",
+                         lambda: identifiability_argv(out, data, spec, args.workers),
+                         "The check of which values the data can pin down failed; the report is written without "
+                         "that section.", False))
+    for i, (title, make_argv, hint, fatal) in enumerate(steps, 1):
+        _banner(i, len(steps), title)
+        rc = run_step(make_argv(), runner)
+        if rc != 0:
+            print(f"\n{'❌' if fatal else '⚠️ '} Step {i} failed (exit code {rc}). {hint}")
+            if fatal:
+                return rc
     report = os.path.join(out, "calibration_report.md")
     print(f"\n✅ Done.\n   Report:     {report}\n   Parameters: {os.path.join(out, 'calibrated_parameters.yaml')}")
     if runner is None and os.path.exists(report):
@@ -1032,6 +1163,15 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-nfev", type=int, default=100, help="optimizer budget (default 100)")
     c.add_argument("--seed", type=int, help="the starting point's random seed (default: a new one, printed and "
                                             "recorded); give a calibration's seed to repeat it exactly")
+    c.add_argument("--restarts", type=int, default=1,
+                   help="start the fit from this many points and keep the lowest training cost (default 1). A hard "
+                        "calibration can land in a different place from each start; 3-4 makes that much less likely, "
+                        "for that many times the first fit's time. With --estimate-current, the first round only: "
+                        "later rounds start from its result (see --restart-whole-fit)")
+    c.add_argument("--restart-whole-fit", action="store_true",
+                   help="with --estimate-current and --restarts N: run the whole fit (every round) from N starting "
+                        "points (seeds S..S+N-1) and keep the lowest FINAL training cost. For a calibration whose "
+                        "rounds can go two ways; N times as long")
     c.add_argument("--torque-reference-offset-m", type=float, nargs=3, metavar=("X", "Y", "Z"),
                    help="advanced: re-express logged torques about another point (default: what the ingestion "
                         "recorded, else vehicle_spec.yaml; see run_calibration.py --help)")
@@ -1053,7 +1193,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--finish", action="store_true",
                    help="the fit was interrupted (the machine slept, the run was stopped): turn its best result so "
                         "far into a calibration, marked not converged, and write the report. Same command and "
-                        "flags as the interrupted run, plus --finish")
+                        "flags as the interrupted run, plus --finish. With --estimate-current it finishes the step "
+                        "that was running (a round, or the final fit); with --restart-whole-fit it keeps the starts "
+                        "that finished and finishes the interrupted one")
     c.set_defaults(fn=cmd_calibrate)
 
     e = sub.add_parser("estimate-current", help="estimate the water current in each open-water recording")

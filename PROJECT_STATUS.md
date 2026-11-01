@@ -2015,7 +2015,10 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   finalize), blow-up vs budget messages, an unstable recording, the report's seed line and the fleet message.
 
 **Still open:**
-- F21: `--finish` refuses `--estimate-current` runs.
+- ~~F21: `--finish` refuses `--estimate-current` runs.~~ Fixed 2026-10-22 (#79 branch). It finishes the step that was
+  running: the final fit from its checkpoint with the last round's currents, or the latest round from its checkpoint
+  with that round's input currents. The reason recorded and reported says which, and that the later steps didn't
+  run. With `--restart-whole-fit` it keeps finished starts and finishes the interrupted one.
 - F1, F2: header stamps; recording-date sessions.
 - F5: noise from filtered logs.
 - F15: arena intervals ignore seed variance.
@@ -2044,6 +2047,102 @@ every command, Strathe-only and through Stonefish. The writeup and every table a
   - the penalty: same shape as a normal evaluation, with and without prediction windows, and 100× the no-motion cost;
   - other errors still raise;
   - every new form option reaches the command, and bad values are refused.
+
+### 79. `strathe calibrate --restarts N`: several starting points, keep the lowest training cost (2026-10-19)
+
+**Why.** #76 made the random start repeatable (`--seed`), but a hard calibration still depends on it. On URI's re-run,
+B8 (surfacings removed) landed at +0.24 or +0.06 mean skill and B9 (20 Hz) at +0.23 or +0.18, depending on the start.
+The describe-stonefish variants (#77) all stopped at worse training costs than the hand-written description.
+
+**The evidence that makes the choice safe:** every time repeats landed in different places, the better one on the
+unseen mission also had the lower *training* cost:
+- B8: +0.24 at a cost of 3.86, against +0.06 at 4.17;
+- B9: +0.23 at 2.018, against +0.18 at 2.217.
+
+So the choice never needs the held-out data.
+
+**What changed:**
+- **`optimizer.calibrate`** keeps the restart with the lowest cost, converged or not. A best restart that stopped at its
+  budget is reported as not converged, instead of being dropped for a worse converged one.
+- **`metrics.json`** records each start's cost (`optimizer.restart_costs`). The report lists them and says whether the
+  starting point mattered (within 1%) or not.
+- **`strathe calibrate --restarts N`** (default 1).
+  - With `--estimate-current` it applies to the first round only; later rounds start from its result.
+  - The web form has a "Starting points" field.
+  - LAB_GUIDE, README and LIMITS say when to use it.
+- **Tests (`tests/test_multi_start.py`):**
+  - the flag reaches the first fit only;
+  - the lowest cost is kept even when it stopped at its budget;
+  - one start behaves as before;
+  - the report's lines;
+  - the web field.
+
+**Validation on URI's data** (4 starts, seed 11). Mean skill on the unseen mission, and drift:
+
+| Run | One start | Four starts | Hand-written description |
+|---|---|---|---|
+| B9, pond held out | +0.176 | **+0.227**, 3.5 m at 60 s | |
+| B8, pond held out | +0.062 | +0.062 | |
+| V3 (#77), pond held out | +0.159, pitch 21° | **+0.205**, 5.25 m at 60 s, pitch 12° | +0.227, 3.5 m |
+| V3 (#77), bay held out | **−3.18**, 65.7 m at 60 s | **+0.191**, 0.75 / 4.04 m at 10 / 60 s, pitch 7.2° | +0.183, 0.72 / 3.98 m, pitch 8.3° |
+
+- **B9 and V3:** four starts pick the good result in every case. On the bay, V3 goes from a blow-up to the
+  hand-written description's result. Two of the four pond starts blew up (costs 170 and 307) and were dropped by cost.
+- **B8 doesn't help:** all four round-1 starts agreed (costs 4.76–4.78). Its good/bad split happens in a later round,
+  which starts from round 1's result.
+- **A gap this found, fixed:** on the bay run, every start used up its evaluation budget, so none "converged". The CLI
+  then finished the run from its checkpoint (the lowest cost seen over all four starts), but the report lost each
+  start's cost. `optimizer.RestartsFailed` now carries the costs; `run_calibration.py` adds them to the checkpoint, and
+  `finalize_checkpoint.py` puts them in `metrics.json`. Tested in `tests/test_multi_start.py`.
+
+**B8, restarting later rounds: tried, didn't help, replaced.**
+- **What was tried:** `--restarts-every-round` restarted every current round from the previous round's result plus
+  three points around it.
+- **The result on B8** (pond held out, seed 11): all four starts in round 2 and in the final fit ended at the same
+  cost (4.2372, then 4.1704): +0.062, 10.6 m at 60 s, the bad result. Nothing reachable around round 1's result
+  leads elsewhere.
+- **Where the split really is:** in round 1, by a hair.
+
+  | Run | Round 1 cost | Round 2 cost | Final cost | Mean skill on the unseen mission |
+  |---|---|---|---|---|
+  | B8r2, B8r3 (good) | 4.7809 (net buoyancy 25.4 N) | 3.9306 | **3.8599** | +0.236 |
+  | B8r4, M_B8, M_B8e (bad) | **4.7598** (16.5 N) | 4.2372 | 4.1704 | +0.062 |
+
+  The two round-1 results lead to different estimated currents, and the start with the *lower* round-1 cost ends
+  worse. Choosing the lowest cost after round 1 is too early, and it is what four first-round starts did. The rule
+  "the lower training cost is the better result" still holds at the end: 3.86 against 4.17.
+- **The replacement, `--restart-whole-fit`.** With `--estimate-current` and `--restarts N`, the whole fit (every
+  round) runs N times, with seeds S..S+N−1, each in `startK/`, and the lowest *final* training cost is kept.
+  - The check against unseen recordings and the report run once, on the chosen start.
+  - `whole_fit_starts.json` records every start's costs round by round, and the report lists them.
+  - It takes N times as long.
+  - It has a web checkbox and is in LAB_GUIDE, README and LIMITS.
+  - `--restarts-every-round` is removed.
+  - The optimizer keeps one change from it: a warm start with several starts keeps the warm point, unperturbed, as
+    its first.
+- **Tests:**
+  - three starts × three fits, with the choice made on the final cost, not round 1's;
+  - the check and the report run once;
+  - the record;
+  - the refusals and notes;
+  - the report's paragraph;
+  - the web checkbox.
+- **Validation on URI's data:** B8, pond held out, `--restarts 4 --restart-whole-fit --seed 11` (seeds 11–14). It
+  gives **the good result**:
+
+  | B8, pond held out | Mean skill | Drift at 10 / 60 s | Pitch after 10 s | Final training cost |
+  |---|---|---|---|---|
+  | `--restart-whole-fit`, 4 starts | **+0.237** | 0.68 / 4.69 m | 11.7° | 3.8599 |
+  | A good single start (B8r2) | +0.236 | 0.67 / 4.67 m | 11.7° | 3.8599 |
+  | 4 starts chosen after round 1, or in every round | +0.062 | 1.68 / 10.56 m | 18.5° | 4.1704 |
+
+  - **All four whole fits ended in the good result** (round 1 4.7809, round 2 3.9306, final 3.8599–3.8604), so this
+    run didn't have to choose between the two. That the lower *final* cost is the better result rests on the earlier
+    runs (3.86 against 4.17).
+  - **What it shows:** with the same seed 11, four starts chosen after round 1 kept the 4.7598 start and ended badly.
+    The whole fit, from that seed and three others, ended well every time.
+  - **Cost:** 8.5 h on 7 cores, about 2 h of it on battery. Four round-1 starts took 7.4 h on 2 cores.
+  - **The report** lists each start's costs by round, and here says they ended within 1% of each other.
 
 ### 80. Strathe's damping in Stonefish as it is: the patch's per-axis damping (2026-10-19)
 

@@ -569,8 +569,45 @@ def test_calibrate_finish_turns_an_interrupted_fit_into_a_result(tmp_path, capsy
     assert "interrupted" in fin[fin.index("--reason") + 1]
     import finalize_checkpoint
     finalize_checkpoint.build_parser().parse_args(fin[2:])
-    assert cli.main(["calibrate", "--data", str(logs), "--out", str(out), "--finish", "--estimate-current"],
-                    runner=run) == 2
+
+
+
+def test_finish_with_current_estimation_finishes_the_step_that_was_interrupted(tmp_path, capsys):
+    """F21: --finish refused --estimate-current runs, the longest calibrations (B8: 5-20 h)."""
+    logs, out = tmp_path / "logs", tmp_path / "out"
+    logs.mkdir()
+    calls = []
+    run = lambda cmd: calls.append(cmd) or 0
+    args = ["calibrate", "--data", str(logs), "--out", str(out), "--estimate-current", "--current-rounds", "2",
+            "--finish"]
+    assert cli.main(args, runner=run) == 2 and "nothing to finish" in capsys.readouterr().out
+    # interrupted in round 1: finished from round 1's checkpoint, into the output folder, in still water
+    (out / "current_round1").mkdir(parents=True)
+    (out / "current_round1" / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    assert cli.main(args, runner=run) == 0
+    fin = calls[0]
+    assert fin[1] == "finalize_checkpoint.py" and fin[fin.index("--checkpoint") + 1] == str(out / "current_round1" /
+                                                                                          "checkpoint.yaml")
+    assert fin[fin.index("--output-dir") + 1] == str(out) and "--currents-file" not in fin
+    assert "current round 1 of 2" in fin[fin.index("--reason") + 1]
+    assert not any(c[1] in ("run_calibration.py", "estimate_current.py") for c in calls)   # no new fitting
+    # interrupted in round 2, but round 1's currents are missing: a plain message
+    calls.clear()
+    (out / "current_round2").mkdir()
+    (out / "current_round2" / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    assert cli.main(args, runner=run) == 2 and "currents aren't known" in capsys.readouterr().out
+    (out / "current_round1" / "currents.csv").write_text("file,vx_mps\n")
+    assert cli.main(args, runner=run) == 0
+    assert calls[0][calls[0].index("--currents-file") + 1] == str(out / "current_round1" / "currents.csv")
+    # interrupted in the final fit: finished from its checkpoint with the last round's currents
+    calls.clear()
+    (out / "checkpoint.yaml").write_text("best_parameters_so_far: {}\n")
+    (out / "current_round2" / "currents.csv").write_text("file,vx_mps\n")
+    assert cli.main(args, runner=run) == 0
+    fin = calls[0]
+    assert fin[fin.index("--checkpoint") + 1] == str(out / "checkpoint.yaml") and "--output-dir" not in fin
+    assert fin[fin.index("--currents-file") + 1] == str(out / "current_round2" / "currents.csv")
+    assert "final fit" in fin[fin.index("--reason") + 1]
 
 
 def test_calibrate_without_a_checkpoint_still_fails_clearly(tmp_path, capsys):
@@ -750,12 +787,15 @@ def test_calibration_form_passes_every_advanced_option(server):
     request, token, started, manager, tmp_path = server
     status, _, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv",
                                                       "estimate_current": "1", "current_rounds": "3", "workers": "4",
-                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1"})
+                                                      "seed": "77", "torque_offset": "0.05 0 0", "drag_prior": "1",
+                                                      "restarts": "4", "restart_whole_fit": "1"})
     assert status == 303
     cmd = started[0]
-    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior")):
+    for flag, val in (("--current-rounds", "3"), ("--workers", "4"), ("--seed", "77"), ("--drag", "prior"),
+                      ("--restarts", "4")):
         assert cmd[cmd.index(flag) + 1] == val
     assert cmd[cmd.index("--torque-reference-offset-m") + 1:cmd.index("--torque-reference-offset-m") + 4] == ["0.05", "0.0", "0.0"]
+    assert "--restart-whole-fit" in cmd and cli.build_parser().parse_args(cmd[3:]).restart_whole_fit
     status, body, _ = request("POST", "/jobs/calibrate", {"token": token, "data": str(tmp_path), "name": "adv2",
                                                          "current_rounds": "3"})
     assert status == 400 and "estimate the current" in body

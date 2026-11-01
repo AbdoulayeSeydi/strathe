@@ -125,9 +125,16 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 **Timing:**
 - **Calibration:** a few minutes on a small log set, about an hour on large ones.
 - **Keep it awake:** the machine is kept awake, but closing a laptop lid still sleeps it, so keep it on mains power.
-- **If it was interrupted:** run the same command again with `--finish` to keep the best result so far.
-- **To repeat a calibration exactly:** add `--seed N` with the seed it printed (also in its report). The fit starts from
-  a random point, so on a hard set-up two or three seeds show how much the result depends on it.
+- **If it was interrupted:** run the same command again with `--finish` to keep the best result so far. With
+  `--estimate-current` it finishes the step that was running, and the report says which.
+- **To repeat a calibration exactly:** add `--seed N` with the seed it printed (also in its report).
+- **A hard calibration:** add `--restarts 3` (or 4). The fit starts from that many points and keeps the one that fits
+  your training recordings best; the first fit takes that many times as long. The report lists each start's result,
+  so you can see whether the starting point mattered.
+  - **With `--estimate-current`,** only the first round restarts, and the start with the lowest round-1 cost isn't
+    always the one that ends best. Add `--restart-whole-fit` to run the whole fit, every round, from each starting
+    point and keep the lowest *final* training cost. It takes that many times as long; each start's result is kept
+    in its `startN` folder, and the report lists their costs round by round.
 
 ## 6. What you get back
 

@@ -82,6 +82,9 @@ Before the first lab pilots (PROJECT_STATUS.md #61–63):
 - **`strathe calibrate` stopped at its data check for any logs not dated like the reference dataset.** Three steps defaulted to that dataset's held-out dates. It is now tested end to end, every step for real, on logs with their own dates.
 - **`strathe calibrate ... --finish`** turns an interrupted fit (a sleeping laptop, a stopped run) into a result with the same settings.
 - **`strathe calibrate ... --seed N`** repeats a calibration exactly: each one prints and records its seed.
+- **`strathe calibrate ... --restarts 3`** starts the fit from three points and keeps the lowest training cost, so a hard
+  calibration doesn't depend on one random start. With `--estimate-current`, `--restart-whole-fit` runs the whole
+  multi-round fit from each start and keeps the lowest final training cost.
 - **Clearer messages:** a lab with only one recording session is told what to do.
 - **Cleanup:** 402 unused research scripts and stale outputs were removed. Tag `research-archive-2026-10` keeps them.
 
