@@ -84,6 +84,9 @@ def main():
 
         for i, label in enumerate(DOF_LABELS):
             values = run.real_nu[:, i]
+            values = values[np.isfinite(values)]   # u, v, w only where a DVL read (none with no DVL, #96)
+            if not len(values):
+                continue
 
             if i in ANGULAR_DOF_INDICES:
                 over_ceiling = np.sum(np.abs(values) > ANGULAR_RATE_FAIL_CEILING_RAD_S)

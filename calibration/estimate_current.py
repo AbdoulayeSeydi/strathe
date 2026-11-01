@@ -70,6 +70,9 @@ def _fit(run, params, vehicle, horizon, scales, c0=None):
 
 def _half(run, a, b):
     from dataclasses import replace
+    if run.channels is not None:   # the sensor suite (#96): its channels and window starts go with it
+        from measurements import slice_run
+        return replace(slice_run(run, a, b), current_body=None)
     return replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
                    real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(), current_body=None,
                    orientation_quat=run.orientation_quat[a:b])
@@ -100,6 +103,15 @@ def _estimate_run(job) -> dict:
     params = CalibrationParameters.from_vector(pvec)
     run = load_run(path, dc)
     horizon = max(2, int(round(WINDOW_S * run.sample_rate_hz)))
+    if run.channels is not None:
+        # the sensor suite (#96): windows start from the smoother's velocity with these parameters, each sensor scaled
+        # by its own still RMS. A position fix or a bottom-lock DVL measures motion over ground: the current shows
+        import measurements as ms
+        import state_smoother as sm
+        sigma, _ = sm.choose_accel_sigma([run], params, vehicle)
+        sm.set_anchors([run], params, vehicle, sigma)
+        run.sensor_scales = ms.still_scales([run], max(horizon, int(round(10.0 * run.sample_rate_hz))))
+        horizon = max(horizon, int(round(10.0 * run.sample_rate_hz)))   # position needs time to move
     scales = compute_zero_baseline_scales([run])
     still = float(np.sqrt(np.mean(residuals_for_run(params, run, vehicle, scales, True, None, horizon) ** 2)))
     c, err = _fit(run, params, vehicle, horizon, scales)
@@ -197,6 +209,7 @@ def main(argv=None) -> int:
                     help="default: ingest_report.json, else vehicle_spec.yaml")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--out", help="default: <data-dir>/currents.csv")
+    ap.add_argument("--sensors", nargs="+", default=["auto"], help="as run_calibration.py --sensors (#96)")
     args = ap.parse_args(argv)
     from build_two_agent_cores import load_calibrated_parameters
     from data_split import discover_csv_files
@@ -219,7 +232,7 @@ def main(argv=None) -> int:
     params = load_calibrated_parameters(args.params) if args.params else initial_parameters(spec)
     label = (f"the calibration `{os.path.basename(os.path.dirname(os.path.abspath(args.params)))}`" if args.params
              else "the vehicle description's default (uncalibrated) values")
-    dc = DatasetConfig(float(rate), tuple(offset), None)
+    dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors))
     print(f"Estimating the current in {len(files)} recording(s) at {rate:g} Hz with {label}...", flush=True)
     rows = estimate_currents(files, params, spec.vehicle, dc, args.workers)
     for r in rows:

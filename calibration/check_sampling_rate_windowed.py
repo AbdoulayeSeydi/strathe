@@ -58,6 +58,15 @@ def main():
 
     csv_paths = sorted(str(p) for p in Path(args.data_dir).rglob("*.csv"))
     test_paths = csv_paths[:args.max_runs]
+    need = {"Bu", "Bv", "Bw", "x", "y", "z"}
+    lacking = [p for p in test_paths if not need <= set(pd.read_csv(p, nrows=0).columns)]
+    if lacking:
+        # the rate is inferred by integrating logged velocity against logged position: logs without both (no DVL,
+        # #96, or no positions) can't be checked this way
+        print(f"Can't infer the sampling rate from {len(lacking)} of {len(test_paths)} file(s): this check needs body "
+              f"velocity (Bu, Bv, Bw) and positions (x, y, z) in each. Give the rate with --sampling-rate-hz (or "
+              f"convert the logs with `strathe ingest`, which measures it from their timestamps).")
+        raise SystemExit(1)
     print(f"Testing against {len(test_paths)} run(s), window={args.window_seconds}s\n")
 
     print(f"{'Rate (Hz)':>10}{'dt (s)':>10}{'Windowed pos RMSE (m)':>24}")

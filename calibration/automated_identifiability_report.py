@@ -65,12 +65,16 @@ def identifiability_for_result(result_dir: str, data_dir: str, spec_path: str, w
     by_file = obj.get("current_by_file")
     dc = DatasetConfig(sampling_rate_hz=rate, torque_reference_offset_m=offset,
                        current_world_mps=None if not current or not any(current) else tuple(current),
-                       current_by_file=None if not by_file else tuple((f, tuple(c)) for f, c in by_file))
+                       current_by_file=None if not by_file else tuple((f, tuple(c)) for f, c in by_file),
+                       sensors=tuple(obj.get("sensors") or ("auto",)),
+                       use_accelerometer=bool(obj.get("use_accelerometer", False)))
     csv_paths, _ = discover_csv_files(data_dir)
     split = split_by_date(csv_paths, heldout_dates=metrics["dataset"]["heldout_dates"])
     train_runs = [load_run(fp, dc) for fp in split.train_files]
     loaded = load_vehicle_spec(spec_path)
     vehicle = loaded.vehicle
+    from run_calibration import sensor_runs_from_metrics
+    sensor_runs_from_metrics(train_runs, metrics, params, vehicle)   # the sensor suite's objective, as fitted (#96)
     scales = compute_zero_baseline_scales(train_runs) if obj.get("axis_scaling") == "zero_rms" else None
     held = dict(obj.get("held_parameters") or {})
     if obj.get("excluded_axes"):

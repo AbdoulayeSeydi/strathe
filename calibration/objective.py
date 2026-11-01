@@ -152,6 +152,14 @@ class DatasetConfig:
     # currents.csv written by estimate_current.py. A recording listed here uses its own current
     # instead of current_world_mps.
     current_by_file: Optional[tuple] = None
+    # Which sensors the calibration fits to (PROJECT_STATUS.md #96, measurements.py). ("auto",): body velocity at
+    # every sample -> the original velocity objective, unchanged; otherwise (no DVL, a DVL with gaps) every sensor in
+    # the recording. ("velocity",): the original objective only (refused without body velocity at every sample).
+    # ("all",): every sensor, the DVL among them. Or the sensors' names (dvl, a position or depth sensor's name, acc);
+    # the gyro is always used.
+    sensors: tuple = ("auto",)
+    use_accelerometer: bool = False     # the accelerometer as a channel (opt-in: #96 measures whether it helps)
+    lever_arms: Optional[dict] = None   # {sensor name: (x, y, z) m in the body, FRD} for the measurement model
 
     def current_for(self, filepath: str) -> Optional[tuple]:
         if self.current_by_file:
@@ -191,6 +199,12 @@ class RunData:
     date: Optional[str] = None      # best-effort from filename; None if unparseable
     current_body: Optional[np.ndarray] = None  # (N,3) known water current in body axes per sample
     orientation_quat: Optional[np.ndarray] = None  # (N,4) logged body->world quaternions (x, y, z, w)
+    # The sensor suite (PROJECT_STATUS.md #96, measurements.py). None: the original velocity objective (a DVL at every
+    # sample). Otherwise the sensors the calibration fits to; real_nu's u, v, w are then the DVL's readings (NaN where
+    # it didn't read, all NaN with no DVL in use), never anything else.
+    channels: Optional[list] = None
+    anchor_lin: Optional[np.ndarray] = None    # (N,3) each window's starting body velocity (state_smoother.py)
+    sensor_scales: Optional[dict] = None       # {channel-axis: still RMS on the training runs} (measurements.py)
     n_samples: int = field(init=False)
 
     def __post_init__(self):
@@ -210,27 +224,43 @@ def read_run_csv(filepath: str) -> pd.DataFrame:
     return df if a is None else df.iloc[a:b].reset_index(drop=True)
 
 
-def validate_run_dataframe(df: pd.DataFrame, filepath: str) -> None:
+LINEAR_COLUMNS = ["Bu", "Bv", "Bw"]
+SENSOR_PREFIXES = ("pos_", "depth_", "acc_")
+
+
+def uses_sensor_suite(df: pd.DataFrame, sensors: Sequence[str] = ("auto",)) -> bool:
+    """Whether a run is calibrated through its sensors (measurements.py) rather than the original velocity objective:
+    asked for, or there's no body velocity at every sample to fit to."""
+    sensors = tuple(sensors)
+    if sensors == ("velocity",):
+        return False
+    if sensors != ("auto",):
+        return True
+    have = set(LINEAR_COLUMNS) <= set(df.columns)
+    return not (have and not df[LINEAR_COLUMNS].isna().any().any())
+
+
+def validate_run_dataframe(df: pd.DataFrame, filepath: str, sensors: Sequence[str] = ("auto",)) -> None:
     """Step 2: fail loudly and specifically, before any conversion happens."""
     if df.empty:
         raise ValueError(f"Empty CSV, no rows: {filepath}")
 
-    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
-    sensors = [c for c in df.columns if c.startswith(("pos_", "depth_", "acc_"))]
-    if missing and set(missing) <= {"Bu", "Bv", "Bw"} and sensors:
-        what = sorted({"the accelerometer" if c.startswith("acc_") else c.rsplit("_", 1)[0] if c.startswith("pos_")
-                       else c for c in sensors})
-        raise ValueError(f"{filepath} has no body velocity (no DVL): its motion comes from {', '.join(what)}. This "
-                         f"calibration fits to body velocity; calibrating from position, depth and the IMU alone is "
-                         f"the sensor suite (PROJECT_STATUS.md #96), which this version doesn't calibrate with yet")
+    required = REQUIRED_COLUMNS if not uses_sensor_suite(df, sensors) else \
+        [c for c in REQUIRED_COLUMNS if c not in LINEAR_COLUMNS]
+    missing = [c for c in required if c not in df.columns]
+    if missing and set(missing) <= set(LINEAR_COLUMNS):
+        raise ValueError(f"{filepath} has no body velocity (no DVL): calibrate it from its sensors with "
+                         f"--sensors auto (the default) instead of --sensors velocity (SENSORS.md)")
     if missing:
         raise ValueError(f"{filepath} is missing required column(s): {missing}")
+    lin = [c for c in LINEAR_COLUMNS if c in df.columns]
+    if 0 < len(lin) < 3:
+        raise ValueError(f"{filepath} has {lin} of Bu, Bv, Bw: body velocity needs all three (or none)")
 
-    nan_cols = [c for c in REQUIRED_COLUMNS if df[c].isna().any()]
-    if nan_cols and set(nan_cols) <= {"Bu", "Bv", "Bw"}:
-        raise ValueError(f"{filepath} has gaps in its DVL readings (NaN in {nan_cols}: ingested with "
-                         f"body_velocity.linear_gaps: keep). This calibration needs a reading at every sample: ingest "
-                         f"with linear_gaps: interpolate (the default) for now (PROJECT_STATUS.md #96)")
+    nan_cols = [c for c in required if df[c].isna().any()]
+    if nan_cols and set(nan_cols) <= set(LINEAR_COLUMNS):
+        raise ValueError(f"{filepath} has gaps in its DVL readings (NaN in {nan_cols}): calibrate it from its "
+                         f"sensors with --sensors auto (the default) instead of --sensors velocity (SENSORS.md)")
     if nan_cols:
         raise ValueError(f"{filepath} contains NaN in required column(s): {nan_cols}")
 
@@ -262,7 +292,18 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
 
     forces_torques = shift_torque_reference(df[["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"]].to_numpy(),
                                             dataset_config.torque_reference_offset_m)
-    real_nu = df[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy()
+    channels = None
+    if uses_sensor_suite(df, dataset_config.sensors):
+        from measurements import channels_from_frame
+        channels = channels_from_frame(df, dataset_config.sensors, dataset_config.use_accelerometer,
+                                       dataset_config.lever_arms)
+        dvl = next((ch for ch in channels if ch.kind == "dvl"), None)
+        # u, v, w are the DVL's readings and nothing else: a velocity column the calibration was told not to use
+        # (hidden truth, a stress test's DVL) never reaches the run
+        lin = dvl.values if dvl is not None else np.full((len(df), 3), np.nan)
+        real_nu = np.hstack([lin, df[["Bp", "Bq", "Br"]].to_numpy(dtype=float)])
+    else:
+        real_nu = df[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy()
     roll, pitch = quaternion_to_roll_pitch(
         df["qx"].to_numpy(), df["qy"].to_numpy(),
         df["qz"].to_numpy(), df["qw"].to_numpy(),
@@ -285,12 +326,14 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         forces_torques=forces_torques,
         roll_pitch=roll_pitch,
         real_nu=real_nu,
-        nu0=real_nu[0].copy(),
+        nu0=np.nan_to_num(real_nu[0]).copy(),
         dt=dataset_config.dt,
         sample_rate_hz=dataset_config.sampling_rate_hz,
         date=date,
         current_body=current_body,
         orientation_quat=quats,
+        channels=channels,
+        anchor_lin=None if channels is None else np.nan_to_num(real_nu[:, :3]),
     )
 
 
@@ -323,7 +366,7 @@ def load_run(filepath: str, dataset_config: DatasetConfig) -> RunData:
     """Orchestrates read -> validate -> convert. Call once per run, before
     optimization starts (see Performance note in module docstring)."""
     df = read_run_csv(filepath)
-    validate_run_dataframe(df, filepath)
+    validate_run_dataframe(df, filepath, dataset_config.sensors)
     return convert_run_dataframe(df, filepath, dataset_config)
 
 
@@ -382,7 +425,12 @@ def _raw_residuals(
     horizon_samples: Optional[int] = None,
 ) -> np.ndarray:
     """(simulated - real) velocity residuals, with the thruster lag applied once to the whole recording (see
-    with_thruster_lag, and _lagged_raw_residuals for the rest)."""
+    with_thruster_lag, and _lagged_raw_residuals for the rest). A run calibrated through its sensors (run.channels):
+    the same view from measurements.velocity_view, u, v, w NaN where no DVL read."""
+    if run.channels is not None:
+        from measurements import velocity_view
+        return velocity_view(params, run, vehicle, horizon_samples if horizon_samples is not None
+                             else run.__dict__.get("_horizon"), simulate_fn)
     return _lagged_raw_residuals(params, with_thruster_lag(run, params), vehicle, simulate_fn, horizon_samples)
 
 
@@ -461,6 +509,10 @@ def compute_dof_scales(runs: Sequence[RunData], epsilon: float = 1e-3) -> np.nda
     held-out statistics into what's supposed to be an out-of-sample check.
     """
     all_nu = np.concatenate([run.real_nu for run in runs], axis=0)
+    if any(run.channels is not None for run in runs):   # u, v, w NaN where no DVL read
+        with np.errstate(invalid="ignore"):
+            scales = np.nan_to_num(np.nanstd(all_nu, axis=0), nan=1.0)
+        return np.maximum(scales, epsilon)
     scales = np.std(all_nu, axis=0)
     return np.maximum(scales, epsilon)  # avoid divide-by-zero on a near-constant DOF
 
@@ -470,6 +522,11 @@ def zero_baseline_rmse(runs: Sequence[RunData]) -> np.ndarray:
     baseline every per-axis accuracy number should be read against (see
     "Skill against predict zero" above). Averaged per run, like
     rmse_by_dof results usually are."""
+    if any(run.channels is not None for run in runs):   # u, v, w where a DVL read; NaN with no DVL
+        with np.errstate(invalid="ignore"):
+            per = np.array([np.sqrt(np.nanmean(run.real_nu ** 2, axis=0)) if np.isfinite(run.real_nu).any() else
+                            np.full(6, np.nan) for run in runs])
+            return np.array([np.nanmean(per[:, j]) if np.isfinite(per[:, j]).any() else np.nan for j in range(6)])
     return np.mean([np.sqrt(np.mean(run.real_nu ** 2, axis=0)) for run in runs], axis=0)
 
 
@@ -479,13 +536,17 @@ def compute_zero_baseline_scales(runs: Sequence[RunData], epsilon: float = 1e-3)
     trivial baseline for that axis rather than in its raw units. Pooled
     over all samples (not averaged per run) so short runs don't distort it."""
     all_nu = np.concatenate([run.real_nu for run in runs], axis=0)
+    if any(run.channels is not None for run in runs):   # sensor runs scale themselves (measurements.still_scales)
+        with np.errstate(invalid="ignore"):
+            return np.maximum(np.nan_to_num(np.sqrt(np.nanmean(all_nu ** 2, axis=0)), nan=1.0), epsilon)
     return np.maximum(np.sqrt(np.mean(all_nu ** 2, axis=0)), epsilon)
 
 
 def skill_vs_zero(model_rmse: np.ndarray, zero_rmse: np.ndarray) -> np.ndarray:
     """1 - RMSE_model / RMSE_zero per axis. 1 = perfect, 0 = no better than
-    predicting "no motion", negative = worse than that."""
-    return 1.0 - np.asarray(model_rmse, dtype=float) / np.asarray(zero_rmse, dtype=float)
+    predicting "no motion", negative = worse than that. NaN for an axis no sensor measured."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return 1.0 - np.asarray(model_rmse, dtype=float) / np.asarray(zero_rmse, dtype=float)
 
 
 def residuals_for_run(
@@ -525,6 +586,12 @@ def residuals_for_run(
     within a timestep block; time is the outer, slower-varying index.
     """
     params = _coerce_params(params)
+    if run.channels is not None:   # the sensor suite: every sensor against its own readings (measurements.py)
+        from measurements import residual_vector
+        zero = tuple(f"gyro.{a}" for a, s in zip("pqr", (dof_scales[3:] if dof_scales is not None else ()))
+                     if not np.isfinite(s))
+        return residual_vector(params, run, vehicle, horizon_samples if horizon_samples is not None
+                               else run.__dict__.get("_horizon"), simulate_fn, zero)
     try:
         residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
     except (FloatingPointError, ValueError) as e:
@@ -646,6 +713,14 @@ def rmse_for_run(
     joint_residuals, which may be weighted/normalized).
     simulate_fn: see _raw_residuals."""
     params = _coerce_params(params)
+    if run.channels is not None:
+        # dimensionless: each sensor axis's RMSE over its "still" RMSE, averaged in square (1 = no better than
+        # predicting no motion on every sensor), the sensor objective's own measure
+        from measurements import channel_rmse
+        rm = channel_rmse(params, run, vehicle, run.__dict__.get("_horizon"), simulate_fn)
+        vals = [(v / run.sensor_scales[k]) ** 2 for k, v in rm.items() if np.isfinite(v) and run.sensor_scales
+                and k in run.sensor_scales]
+        return float(np.sqrt(np.mean(vals))) if vals else float("nan")
     residuals = _raw_residuals(params, run, vehicle, simulate_fn)
     return float(np.sqrt(np.mean(residuals ** 2)))
 
@@ -660,6 +735,11 @@ def rmse_by_dof(
     simulate_fn: see _raw_residuals. horizon_samples: see residuals_for_run."""
     params = _coerce_params(params)
     residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
+    if run.channels is not None:   # u, v, w only where a DVL read: NaN with no DVL
+        with np.errstate(invalid="ignore"):
+            ok = np.isfinite(residuals)
+            n = ok.sum(axis=0)
+            return np.where(n > 0, np.sqrt(np.where(ok, residuals ** 2, 0.0).sum(axis=0) / np.maximum(n, 1)), np.nan)
     return np.sqrt(np.mean(residuals ** 2, axis=0))
 
 
@@ -669,7 +749,7 @@ def max_abs_residual(
 ) -> float:
     params = _coerce_params(params)
     residuals = _raw_residuals(params, run, vehicle, simulate_fn)
-    return float(np.max(np.abs(residuals)))
+    return float(np.nanmax(np.abs(residuals))) if run.channels is not None else float(np.max(np.abs(residuals)))
 
 
 def mean_run_rmse(

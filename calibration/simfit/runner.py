@@ -375,8 +375,16 @@ def run_export(adapter, a) -> int:
     os.makedirs(out, exist_ok=True)
     work = tempfile.mkdtemp(prefix=f"strathe_{adapter.sim}_export_")
     try:
-        train, held, split = core.load_runs(data, heldout)
+        train, held, split = core.load_runs(data, heldout, allow_no_dvl=True)
         adapter.dt = (train or held)[0].dt
+        no_dvl = any(r.channels is not None for r in train + held)
+        if no_dvl:
+            # no DVL (#96): the export works from the calibration; its held-out score is against logged velocity,
+            # which these logs don't have
+            print("These logs have no DVL reading at every sample: the export is written from your calibration, but "
+                  "it can't be scored against logged velocity here (scoring your simulator against the sensors "
+                  "themselves is part of fit-sim's sensor support, coming next; SENSORS.md).", flush=True)
+            held = []
         densities = _densities(a)
         info = adapter.info()
         rho = training_density(split.train_groups, densities, info.get("water_density") or 1025.0)
@@ -397,6 +405,9 @@ def run_export(adapter, a) -> int:
             _strathe_own(results, runs_wins, pfile, mass)
             results.update(core.baselines(runs_wins))
             core.plot(results, os.path.join(out, "drift.png"), f"Unseen recordings: original vs exported {adapter.label} model")
+        elif no_dvl:
+            notes.append("Not scored: these logs have no DVL reading at every sample, and the export's score is "
+                         "against logged velocity (SENSORS.md).")
         else:
             notes.append("Not scored: no held-out recordings (give --heldout-dates).")
         summary = {"simulator": adapter.sim, "calibration": os.path.abspath(pfile), "model": adapter.model_path,

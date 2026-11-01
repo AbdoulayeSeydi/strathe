@@ -44,6 +44,7 @@ from optimizer import initial_parameters, load_vehicle_spec, parameter_bounds
 
 AXES = [("u", "forward speed (surge)"), ("v", "sideways speed (sway)"), ("w", "up/down speed (heave)"),
         ("p", "roll rate"), ("q", "pitch rate"), ("r", "turning rate (yaw)")]
+AXES_INDEX = {k: i for i, (k, _) in enumerate(AXES)}
 LABELS = dict(AXES)
 
 PLAIN = {
@@ -140,15 +141,76 @@ def implausible_parameters(params, spec) -> list:
     return out
 
 
+def sensor_axis_numbers(metrics: Optional[dict]) -> dict:
+    """The sensor suite (#96): for each linear axis no DVL measured on the held-out recordings, the held-out RMSE of the
+    sensors that see it instead, as (default, calibrated, no-motion, what measured it, unit), or held: True when no
+    sensor saw it. Surge and sway share the horizontal position fixes (n, e), heave the depth (and vertical fixes)."""
+    ss = (metrics or {}).get("sensor_suite") or {}
+    fit = ss.get("fit") or {}
+    if not fit:
+        return {}
+    seen = ss.get("axes_seen_by") or {}
+    kinds = {}
+    for lab in ss.get("channels", []):
+        name, ax = lab.rsplit(".", 1)
+        kinds.setdefault(name, set()).add(ax)
+
+    def pooled(labels, key):
+        vals = [fit[key].get(lab) for lab in labels]
+        vals = [v for v in vals if v is not None and np.isfinite(v)]
+        return float(np.sqrt(np.mean(np.square(vals)))) if vals else float("nan")
+    out = {}
+    for axis in ("u", "v", "w"):
+        by = seen.get(axis) or []
+        if not by:
+            out[axis] = {"held": True}
+            continue
+        if axis in "uv":
+            labels = [f"{n}.{a}" for n, axs in kinds.items() if {"n", "e"} <= axs and n not in ("dvl", "gyro")
+                      for a in ("n", "e")]
+            what = "the position fixes (north/east, m)"
+        else:
+            labels = [f"{n}.d" for n, axs in kinds.items() if "d" in axs and n not in ("dvl", "gyro")]
+            what = "depth (m)"
+        out[axis] = {"held": False, "default": pooled(labels, "default_heldout"),
+                     "calibrated": pooled(labels, "calibrated_heldout"), "zero": pooled(labels, "still_heldout"),
+                     "from": what, "labels": labels}
+    return out
+
+
 def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zero_rmse=None,
-                  excluded_axes=(), measured_axes=()) -> list:
+                  excluded_axes=(), measured_axes=(), sensor_axes=None) -> list:
     """One verdict per axis. The main test is skill against predicting "no
     motion" (see module docstring); improvement over the default model is
-    reported too but can't earn a "Trust it" on its own."""
+    reported too but can't earn a "Trust it" on its own. sensor_axes (#96): the
+    linear axes judged by the sensors that see them instead of a DVL (sensor_axis_numbers)."""
     verdicts = []
+    sensor_axes = sensor_axes or {}
     for i, (k, label) in enumerate(AXES):
+        via = sensor_axes.get(k)
+        if via is not None and via.get("held"):
+            v, why = BAD, ("not calibrated: no sensor in your logs sees this motion (no DVL, and no position fixes or "
+                           "depth for it), so its values are your vehicle description's (SENSORS.md)")
+            verdicts.append({"axis": k, "label": label, "improvement_pct": float("nan"), "skill": None, "verdict": v,
+                             "why": why, "excluded": True, "measured": False, "default_rmse": float("nan"),
+                             "calibrated_rmse": float("nan"), "zero_rmse": None, "unit": "-", "from": None})
+            continue
+        if via is not None:   # judged by its own sensors, in their units
+            default_rmse = np.array(default_rmse, dtype=float)
+            calib_rmse = np.array(calib_rmse, dtype=float)
+            default_rmse[i], calib_rmse[i] = via["default"], via["calibrated"]
+            if zero_rmse is not None:
+                zero_rmse = np.array(zero_rmse, dtype=float)
+                zero_rmse[i] = via["zero"]
+        if not (np.isfinite(default_rmse[i]) and np.isfinite(calib_rmse[i])):
+            verdicts.append({"axis": k, "label": label, "improvement_pct": float("nan"), "skill": None,
+                             "verdict": CAUTION, "why": "it couldn't be checked: the held-out recordings have no "
+                             "reading of this motion", "excluded": False, "measured": False,
+                             "default_rmse": float("nan"), "calibrated_rmse": float("nan"), "zero_rmse": None,
+                             "unit": "-", "from": None})
+            continue
         imp = 100 * (default_rmse[i] - calib_rmse[i]) / default_rmse[i]
-        skill = None if zero_rmse is None else float(1 - calib_rmse[i] / zero_rmse[i])
+        skill = None if zero_rmse is None or not np.isfinite(zero_rmse[i]) else float(1 - calib_rmse[i] / zero_rmse[i])
         involved = [p for p in AXIS_PARAMS[k] if p in pinned_names or p in implausible_names]
         if k in excluded_axes:
             v, why = BAD, ("not calibrated: your logs don't explain this motion, so it was left out of the fit and "
@@ -191,10 +253,14 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
         else:
             v, why = GOOD, (f"it predicts this motion well on unseen sessions (skill {skill:+.2f}; 1 = perfect) and "
                             f"{imp:.0f}% more accurately than the default model")
+        if via is not None:
+            why += f" (measured by {via['from']}: there's no DVL)"
+        unit = ("m" if via is not None else "m/s") if k in "uvw" else "rad/s"
         verdicts.append({"axis": k, "label": label, "improvement_pct": imp, "skill": skill, "verdict": v, "why": why,
                          "excluded": k in excluded_axes, "measured": k in measured_axes,
                          "default_rmse": float(default_rmse[i]), "calibrated_rmse": float(calib_rmse[i]),
-                         "zero_rmse": None if zero_rmse is None else float(zero_rmse[i])})
+                         "zero_rmse": None if zero_rmse is None else float(zero_rmse[i]), "unit": unit,
+                         "from": None if via is None else via["from"]})
     return verdicts
 
 
@@ -409,9 +475,16 @@ def validation_section(v: dict) -> list:
          + f". The numbers are in `{VALIDATION_DIR}/validation.json`.\n"]
     plots = set(v.get("plots") or [])
     tr = v["trajectory"]
-    L.append("**Position.** How far the simulated vehicle ends up from where its logged velocity says it went, "
-             "starting each window from the real state. Median over the windows (90% of windows under the second "
-             "number):\n")
+    against = tr.get("against")
+    if against and not against.startswith("the logged velocity"):   # the sensor suite (#96): real fixes
+        L.append(f"**Position.** How far the simulated vehicle's displacement over each window is from what "
+                 f"{against} measured, starting each window from the calibration's estimate of the real state. This "
+                 f"is checked against an independent measurement, not against a velocity. Median over the windows "
+                 f"(90% of windows under the second number):\n")
+    else:
+        L.append("**Position.** How far the simulated vehicle ends up from where its logged velocity says it went, "
+                 "starting each window from the real state. Median over the windows (90% of windows under the second "
+                 "number):\n")
     L += ["| After | Calibrated | Default physics | Assuming it doesn't move |", "|---|---|---|---|"]
     for i, H in enumerate(tr["horizons_s"]):
         if H not in (10, 30, 60) or tr["calibrated"][i]["median"] is None:
@@ -489,9 +562,44 @@ def validation_section(v: dict) -> list:
     return L
 
 
+def sensors_section(metrics: Optional[dict]) -> list:
+    """What the vehicle's sensors could calibrate (#96): which sensors, each axis and what measured it, what was held
+    and why, and each sensor's own held-out skill."""
+    ss = (metrics or {}).get("sensor_suite")
+    if not ss:
+        return []
+    L = ["## What your sensors could calibrate\n"]
+    names = sorted({lab.rsplit(".", 1)[0] for lab in ss.get("channels", [])})
+    L.append("Calibrated from what the vehicle measured: " + ", ".join(names) + ". No velocity was assumed: each "
+             "sensor is compared with what the simulated vehicle would have read (SENSORS.md).\n")
+    for line in ss.get("plain", []):
+        L.append(f"- {line}")
+    L.append("- Roll, pitch, yaw: calibrated from the gyro.")
+    held = ss.get("held_unobserved") or {}
+    if held:
+        L.append("\nHeld at your vehicle description's values, because no sensor sees their motion: "
+                 + ", ".join(f"{PLAIN.get(k, k)} (`{k}`)" for k in held) + ".")
+    fit = (ss.get("fit") or {}).get("skill_heldout") or {}
+    if fit:
+        L.append("\nEach sensor's own held-out skill (1 - error / error of predicting no motion; 1 = perfect, 0 = no "
+                 "better than assuming the vehicle didn't move):\n")
+        L.append("| Sensor axis | Skill | Default physics' skill |")
+        L.append("|---|---|---|")
+        dflt = (ss.get("fit") or {}).get("skill_heldout_default") or {}
+        for lab, v in fit.items():
+            d = dflt.get(lab)
+            L.append(f"| {lab} | {'n/a' if v is None else f'{v:+.2f}'} | {'n/a' if d is None else f'{d:+.2f}'} |")
+    sm_ = ss.get("smoother") or {}
+    if sm_.get("fallbacks"):
+        L.append("\n> ⚠️ The starting-velocity estimate fell back to the DVL (or rest) on: "
+                 + "; ".join(sm_["fallbacks"]))
+    L.append("")
+    return L
+
+
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None):
+                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None, sensors=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if fit_note:     # the fit failed, or was retried from more starting points (#93)
         L.append(fit_note + "\n")
@@ -515,6 +623,8 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
     else:
         L.append("## Bottom line\n\nNo held-out accuracy numbers were available (re-run with --data-dir to compute "
                  "them). The checks below still apply.\n")
+    if sensors:
+        L += sensors
     if converged is False:
         L.append("> ⚠️ The optimizer stopped before fully converging. The result is usable but may improve with a "
                  "longer run.\n")
@@ -610,14 +720,19 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                  f"from three points and keeps the lowest training cost.\n")
     if verdicts:
         L.append("## Technical appendix\n")
-        L.append("Held-out RMSE per axis (m/s or rad/s): predicting no motion, default physics, calibrated physics. "
+        L.append("Held-out RMSE per axis (m/s or rad/s; with no DVL, the error of the sensors that measured it, in "
+                 "their units): predicting no motion, default physics, calibrated physics. "
                  "Skill = 1 - calibrated / no-motion.\n")
-        L.append("| Axis | No motion | Default | Calibrated | Improvement vs default | Skill |")
-        L.append("|---|---|---|---|---|---|")
+        L.append("| Axis | Unit | No motion | Default | Calibrated | Improvement vs default | Skill |")
+        L.append("|---|---|---|---|---|---|---|")
         for v in verdicts:
+            if not np.isfinite(v["calibrated_rmse"]):
+                L.append(f"| {v['axis']} | - | n/a | n/a | n/a | n/a | n/a |")
+                continue
             z = "n/a" if v["zero_rmse"] is None else f"{v['zero_rmse']:.4f}"
             sk = "n/a" if v["skill"] is None else f"{v['skill']:+.2f}"
-            L.append(f"| {v['axis']} | {z} | {v['default_rmse']:.4f} | {v['calibrated_rmse']:.4f} | "
+            unit = v.get("unit") or ("m/s" if v["axis"] in "uvw" else "rad/s")
+            L.append(f"| {v['axis']} | {unit} | {z} | {v['default_rmse']:.4f} | {v['calibrated_rmse']:.4f} | "
                      f"{v['improvement_pct']:+.1f}% | {sk} |")
         if ident:
             L.append(f"\nIdentifiability: Jacobian condition number {ident.get('condition_number', float('nan')):.3g} "
@@ -647,15 +762,20 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
     measured_axes = tuple(ax for ax, ps in (("p", ("Kp", "Kpp")), ("q", ("Mq", "Mqq"))) if fd_held & set(ps))
     names_flagged = {p["name"] for p in pinned}, {p["name"] for p in implausible}
     excluded = tuple((metrics or {}).get("objective", {}).get("excluded_axes", ()))
+    sensor_axes = {k: v for k, v in sensor_axis_numbers(metrics).items()
+                   if axes is None or not np.isfinite(axes[1][AXES_INDEX[k]])}
     verdicts = (axis_verdicts(axes[0], axes[1], *names_flagged, zero_rmse=axes[2], excluded_axes=excluded,
-                              measured_axes=measured_axes)
+                              measured_axes=measured_axes, sensor_axes=sensor_axes)
                 if axes else [])
     gen_gap = None
     if metrics and "rmse" in metrics and "calibrated_train" in metrics["rmse"]:
         # median of the per-axis ratios: one overall error mixes m/s with rad/s and lets one axis dominate
         pd_ = metrics.get("per_dof") or {}
         if pd_.get("calibrated_heldout") and pd_.get("calibrated_train"):
-            gen_gap = float(np.median(np.array(pd_["calibrated_heldout"]) / np.array(pd_["calibrated_train"])))
+            with np.errstate(invalid="ignore", divide="ignore"):
+                ratios = np.array(pd_["calibrated_heldout"], dtype=float) / np.array(pd_["calibrated_train"], dtype=float)
+            ratios = ratios[np.isfinite(ratios)]   # u, v, w unmeasured with no DVL (#96)
+            gen_gap = float(np.median(ratios)) if len(ratios) else None
         else:
             gen_gap = metrics["rmse"]["calibrated_heldout"] / metrics["rmse"]["calibrated_train"]
     converged = None
@@ -669,7 +789,8 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  diverged_note(metrics), load_validation(result_dir), vehicle_note,
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
                  whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")),
-                 ((metrics or {}).get("dataset") or {}).get("split_warning"), fit_note(metrics))
+                 ((metrics or {}).get("dataset") or {}).get("split_warning"), fit_note(metrics),
+                 sensors_section(metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 

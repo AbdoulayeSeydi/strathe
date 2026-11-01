@@ -266,7 +266,7 @@ def finish_from_checkpoint(checkpoint: str, knobs, fingerprint: dict = None) -> 
 # Recordings, table and plot
 # ---------------------------------------------------------------------------------------------------------------------
 
-def load_runs(data_dir: str, heldout_dates: Optional[list]):
+def load_runs(data_dir: str, heldout_dates: Optional[list], allow_no_dvl: bool = False):
     from data_split import discover_csv_files, split_by_date
     from objective import DatasetConfig, load_run
     files = discover_csv_files(data_dir)[0]
@@ -279,7 +279,16 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
     if os.path.exists(rp):
         rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
     cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
-    return [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files], split
+    train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
+    no_dvl = [os.path.basename(r.filepath) for r in train + held if r.channels is not None]
+    if no_dvl and not allow_no_dvl:
+        # the sensor suite (#96) calibrates Strathe's own physics from a vehicle's sensors; calibrating your
+        # simulator's model from them is its next part. Until then: said, not scored against velocities that aren't there
+        raise SimFitError(f"{len(no_dvl)} recording(s) have no DVL reading at every sample ({no_dvl[0]}...): fit-sim "
+                         f"replays your simulator against logged body velocity. Calibrate from your sensors with "
+                         f"`strathe calibrate` (SENSORS.md), then put that calibration into your simulator with "
+                         f"`strathe export-sim`")
+    return train, held, split
 
 
 def table(results: dict, horizons=HORIZONS_S) -> list:

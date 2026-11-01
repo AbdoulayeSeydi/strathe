@@ -821,6 +821,13 @@ estimate each recording's current from the logs (alternates with the fit; about 
 current field above empty.</label>
 <label for=cal-rounds>Current estimation rounds (with the box above; default 2)</label>
 <input type=text id=cal-rounds name=current_rounds value="">
+<label for=cal-sensors>Which of your vehicle's sensors to calibrate from (optional; default: automatic, the DVL when it read
+at every sample, else every sensor in the logs: depth, position fixes, GPS, a DVL with gaps). Or names separated by
+spaces: <code>dvl</code>, a position or depth sensor's name (from the conversion), <code>acc</code>; <code>all</code>
+for every sensor with the DVL. See calibration/SENSORS.md</label>
+<input type=text id=cal-sensors name=sensors value="">
+<label class=inline><input type=checkbox id=cal-acc name=use_accelerometer value=1 aria-label="Also fit to the accelerometer"> Also fit to the
+accelerometer (experimental: SENSORS.md says what it adds)</label>
 <label for=cal-nfev>Optimizer budget, evaluations (default 100; more = slower but may fit better)</label>
 <input type=text id=cal-nfev name=max_nfev value="100">
 <label for=cal-workers>CPU cores to use (optional; default all but one)</label>
@@ -1322,6 +1329,15 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += ["--max-nfev", str(int(_number(nfev, "Optimizer budget", 1, 100000)))]
             if form.get("exclude_rp"):
                 args += ["--exclude-axes", "p", "q"]
+            sensors = form.get("sensors", "").replace(",", " ").split()
+            if sensors:   # the sensor suite (#96): names are the conversion's, so only their shape is checked here
+                bad = [x for x in sensors if not re.fullmatch(r"[a-z][a-z0-9_]*", x)]
+                if bad:
+                    raise ValueError(f"Sensors: {bad} aren't sensor names (lowercase letters, digits, _): auto, all, "
+                                     f"velocity, dvl, acc, or a position or depth sensor's name from the conversion.")
+                args += ["--sensors", *sensors]
+            if form.get("use_accelerometer"):
+                args += ["--use-accelerometer"]
             if form.get("workers", "").strip():
                 args += ["--workers", str(int(_number(form["workers"], "CPU cores", 1, 256)))]
             if form.get("seed", "").strip():

@@ -186,8 +186,10 @@ def finalize_argv(out: str, data: str, spec: str, heldout_dates: Optional[list],
 
 
 def estimate_current_argv(data: str, params: Optional[str], spec: str, workers: int, rate: Optional[float],
-                          out_csv: Optional[str] = None) -> list:
+                          out_csv: Optional[str] = None, sensors: Optional[list] = None) -> list:
     argv = ["estimate_current.py", "--data-dir", _abs(data), "--spec", spec, "--workers", str(workers)]
+    if sensors and list(sensors) != ["auto"]:   # the same sensors as the fit (#96)
+        argv += ["--sensors", *sensors]
     if params:
         argv += ["--params", _abs(params)]
     if rate is not None:
@@ -629,6 +631,18 @@ def cmd_calibrate(args, runner=None) -> int:
             extra += ["--free-decay", _abs(args.free_decay)]
         if args.current_world_mps:
             extra += ["--current-world-mps", *map(str, args.current_world_mps)]
+        # the sensor suite (#96, SENSORS.md): the same sensors for the fit and for finishing it from a checkpoint
+        sensors = getattr(args, "sensors", None)
+        if sensors and list(sensors) != ["auto"]:
+            extra += ["--sensors", *sensors]
+        if getattr(args, "use_accelerometer", False):
+            extra += ["--use-accelerometer"]
+        if getattr(args, "smoother_accel_sigma", None) is not None:
+            extra += ["--smoother-accel-sigma", str(args.smoother_accel_sigma)]
+        if getattr(args, "anchor_rounds", None) is not None:
+            extra += ["--anchor-rounds", str(args.anchor_rounds)]
+        if getattr(args, "prediction_horizon_s", None) is not None:
+            extra += ["--prediction-horizon-s", str(args.prediction_horizon_s)]
         if rate is None:
             print("ℹ️  No sampling rate given and no ingest_report.json in the data folder: assuming 10 Hz "
                   "(pass --sampling-rate-hz if your logs are at another rate).")
@@ -687,7 +701,8 @@ def cmd_calibrate(args, runner=None) -> int:
             steps.append((f"Current round {k} of {rounds}: estimating each recording's current",
                           (lambda d=dest: estimate_current_argv(data, os.path.join(d, "calibrated_parameters.yaml"),
                                                                 spec, args.workers, settings()[0],
-                                                                os.path.join(d, "currents.csv"))),
+                                                                os.path.join(d, "currents.csv"),
+                                                                getattr(args, "sensors", None))),
                           "The current estimate failed; the message above says why.", True))
             prev = os.path.join(dest, "checkpoint.yaml")
         final_currents = os.path.join(out, f"current_round{rounds}", "currents.csv")
@@ -1491,6 +1506,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="open water, current unknown: estimate each recording's (constant) current from the logs, "
                         "alternating with the fit (calibrate, estimate, recalibrate). About 2-3x the time")
     c.add_argument("--current-rounds", type=int, default=2, help="with --estimate-current: rounds (default 2)")
+    c.add_argument("--sensors", nargs="+", default=["auto"],
+                   help="which of your vehicle's sensors to calibrate from (SENSORS.md). auto (default): the DVL when "
+                        "it read at every sample, else every sensor in the logs (depth, position fixes, GPS, a DVL with "
+                        "gaps); all: every sensor with the DVL; velocity: the DVL only; or names (dvl, a position or "
+                        "depth sensor's name, acc)")
+    c.add_argument("--use-accelerometer", action="store_true",
+                   help="also fit to the accelerometer (experimental, SENSORS.md)")
+    c.add_argument("--anchor-rounds", type=int, default=None,
+                   help="with no DVL: refit this many times in all with better starting velocities (default 2)")
+    c.add_argument("--smoother-accel-sigma", type=float, default=None, help=argparse.SUPPRESS)
+    c.add_argument("--prediction-horizon-s", type=float, default=None,
+                   help="score prediction windows of this length (default: whole recordings with a DVL, 10 s from "
+                        "the sensors)")
     c.add_argument("--exclude-axes", nargs="+", choices=["p", "q"],
                    help="advanced: leave roll (p) / pitch (q) out of the fit (see run_calibration.py --help)")
     c.add_argument("--drag", choices=["free", "prior"], default="free",

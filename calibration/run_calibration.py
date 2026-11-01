@@ -106,6 +106,13 @@ class PipelineConfig:
     free_decay: Optional[str] = None  # free_decay.yaml (free_decay.py): roll/pitch damping and righting arm
         # measured in free-decay tank tests, held fixed instead of fitted from the mission logs
     checkpoint_path: Optional[str] = None  # where a retried fit's record is noted, for a not-converged finish (#93)
+    # the sensor suite (PROJECT_STATUS.md #96, SENSORS.md): which sensors to fit to (objective.DatasetConfig.sensors),
+    # the accelerometer as a channel, how many times to re-estimate the windows' starting velocities with the fitted
+    # values and refit, and the state smoother's process noise (None: chosen from the data)
+    sensors: tuple = ("auto",)
+    use_accelerometer: bool = False
+    anchor_rounds: int = 2
+    smoother_accel_sigma: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +157,8 @@ class OptimizerSummary:
 
 AUTO_RESTART_GAIN = 0.9   # a fit must end below this fraction of the starting description's training error
 AUTO_RESTART_ROUGHNESS = 1e-9   # ...and where the training cost is smooth (optimizer.end_roughness)
+AUTO_RESTART_EXACT = 1e-3   # a fit whose training error is below this fraction of the start's explains the data all
+    # but exactly (synthetic data, #96): at a cost near 0 the roughness measure is rounding noise, not a chaotic replay
 AUTO_RESTARTS = 3         # up to this many more starting points when it doesn't
 
 
@@ -185,6 +194,8 @@ def fit_with_retry(loaded_spec, train_runs, cc: CalibrationConfig, default_param
             first_rmse = float("inf")
     start_rmse = mean_run_rmse(default_params, train_runs, vehicle)
     rough = first_restarts[0].roughness or 0.0
+    if first_rmse < AUTO_RESTART_EXACT * start_rmse:
+        rough = 0.0
     no_better = not first_rmse < AUTO_RESTART_GAIN * start_rmse
     if not no_better and not rough > AUTO_RESTART_ROUGHNESS:
         if failed is not None:
@@ -354,6 +365,7 @@ class CalibrationReport:
     objective_free_decay: Optional[dict] = None
     objective_sampling_rate_hz: float = 10.0
     objective_current_by_file: Optional[tuple] = None
+    sensor_suite: Optional[dict] = None   # what the sensors could calibrate, per sensor axis's fit (#96)
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +398,157 @@ def _load_runs_parallel(filepaths: list, dataset_config: DatasetConfig, workers:
 
 
 def _average_rmse_by_dof(params, runs: list, vehicle, horizon_samples: Optional[int] = None) -> np.ndarray:
-    return np.mean([rmse_by_dof(params, run, vehicle, horizon_samples=horizon_samples) for run in runs], axis=0)
+    rows = [rmse_by_dof(params, run, vehicle, horizon_samples=horizon_samples) for run in runs]
+    if any(run.channels is not None for run in runs):   # u, v, w NaN where no DVL read (#96)
+        a = np.array(rows)
+        return np.array([np.nanmean(a[:, j]) if np.isfinite(a[:, j]).any() else np.nan for j in range(6)])
+    return np.mean(rows, axis=0)
+
+
+# The sensor suite's default prediction window (PROJECT_STATUS.md #96): position and depth need time to move before a
+# window says anything about drag, and a longer window makes its starting velocity matter less. --prediction-horizon-s
+# overrides it. Chosen by the #96 sweep (stress/run_96.py).
+SENSOR_HORIZON_S = 10.0
+
+
+def sensor_noise_from_ingest(data_dir: str) -> dict:
+    """{sensor name: reading std} from the ingest report's own measurement, for sensors whose readings weren't smoothed
+    by the logging system (a smoothed sensor's measured noise is too low to trust: state_smoother's defaults)."""
+    path = Path(data_dir) / "ingest_report.json"
+    if not path.exists():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            sens = (json.load(f).get("sensors") or {}).get("sensors") or {}
+    except (OSError, ValueError):
+        return {}
+    return {name: float(max(ch["noise_std"])) for name, ch in sens.items()
+            if ch.get("noise_std") and not ch.get("filtered")}
+
+
+def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs: list, default_params, vehicle,
+                       loaded_spec) -> dict:
+    """Everything the sensor suite needs before the fit (PROJECT_STATUS.md #96): the prediction window, which linear
+    axes the sensors see (the rest held at the description's values), the smoother's process noise, each window's
+    starting velocity, and each sensor axis's scale. Returns what to report."""
+    import measurements as ms
+    import state_smoother as sm
+    cc = config.calibration_config
+    if cc.horizon_samples is None:
+        cc.horizon_samples = max(2, int(round(SENSOR_HORIZON_S * config.sampling_rate_hz)))
+        logger.info("Sensor suite: %.0f s prediction windows (--prediction-horizon-s to change)", SENSOR_HORIZON_S)
+    H = cc.horizon_samples
+    for r in train_runs + heldout_runs:
+        r._horizon = H
+    labels = list(dict.fromkeys(lab for r in train_runs for lab in ms.channel_labels(r.channels)))
+    seen = ms.axes_seen(train_runs, H)
+    names = list(default_params.param_names)
+    lb, ub = parameter_bounds(loaded_spec)
+    already = set((cc.fixed_params or {}))
+    held = {k: v for k, v in ms.unobservable_holds(seen, default_params).items()
+            if k in names and k not in already and lb[names.index(k)] < ub[names.index(k)]}
+    if held:
+        cc.fixed_params = {**(cc.fixed_params or {}), **held}
+    for line in ms.seen_words(seen):
+        logger.info("Sensor suite: %s", line)
+    noise = sensor_noise_from_ingest(config.data_dir)
+    if config.smoother_accel_sigma is not None:
+        sigma, scores = float(config.smoother_accel_sigma), None
+    else:
+        sigma, scores = sm.choose_accel_sigma(train_runs, default_params, vehicle, noise)
+    logger.info("Sensor suite: state smoother's unexplained acceleration %.3g m/s^2%s", sigma,
+                "" if scores is None else " (the most likely of %s)" % sorted(scores))
+    smoothing = sm.set_anchors(train_runs + heldout_runs, default_params, vehicle, sigma, noise)
+    for f in smoothing["fallbacks"]:
+        logger.warning("Sensor suite: smoother fell back to the DVL (or rest) on %s", f)
+    scales = ms.still_scales(train_runs, H)
+    only_heldout = {}
+    for r in heldout_runs:
+        for lab in ms.channel_labels(r.channels):
+            if lab not in scales:
+                only_heldout.setdefault(lab, []).append(r)
+    for lab, rs in only_heldout.items():   # a sensor only in held-out recordings: scored against its own still RMS
+        scales[lab] = ms.still_scales(rs, H)[lab]
+    for r in train_runs + heldout_runs:
+        r.sensor_scales = scales
+    return {"sensors_asked": list(config.sensors), "use_accelerometer": bool(config.use_accelerometer),
+            "channels": labels, "horizon_s": H / config.sampling_rate_hz, "axes_seen_by": seen,
+            "plain": ms.seen_words(seen), "held_unobserved": held, "noise_from_ingest": noise,
+            "smoother": {"accel_sigma_mps2": sigma, "loglik_by_sigma": scores, **smoothing},
+            "scales": scales, "only_in_heldout": sorted(only_heldout), "rounds": []}
+
+
+def sensor_runs_from_metrics(runs: list, metrics: dict, params, vehicle) -> Optional[dict]:
+    """A finished calibration's sensor-suite setup on reloaded runs (identifiability, validation, #96): the fit's
+    prediction windows and sensor scales, as metrics.json recorded them, and each window's start from the smoother with
+    `params` and the fit's process noise. None for runs fitted to velocity."""
+    if not runs or runs[0].channels is None:
+        return None
+    import measurements as ms
+    import state_smoother as sm
+    ss = metrics.get("sensor_suite") or {}
+    H = (metrics.get("objective") or {}).get("prediction_horizon_samples")
+    for r in runs:
+        r._horizon = H
+    scales = dict(ss.get("scales") or {})
+    missing = [lab for r in runs for lab in ms.channel_labels(r.channels) if lab not in scales]
+    if missing:   # a sensor the fit never scaled (only in these recordings): its own still RMS
+        scales.update({k: v for k, v in ms.still_scales(runs, H).items() if k in missing})
+    for r in runs:
+        r.sensor_scales = scales
+    sigma = float((ss.get("smoother") or {}).get("accel_sigma_mps2") or 0.1)
+    return sm.set_anchors(runs, params, vehicle, sigma, ss.get("noise_from_ingest") or {})
+
+
+def sensor_anchor_rounds(config: "PipelineConfig", loaded_spec, train_runs: list, heldout_runs: list, cal_result,
+                         vehicle, info: dict):
+    """Re-estimate every window's starting velocity with the fitted values, refit from there, up to
+    config.anchor_rounds in all (#96): better physics gives better starting velocities. Stops early once the values
+    move by under 0.1% of their ranges."""
+    import state_smoother as sm
+    from dataclasses import replace as _replace
+    lb, ub = parameter_bounds(loaded_spec)
+    width = np.where(ub > lb, ub - lb, 1.0)
+    sigma = info["smoother"]["accel_sigma_mps2"]
+    for rnd in range(2, max(1, config.anchor_rounds) + 1):
+        prev = cal_result.parameters
+        sm_info = sm.set_anchors(train_runs + heldout_runs, prev, vehicle, sigma, info["noise_from_ingest"])
+        cc = _replace(config.calibration_config, x0_override=prev.to_vector(), n_restarts=1)
+        cal_result = calibrate(loaded_spec, train_runs, cc)
+        moved = float(np.max(np.abs(cal_result.parameters.to_vector() - prev.to_vector()) / width))
+        info["rounds"].append({"round": rnd, "cost": float(cal_result.cost), "converged": bool(cal_result.converged),
+                               "largest_move_of_range": moved, "smoother_fallbacks": sm_info["fallbacks"],
+                               "smoother_nis_mean": sm_info["nis_mean"]})
+        logger.info("Sensor suite round %d: re-anchored with the fitted values and refit, cost %.6g (largest move "
+                    "%.2g of a parameter's range)", rnd, cal_result.cost, moved)
+        if moved < 1e-3:
+            break
+    return cal_result
+
+
+def sensor_fit_summary(default_params, cal, train_runs: list, heldout_runs: list, vehicle) -> dict:
+    """Per sensor axis: the default and calibrated values' RMSE on training and held-out recordings, what predicting
+    no motion gets wrong on the held-out ones, and the held-out skill (1 - RMSE / still RMSE)."""
+    import measurements as ms
+
+    def avg(params, runs):
+        rows = []
+        for r in runs:
+            try:
+                rows.append(ms.channel_rmse(params, r, vehicle, r._horizon))
+            except FloatingPointError:
+                pass
+        return ms.summarise(rows)
+    out = {"default_train": avg(default_params, train_runs), "default_heldout": avg(default_params, heldout_runs),
+           "calibrated_train": avg(cal, train_runs), "calibrated_heldout": avg(cal, heldout_runs),
+           "still_heldout": ms.summarise([ms.still_rmse(r, r._horizon) for r in heldout_runs])}
+    out["skill_heldout"] = {k: (1.0 - out["calibrated_heldout"][k] / v if np.isfinite(v) and v > 0 and
+                                np.isfinite(out["calibrated_heldout"].get(k, np.nan)) else float("nan"))
+                            for k, v in out["still_heldout"].items()}
+    out["skill_heldout_default"] = {k: (1.0 - out["default_heldout"][k] / v if np.isfinite(v) and v > 0 and
+                                        np.isfinite(out["default_heldout"].get(k, np.nan)) else float("nan"))
+                                    for k, v in out["still_heldout"].items()}
+    return out
 
 
 def spec_torque_reference_offset(loaded_spec) -> tuple:
@@ -444,6 +606,21 @@ def excluded_axis_setup(exclude_axes, dof_scales, default_params) -> tuple:
 SKILL_EVAL_HORIZON_S = 3.0
 
 
+def _jsonable(x):
+    """Numbers and containers only, NaN as None: metrics.json stays strict JSON with a sensor suite in it."""
+    if isinstance(x, dict):
+        return {str(k): _jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_jsonable(v) for v in x]
+    if isinstance(x, (np.floating, float)):
+        return None if not np.isfinite(x) else float(x)
+    if isinstance(x, (np.integer,)):
+        return int(x)
+    if isinstance(x, np.ndarray):
+        return _jsonable(x.tolist())
+    return x
+
+
 def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -460,6 +637,10 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "vehicle_mass_kg": report.reproducibility.vehicle_mass_kg,
             "seed": report.reproducibility.seed,
             "parameters": params_dict,
+            # the sensors it was calibrated from, and what they couldn't see (#96); absent for a velocity fit
+            **({"sensors": {"channels": report.sensor_suite["channels"],
+                            "held_unobserved": report.sensor_suite["held_unobserved"]}}
+               if report.sensor_suite else {}),
         }, f, sort_keys=False)
 
     metrics = {
@@ -513,6 +694,13 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
         "reproducibility": asdict(report.reproducibility),
         "success": report.success,
     }
+    if report.sensor_suite is not None:
+        metrics["sensor_suite"] = _jsonable(report.sensor_suite)
+        # what validation, finishing a checkpoint and the report reload the logs with
+        metrics["objective"]["sensors"] = report.sensor_suite["sensors_asked"]
+        metrics["objective"]["use_accelerometer"] = report.sensor_suite["use_accelerometer"]
+        metrics["skill_vs_zero"]["meaning"] += ("; u, v, w are NaN where no DVL read: see sensor_suite.fit for each "
+                                                "sensor's own skill")
     with open(out / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
@@ -559,7 +747,8 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                                    current_world_mps=(None if config.current_world_mps is None
                                                       or not any(config.current_world_mps)
                                                       else tuple(config.current_world_mps)),
-                                   current_by_file=config.current_by_file)
+                                   current_by_file=config.current_by_file,
+                                   sensors=tuple(config.sensors), use_accelerometer=config.use_accelerometer)
     if config.current_by_file:
         logger.info("Each recording's own water current, for %d recording(s) (from a currents file)",
                     len(config.current_by_file))
@@ -581,6 +770,16 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         raise RuntimeError("No training runs loaded — cannot calibrate against an empty training set.")
     if not heldout_runs:
         raise RuntimeError("No held-out runs loaded — cannot validate against an empty held-out set.")
+    modes = {r.channels is not None for r in train_runs + heldout_runs}
+    if modes == {True, False}:
+        # some recordings have a DVL reading at every sample, others don't: one objective for all, the sensors'
+        logger.info("Sensor suite: some recordings have no DVL reading at every sample; every recording is fitted "
+                    "through its sensors")
+        from dataclasses import replace as _dc_replace
+        dataset_config = _dc_replace(dataset_config, sensors=("all",))
+        train_runs = _load_runs_parallel(split.train_files, dataset_config, config.workers)
+        heldout_runs = _load_runs_parallel(split.heldout_files, dataset_config, config.workers)
+    sensor_mode = train_runs[0].channels is not None
 
     total_samples = sum(r.n_samples for r in train_runs + heldout_runs)
     logger.info("Loaded %d train run(s), %d heldout run(s), %d total samples (%.2fs)",
@@ -635,6 +834,12 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         for n in notes:
             logger.info("Drag reference: %s", n)
         logger.info("Drag: %s, toward %s", config.drag, dr.REFERENCES[config.drag_reference]["source"])
+    sensor_info = None
+    if sensor_mode:
+        if config.axis_scaling != "none":
+            logger.info("Sensor suite: --axis-scaling doesn't apply (each sensor axis is scaled by what predicting no "
+                        "motion gets wrong)")
+        sensor_info = sensor_suite_setup(config, train_runs, heldout_runs, default_params, vehicle, loaded_spec)
     if config.calibration_config.horizon_samples is not None:
         logger.info("Objective: re-anchored %d-sample prediction windows (%.1f s)",
                     config.calibration_config.horizon_samples,
@@ -650,6 +855,9 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
     else:
         cal_result, auto_restart = fit_with_retry(loaded_spec, train_runs, config.calibration_config,
                                                   default_params, vehicle, config.checkpoint_path)
+    if sensor_info is not None and config.anchor_rounds > 1:
+        cal_result = sensor_anchor_rounds(config, loaded_spec, train_runs, heldout_runs, cal_result, vehicle,
+                                          sensor_info)
     calibration_s = time.monotonic() - t_cal
     logger.info("Calibration converged: %s (%d/%d restarts), cost=%.6g (%.2fs)",
                 cal_result.converged, cal_result.stability["n_converged"],
@@ -683,6 +891,8 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         logger.warning("With the calibrated values the simulation diverges on %d of %d held-out recordings "
                        "(whole-run replay) and %d (%.0f s windows); their skill is over the rest",
                        diverged_full, len(heldout_runs), diverged_short, SKILL_EVAL_HORIZON_S)
+    if sensor_info is not None:
+        sensor_info["fit"] = sensor_fit_summary(default_params, cal, train_runs, heldout_runs, vehicle)
     evaluation_s = time.monotonic() - t_eval
     total_s = time.monotonic() - t_start
 
@@ -765,6 +975,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         objective_free_decay=free_decay_info,
         objective_sampling_rate_hz=config.sampling_rate_hz,
         objective_current_by_file=config.current_by_file,
+        sensor_suite=sensor_info,
     )
 
     _save_artifacts(report, config.output_dir)
@@ -825,9 +1036,24 @@ class ConsoleReporter:
         for i, lbl in enumerate(DOF_LABELS):
             print(f"  {lbl}: {r.per_dof.calibrated_train[i]:.4f} / {r.per_dof.calibrated_heldout[i]:.4f}")
 
+        if r.sensor_suite is not None:
+            ss = r.sensor_suite
+            print(f"\nSensor suite (calibrated from {', '.join(sorted({l.rsplit('.', 1)[0] for l in ss['channels']}))};"
+                  f" {ss['horizon_s']:g} s windows):")
+            for line in ss["plain"]:
+                print(f"  {line}")
+            if ss["held_unobserved"]:
+                print(f"  Held at the description's values (no sensor sees them): {', '.join(ss['held_unobserved'])}")
+            fit = ss.get("fit") or {}
+            print(f"  Held-out skill per sensor axis (calibrated / default physics):")
+            for lab, v in (fit.get("skill_heldout") or {}).items():
+                d = (fit.get("skill_heldout_default") or {}).get(lab, float("nan"))
+                print(f"    {lab:<14}{v:>+8.2f} / {d:>+6.2f}")
+            print("  u, v, w below are the DVL's (nan: no DVL reading)")
         if r.per_dof.skill_heldout is not None:
             print(f"\nHeld-out skill vs predicting no motion (1 = perfect, <= 0 = no better than zero):")
-            print(f"  {'':<6}{'whole run':>11}{f'{SKILL_EVAL_HORIZON_S:g} s windows':>14}")
+            whole = "whole run" if r.sensor_suite is None else f"{r.sensor_suite['horizon_s']:g} s windows"
+            print(f"  {'':<6}{whole:>11}{f'{SKILL_EVAL_HORIZON_S:g} s windows':>14}")
             for i, lbl in enumerate(DOF_LABELS):
                 print(f"  {lbl:<6}{r.per_dof.skill_heldout[i]:>+11.2f}{r.per_dof.skill_heldout_short[i]:>+14.2f}")
 
@@ -898,6 +1124,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--free-decay", default=None,
                         help="free_decay.yaml from free_decay.py (`strathe free-decay`): hold the roll/pitch damping "
                              "and righting arm measured in free-decay tank tests instead of fitting them")
+    parser.add_argument("--sensors", nargs="+", default=["auto"],
+                        help="which sensors to fit to (SENSORS.md, PROJECT_STATUS.md #96). auto (default): the "
+                             "original velocity fit when the logs have a DVL reading at every sample, otherwise every "
+                             "sensor in them (depth, position fixes, a DVL with gaps); velocity: the original fit "
+                             "only; all: every sensor, the DVL among them; or names: dvl, a position or depth sensor's "
+                             "name, acc. The gyro is always used")
+    parser.add_argument("--use-accelerometer", action="store_true",
+                        help="fit to the accelerometer too (sensor suite; experimental: #96 measures whether it helps)")
+    parser.add_argument("--anchor-rounds", type=int, default=2,
+                        help="sensor suite: re-estimate each window's starting velocity with the fitted values and "
+                             "refit, up to this many rounds in all (default 2)")
+    parser.add_argument("--smoother-accel-sigma", type=float, default=None,
+                        help="sensor suite: the state smoother's unexplained acceleration, m/s^2 (default: the most "
+                             "likely value for the data)")
     parser.add_argument("--prediction-horizon-s", type=float, default=None,
                         help="score re-anchored prediction windows of this length instead of replaying "
                              "whole runs open-loop; stops unexplained motion (e.g. roll/pitch) from "
@@ -1102,6 +1342,8 @@ def main() -> None:
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
         current_by_file=None if not args.currents_file else read_currents_file(args.currents_file),
         checkpoint_path=None if args.parallel else checkpoint_path,
+        sensors=tuple(args.sensors), use_accelerometer=args.use_accelerometer, anchor_rounds=args.anchor_rounds,
+        smoother_accel_sigma=args.smoother_accel_sigma,
     )
 
     try:

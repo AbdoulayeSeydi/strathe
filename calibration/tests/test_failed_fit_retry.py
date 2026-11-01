@@ -52,7 +52,7 @@ def _fake(loaded, cost, rmse, success=True, rough=SMOOTH, moved=True):
                              log=log, scipy_result=raw)
 
 
-def _run(tmp_path, monkeypatch, starts, extra=()):
+def _run(tmp_path, monkeypatch, starts, extra=(), fit_rmse=0.5):
     """starts: what each calibrate() call returns, in order, as _fake keyword arguments."""
     from optimizer import initial_parameters
     start = initial_parameters(RC.load_vehicle_spec(os.path.join(CAL, "vehicle_spec.yaml"))).to_vector()
@@ -65,7 +65,7 @@ def _run(tmp_path, monkeypatch, starts, extra=()):
         return _fake(loaded, **starts[len(calls) - 1])
     monkeypatch.setattr(RC, "calibrate", calibrate)
     monkeypatch.setattr(RC, "mean_run_rmse",
-                        lambda params, *a, **k: 1.0 if np.allclose(params.to_vector(), start) else 0.5)
+                        lambda params, *a, **k: 1.0 if np.allclose(params.to_vector(), start) else fit_rmse)
     out = tmp_path / "out"
     monkeypatch.setattr(sys, "argv", ["run_calibration.py", "--data-dir", str(_logs(tmp_path)), "--output-dir", str(out),
                                       "--max-nfev", "2", "--initialization-strategy", "perturbed", "--seed", "3",
@@ -173,3 +173,10 @@ def test_end_roughness_stays_inside_the_bounds():
     seen = []
     end_roughness(lambda v: seen.append(v.copy()) or v + 1, np.array([1.0, 0.0]), np.zeros(2), np.ones(2), ())
     assert len(seen) == 7 and all((0 <= v).all() and (v <= 1).all() for v in seen)
+
+
+def test_a_fit_that_explains_the_data_all_but_exactly_isnt_called_rough(tmp_path, monkeypatch):
+    """Synthetic data (#96): a fit at a training cost near 0 has a roughness that's rounding noise (3.3e-5 measured on
+    a perfect fit, cost 7e-11); it isn't a chaotic replay, so it isn't retried."""
+    calls, m, code, _ = _run(tmp_path, monkeypatch, [dict(cost=7e-11, rmse=1e-6, rough=3.3e-5)], fit_rmse=1e-6)
+    assert calls == [(1, 3, True)] and "auto_restart" not in m["optimizer"] and code == 0
