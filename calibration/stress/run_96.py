@@ -402,6 +402,9 @@ def w_web() -> None:
     record(F, "W-accelerometer", "web", "use_accelerometer", "the form's accelerometer box reaches the fit",
            "synthetic BlueROV2", {"exit": job.proc.returncode}, "--use-accelerometer passed; the job runs",
            "--use-accelerometer" in job.argv and job.proc.returncode == 0)
+    import strathe_cli as cli
+    for name in ("web_sensors", "web_acc"):   # the web jobs write into the repository: not left there
+        shutil.rmtree(os.path.join(cli.REPO_DIR, f"calibration_output_{name}"), ignore_errors=True)
 
 
 # --- fit-sim and export-sim from the sensors (part 3) ----------------------------------------------------------------
@@ -501,6 +504,12 @@ REAL = {   # row: (fit folder name, data folder, truth folder, spec, held-out fi
     "R-2": ("r2", "r2", "r_truth", "blue", "no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth", "r2"),
     "R-3": ("r3", "r3", "r_truth", "blue", "no velocity: depth and the gyro only", "r3"),
     "R-4": ("r4", "r4", "r_truth", "blue", "a DVL with 30% dropouts plus R-2's fixes", "r4"),
+    # DFKI's BlueROV2 (stress/prepare_dfki_96.py): its own Bar30, IMU and attitude; the motion capture's velocity hidden
+    "D-V": ("dV", "v", "truth", "blue", "today's velocity fit on DFKI's BlueROV2 (motion-capture velocity)", "ref"),
+    "D-1": ("d1", "d1", "truth", "blue", "no velocity: motion-capture positions and the Bar30", "r1"),
+    "D-2": ("d2", "d2", "truth", "blue", "no velocity: USBL-like fixes and the Bar30", "r2"),
+    "D-3": ("d3", "d3", "truth", "blue", "the BlueROV2 lab with no DVL: Bar30, gyro and attitude only", "r3"),
+    "D-4": ("d4", "d4", "truth", "blue", "D-3 plus the raw IMU's accelerometer (exploratory)", "explore"),
 }
 
 
@@ -537,10 +546,10 @@ def real(fits_dir: str) -> int:
                        "held_unobserved": sorted(ss.get("held_unobserved") or {}), **val}
     for row, nums in scores.items():
         fit, data, truth, sp, what, bar = REAL[row]
-        V = scores.get("U-V" if row.startswith("U") else "R-V") or {}
+        V = scores.get({"U": "U-V", "R": "R-V", "D": "D-V"}[row[0]]) or {}
         ok, expect = _judge_real(bar, nums, V)
-        record(F, row, "real data", REAL[row][0], what, "URI ALPHA RISE" if row.startswith("U") else
-               "oceansystemslab BlueROV2 tank", nums, expect, ok, 0.0)
+        record(F, row, "real data", REAL[row][0], what, {"U": "URI ALPHA RISE", "R": "oceansystemslab BlueROV2 tank",
+                                                          "D": "DFKI BlueROV2 basin"}[row[0]], nums, expect, ok, 0.0)
     return 0
 
 
