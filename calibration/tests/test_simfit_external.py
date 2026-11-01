@@ -13,7 +13,7 @@ from simfit import cli
 from simfit.core import SimFitError
 from simfit.editors import open_model
 from simfit.knobs import KnobSpec, Knobs
-from simfit.replay_tool import ReplayTool
+from simfit.replay_tool import ReplayTool, join_command, split_command
 
 FAKE = os.path.join(os.path.dirname(__file__), "..", "simulators", "example", "example_replay.py")
 TRUTH = {"mass": 30.0, "added_mass": [6.0, 40.0, 40.0], "inertia": [1.0, 4.0, 4.0],
@@ -128,6 +128,17 @@ def test_plain_messages_for_a_lab_mistake(tmp_path, capsys):
     assert "needs `model:`" in capsys.readouterr().out
     assert cli.main(["export", "--sim", "external", "--simulator", _description(tmp_path, model), "--calibration",
                      str(tmp_path), "--reference-point", "0", "0", "0"]) == 2
+
+
+def test_a_windows_replay_command_keeps_its_backslashes():
+    """A Windows lab's replay command (--replay-tool, or a description's replay:) keeps its paths."""
+    py, tool = r"C:\Program Files\Python\python.exe", r"D:\lab\my sim\replay.py"
+    line = join_command([py, tool, "--fast"], windows=True)
+    assert split_command(line, windows=True) == [py, tool, "--fast"]
+    assert split_command(r"C:\Python\python.exe D:\lab\replay.py", windows=True) == [r"C:\Python\python.exe",
+                                                                                        r"D:\lab\replay.py"]
+    assert split_command(join_command(["/usr/bin/python3", "/lab/my sim/r.py"], windows=False),
+                         windows=False) == ["/usr/bin/python3", "/lab/my sim/r.py"]
 
 
 def test_knobs_map_parameters_and_values():
