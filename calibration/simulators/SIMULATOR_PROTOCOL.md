@@ -73,7 +73,9 @@ and T_b = diag(1, −1, −1).
 - a path;
 - a command line (`python my_replay.py`);
 - `docker:IMAGE`: Strathe then runs it with `docker run`, mounting your model's folder and the temporary folders at the
-  same paths.
+  same paths (on Windows, `D:\lab` is mounted at `/d/lab`, and the paths Strathe passes are given that way).
+
+On Windows, write paths with backslashes as usual; put a path with spaces in double quotes.
 
 ## 2. The simulator description (`my_sim.yaml`)
 

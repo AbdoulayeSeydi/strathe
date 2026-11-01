@@ -13,7 +13,7 @@ from simfit import cli
 from simfit.core import SimFitError
 from simfit.editors import open_model
 from simfit.knobs import KnobSpec, Knobs
-from simfit.replay_tool import ReplayTool
+from simfit.replay_tool import ReplayTool, docker_argv, join_command, split_command
 
 FAKE = os.path.join(os.path.dirname(__file__), "..", "simulators", "example", "example_replay.py")
 TRUTH = {"mass": 30.0, "added_mass": [6.0, 40.0, 40.0], "inertia": [1.0, 4.0, 4.0],
@@ -128,6 +128,23 @@ def test_plain_messages_for_a_lab_mistake(tmp_path, capsys):
     assert "needs `model:`" in capsys.readouterr().out
     assert cli.main(["export", "--sim", "external", "--simulator", _description(tmp_path, model), "--calibration",
                      str(tmp_path), "--reference-point", "0", "0", "0"]) == 2
+
+
+def test_a_windows_command_and_docker_paths_keep_their_backslashes():
+    """A Windows lab's replay command keeps its paths, and Docker gets them in the container's terms."""
+    py, tool = r"C:\Program Files\Python\python.exe", r"D:\lab\my sim\replay.py"
+    line = join_command([py, tool, "--fast"], windows=True)
+    assert split_command(line, windows=True) == [py, tool, "--fast"]
+    assert split_command(r"C:\Python\python.exe D:\lab\replay.py", windows=True) == [r"C:\Python\python.exe",
+                                                                                        r"D:\lab\replay.py"]
+    assert split_command(join_command(["/usr/bin/python3", "/lab/my sim/r.py"], windows=False),
+                         windows=False) == ["/usr/bin/python3", "/lab/my sim/r.py"]
+    argv = docker_argv("img", {r"D:\lab"}, ["--model", r"D:\lab\m.sdf", "--ref", "-0.76", "0", "0"],
+                       {"GZ_SIM_RESOURCE_PATH": r"D:\lab;C:\models"}, windows=True)
+    assert argv == ["docker", "run", "--rm", "-v", r"D:\lab:/d/lab", "-e", "GZ_SIM_RESOURCE_PATH=/d/lab:/c/models",
+                    "img", "--model", "/d/lab/m.sdf", "--ref", "-0.76", "0", "0"]
+    assert docker_argv("img", {"/lab"}, ["--model", "/lab/m.sdf"], windows=False) == [
+        "docker", "run", "--rm", "-v", "/lab:/lab", "img", "--model", "/lab/m.sdf"]
 
 
 def test_knobs_map_parameters_and_values():

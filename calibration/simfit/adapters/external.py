@@ -24,7 +24,7 @@ import yaml
 
 from simfit.adapters import ExportDef, FileAdapter, KnobDef
 from simfit.core import SimFitError
-from simfit.replay_tool import ReplayTool, tool_argv
+from simfit.replay_tool import ReplayTool, join_command, split_command, tool_argv
 
 KNOB_KEYS = {"name", "group", "at", "transform", "sign", "lo", "hi", "axisym", "note"}
 EXPORT_KEYS = {"param", "at", "scale", "offset"}
@@ -52,16 +52,15 @@ def load_description(path: str) -> dict:
 
 def resolve_command(replay, here: str) -> str:
     """A replay command from a description: parts that are files next to the description get its folder."""
-    import shlex
     if isinstance(replay, list):
         parts = [str(p) for p in replay]
     elif str(replay).startswith("docker:"):
         return str(replay)
     else:
-        parts = shlex.split(str(replay))
+        parts = split_command(str(replay))
     parts = [os.path.join(here, p) if (not os.path.isabs(p) and os.path.exists(os.path.join(here, p))) else p
              for p in parts]
-    return " ".join(shlex.quote(p) for p in parts)
+    return join_command(parts)
 
 
 def adapter_from_args(a) -> FileAdapter:

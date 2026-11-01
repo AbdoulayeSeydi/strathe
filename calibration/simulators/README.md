@@ -61,7 +61,8 @@ You choose; each guide shows both.
 - **On your machine:** install the simulator, then build or point Strathe at its replay command.
   `python strathe.py check` says what's there and what's missing.
 - **Nothing to build:** use a pure-Python path (MuJoCo; HoloOcean's Fossen model) or a Docker image
-  (`--replay-tool docker:IMAGE`), which mounts your model's folder at the same path.
+  (`--replay-tool docker:IMAGE`), which mounts your model's folder at the same path (on Windows, `D:\lab` at
+  `/d/lab`).
 
 ## What every simulator shares
 - **The logs** are the same folder `strathe calibrate` uses (`--data`), or your raw logs with `--ingest-spec`.

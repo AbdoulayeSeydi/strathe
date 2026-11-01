@@ -13,12 +13,14 @@ in calibration/simulators/SIMULATOR_PROTOCOL.md; Stonefish's tool (calibration/s
   line (whatever the simulator knows: mass, version, ...); --features one JSON line without a model.
 
 A tool is a path, a command (`python my_tool.py`), or `docker:IMAGE`: the tool then runs in that image (`docker run`),
-with the model's and the work folders mounted at the same paths, so nothing has to be built.
+with the model's and the work folders mounted at the same paths (on Windows, D:\\x at /d/x), so nothing has to be
+built.
 """
 from __future__ import annotations
 
 import csv
 import json
+import ntpath
 import os
 import shlex
 import shutil
@@ -33,6 +35,45 @@ from simfit.core import SimFitError
 IN_COLUMNS = "win,k,u,v,w,p,q,r,qx,qy,qz,qw,Fx,Fy,Fz,Tx,Ty,Tz"
 OUT_COLUMNS = ("u", "v", "w", "p", "q", "r", "qx", "qy", "qz", "qw")
 INFO_TIMEOUT_S, RUN_TIMEOUT_S = 600, 24 * 3600
+
+
+def _windows(windows: Optional[bool]) -> bool:
+    return os.name == "nt" if windows is None else windows
+
+
+def container_path(p: str, windows: Optional[bool] = None) -> str:
+    """A host path as a Linux container sees it when mounted there: the same path on macOS and Linux; on Windows
+    D:\\x\\y -> /d/x/y (Docker Desktop mounts a drive's folder at a POSIX path)."""
+    if not _windows(windows):
+        return p
+    drive, rest = ntpath.splitdrive(p)
+    return ("/" + drive.rstrip(":").lower() if drive else "") + rest.replace("\\", "/")
+
+
+def docker_argv(image: str, dirs, args: list, env: Optional[dict] = None, windows: Optional[bool] = None) -> list:
+    """`docker run` of IMAGE with each folder in dirs mounted, and the arguments and environment that are host paths
+    put in the container's terms (on Windows, D:\\x -> /d/x; elsewhere unchanged)."""
+    win = _windows(windows)
+
+    def inside(a):
+        a = str(a)
+        return container_path(a, win) if (ntpath if win else os.path).isabs(a) else a
+    mounts = [x for d in sorted(dirs) for x in ("-v", f"{d}:{container_path(d, win)}")]
+    envs = [x for k, v in (env or {}).items()
+            for x in ("-e", f"{k}=" + ":".join(inside(d) for d in str(v).split(";" if win else os.pathsep)))]
+    return ["docker", "run", "--rm", *mounts, *envs, image, *(inside(a) for a in args)]
+
+
+def split_command(spec: str, windows: Optional[bool] = None) -> list:
+    """A command line -> argv. On Windows a backslash is a path separator, not an escape, and quotes group as in cmd."""
+    if not _windows(windows):
+        return shlex.split(spec)
+    return [p[1:-1] if len(p) > 1 and p[0] == p[-1] and p[0] in "\"'" else p for p in shlex.split(spec, posix=False)]
+
+
+def join_command(parts: list, windows: Optional[bool] = None) -> str:
+    """argv -> a command line that split_command reads back."""
+    return subprocess.list2cmdline(parts) if _windows(windows) else " ".join(shlex.quote(p) for p in parts)
 
 
 def write_windows(path: str, rows_by_window: list) -> None:
@@ -69,7 +110,7 @@ def tool_argv(spec: str) -> list:
         if not os.access(spec, os.X_OK):
             raise SimFitError(f"the replay tool {spec} isn't executable (chmod +x, or give it as 'python {spec}')")
         return [spec]
-    argv = shlex.split(spec)
+    argv = split_command(spec)
     if not argv or not (shutil.which(argv[0]) or os.path.exists(argv[0])):
         raise SimFitError(f"the replay tool {spec!r} wasn't found: give its path, a command, or docker:IMAGE")
     return argv
@@ -84,8 +125,8 @@ class ReplayTool:
     name: str = "simulator"          # for messages
     env: dict = field(default_factory=dict)     # extra environment for the command
 
-    def _argv(self, model: str, folders=()) -> list:
-        base = ["--model", model, "--ref", *(f"{x:g}" for x in self.ref), "--dt", f"{self.dt:g}", *self.extra]
+    def _argv(self, model: str, folders=(), tail=()) -> list:
+        base = ["--model", model, "--ref", *(f"{x:g}" for x in self.ref), "--dt", f"{self.dt:g}", *self.extra, *tail]
         if self.tool and self.tool[0].startswith("docker:"):
             # the model's and work folders, and any folder the environment points at (model paths), at the same paths
             dirs = {os.path.dirname(os.path.abspath(model)), *folders}
@@ -93,9 +134,7 @@ class ReplayTool:
                 dirs |= {d for d in str(v).split(os.pathsep) if os.path.isabs(d) and os.path.isdir(d)}
             if "--model-dir" in self.extra:
                 dirs.add(self.extra[self.extra.index("--model-dir") + 1])
-            mounts = [x for d in sorted(dirs) for x in ("-v", f"{d}:{d}")]
-            envs = [x for k, v in self.env.items() for x in ("-e", f"{k}={v}")]
-            return ["docker", "run", "--rm", *mounts, *envs, self.tool[0][len("docker:"):], *base]
+            return docker_argv(self.tool[0][len("docker:"):], dirs, base, self.env)
         return self.tool + base
 
     def _call(self, argv: list, timeout: int, what: str):
@@ -130,7 +169,7 @@ class ReplayTool:
         os.makedirs(work_dir, exist_ok=True)
         fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
         write_windows(fin, rows_by_window)
-        r = self._call(self._argv(model, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+        r = self._call(self._argv(model, (os.path.abspath(work_dir),), ["--windows", fin, "--out", fout]),
                        RUN_TIMEOUT_S, "finish the replay")
         if r.returncode or not os.path.exists(fout):
             raise SimFitError(f"the {self.name} replay failed: {r.stderr.strip()[-800:]}")

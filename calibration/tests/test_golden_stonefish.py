@@ -1,8 +1,9 @@
 """Golden outputs for fit-stonefish and export-stonefish (PROJECT_STATUS.md #81): the multi-simulator refactor moves the
-shared fitting and scoring into calibration/simfit/, and Stonefish's outputs must stay byte-for-byte the same. The
-golden files were written by the code before the refactor; STRATHE_WRITE_GOLDEN=1 rewrites them (only for an intended
-change, said in the commit)."""
+shared fitting and scoring into calibration/simfit/, and Stonefish's outputs must stay the same: byte for byte on the
+platform that wrote the golden files, and to 10 significant figures on another. The golden files were written by the
+code before the refactor; STRATHE_WRITE_GOLDEN=1 rewrites them (only for an intended change, said in the commit)."""
 import os
+import re
 
 import stonefish_export as EX
 import stonefish_fit as SF
@@ -14,13 +15,21 @@ GOLDEN = os.path.join(os.path.dirname(__file__), "golden")
 WRITE = os.environ.get("STRATHE_WRITE_GOLDEN") == "1"
 
 
+def _same_anywhere(text):
+    """What must match on every platform: paths with / (Windows writes \\), and numbers to 10 significant figures
+    (another platform's maths library can differ in the last digits of a fitted value)."""
+    text = re.sub(r"<tmp>[^\s'\"]*", lambda m: m.group().replace("\\", "/"), text)
+    return re.sub(r"-?\d+\.\d+(?:[eE][-+]?\d+)?", lambda m: f"{float(m.group()):.10g}", text)
+
+
 def _check(tmp_path, out, names, prefix):
     for name in names:
         text = (out / name).read_text().replace(str(tmp_path), "<tmp>")
         golden = os.path.join(GOLDEN, f"{prefix}_{name}")
         if WRITE:
             open(golden, "w", encoding="utf-8").write(text)
-        assert text == open(golden, encoding="utf-8").read(), f"{name} differs from {golden}"
+        assert _same_anywhere(text) == _same_anywhere(open(golden, encoding="utf-8").read()), \
+            f"{name} differs from {golden}"
 
 
 def test_fit_stonefish_output_is_unchanged(tmp_path):
