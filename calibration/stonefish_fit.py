@@ -40,7 +40,6 @@ from simfit.core import (ANGULAR_FLOOR, EVAL_STRIDE_S, EVAL_WINDOW_S, FIT_STRIDE
                          HORIZONS_S, LINEAR_FLOOR, SimFitError, axis_scales, baselines, path, score,
                          strathe_free_run, window_rows, windows)
 from simfit.core import load_runs as _load_runs, table as _table  # noqa: F401
-from simfit.replay_tool import docker_argv
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TOOL = os.path.join(HERE, "stonefish", "build", "strathe_stonefish_replay")
@@ -320,14 +319,15 @@ class Replay:
     hz: float = 200.0
     dt: float = 0.1
 
-    def _argv(self, scenario, folders=(), tail=()):
-        args = ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
-                "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
-                "--dt", f"{self.dt:g}", *tail]
+    def _argv(self, scenario, folders=()):
         if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86)
-            dirs = {os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders}
-            return docker_argv(self.tool[0][7:], dirs, args)
-        return self.tool + args
+            dirs = sorted({os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders})
+            prefix = ["docker", "run", "--rm", *[x for d in dirs for x in ("-v", f"{d}:{d}")], self.tool[0][7:]]
+        else:
+            prefix = self.tool
+        return prefix + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
+                            "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
+                            "--dt", f"{self.dt:g}"]
 
     def info(self, scenario: str) -> dict:
         try:
@@ -351,7 +351,7 @@ class Replay:
                 for k, row in enumerate(rows):
                     f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
         try:
-            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),), ["--windows", fin, "--out", fout]),
+            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
                                capture_output=True, text=True, timeout=24 * 3600)
         except subprocess.TimeoutExpired:
             raise StonefishFitError("the Stonefish replay didn't finish within 24 hours; try fewer recordings or "
