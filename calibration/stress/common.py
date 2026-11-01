@@ -56,3 +56,23 @@ def strathe(args: list, log: str, timeout: Optional[float] = None) -> tuple:
 def load_rows(feature: str) -> list:
     path = results_path(feature)
     return list(csv.DictReader(open(path, encoding="utf-8"))) if os.path.exists(path) else []
+
+
+def all_pairs(options: dict, seed: int) -> list:
+    """All-pairs combinations of options {variable: [values]}: a greedy cover in which every pair of values of any two
+    variables appears in at least one case."""
+    import itertools
+    import random
+    names = list(options)
+    need = {(a, x, b, y) for a, b in itertools.combinations(names, 2) for x in options[a] for y in options[b]}
+    rnd, cases = random.Random(seed), []
+    while need:
+        best, gain = None, -1
+        for _ in range(80):
+            c = {n: rnd.choice(options[n]) for n in names}
+            g = sum((a, c[a], b, c[b]) in need for a, b in itertools.combinations(names, 2))
+            if g > gain:
+                best, gain = c, g
+        cases.append(best)
+        need -= {(a, best[a], b, best[b]) for a, b in itertools.combinations(names, 2)}
+    return cases

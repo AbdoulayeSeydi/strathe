@@ -20,8 +20,22 @@ import inventory  # noqa: E402
 TITLES = {"93": "One field day: hold out recordings, or a block of time",
           "94": "PX4, MOOS-IvP and LCM logs, read directly",
           "95": "Vehicle spec from basic measurements, or from any simulator model"}
-GROUPS = {"F": "Fast checks on the real recordings", "M": "Deliberate faults (each must be caught)",
-          "E": "End to end on real data"}
+# Each feature's row groups, by the row id's prefix (the part before the first "-"; #93's are numbered: F1, E8b).
+GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate faults (each must be caught)",
+                 "E": "End to end on real data"},
+          "94": {"R": "Every real recording through each format, against the CSV route",
+                 "V": "One variable at a time", "P": "All pairs of variables", "K": "Field kinds",
+                 "D": "Damaged logs", "DF": "Randomly damaged logs", "S": "Size: a one-hour log", "X": "Refusals",
+                 "I": "Independent decoders (pyulog, plain text, lcm's own)",
+                 "EP": "Entry points: ingest, calibrate --ingest-spec, the web card", "C": "strathe check",
+                 "M": "Deliberate faults (each must be caught)", "E": "End to end on real data"},
+          "95": {"G": "Inputs, each varied", "MS": "Model sources", "X": "Refusals", "W": "The web card",
+                 "M": "Deliberate faults (each must be caught)", "FZ": "Random inputs (fuzz)", "E": "End to end on real data"}}
+
+
+def _group(feature: str, row: str) -> str:
+    key = row.split("-")[0]
+    return key[0] if feature == "93" else key
 
 
 def _latest(rows: list) -> list:
@@ -60,7 +74,7 @@ def optimism_93(rows: list) -> list:
 PROOF = {"93": optimism_93}
 
 
-def main() -> int:
+def render() -> str:
     L = ["# Stress test: #93-#95\n", f"Written by `calibration/stress/report.py` on {time.strftime('%Y-%m-%d %H:%M')}. "
          "Every variable each feature has is listed by `stress/inventory.py` from the code, and "
          "`tests/test_stress_coverage.py` fails if one has no row here.\n"]
@@ -73,8 +87,10 @@ def main() -> int:
         L += [f"## #{f}. {TITLES[f]}\n",
               f"**{passed} of {len(rows)} rows pass** ({len(inv)} variables found in the code, each with a row).\n"]
         L += PROOF.get(f, lambda r: [])(rows) + [""]
-        for g, title in GROUPS.items():
-            grp = [r for r in rows if r["row"].startswith(g)]
+        groups = dict(GROUPS.get(f, {}))
+        groups.update({k: f"Other rows ({k})" for k in sorted({_group(f, r["row"]) for r in rows}) if k not in groups})
+        for g, title in groups.items():   # every row is listed: unknown prefixes get their own group
+            grp = [r for r in rows if _group(f, r["row"]) == g]
             if not grp:
                 continue
             L += [f"### {title}\n", "| Row | Varied | What | Data | Result | Numbers | Time |",
@@ -84,8 +100,12 @@ def main() -> int:
                          f"| {'✅' if r['passed'] == 'pass' else '❌'} | {_short(r['numbers'])} | "
                          f"{float(r['seconds']) / 60:.0f} min |")
             L.append("")
+    return "\n".join(L) + "\n"
+
+
+def main() -> int:
     out = os.path.join(REPO, "STRESS_TEST_93_95.md")
-    open(out, "w", encoding="utf-8").write("\n".join(L) + "\n")
+    open(out, "w", encoding="utf-8").write(render())
     print(f"wrote {out}")
     return 0
 

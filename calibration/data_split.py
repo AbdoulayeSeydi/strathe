@@ -277,7 +277,7 @@ def _split_time_block(path: str, fraction: float, gap_s: float = TIME_BLOCK_GAP_
     train_n = n - held_n - gap
     need = int(math.ceil(MIN_PART_S * rate))
     if held_n < need or train_n < need:
-        shortest = max(MIN_PART_S / fraction, MIN_PART_S / (1 - fraction)) + gap_s
+        shortest = max(MIN_PART_S / fraction, (MIN_PART_S + gap_s) / (1 - fraction))   # held part, and training + gap
         raise ValueError(
             f"{os.path.basename(path)} is {n / rate:.0f} s long: too short to hold out part of it. Calibration needs "
             f"at least {MIN_PART_S:.0f} s to train on and {MIN_PART_S:.0f} s held out, {gap_s:.0f} s apart: at least "
@@ -321,6 +321,8 @@ def split_by_date(
     if not (0 < heldout_fraction < 1):
         raise ValueError(f"heldout_fraction must be strictly between 0 and 1, got {heldout_fraction}")
     heldout = None if heldout_dates is None else [str(h) for h in heldout_dates]
+    if heldout and any(LAST in h for h in heldout) and not all(LAST in h for h in heldout):
+        raise ValueError(f"Hold out whole recordings or the last part of one, not both: {heldout}")
     if heldout and all(LAST in h for h in heldout):
         if len(heldout) != 1:
             raise ValueError("hold out the last part of one recording only (e.g. my_rov-05-01-2030-run1::last30%)")

@@ -8,6 +8,7 @@ import pytest
 
 import stonefish_describe as SD
 import stonefish_fit as SF
+import vehicle_describe as VD
 import strathe_cli as cli
 from optimizer import initial_parameters, load_vehicle_spec
 
@@ -72,6 +73,22 @@ def test_limits_come_from_the_hulls_size_not_the_models_values():
         p["quadratic_drag"] = [10 * c for c in p["quadratic_drag"]]
     t10 = _targets(SD.describe(info)[0])
     assert all(t10[k]["bounds"] == t[k]["bounds"] for k in ("Xu_dot", "Yv_dot", "Zw_dot", "Xuu", "Yvv", "Zww"))
+
+
+def test_the_note_names_only_values_outside_their_limits():
+    """A model value within 2% of a limit starts 2% inside too (a fit started on a limit can't step off it), but it
+    isn't outside, so the note doesn't name it."""
+    lo, hi = -10.0, 0.0
+    assert VD._inside(-12.0, lo, hi) == pytest.approx(-9.8)   # outside: moved in
+    assert VD._inside(-9.9, lo, hi) == pytest.approx(-9.8)    # within 2% of the end: moved off it
+    assert VD._inside(-5.0, lo, hi) == -5.0
+    spec, notes = SD.describe(_info())
+    t = _targets(spec)
+    named = [n for n in notes if n.startswith("Outside the limits")][0]
+    for item in named.split(": ", 1)[1].split(". ")[0].split(", "):
+        key, value = item.split()
+        lo, hi = t[key]["bounds"]
+        assert not lo <= float(value) <= hi, item
 
 
 def test_a_weighed_mass_scales_the_rigid_inertia_and_keeps_the_trim():

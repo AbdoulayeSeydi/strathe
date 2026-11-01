@@ -3132,8 +3132,16 @@ Three rows, each rerunning a real fit from before the fix with the same seed:
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **106 of 107 rows pass.** The one that fails is E8, the
-failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24.
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **141 of 142 rows pass.** The one that fails is E8, the
+failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24. E25, E25b and E26 cover the commands
+that hadn't been run on one day: `export-sim --sim mujoco` refuses plainly (it says to use `fit-sim --sim mujoco`),
+`export-sim gazebo` scores a one-day calibration in bluerov2_gz, and `fit-noise` fits from one day.
+- **Found by the audit of 31 Oct:** 31 all-pairs rows (dataset × held-out kind × fraction), each split worked out
+  independently, and 2000 random held-out entries on real recordings (none crashed) found two wrong messages:
+  - a whole recording named with another's last part said "Unknown held-out recording"; now "Hold out whole
+    recordings or the last part of one, not both";
+  - a recording too short to split was told a length 10 s too long at 30% (210 s; 200 s splits) and 190 s too short
+    at 95% (1210 s; 1400 s is needed). Fixed, with a test that the stated length splits and 1% less doesn't.
 - **Coverage:** an inventory of 36 variables found in the code (every module that splits the logs, every parser with
   the option, every split mode and entry kind, the web fields, the constants), with a CI test that each has a row.
 - **75 fast checks on real recordings:**
@@ -3179,6 +3187,13 @@ anything, and most won't. It's the second of the three things that turned labs a
   - `stamp:` was silently ignored for PX4 and MOOS (now refused);
   - PX4 writes PWM 0 for outputs it doesn't drive and while disarmed, which ingestion refused as an out-of-range
     command. Found on the real PX4 log below; now a stopped thruster, and an output at 0 throughout is named.
+  - **Found by the audit of 31 Oct** (120 randomly damaged logs: cut, bytes flipped, garbage inserted, a block
+    wiped): a few flipped bytes in a PX4 log put three messages 691 s, 870 s and 10¹³ s after the rest, and the
+    resampler all the readers share built its grid over that span: it asked for 760 TiB, and the run was killed.
+    Messages cut off from the rest of a topic by over a minute (or 1000 message intervals), and under 1% of it, are
+    now dropped with a counted warning; a log still spanning over 50 million grid rows is refused plainly; a real
+    pause mid-log is kept as before. Rerun after the fix: of the 120, 75 read and 45 were refused plainly, none
+    crashed; every other #94 row is unchanged (all 41 real recordings still identical to the CSV route).
 
 **Proof on real data.** We found no public real-vehicle MOOS-IvP or LCM log with thruster commands, and PX4's
 public archive is mostly aircraft. So every real recording we have was written into each format the way a vehicle
@@ -3192,10 +3207,12 @@ and, with the same content, as a CSV; both were ingested and compared.
 | Every way of naming a column: PX4 multi-instance, MOOS `key=value` and `@SOURCE`, LCM nested | all identical |
 | 29 kinds of damage (gaps, NaN, cut at 50% and 99%, a damaged middle, out of order, repeats, empty, strings, wrong type files) and 14 refusals | each gives the result in the guide's table |
 | Independent decoders: pyulog's `ulog2csv`, a plain-text read of the `.alog`, lcm's own decode | 1.6·10⁻⁷ (`ulog2csv`'s printed precision), 0, 0 |
+| **A log recorded by `lcm-logger`** off the network: 100 velocity messages published live, against lcm's decode | 99 of the 100 logged (LCM sends over UDP, which can drop one); each logged value exact |
 | **A real underwater PX4 log:** a BlueROV2 Heavy from logs.px4.io (CC-BY), against `ulog2csv` | PWM exact; attitude, rates, velocity, battery to 3·10⁻⁶ |
 | A one-hour log at 50 Hz | PX4 9 s, LCM 23 s, MOOS 42 s; under 0.5 GB |
 | `ingest`, `calibrate` straight from the logs, the web card, `check` | all run |
 | **Calibration gets the same problem from each format:** training cost at the starting description, a perturbed start and a calibrated point, each format against CSV | the same to 3·10⁻¹⁶ (BlueROV2, 25 training recordings) and 1·10⁻¹⁵ (URI) |
+| `fit-sim --sim mujoco` from each format against CSV (BlueROV2, 16 and 19 Feb held out, 3 evaluations) | the same three drag values to 4·10⁻¹⁵, the same cost and held-out drift |
 | Deliberate faults: a frame sign flipped, PX4 time off by 1000, an array index dropped | each caught by exactly the formats it touches, and only those |
 
 **A finding: identical data, different calibrations.** The plan was to calibrate from each format and from CSV and
@@ -3216,7 +3233,7 @@ the proof of the readers is that they give calibration the same problem, not tha
 - The real PX4 log can't be calibrated: its velocity barely moves with its thrust (ingestion says so). It proves the
   reading, not a calibration.
 
-**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **349 of 349 rows pass**, over 294
+**Stress test** (`calibration/stress/run_94.py`; `STRESS_TEST_93_95.md`): **356 of 356 rows pass**, over 294
 variables found in the ingest schema (`tests/test_stress_coverage.py` fails if one has no row).
 - **A correction:** the first fault check reported 3 of 3 caught, but the frame-sign fault never reached the PX4 and
   MOOS readers (they hold their own reference to the function), and LCM, imported mid-fault, kept it for the later
@@ -3224,6 +3241,138 @@ variables found in the ingest schema (`tests/test_stress_coverage.py` fails if o
 
 **Tests:** `tests/test_log_formats.py` (fast, synthetic logs written by `tests/format_writers.py`), the coverage gate, and the real-data rows
 above (skipped when the data isn't present).
+
+
+### 95. A vehicle description from a tape measure and a scale, or from any simulator model (2026-10-27/30)
+
+**Why:** every lab wrote `vehicle_spec.yaml` (starting values and the range each value may take) by hand, unless it had
+a Stonefish model (`describe-stonefish`). Home-built vehicles, and labs on Gazebo, MuJoCo, HoloOcean or a URDF, stopped
+there. It's the third of the three things that turned labs away before calibration started.
+
+**What changed:**
+- **`strathe describe-vehicle`** (`vehicle_describe.py`) writes a description from the vehicle's mass and size:
+  `--mass 11.5 --length 0.457 --width 0.575 --height 0.254`, or `--length` with `--diameter` for a torpedo. Every
+  range is sized from the hull:
+  - **open frames** get box rules: drag on each face (W×H for surge, L×H for sway, L×W for heave), added mass 0.5–1.5 ×
+    the mass, box inertia plus the water carried, and a turning-damping limit reaching what thrusters and a tether add;
+  - **torpedoes** get strip theory, as `describe-stonefish` had (it now uses the same rules);
+  - **the shape** follows the size (slender, L/D above 3, and round: a torpedo) unless `--shape` is given.
+- **What you know is used:** `--inertia` (CAD), `--cg-below-cb`, `--net-buoyancy`, `--water fresh|sea|kg/m³`,
+  `--reference-point`, `--thrusters` (sets the cruise speed from the thrust available, with a note when the drag
+  limits can't balance it), `--hull-lift` for torpedoes.
+- **`--from-model FILE --sim gazebo|urdf|mujoco|holoocean`** reads mass, inertia and the collision shapes from the
+  lab's own model; any size given on the command line wins.
+- **Notes say when an input looks wrong:** a collision shape much thinner than the others (a buoyancy block or a
+  plate read as the hull), a model hull that only displaces the vehicle's mass (a stand-in sized to float it),
+  `--shape` against the size, a thrust the drag limits can't balance. A model with only meshes is refused, asking for
+  the size.
+- **Wired in:** `strathe describe-vehicle`, the web card "Describe your vehicle (no simulator needed)", and every card's
+  vehicle-description field links to it. Guide: `calibration/DESCRIBE_VEHICLE.md`; LAB_GUIDE step 4, README, LIMITS.
+- **Found and fixed on the way:**
+  - **Open frames' turning damping:** the first limit was sized from the hull alone and cut off what DFKI's thrusters
+    and tether add. DFKI's held-out skill went from −0.40 to **+0.30** (hand-written: 0.30); the BlueROV2's from 0.40
+    to 0.435.
+  - **The comparison itself:** a value the hand-written calibration left at its own limit isn't one it found, so it
+    now only has to be stuck at the same end in the generated one. Before, the BlueROV2 and ALPHA RISE (pond held
+    out) failed on values both fits had pinned.
+  - **A stale reference:** the describe-stonefish reference run read an 18 Oct description from URI's folder, written
+    before these rules; 18 of its 22 ranges differ from today's (pitch inertia up to 344 against 92). Its one start
+    stalled (training cost 2.25 against 2.04 and 1.98) and scored 0.053. The harness now writes the reference with
+    today's `describe-stonefish`, and both reference runs were redone.
+  - **The stress report** listed only one kind of row: #94's page counted 349 rows and showed about 15. It now lists
+    every row, with a test.
+  - **Found by the audit of 31 Oct** (random inputs, all pairs and the lab's-eye run, after every planned row passed):
+    - a hull under about 10 cm (frames) or 0.5 m (torpedoes) got turning-damping limits in the wrong order (the
+      fixed upper limits -0.05 and -0.2 sat below the size-scaled lower ones) and an inertia rounded to 0: the
+      description didn't load. Fixed: a range out of order or narrower than 2:1 gets an upper limit a tenth of its
+      lower one, and values under 0.001 keep 3 significant figures. On 3000 random hulls: 736 fixed, 0 still broken;
+      under 5 cm or 10 g is refused, naming the units. The BlueROV2, DFKI and ALPHA RISE descriptions are unchanged,
+      byte for byte, so no calibration here changes;
+    - `--thrusters` with a file that has no thrusters block crashed with a traceback; one that logs forces (the lab
+      clone's own spec) said "no usable thrusters block". Both are now plain sentences, the second saying to leave
+      `--thrusters` out;
+    - `--thrusters` had been tried only with the preset. A layout and an allocation matrix of the same BlueROV2 Heavy
+      now give its forces (to 0.4% and exactly), and DFKI's six give the same sideways force and about half the heave
+      (two vertical thrusters, not four);
+    - the web card had no inertia or thrusters fields: added, with stress rows;
+    - the plan's all-pairs rows had only been written for #94: 26 here, over 11 inputs.
+
+**Proof on real data.** Each generated description was calibrated on its vehicle's real logs against the one a person
+wrote, with the same logs, held-out days and seed. Mean held-out skill over the 6 axes (1 is perfect, 0 is no better
+than predicting no motion):
+
+| Vehicle | Described from | Held out | Hand-written | Generated | Pinned (hand / gen.) | Passes |
+|---|---|---|---|---|---|---|
+| BlueROV2 Heavy | its size and mass | 16, 19 Feb | 0.379 | **0.435** | 14 / 5 | yes |
+| BlueROV2 Heavy | bluerov2_gz (Gazebo), height given | 16, 19 Feb | 0.379 | **0.434** | 14 / 5 | yes |
+| BlueROV2 Heavy | a URDF of it, height given | 16, 19 Feb | 0.379 | **0.434** | 14 / 5 | yes |
+| DFKI BlueROV2, 6 thrusters | its size and mass | its held-out runs | 0.297 | **0.303** | 11 / 8 | yes |
+| ALPHA RISE | its size and mass | pond day | 0.227 | **0.221** | 12 / 11 | yes |
+| ALPHA RISE | its size and mass | bay day | 0.183 | **0.197** | 11 / 7 | no: roll inertia and heave drag: not held by the pond day's logs |
+| ALPHA RISE | its Gazebo model, real size given | pond day | 0.227 | **0.221** | 12 / 7 | yes |
+| ALPHA RISE | its Gazebo model, real size given | bay day | 0.183 | **0.197** | 11 / 8 | no: heave drag: not held by the pond day's logs |
+| ALPHA RISE | its MuJoCo model | pond day | 0.227 | **0.216** | 12 / 8 | no: pitch damping: the model is 1.45 m long, not 1.5 |
+| ALPHA RISE | its MuJoCo model | bay day | 0.183 | **0.196** | 11 / 8 | yes |
+| ALPHA RISE | HoloOcean, size given | pond day | 0.227 | **0.222** | 12 / 12 | yes |
+| ALPHA RISE | HoloOcean, size given | bay day | 0.183 | **0.192** | 11 / 9 | no: roll inertia and heave drag: not held by the pond day's logs |
+| ALPHA RISE | its Stonefish model (`describe-stonefish`) | pond day | 0.227 | **0.216** | 12 / 10 | yes |
+| ALPHA RISE | its Stonefish model, 1 start | bay day | 0.183 | **0.123** | 11 / 9 | no: yaw damping stuck; the fit ran out of evaluations |
+| ALPHA RISE | its Stonefish model, 4 starts as it advises | bay day | 0.183 | **0.123** | 11 / 9 | no: the same fit: the first start was the best |
+
+**How wrong can the measurements be?** The BlueROV2's description from its size, with one input off at a time, scored
+0.428 to 0.439 against 0.435 with the right values and 0.379 hand-written: mass −30% 0.428, +30% 0.438; length −30%
+0.432, +30% 0.437; width −30% 0.430, +30% 0.439; height −30% 0.435, +30% 0.437; sea water for a tank 0.435 (the
+density moves only the starting values and a few limits by 2.5%, and the fit lands on the same answer). A tape measure
+and a bathroom scale are enough.
+
+**In a simulator too.** Both BlueROV2 calibrations, the hand-written description's and the one from its size, put into
+bluerov2_gz with `export-sim gazebo` and scored there on the held-out days: neither diverged; 30-s drift 5.41 m
+against 4.98 m (9% further, inside the 10% allowed); 10-s velocity error lower on five of six axes (pitch 0.21
+against 0.37 rad/s), higher on sway (0.103 against 0.097 m/s).
+
+**What a wrong input costs, and what Strathe says:**
+- **A model's buoyancy block read as the hull** (bluerov2_gz): drag limits too small, 0.312 (sway 0.51 → 0.21). With
+  the height given, 0.434. Strathe's note says to give the size.
+- **A stand-in hull sized to float the vehicle** (URI's ALPHA RISE in Gazebo: a 0.17 m cylinder for a 0.254 m hull):
+  added-mass limits 57% too small, sideways and heave added mass cut off. With the real size given (`--length 1.5
+  --diameter 0.254`): 0.221 (pond held out) and 0.197 (bay held out), against 0.207 and 0.183 without it, and nothing it
+  found cut off but the bay day's heave drag, which the logs don't decide. Strathe's note says so.
+- **The wrong shape:** the BlueROV2 as a torpedo, 0.358, 0.077 below its right description (pitch inertia and yaw
+  damping cut off). ALPHA RISE as a box: −0.097 with the pond day held out (yaw diverged, pitch inertia cut off), +0.224
+  with the bay day held out. Strathe now warns when `--shape` goes against the size.
+
+**Fits that stall:** #93's retry fired in 4 of 36 calibrations here, and each time a later start recovered (training
+cost 4305 → 44 and 521 → 40 on the BlueROV2's buoyancy block and as a torpedo; 285 → 1.95 on ALPHA RISE as a box; 66 →
+2.20 on `describe-stonefish`'s description, pond held out). Four starting points (`--restarts 4`) on the BlueROV2 found
+the same training cost as one, to four digits, for both descriptions (generated 30.4218, hand-written 38.7947), at
+3–5.5× the time: on a frame with sized limits, one start is enough. `describe-stonefish`'s description of ALPHA RISE
+(bay held out, seed 95): four starts kept the first (round-1 training costs 62 against 149–171), +0.123 either way; with
+seed 11 (#79) one start blew up and four gave +0.191. Its advice of 4 stays, and the guides now say a hard fit still
+depends on the seed and suggest calibrating `describe-vehicle`'s description beside it.
+
+**Open:**
+- **ALPHA RISE with only the pond day to train on** fails the comparison though it scores better (0.197 against
+  0.183): roll inertia and heave drag aren't held by that day's logs, and the two fits put them in different places
+  (LIMITS: "A generated description can't fix what the logs don't hold").
+- **Pitch damping on ALPHA RISE** ends at or near its most negative limit in every fit (hand-written and generated,
+  −90 to −154; −537 to −557 with the 3.6× wider box rules): a constant value can't hold what the fins add (LIMITS,
+  "Model structure"). Widening the torpedo limit as a frame's (enough to stop the largest inertia in 0.1 s: −1046
+  instead of −154) didn't help: on the bay day both fits' replays blew up (NaN skill, too stiff for the 0.1 s step),
+  and on the pond day the first fit ended worse than its start (error 1.44 against 0.319, and 1.11 against 0.31).
+  Rejected, and the change not kept.
+- **Hull lift** (`--hull-lift`) on ALPHA RISE: the bay held out, −0.354 (roll and yaw drift over the whole replay,
+  though better on 3 s windows); the pond held out, 0.209 with one more value stuck. It stays off by default.
+- **`describe-stonefish` on the bay day:** 0.06 below the hand-written description with seed 95, from one start or four.
+- Meshes aren't measured: a model with only meshes needs the size given.
+- Not yet used by a lab on its own vehicle.
+
+**Stress test** (`calibration/stress/run_95.py`; `STRESS_TEST_93_95.md`): 154 rows, 146 pass: 61 generated descriptions
+(every input at every value, thrusters three ways, a 5 cm and a 20 t hull), 26 all-pairs, 600 random descriptions
+(one row: none failed), 11 from simulator models, 12 refusals, 8 web, 1 mutant (limits not scaled with the size:
+caught), 33 calibrations and 1 Gazebo comparison. The 8 that fail are the ALPHA RISE rows marked "no" above and the two hull-lift rows below.
+
+**Tests:** `tests/test_vehicle_describe.py` (fast), the coverage gate, and the real-data rows above (skipped when the
+data isn't present).
 
 ## Honest open items
 
@@ -3234,7 +3383,7 @@ above (skipped when the data isn't present).
 - **Sensor biases are assumed in every open-water preset (#60).** SOLAQUA measured the white noise, dropouts and USBL fix, but its DVL tracks a moving net, so biases need a seabed-locked DVL with an independent reference.
 - **The optical link is uncalibrated (#59):** textbook water values, a placeholder delivery curve, a hard cone, no occlusion or sunlight. With omni terminals it lifts the shipped policies to 100% in every loss condition. With 30° cones they lose it as they roll, and fore/aft cones raise collisions (an early fix that goes stale). Whether a policy trained with `--link hybrid` learns to keep the link up is open.
 - **Lab data, not built yet (#56, #57):**
-  - PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs (export to CSV)
+  - ~~PX4 `.ulg` and other formats beyond CSV, ROS bags and ArduPilot logs~~: PX4, MOOS-IvP and LCM logs are read directly (#94); other formats still export to CSV
   - ~~thruster response lag~~ (opt-in since #66: the full refit trades it against yaw inertia and added mass, #66) and battery sag within a run (handled when voltage is logged, #63)
   - two different vehicles in one fleet
   - the thruster model isn't itself calibrated: the curve and layout are taken as given
@@ -3252,7 +3401,7 @@ above (skipped when the data isn't present).
 
 0. ~~**Calibrate any simulator a lab uses, not only Stonefish**~~: done in #81–#90 (`fit-sim` / `export-sim` / `convert-sim` for Stonefish, Gazebo, MuJoCo, HoloOcean and any simulator through a replay contract; Stonefish and Gazebo also run in Docker with nothing to build, #92). HoloOcean's in-engine check still waits for a Windows machine (item 1).
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
-2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
+2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit. #95's limits sized from the hull pin 5 of the BlueROV2's 22 values against the hand-written description's 14, and score 0.435 against 0.379 held out: shipping them as the reference description is the next step to weigh.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).
 4. **Thruster lag against inertia** (#66): the full refit with the lag free trades it against yaw inertia and added mass, which go to their bounds. Pin one of them (a bench measurement of thruster spin-up, or CAD/pendulum inertia), then refit; only then decide on making `thruster_dynamics` part of the default spec.
 5. Long runs keep the machine awake by themselves (keep the laptop lid open); `stall_log.txt` and `eval_timing.csv` stay on as a check.

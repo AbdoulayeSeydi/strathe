@@ -186,7 +186,8 @@ def test_home_page_has_every_form(server):
     assert "Calibrate your simulator model" in body and "Put your Strathe calibration into your simulator" in body
     assert "Describe your vehicle from your Stonefish model" in body
     assert "Run Stonefish and Gazebo with nothing to build (Docker)" in body
-    assert body.count(f"value='{token}'") == 14
+    assert "Describe your vehicle (no simulator needed)" in body   # #95
+    assert body.count(f"value='{token}'") == 15
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 

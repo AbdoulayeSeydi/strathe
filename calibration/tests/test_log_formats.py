@@ -184,3 +184,23 @@ def test_pwm_0_is_no_signal(R94, tmp_path):
     r.pwm[:] = 0
     res = R94.round_trip("px4", [r], v, "pwm0all")
     assert "every thruster command is 0 throughout" in res["error"]
+
+
+def test_a_damaged_timestamp_far_from_the_log_is_dropped_not_stretched_over():
+    """A flipped byte can put a message 10^13 s away: the grid stretched over that span asked for 760 TiB (found by
+    the random-damage rows, #94). Stray messages are dropped with a warning; a log spanning months is refused."""
+    import rosbag_reader as rb
+    t = np.arange(0, 200, 0.1)
+    v = np.sin(t)
+    for stray in ([870.0], [691.0, 870.0, 1.04e13], [-5e6]):
+        tt = np.r_[t, stray]
+        report = {"topics": {}, "warnings": []}
+        df, _ = rb.series_to_grid("x.log", {"a": (tt, {"a.v": np.r_[v, [9.0] * len(stray)]})}, 10.0, (), (), report, {})
+        assert len(df) == 2000 and any("far from the rest" in w for w in report["warnings"])
+    half = np.r_[t, t + 3e7]   # two halves a year apart: not stray, and too long to grid
+    with pytest.raises(rb.BagError, match="likely damaged"):
+        rb.series_to_grid("x.log", {"a": (half, {"a.v": np.r_[v, v]})}, 10.0, (), (), {"topics": {}, "warnings": []}, {})
+    report = {"topics": {}, "warnings": []}   # a real 2-minute pause mid-log is kept and interpolated, as before
+    paused = np.r_[t, t + 320]
+    df, _ = rb.series_to_grid("x.log", {"a": (paused, {"a.v": np.r_[v, v]})}, 10.0, (), (), report, {})
+    assert len(df) == 5200 and not any("far from the rest" in w for w in report["warnings"])

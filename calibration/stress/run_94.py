@@ -512,6 +512,44 @@ def d_damage() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def d_fuzz(n: int = 40) -> None:
+    """Random damage, n logs per format: cut anywhere, bytes flipped, garbage inserted or a block wiped. Each must
+    ingest or be refused with a plain IngestError: never another exception."""
+    os.makedirs(DATA, exist_ok=True)
+    rng = np.random.default_rng(94)
+    for fmt in FORMATS:
+        r, vals, p, spec, folder = _one_log(fmt)
+        raw = open(p, "rb").read()
+        crashes, refused, read = [], 0, 0
+        for i in range(n):
+            b = bytearray(raw)
+            kind = ("cut", "flip", "insert", "wipe")[i % 4]
+            at = int(rng.integers(0, len(b)))
+            if kind == "cut":
+                b = b[:at]
+            elif kind == "flip":
+                for j in rng.integers(0, len(b), int(rng.integers(1, 50))):
+                    b[j] = int(rng.integers(0, 256))
+            elif kind == "insert":
+                b[at:at] = bytes(rng.integers(0, 256, int(rng.integers(1, 2000)), dtype=np.uint8))
+            else:
+                b[at:at + 2000] = bytes(min(2000, len(b) - at))
+            q = p.replace(os.path.basename(p), f"fuzz{i}_{os.path.basename(p)}")
+            open(q, "wb").write(bytes(b))
+            res = _damage_check(fmt, spec, q, folder, None, f"fuzz{i}")
+            os.remove(q)
+            if "crash" in res:
+                crashes.append({"damage": kind, "at": at, "error": res["crash"]})
+            elif "refused" in res:
+                refused += 1
+            else:
+                read += 1
+        record(F, f"DF-{fmt}", "damage", "random", f"{fmt}: {n} randomly damaged logs (cut, flipped, inserted, wiped)",
+               r.name, {"read": read, "refused_plainly": refused, "crashed": len(crashes), "first": crashes[:3]},
+               "each read or refused with a plain error; none crash", not crashes)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def _glob(p):
     import glob
     return glob.glob(p)
@@ -530,6 +568,8 @@ def _damage_check(fmt, spec, q, folder, clean, label) -> dict:
     except Exception as e:
         return {"ok": False, "crash": f"{type(e).__name__}: {e}"[:240]}
     got = pd.read_csv(_glob(os.path.join(out, "*.csv"))[0])
+    if clean is None:   # random damage: reading it without a crash is the check
+        return {"ok": True, "rows": len(got)}
     n = min(len(got), len(clean))
     head = float(np.max(np.abs(got[di.CANONICAL_COLUMNS].to_numpy()[: n // 2] -
                                clean[di.CANONICAL_COLUMNS].to_numpy()[: n // 2])))
@@ -803,12 +843,13 @@ def all_rows() -> set:
         rows |= {f"P-{f}-{i}" for i in range(len(pairwise_cases(PAIR_NAMES)))}
         rows |= {f"D-{f}-{d}" for d in ("truncated_50pct", "truncated_99pct", "corrupt_middle", "empty", "gap", "nan",
                                         "out_of_order", "duplicates", "missing_variable")}
-        rows |= {f"S-{f}", f"I-{f}", f"EP-{f}-ingest", f"EP-{f}-web", f"EP-{f}-calibrate"}
+        rows |= {f"S-{f}", f"I-{f}", f"EP-{f}-ingest", f"EP-{f}-web", f"EP-{f}-calibrate", f"DF-{f}"}
         rows |= {f"X-{f}-{x}" for x in ("time_block", "no_resample", "message_types",
                                        *(("stamp", "lcm_types_elsewhere") if f != "lcm" else ("lcm_without_types",)))}
         rows |= {f"E-bluerov-{f}", f"E-uri-{f}"}
     rows |= {"D-moos-string_value", "D-lcm-wrong_types", "K-px4-multi_instance", "K-moos-keyvalue", "K-moos-source",
-             "K-lcm-nested", "M-frame_sign_flipped", "M-PX4_time_unit_wrong_by_1000", "M-array_index_dropped"}
+             "K-lcm-nested", "M-frame_sign_flipped", "M-PX4_time_unit_wrong_by_1000", "M-array_index_dropped",
+             "I-lcm-logger", *(f"E-mujoco-{f}" for f in FORMATS)}
     return rows
 
 
@@ -883,9 +924,82 @@ def i_real_px4() -> None:
            os.path.basename(PUBLIC_PX4), got, "converts, or refuses with a plain sentence naming the problem", ok)
 
 
+def i_lcm_logger() -> None:
+    """A log recorded by lcm's own lcm-logger from messages published on the network (loopback multicast), read
+    against lcm's own decode of the same file."""
+    import signal
+    import lcm
+    import lcm_reader
+    from format_writers import lcm_type_text
+    folder = tempfile.mkdtemp(prefix="i94_lcmlogger_", dir=DATA)
+    os.makedirs(os.path.join(folder, "types"))
+    open(os.path.join(folder, "types", "dvl.lcm"), "w").write(
+        lcm_type_text("strathe_test", "dvl", {"vel[0]": 0, "vel[1]": 0, "vel[2]": 0}))
+    tfiles = [os.path.join(folder, "types", "*.lcm")]
+    cls = next(iter(lcm_reader.load_types(tfiles).values()))
+    url, path = "udpm://239.255.76.67:7667?ttl=0", os.path.join(folder, "real.lcmlog")
+    logger = subprocess.Popen([os.path.join(os.path.dirname(PY), "lcm-logger"), "-f", f"--lcm-url={url}", path],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    t_end = time.time() + 10
+    while time.time() < t_end and not os.path.exists(path):   # it opens the file once it's subscribed
+        time.sleep(0.1)
+    time.sleep(0.5)
+    lc, sent = lcm.LCM(url), []
+    for k in range(100):
+        m = cls()
+        m.utime, m.vel = int(time.time() * 1e6), [0.01 * k, -0.02 * k, 0.5]
+        lc.publish("DVL", m.encode())
+        sent.append(m.vel[0])
+        time.sleep(0.05)
+    time.sleep(0.5)
+    logger.send_signal(signal.SIGINT)
+    logger.wait(timeout=10)
+    log, t, v = lcm.EventLog(path, "r"), [], []
+    while (ev := log.read_next_event()) is not None:
+        if ev.channel == "DVL":
+            m = cls.decode(ev.data)
+            t.append(m.utime / 1e6)
+            v.append(m.vel[0])
+    try:
+        ours = lcm_reader.read_log(path, ["DVL.vel[0]"], 10, type_files=tfiles)[0]
+        d = float(np.max(np.abs(np.interp(ours["__bag_time_s__"].to_numpy(), t, v) - ours["DVL.vel[0]"].to_numpy())))
+        got = {"published": len(sent), "logged": len(v), "grid_rows": len(ours), "max_abs_diff": d}
+        ok = len(v) >= 0.9 * len(sent) and set(v) <= set(sent) and d < TOL
+    except Exception as e:
+        got, ok = {"published": len(sent), "logged": len(v), "error": str(e)[:300]}, False
+    record(F, "I-lcm-logger", "independent", "lcm-logger", "lcm: a log recorded by lcm-logger off the network, "
+           "against lcm's own decode", "100 published DVL messages", got, f"read; values < {TOL:g} from lcm's decode",
+           ok)
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def e_mujoco_routes() -> None:
+    """fit-sim --sim mujoco on each format's ingest and on the CSV route's (BlueROV2, 16 and 19 Feb held out, a
+    short drag fit): the same fitted values."""
+    mj = _glob(os.path.join(CAL, "simulators", "mujoco", "example", "*.xml"))[0]
+    folders = _route_folders("bluerov", recordings("pwm"))
+    fits = {}
+    for route in ("csv", *FORMATS):
+        folder = folders[FORMATS[0]]["csv"] if route == "csv" else folders[route][route]
+        out = os.path.join(DATA, "E-mujoco", route)
+        if not os.path.exists(os.path.join(out, "mujoco_fit.yaml")):
+            shutil.rmtree(out, ignore_errors=True)
+            strathe(["fit-sim", "--sim", "mujoco", "--model", mj, "--reference-point", "0", "0", "0", "--data", folder,
+                     "--heldout-dates", "16-02-2024", "19-02-2024", "--fit", "drag", "--max-iterations", "3",
+                     "--workers", "3", "--out", out], out + ".log")
+        p = os.path.join(out, "mujoco_fit.yaml")
+        fits[route] = yaml.safe_load(open(p))["after"] if os.path.exists(p) else None
+    for fmt in FORMATS:
+        a, b = fits["csv"], fits[fmt]
+        rel = max(abs(a[k] - b[k]) / max(abs(a[k]), 1e-12) for k in a) if a and b else None
+        record(F, f"E-mujoco-{fmt}", "calibration", fmt, f"bluerov: fit-sim --sim mujoco from {fmt} vs from the CSV "
+               "route", "bluerov", {"csv": a, fmt: b, "max_rel_diff": rel}, "the same fitted values (relative < 1e-6)",
+               rel is not None and rel < 1e-6)
+
+
 def fast() -> int:
     os.makedirs(DATA, exist_ok=True)
-    for step in (r_full, v_one_at_a_time, p_pairwise, k_field_kinds, d_damage, s_size, x_spec_rules, i_independent,
+    for step in (r_full, v_one_at_a_time, p_pairwise, k_field_kinds, d_damage, d_fuzz, s_size, x_spec_rules, i_independent,
                  e_entry_points, c_check):
         print(f"--- {step.__name__} ({time.strftime('%H:%M')})", flush=True)
         try:
@@ -1089,5 +1203,6 @@ if __name__ == "__main__":
     if cmd == "list":
         list_rows()
         sys.exit(0)
-    sys.exit({"fast": fast, "mutants": mutants, "objective": lambda: objective_same(sys.argv[2:])}
+    sys.exit({"fast": fast, "mutants": mutants, "objective": lambda: objective_same(sys.argv[2:]),
+              "lcm-logger": i_lcm_logger, "mujoco": e_mujoco_routes}
              .get(cmd, lambda: e2e(sys.argv[2:]))())

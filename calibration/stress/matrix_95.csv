@@ -1,0 +1,47 @@
+variable,rows,note
+option:--mass,G-blue-mass-0.7 G-alpha-mass-1.3 E-blue-mass-0.7 G-small-frame G-large-frame X-too_small FZ-600,"mass, and +-10/30%; 75 g to 20 t; random"
+option:--length,G-blue-length-0.7 G-alpha-length-1.3 E-blue-length-1.3 G-small-torpedo G-large-frame FZ-600,"length; 5 cm to 10 m"
+option:--width,G-blue-width-0.9 E-blue-width-0.7,width
+option:--height,G-blue-height-1.1 E-blue-height-1.3 MS-gazebo-bluerov2_gz-sized,height; overriding a model's
+option:--diameter,G-alpha-diameter-0.7 G-alpha-diameter-1.3,diameter
+option:--shape,G-blue-shape-box G-alpha-shape-torpedo E-blue-as-torpedo E-alpha-as-box-pondout,shape forced
+option:--shape=box,G-blue-shape-box E-alpha-as-box-pondout E-alpha-as-box-bayout,box
+option:--shape=torpedo,G-alpha-shape-torpedo E-blue-as-torpedo,torpedo
+option:--inertia,G-blue-inertia G-alpha-inertia X-bad_inertia,CAD inertia
+option:--cg-below-cb,G-blue-cg G-alpha-cg,CG below CB
+option:--net-buoyancy,G-blue-net-buoyancy G-alpha-net-buoyancy,trim
+option:--volume,G-blue-volume G-alpha-volume,displaced volume
+option:--water,G-blue-water-sea G-alpha-water-fresh G-blue-water-1010 X-bad_water E-blue-sea,water
+option:--reference-point,G-blue-reference-point G-alpha-reference-point,reference point
+option:--torque-reference-offset,G-blue-base E-blue-dims,the BlueROV2 dataset's torque convention
+option:--thrusters,G-blue-thrusters G-alpha-thrusters X-unknown_thrusters,thrusters
+option:--hull-lift,G-alpha-hull-lift G-blue-hull-lift E-alpha-hull-lift-pondout W-torpedo,hull lift
+option:--from-model,MS-gazebo-bluerov2_gz MS-urdf-bluerov2 MS-mujoco-alpha MS-holoocean-alpha X-missing_model E-blue-gz-sized,a model
+option:--sim,MS-gazebo-alpha MS-urdf-bluerov2 MS-mujoco-example MS-holoocean-example-sized,what the model is
+option:--sim=gazebo,MS-gazebo-bluerov2_gz MS-gazebo-alpha E-blue-gz-sized E-alpha-gazebo-pondout,Gazebo
+option:--sim=urdf,MS-urdf-bluerov2 E-blue-urdf X-model_without_mass,URDF
+option:--sim=mujoco,MS-mujoco-alpha MS-mujoco-example E-alpha-mujoco-pondout,MuJoCo
+option:--sim=holoocean,MS-holoocean-alpha MS-holoocean-example-sized X-holoocean_without_size E-alpha-holoocean-pondout,HoloOcean
+option:--model-name,MS-gazebo-model-name MS-mujoco-model-name,the model / body in the file
+option:--name,G-blue-name G-alpha-name W-measurements,the name
+option:--out,G-blue-base,the file written
+water:fresh,G-blue-base G-alpha-water-fresh E-blue-dims,fresh
+water:sea,G-blue-water-sea G-alpha-base E-blue-sea,sea
+water:a density,G-blue-water-1010 W-torpedo X-bad_water,a number
+shape-rules:box_bounds,G-blue-base E-blue-dims M-bounds_not_scaled,box rules
+shape-rules:torpedo_bounds,G-alpha-base E-alpha-dims-pondout E-alpha-dims-bayout M-bounds_not_scaled,torpedo rules
+web:cg_below_cb,W-torpedo,the web card's field
+web:diameter,W-torpedo,the web card's field
+web:from_model,W-model W-refuse-model_without_kind,the web card's field
+web:height,W-measurements W-model,the web card's field
+web:hull_lift,W-torpedo,the web card's field
+web:length,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:mass,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:name,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:net_buoyancy,W-torpedo,the web card's field
+web:shape,W-torpedo,the web card's field
+web:sim,W-model W-refuse-model_without_kind,the web card's field
+web:water,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:width,W-measurements W-torpedo W-refuse-nothing,the web card's field
+web:inertia,W-cad-and-thrusters W-refuse-two_inertia_values,the web card's field
+web:thrusters,W-cad-and-thrusters W-refuse-thrusters_file_missing,the web card's field

@@ -28,8 +28,31 @@ def test_every_variable_has_a_stress_row(feature):
 def test_every_matrix_row_exists_in_the_harness(feature):
     import importlib
     run = importlib.import_module(f"run_{feature}")
-    known = set(run.ROWS_FAST) | set(run._e2e_rows())
-    prefixes = {k.split("-")[0] for k in known} | known
+    if hasattr(run, "all_rows"):   # the harness lists its row ids: the matrix must name real ones
+        known = run.all_rows()
+    else:                          # #93's rows are named by group (F1, E1, ...)
+        known = set(run.ROWS_FAST) | set(run._e2e_rows())
+        known |= {k.split("-")[0] for k in known}
     for var, (rows, _) in inventory.matrix(feature).items():
         for r in rows:
-            assert r == "exempt" or r in prefixes, f"{var}: row {r} isn't in stress/run_{feature}.py"
+            assert r == "exempt" or r in known, f"{var}: row {r} isn't in stress/run_{feature}.py"
+
+
+def test_the_report_lists_every_row():
+    """STRESS_TEST_93_95.md once counted all 349 #94 rows but listed 15: rows outside the F/M/E groups were dropped."""
+    import report
+    from common import load_rows
+    text = report.render()
+    for feature in report.TITLES:
+        missing = [r["row"] for r in load_rows(feature) if f"| {r['row']} |" not in text]
+        assert not missing, f"#{feature} rows missing from the report: {missing[:5]}"
+
+
+def test_the_results_page_lists_every_row():
+    """The private results page (stress/page.py) is built from the same rows as the report, and drops none."""
+    import page
+    from common import load_rows
+    text = page.render()
+    for feature in ("93", "94", "95"):
+        missing = [r["row"] for r in load_rows(feature) if f"<code>{page.E(r['row'])}</code>" not in text]
+        assert not missing, f"#{feature} rows missing from the page: {missing[:5]}"

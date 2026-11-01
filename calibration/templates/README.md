@@ -38,8 +38,9 @@ that for a public dataset (motion capture + ArduSub telemetry) and is a worked e
 
 `vehicle_spec_template.yaml` describes the vehicle itself: its mass, and a first
 guess and an allowed range for its inertia, drag, added mass and buoyancy, with
-the formulas to work them out from its mass and size. Copy it, fill it in, and
-pass it with `--spec`. Without it Strathe uses a BlueROV2 Heavy (11.2 kg), which
+the formulas to work them out from its mass and size. **Easier:** `python strathe.py describe-vehicle --mass ...
+--length ... --width ... --height ...` writes it for you (`../DESCRIBE_VEHICLE.md`). Or copy the template, fill it
+in, and pass it with `--spec`. Without it Strathe uses a BlueROV2 Heavy (11.2 kg), which
 is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
 
 ## What every spec needs
