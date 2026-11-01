@@ -39,6 +39,11 @@ static const bool kPatched = true;
 #else
 static const bool kPatched = false;
 #endif
+#ifdef STONEFISH_AXIS_DAMPING_PATCH
+static const bool kAxisDamping = true;  // the patch's per-axis damping (damping_linear etc. in <hydrodynamics>)
+#else
+static const bool kAxisDamping = false;
+#endif
 
 class ReplayManager : public SimulationManager {
 public:
@@ -110,8 +115,9 @@ static void drag_areas(FILE* f, SolidEntity* s) {
 static void info(FILE* f, SimulationManager* sim, FeatherstoneRobot* robot, SolidEntity* body) {
     Vector3 Cd, Cf;
     Ocean* ocn = sim->getOcean();
-    fprintf(f, "{\"patched\": %s, \"water_density\": %.9g, \"base\": {\"name\": \"%s\", \"mass\": %.9g, "
-               "\"augmented_mass\": %.9g, \"volume\": %.9g, \"inertia\": ", kPatched ? "true" : "false",
+    fprintf(f, "{\"patched\": %s, \"axis_damping\": %s, \"water_density\": %.9g, \"base\": {\"name\": \"%s\", "
+               "\"mass\": %.9g, \"augmented_mass\": %.9g, \"volume\": %.9g, \"inertia\": ", kPatched ? "true" : "false",
+            kAxisDamping ? "true" : "false",
             ocn ? ocn->getLiquid().density : 0.0, body->getName().c_str(), body->getMass(), body->getAugmentedMass(),
             body->getVolume());
     vec(f, body->getAugmentedInertia());
@@ -176,6 +182,11 @@ int main(int argc, char** argv) {
         else if (a == "--windows") { next(); windows = argv[++i]; }
         else if (a == "--out") { next(); out = argv[++i]; }
         else if (a == "--info") doInfo = true;
+        else if (a == "--features") {  // what this build supports, without a scenario (`strathe check`)
+            printf("{\"patched\": %s, \"axis_damping\": %s}\n", kPatched ? "true" : "false",
+                   kAxisDamping ? "true" : "false");
+            return 0;
+        }
         else { fprintf(stderr, "unknown argument %s\n", a.c_str()); return 2; }
     }
     if (scn.empty() || data.empty() || robotName.empty() || (!doInfo && (windows.empty() || out.empty()))) {

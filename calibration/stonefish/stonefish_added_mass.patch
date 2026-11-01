@@ -1,17 +1,18 @@
 diff --git a/Library/include/entities/SolidEntity.h b/Library/include/entities/SolidEntity.h
-index f0ab3c9..05b6fec 100644
+index f0ab3c9..505c505 100644
 --- a/Library/include/entities/SolidEntity.h
 +++ b/Library/include/entities/SolidEntity.h
-@@ -26,6 +26,8 @@
+@@ -26,6 +26,9 @@
  #ifndef __Stonefish_SolidEntity__
  #define __Stonefish_SolidEntity__
  
 +#define STONEFISH_ADDED_MASS_PATCH 1 //added mass override + anisotropic added mass (Strathe's patch)
++#define STONEFISH_AXIS_DAMPING_PATCH 1 //per-axis linear + quadratic damping instead of mesh drag (Strathe's patch)
 +
  #include "BulletDynamics/Featherstone/btMultiBodyLinkCollider.h"
  #include "core/MaterialManager.h"
  #include "entities/MovingEntity.h"
-@@ -252,6 +254,22 @@ namespace sf
+@@ -252,6 +255,37 @@ namespace sf
           \param Cf a vector of skin friction (viscous drag) coefficients
           */
          void SetHydrodynamicCoefficients(const Vector3& Cd, const Vector3& Cf);
@@ -31,16 +32,33 @@ index f0ab3c9..05b6fec 100644
 +
 +        //! Per-axis added mass along the body's own (O) axes used by the anisotropic correction (zero when off).
 +        Vector3 getAnisotropicAddedMass() const;
++
++        //! Per-axis damping instead of the mesh drag, as in a Fossen-style model: along the vehicle's axes, at a point
++        //! fixed to it, F_i = (Dl_i + Dq_i |v_i|) v_i and M_i = (Dl_rot_i + Dq_rot_i |w_i|) w_i (coefficients <= 0).
++        //! On a compound's part it replaces the mesh drag of every external part (the values are the whole
++        //! vehicle's); the point and axes are the compound's own (O) frame. (STONEFISH_AXIS_DAMPING_PATCH.)
++        void SetAxisDamping(const Vector3& linear, const Vector3& linearRot, const Vector3& quadratic,
++                            const Vector3& quadraticRot, const Vector3& point);
++
++        //! Whether per-axis damping replaces the mesh drag.
++        bool hasAxisDamping() const;
++
++        //! Per-axis damping force and torque (world frame, torque about the CG) for a body moving with velocity v and
++        //! angular velocity omega at its CG, with frame T_O (the axes and origin the damping point is given in).
++        void ComputeAxisDamping(Ocean* ocn, const Transform& T_O, const Vector3& cg, const Vector3& v,
++                                const Vector3& omega, Vector3& F, Vector3& T) const;
          
          //! A method to set the body pose in the world frame.
          void setCGTransform(const Transform& trans);
-@@ -437,6 +455,9 @@ namespace sf
+@@ -437,6 +471,11 @@ namespace sf
          
          Vector3 aMass; //Hydrodynamic added mass
  		Vector3 aI; //Hydrodynamic added inertia
 +        Vector3 aMassAniso; //Per-axis added mass, body (O) axes, for the anisotropic correction (zero = off)
 +        Vector3 aniPrevV; //World velocity of the CG at the previous step (anisotropic correction)
 +        bool aniPrevValid;
++        bool axisDamping; //per-axis damping replaces the mesh drag
++        Vector3 dLin, dLinRot, dQuad, dQuadRot, dPoint; //per-axis damping coefficients and the point they act at
          GeometryApproxType fdApproxType;
          std::vector<Scalar> fdApproxParams;
          Vector3 fdCd;
@@ -59,19 +77,21 @@ index 2690ddc..025d9fa 100644
          SolidType getSolidType();
          
 diff --git a/Library/src/core/ScenarioParser.cpp b/Library/src/core/ScenarioParser.cpp
-index d0c414e..9af310b 100644
+index d0c414e..e6610cf 100644
 --- a/Library/src/core/ScenarioParser.cpp
 +++ b/Library/src/core/ScenarioParser.cpp
-@@ -1737,6 +1737,8 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+@@ -1737,6 +1737,10 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
          Vector3 I;
          Vector3 Cf(-1,-1,-1);
          Vector3 Cd(-1,-1,-1);    
 +        Vector3 addedM(0,0,0), addedI(0,0,0);
 +        bool addedMassOk = false, addedAniso = false;
++        Vector3 dLin(0,0,0), dLinRot(0,0,0), dQuad(0,0,0), dQuadRot(0,0,0), dPoint(0,0,0);
++        bool axisDampingOk = false;
          bool cgok;
          unsigned int uvMode = 0;
          float uvScale = 1.f;
-@@ -1779,6 +1781,11 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+@@ -1779,6 +1783,21 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
                  ParseVector(xyz, Cf);
              if(item->QueryStringAttribute("quadratic_drag", &xyz) == XML_SUCCESS)
                  ParseVector(xyz, Cd);  
@@ -80,20 +100,32 @@ index d0c414e..9af310b 100644
 +            if(item->QueryStringAttribute("added_inertia", &xyz) == XML_SUCCESS)
 +                ParseVector(xyz, addedI);
 +            item->QueryAttribute("anisotropic_added_mass", &addedAniso);
++            if(item->QueryStringAttribute("damping_linear", &xyz) == XML_SUCCESS)
++                axisDampingOk = ParseVector(xyz, dLin) || axisDampingOk;
++            if(item->QueryStringAttribute("damping_quadratic", &xyz) == XML_SUCCESS)
++                axisDampingOk = ParseVector(xyz, dQuad) || axisDampingOk;
++            if(item->QueryStringAttribute("damping_linear_rot", &xyz) == XML_SUCCESS)
++                axisDampingOk = ParseVector(xyz, dLinRot) || axisDampingOk;
++            if(item->QueryStringAttribute("damping_quadratic_rot", &xyz) == XML_SUCCESS)
++                axisDampingOk = ParseVector(xyz, dQuadRot) || axisDampingOk;
++            if(item->QueryStringAttribute("damping_point", &xyz) == XML_SUCCESS)
++                ParseVector(xyz, dPoint);
          } 
  
          //Origin    
-@@ -1943,6 +1950,8 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
+@@ -1943,6 +1962,10 @@ bool ScenarioParser::ParseSolid(XMLElement* element, SolidEntity*& solid, std::s
              solid->SetArbitraryPhysicalProperties(newMass, newI, newCg);
          }
          solid->SetHydrodynamicCoefficients(Cd, Cf);
 +        if(addedMassOk)
 +            solid->SetAddedMass(addedM, addedI, addedAniso);
++        if(axisDampingOk)
++            solid->SetAxisDamping(dLin, dLinRot, dQuad, dQuadRot, dPoint);
      }
  
      //Contact properties (soft contact)
 diff --git a/Library/src/entities/SolidEntity.cpp b/Library/src/entities/SolidEntity.cpp
-index a92fa27..a0c0c30 100644
+index a92fa27..ab63fb2 100644
 --- a/Library/src/entities/SolidEntity.cpp
 +++ b/Library/src/entities/SolidEntity.cpp
 @@ -24,6 +24,8 @@
@@ -105,17 +137,37 @@ index a92fa27..a0c0c30 100644
  
  #include "core/GraphicalSimulationApp.h"
  #include "core/SimulationManager.h"
-@@ -66,6 +68,9 @@ SolidEntity::SolidEntity(std::string uniqueName, BodyPhysicsSettings phy, std::s
+@@ -66,6 +68,15 @@ SolidEntity::SolidEntity(std::string uniqueName, BodyPhysicsSettings phy, std::s
      //Set properties
      mass = Scalar(0);
      aMass.setZero();
 +    aMassAniso.setZero();
 +    aniPrevV.setZero();
 +    aniPrevValid = false;
++    axisDamping = false;
++    dLin.setZero();
++    dLinRot.setZero();
++    dQuad.setZero();
++    dQuadRot.setZero();
++    dPoint.setZero();
      surface = Scalar(0);
      aI.setZero();
      Ipri.setZero();
-@@ -1923,10 +1928,58 @@ void SolidEntity::CorrectAerodynamicForces(Atmosphere* atm, Vector3& _Fda, Vecto
+@@ -1815,6 +1826,13 @@ void SolidEntity::ComputeHydrodynamicForces(HydrodynamicsSettings settings, Ocea
+     
+     if(settings.dampingForces)
+         CorrectHydrodynamicForces(ocn, Fdq, Tdq, Fdf, Tdf, fdCd, fdCf, getOTransform());
++
++    if(settings.dampingForces && axisDamping) //per-axis damping replaces the mesh drag (Strathe's patch)
++    {
++        ComputeAxisDamping(ocn, getOTransform(), getCGTransform().getOrigin(), v, omega, Fdq, Tdq);
++        Fdf.setZero();
++        Tdf.setZero();
++    }
+ }
+ 
+ void SolidEntity::ComputeAerodynamicForces(Atmosphere* atm)
+@@ -1923,10 +1941,97 @@ void SolidEntity::CorrectAerodynamicForces(Atmosphere* atm, Vector3& _Fda, Vecto
      _Tda *= btFabs(corFactor);
  }
  
@@ -139,6 +191,45 @@ index a92fa27..a0c0c30 100644
 +Vector3 SolidEntity::getAnisotropicAddedMass() const
 +{
 +    return aMassAniso;
++}
++
++void SolidEntity::SetAxisDamping(const Vector3& linear, const Vector3& linearRot, const Vector3& quadratic,
++                                 const Vector3& quadraticRot, const Vector3& point)
++{
++    dLin = linear;
++    dLinRot = linearRot;
++    dQuad = quadratic;
++    dQuadRot = quadraticRot;
++    dPoint = point;
++    axisDamping = true;
++}
++
++bool SolidEntity::hasAxisDamping() const
++{
++    return axisDamping;
++}
++
++void SolidEntity::ComputeAxisDamping(Ocean* ocn, const Transform& T_O, const Vector3& cg, const Vector3& v,
++                                     const Vector3& omega, Vector3& F, Vector3& T) const
++{
++    Matrix3 R = T_O.getBasis();
++    Vector3 p = T_O * dPoint; //the damping point, world frame
++    Vector3 vp = v + omega.cross(p - cg); //its velocity
++    if(ocn != nullptr) //relative to the water
++    {
++        glm::vec3 fv = ocn->GetFluidVelocity(glm::vec3((GLfloat)p.x(), (GLfloat)p.y(), (GLfloat)p.z()));
++        vp -= Vector3(fv.x, fv.y, fv.z);
++    }
++    Vector3 vB = R.transpose() * vp;
++    Vector3 wB = R.transpose() * omega;
++    Vector3 FB((dLin.x() + dQuad.x() * btFabs(vB.x())) * vB.x(),
++               (dLin.y() + dQuad.y() * btFabs(vB.y())) * vB.y(),
++               (dLin.z() + dQuad.z() * btFabs(vB.z())) * vB.z());
++    Vector3 MB((dLinRot.x() + dQuadRot.x() * btFabs(wB.x())) * wB.x(),
++               (dLinRot.y() + dQuadRot.y() * btFabs(wB.y())) * wB.y(),
++               (dLinRot.z() + dQuadRot.z() * btFabs(wB.z())) * wB.z());
++    F = R * FB;
++    T = R * MB + (p - cg).cross(F); //the force acts at the damping point: its moment about the CG
 +}
 +
  void SolidEntity::ApplyHydrodynamicForces()
@@ -177,7 +268,7 @@ index a92fa27..a0c0c30 100644
  
  void SolidEntity::ApplyAerodynamicForces()
 diff --git a/Library/src/entities/solids/Compound.cpp b/Library/src/entities/solids/Compound.cpp
-index 56fdd96..6b471d1 100644
+index 56fdd96..2dbd232 100644
 --- a/Library/src/entities/solids/Compound.cpp
 +++ b/Library/src/entities/solids/Compound.cpp
 @@ -266,6 +266,25 @@ void Compound::RecalculatePhysicalProperties()
@@ -206,3 +297,34 @@ index 56fdd96..6b471d1 100644
      volume = compoundVolume;
      surface = compoundSurface;
      Ipri = compoundPriInertia;
+@@ -432,6 +451,30 @@ void Compound::ComputeHydrodynamicForces(HydrodynamicsSettings settings, Ocean*
+             }
+         }
+     }
++
++    //Per-axis damping (Strathe's patch): the whole vehicle's values, so they replace the mesh drag of every external part
++    if(settings.dampingForces)
++    {
++        bool any = false;
++        Vector3 Fa(0,0,0), Ta(0,0,0);
++        for(size_t i=0; i<parts.size(); ++i)
++            if(parts[i].isExternal && parts[i].solid->hasAxisDamping())
++            {
++                Vector3 Fp, Tp;
++                parts[i].solid->ComputeAxisDamping(ocn, getOTransform(), getCGTransform().getOrigin(),
++                                                   getLinearVelocity(), getAngularVelocity(), Fp, Tp);
++                Fa += Fp;
++                Ta += Tp;
++                any = true;
++            }
++        if(any)
++        {
++            Fdq = Fa;
++            Tdq = Ta;
++            Fdf.setZero();
++            Tdf.setZero();
++        }
++    }
+ }
+ 
+ void Compound::ComputeAerodynamicForces(Atmosphere* atm)

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import os
 import re
 import subprocess
@@ -280,6 +281,30 @@ def _banner(i, n, text):
     print(f"\n{'=' * 70}\n[{i}/{n}] {text}\n{'=' * 70}", flush=True)
 
 
+def stonefish_status(tool: Optional[str] = None) -> str:
+    """One line for `strathe check`: whether the Stonefish replay tool is built, and which of the patch's features its
+    Stonefish has (per-axis added mass, #72; Strathe's damping, #80). Optional: only the Stonefish commands need it."""
+    p = (tool or os.environ.get("STRATHE_STONEFISH_REPLAY")
+         or os.path.join(CAL_DIR, "stonefish", "build", "strathe_stonefish_replay"))
+    if not (os.path.exists(p) and os.access(p, os.X_OK)):
+        return ("➖ Stonefish replay tool not built (optional: only fit-stonefish, export-stonefish and "
+                "describe-stonefish need it; calibration/stonefish/README.md)")
+    try:
+        out = subprocess.run([p, "--features"], capture_output=True, text=True, timeout=30).stdout
+        f = json.loads(out.strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return (f"⚠️  Stonefish replay tool at {p} is older than this version: rebuild it "
+                f"(calibration/stonefish/README.md) to see what its Stonefish supports")
+    if f.get("patched") and f.get("axis_damping"):
+        return "✅ Stonefish replay tool, with the patch: per-axis added mass and Strathe's damping"
+    if f.get("patched"):
+        return ("⚠️  Stonefish replay tool, with an older patch: per-axis added mass, but export-stonefish can't carry "
+                "Strathe's damping. Re-apply calibration/stonefish/stonefish_added_mass.patch and rebuild")
+    return ("⚠️  Stonefish replay tool, without the patch: fit-stonefish can't fit added mass and export-stonefish "
+            "converts the drag. Apply calibration/stonefish/stonefish_added_mass.patch and rebuild "
+            "(calibration/stonefish/README.md)")
+
+
 def cmd_check(args, runner=None) -> int:
     ok = True
     print(f"Python {sys.version.split()[0]} ({sys.executable})")
@@ -308,6 +333,7 @@ def cmd_check(args, runner=None) -> int:
                 if os.path.exists(os.path.join(CAL_DIR, p))]
     print(("✅" if len(policies) == 3 else "❌") + f" shipped fleet policies ({len(policies)}/3)")
     ok = ok and len(policies) == 3
+    print(stonefish_status())
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 
