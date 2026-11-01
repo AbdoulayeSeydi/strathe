@@ -88,12 +88,22 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
         g = sensors.get("gyro", {})
         ang = nu[:, 3:6] + g.get("bias", 0.0) + g.get("noise", 0.0) * rng.normal(size=(n, 3))
         df["Bp"], df["Bq"], df["Br"] = ang[:, 0], ang[:, 1], ang[:, 2]
+        q_log = run.orientation_quat
+        drift = sensors.get("heading_drift_deg_per_min")
+        if drift:   # no compass: the heading integrated from the gyro, wandering off at this rate (the path is true)
+            from scipy.spatial.transform import Rotation as _R
+            yaw_err = np.radians(drift / 60.0) * np.arange(n) * run.dt
+            q_log = (_R.from_euler("z", yaw_err) * _R.from_quat(run.orientation_quat)).as_quat()
         for k, c in enumerate(("qx", "qy", "qz", "qw")):
-            df[c] = run.orientation_quat[:, k]
+            df[c] = q_log[:, k]
         if "dvl" in sensors:
             d = sensors["dvl"]
             m = _sample_mask(n, every(d.get("rate_hz", rate_hz)), d.get("dropout", 0.0), rng)
             lin = nu[:, :3] + d.get("noise", 0.0) * rng.normal(size=(n, 3))
+            if d.get("track") == "water" and run.current_body is not None:
+                lin = lin - run.current_body          # through the water
+            if d.get("lever_arm") is not None:
+                lin = lin + np.cross(nu[:, 3:6], np.asarray(d["lever_arm"], float))
             lin[~m] = np.nan
             df["Bu"], df["Bv"], df["Bw"] = lin[:, 0], lin[:, 1], lin[:, 2]
         positions = sensors.get("position")
@@ -105,6 +115,8 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
             lag = int(round(p.get("delay_s", 0.0) * rate_hz))
             src_idx = np.clip(np.arange(n) - lag, 0, n - 1)
             vals = path[src_idx] + p.get("noise", 0.0) * rng.normal(size=(n, 3))
+            if p.get("lever_arm") is not None:   # the transponder's own point
+                vals = vals + np.einsum("nij,j->ni", R[src_idx], np.asarray(p["lever_arm"], float))
             vals[~m] = np.nan
             for k, a in enumerate("ned"):
                 if a in axes:
@@ -182,3 +194,46 @@ def reference_sources(dates=("12-01-2024",), limit: Optional[int] = None) -> lis
         files += sorted(glob.glob(os.path.join(REFERENCE, f"odom-{d}-run*.csv")),
                         key=lambda p: int(p.rsplit("run", 1)[1].split(".")[0]))
     return files[:limit] if limit else files
+
+
+def truth_skill(cal, spec_path: str, data_dir: str, truth_dir: str, files: list, horizon_s: float = 3.0,
+                rate_hz: float = 10.0, torque_offset=None) -> dict:
+    """Held-out skill per axis against a hidden truth velocity that may have gaps (a real DVL's dropouts): windows of
+    horizon_s start where the truth read (as a DVL would start them), the calibrated values' simulation against the
+    truth wherever it read. Skill = 1 - RMSE / RMSE of predicting no motion, over the same samples. The truth file
+    has Bu..Br on the same grid as the data file (same name). The fit never saw it."""
+    from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
+    from objective import DatasetConfig, load_run, with_thruster_lag
+    from optimizer import load_vehicle_spec
+    from run_calibration import spec_torque_reference_offset
+    spec = load_vehicle_spec(spec_path)
+    off = spec_torque_reference_offset(spec) if torque_offset is None else tuple(torque_offset)
+    dc = DatasetConfig(sampling_rate_hz=rate_hz, torque_reference_offset_m=off, sensors=("none",))
+    H = max(2, int(round(horizon_s * rate_hz)))
+    sq, zq = [], []
+    for f in files:
+        run = with_thruster_lag(load_run(os.path.join(data_dir, f), dc), cal)
+        truth = pd.read_csv(os.path.join(truth_dir, f))[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy(float)
+        n = min(len(truth), run.n_samples)
+        for a in range(0, n - H, H):
+            if not np.all(np.isfinite(truth[a])):
+                continue
+            traj = TrajectoryInputs(nu0=truth[a].copy(), forces_torques=run.forces_torques[a:a + H],
+                                    roll_pitch_series=run.roll_pitch[a:a + H],
+                                    current_body_series=None if run.current_body is None else run.current_body[a:a + H])
+            try:
+                nu = simulate_trajectory(cal, spec.vehicle, SimulationConfig(dt=run.dt), traj).nu
+            except FloatingPointError:
+                continue
+            t = truth[a + 1:a + H]
+            sq.append((nu[1:] - t) ** 2)
+            zq.append(t ** 2)
+    if not sq:
+        return {"rmse": None, "skill": None, "mean_skill": None, "windows": 0}
+    S, Z = np.vstack(sq), np.vstack(zq)
+    with np.errstate(invalid="ignore"):
+        rm = np.sqrt(np.nanmean(S, axis=0))
+        z = np.sqrt(np.nanmean(Z, axis=0))
+        sk = 1 - rm / z
+    return {"rmse": [round(float(x), 5) for x in rm], "skill": [round(float(x), 4) for x in sk],
+            "mean_skill": round(float(np.nanmean(sk)), 4), "windows": len(sq)}

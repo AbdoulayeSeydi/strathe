@@ -50,6 +50,7 @@ class Channel:
     axes: tuple                     # ("p","q","r") | ("u","v","w") | ("n","e"[,"d"]) | ("d",) | ("ax","ay","az")
     values: np.ndarray
     lever_arm_m: Optional[np.ndarray] = None   # the sensor's position in the body, FRD, from the reference point
+    track: str = "bottom"                      # a DVL: bottom (over ground) or water (through the water)
 
     @property
     def labels(self) -> list:
@@ -69,12 +70,33 @@ class Plan:
 
 # ---------------------------------------------------------------------------- channels from a run's columns
 
+def sensor_mounts(raw_spec: dict) -> dict:
+    """The vehicle description's sensors: section -> {name: {"position_m": (3,), "track": "bottom"|"water"}}.
+    Refused, with what's wrong, if malformed."""
+    out = {}
+    for name, m in ((raw_spec or {}).get("sensors") or {}).items():
+        m = m or {}
+        pos = m.get("position_m", [0.0, 0.0, 0.0])
+        if not (isinstance(pos, (list, tuple)) and len(pos) == 3 and all(isinstance(x, (int, float)) for x in pos)):
+            raise ValueError(f"vehicle description sensors.{name}.position_m: three numbers (m, body FRD from the "
+                             f"reference point), got {pos!r}")
+        track = m.get("track") or "bottom"
+        if track not in ("bottom", "water"):
+            raise ValueError(f"vehicle description sensors.{name}.track: bottom or water, got {track!r}")
+        if track == "water" and name != "dvl":
+            raise ValueError(f"vehicle description sensors.{name}.track: only a DVL has a track (bottom or water)")
+        out[name] = {"position_m": np.asarray(pos, dtype=float), "track": track}
+    return out
+
+
 def channels_from_frame(df, use: Sequence[str] = ("auto",), use_accelerometer: bool = False,
                         lever_arms: Optional[dict] = None) -> list:
     """A canonical run's sensor channels. use: "auto"/"all" (every sensor in the file), or names to keep
     (dvl, a position or depth sensor's name, acc); the gyro is always kept. The accelerometer only with
-    use_accelerometer (or named)."""
+    use_accelerometer (or named). lever_arms: {name: (3,)} or sensor_mounts()' {name: {position_m, track}}."""
     lever_arms = lever_arms or {}
+    tracks = {k: v.get("track", "bottom") for k, v in lever_arms.items() if isinstance(v, dict)}
+    lever_arms = {k: (v["position_m"] if isinstance(v, dict) else v) for k, v in lever_arms.items()}
     pick = set(use)
     everything = bool(pick & {"auto", "all"})
 
@@ -85,7 +107,8 @@ def channels_from_frame(df, use: Sequence[str] = ("auto",), use_accelerometer: b
     if {"Bu", "Bv", "Bw"} <= set(df.columns) and wanted("dvl"):
         v = df[["Bu", "Bv", "Bw"]].to_numpy(dtype=float)
         if np.isfinite(v).any():
-            out.append(Channel("dvl", "dvl", ("u", "v", "w"), v, _arm(lever_arms.get("dvl"))))
+            out.append(Channel("dvl", "dvl", ("u", "v", "w"), v, _arm(lever_arms.get("dvl")),
+                               tracks.get("dvl", "bottom")))
     for c in sorted(df.columns):
         if c.startswith("pos_") and c.endswith("_n"):
             name = c[4:-2]
@@ -105,7 +128,10 @@ def channels_from_frame(df, use: Sequence[str] = ("auto",), use_accelerometer: b
 
 
 def _arm(x):
-    return None if x is None else np.asarray(x, dtype=float).reshape(3)
+    if x is None:
+        return None
+    a = np.asarray(x, dtype=float).reshape(3)
+    return a if np.any(a) else None
 
 
 def channel_labels(channels: Sequence[Channel]) -> list:
@@ -195,14 +221,19 @@ def path_in_window(nu: np.ndarray, R: np.ndarray, dt: float) -> np.ndarray:
     return np.vstack([np.zeros(3), np.cumsum(vw[:-1] * dt, axis=0)])
 
 
-def predicted(ch: Channel, nu: np.ndarray, Rw: np.ndarray, path: np.ndarray, dt: float, rel: np.ndarray) -> np.ndarray:
-    """What channel `ch` reads at window-relative samples `rel`, for simulated velocity nu over the window."""
+def predicted(ch: Channel, nu: np.ndarray, Rw: np.ndarray, path: np.ndarray, dt: float, rel: np.ndarray,
+              current_body: Optional[np.ndarray] = None) -> np.ndarray:
+    """What channel `ch` reads at window-relative samples `rel`, for simulated velocity nu over the window (velocity
+    over ground, dynamics_model._relative_to_water). current_body: the window's water current in body axes, for a
+    water-tracking DVL."""
     if ch.kind == "gyro":
         return nu[rel, 3:6]
     if ch.kind == "dvl":
         v = nu[rel, :3]
         if ch.lever_arm_m is not None:
             v = v + np.cross(nu[rel, 3:6], ch.lever_arm_m)
+        if ch.track == "water" and current_body is not None:
+            v = v - current_body[rel]   # through the water: over ground minus the current
         return v
     if ch.kind in ("position", "depth"):
         p = path[rel]
@@ -236,7 +267,8 @@ def raw_channel_residuals(params, run, vehicle, horizon_samples: Optional[int] =
             k = len(ch.axes)
             if ci in pw:
                 idx = pw[ci]
-                r = predicted(ch, nu, Rw, path, run.dt, idx - a) - ch.values[idx]
+                cb = None if run.current_body is None else run.current_body[a:b]
+                r = predicted(ch, nu, Rw, path, run.dt, idx - a, cb) - ch.values[idx]
                 if ch.kind in ("position", "depth", "accelerometer"):
                     r = r - r.mean(axis=0)
                 for j in range(k):
@@ -316,7 +348,11 @@ def velocity_view(params, run, vehicle, horizon_samples: Optional[int] = None, s
             continue
         nu = _window_nu(params, run_l, vehicle, a, b, simulate_fn)
         lin = run.real_nu[a + 1:b, :3]
-        res = np.hstack([nu[1:, :3] - lin, nu[1:, 3:6] - run.real_nu[a + 1:b, 3:6]])
+        dvl = next((ch for ch in run.channels if ch.kind == "dvl"), None)
+        sim_lin = nu[1:, :3] if dvl is None else predicted(
+            dvl, nu, plan.R[a:b], None, run.dt, np.arange(1, b - a),
+            None if run.current_body is None else run.current_body[a:b])   # as the DVL would read it
+        res = np.hstack([sim_lin - lin, nu[1:, 3:6] - run.real_nu[a + 1:b, 3:6]])
         rows.append(res)
     return np.vstack(rows) if rows else np.zeros((0, 6))
 

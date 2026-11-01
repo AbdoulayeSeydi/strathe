@@ -411,6 +411,12 @@ def _average_rmse_by_dof(params, runs: list, vehicle, horizon_samples: Optional[
 SENSOR_HORIZON_S = 10.0
 
 
+def _sensor_mounts(loaded_spec) -> Optional[dict]:
+    """The vehicle description's sensors: section (lever arms, a DVL's track), or None (#96)."""
+    from measurements import sensor_mounts
+    return sensor_mounts(loaded_spec.raw) or None
+
+
 def sensor_noise_from_ingest(data_dir: str) -> dict:
     """{sensor name: reading std} from the ingest report's own measurement, for sensors whose readings weren't smoothed
     by the logging system (a smoothed sensor's measured noise is too low to trust: state_smoother's defaults)."""
@@ -748,7 +754,8 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                                                       or not any(config.current_world_mps)
                                                       else tuple(config.current_world_mps)),
                                    current_by_file=config.current_by_file,
-                                   sensors=tuple(config.sensors), use_accelerometer=config.use_accelerometer)
+                                   sensors=tuple(config.sensors), use_accelerometer=config.use_accelerometer,
+                                   lever_arms=_sensor_mounts(loaded_spec))
     if config.current_by_file:
         logger.info("Each recording's own water current, for %d recording(s) (from a currents file)",
                     len(config.current_by_file))

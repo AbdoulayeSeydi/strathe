@@ -237,3 +237,60 @@ def test_anchors_use_the_dvl_where_it_read():
     sm.set_anchors([run], TRUTH, SPEC.vehicle, 0.03, {"usbl": 0.01})
     assert np.allclose(run.anchor_lin[~lost], nu[~lost, :3])
     assert float(np.sqrt(np.mean((run.anchor_lin[lost] - nu[lost, :3]) ** 2))) < 0.01
+
+
+# ------------------------------------------------------------------ the sensors' mounts and a DVL's track
+
+def test_a_water_tracking_dvl_in_a_current():
+    """A DVL locked on the water reads the velocity through the water: over ground minus the current. At the truth, in
+    a current, its residuals are zero only when calibration knows it tracks the water."""
+    from objective import run_with_current
+    df, nu, _ = truth_frame(n=500)
+    c_world = np.array([0.15, -0.05, 0.0])
+    R = Rotation.from_quat(df[["qx", "qy", "qz", "qw"]].values).as_matrix()
+    c_body = np.einsum("nji,j->ni", R, c_world)
+    # the truth itself, re-simulated in the current (its velocity over ground changes)
+    from dynamics_model import quaternion_to_roll_pitch
+    q = df[["qx", "qy", "qz", "qw"]].values
+    roll, pitch = quaternion_to_roll_pitch(q[:, 0], q[:, 1], q[:, 2], q[:, 3])
+    nu_c = simulate_trajectory(TRUTH, SPEC.vehicle, SimulationConfig(dt=1 / RATE),
+                               TrajectoryInputs(nu0=np.zeros(6), forces_torques=df[["Fx", "Fy", "Fz", "Tx", "Ty",
+                                                                                     "Tz"]].values,
+                                                roll_pitch_series=np.stack([roll, pitch], 1),
+                                                current_body_series=c_body)).nu
+    df[["Bp", "Bq", "Br"]] = nu_c[:, 3:6]
+    df[["Bu", "Bv", "Bw"]] = nu_c[:, :3] - c_body          # what a water-tracking DVL reads
+    mounts = ms.sensor_mounts({"sensors": {"dvl": {"track": "water"}}})
+    run = convert_run_dataframe(df, "w-01-11-2026-run1.csv", DatasetConfig(
+        sampling_rate_hz=RATE, sensors=("dvl",), lever_arms=mounts))
+    run = run_with_current(run, c_world)
+    sm.set_anchors([run], TRUTH, SPEC.vehicle, 0.01, {})
+    assert np.allclose(run.anchor_lin, nu_c[:, :3])         # its readings turned back into over-ground starts
+    r = ms.raw_channel_residuals(TRUTH, run, SPEC.vehicle, 100)
+    assert max(np.abs(x).max() for x in r) < 1e-9
+    run_b = convert_run_dataframe(df, "w-01-11-2026-run1.csv", DatasetConfig(sampling_rate_hz=RATE, sensors=("dvl",)))
+    run_b = run_with_current(run_b, c_world)
+    sm.set_anchors([run_b], TRUTH, SPEC.vehicle, 0.01, {})
+    assert max(np.abs(x).max() for x in ms.raw_channel_residuals(TRUTH, run_b, SPEC.vehicle, 100)) > 0.05
+
+
+def test_a_dvl_mounted_away_from_the_reference_point():
+    df, nu, _ = truth_frame(n=500)
+    arm = np.array([-0.3, 0.1, 0.2])
+    df[["Bu", "Bv", "Bw"]] = nu[:, :3] + np.cross(nu[:, 3:6], arm)
+    mounts = ms.sensor_mounts({"sensors": {"dvl": {"position_m": arm.tolist()}}})
+    run = convert_run_dataframe(df, "a-01-11-2026-run1.csv", DatasetConfig(sampling_rate_hz=RATE, sensors=("dvl",),
+                                                                          lever_arms=mounts))
+    sm.set_anchors([run], TRUTH, SPEC.vehicle, 0.01, {})
+    assert np.allclose(run.anchor_lin, nu[:, :3])
+    assert max(np.abs(x).max() for x in ms.raw_channel_residuals(TRUTH, run, SPEC.vehicle, 100)) < 1e-9
+
+
+@pytest.mark.parametrize("bad, message", [
+    ({"usbl": {"position_m": [1, 2]}}, "three numbers"),
+    ({"dvl": {"track": "seabed"}}, "bottom or water"),
+    ({"usbl": {"track": "water"}}, "only a DVL"),
+])
+def test_bad_sensor_mounts_are_refused(bad, message):
+    with pytest.raises(ValueError, match=message):
+        ms.sensor_mounts({"sensors": bad})

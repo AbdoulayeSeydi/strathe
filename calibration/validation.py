@@ -574,6 +574,9 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     spec = load_vehicle_spec(spec_path)
     vehicle = spec.vehicle
     dc = dataset_config_from_metrics(metrics, rate)
+    from dataclasses import replace as _replace
+    from run_calibration import _sensor_mounts
+    dc = _replace(dc, lever_arms=_sensor_mounts(spec))   # the sensors' mounts (#96)
     held_dates = (metrics.get("dataset") or {}).get("heldout_dates")
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=held_dates)
     runs = [load_run(f, dc) for f in split.heldout_files]

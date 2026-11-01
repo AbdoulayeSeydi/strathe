@@ -116,7 +116,7 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
         P[o:o + len(ax), o:o + len(ax)] = np.eye(len(ax)) * UNKNOWN_POSITION_VAR
     dvl = next((run.channels[ci] for ci, kind, _ in blocks if kind == "dvl"), None)
     if dvl is not None and np.all(np.isfinite(dvl.values[0])):
-        x[:3] = dvl.values[0]
+        x[:3] = dvl_over_ground(run, dvl)[0]
     q_pos = POSITION_PROCESS_STD ** 2
 
     xf = np.empty((n, dim))
@@ -165,10 +165,16 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
                 continue
             s2 = sig[ci] ** 2
             if kind == "dvl":
+                ch = run.channels[ci]
+                over_ground = val
+                if ch.track == "water" and run.current_body is not None:
+                    over_ground = val + run.current_body[k]   # the state is over ground
+                if ch.lever_arm_m is not None:   # the DVL reads v + w x r: take the rotation's part off
+                    over_ground = over_ground - np.cross(run.real_nu[k, 3:6], ch.lever_arm_m)
                 for j in range(3):
                     h = np.zeros(dim)
                     h[j] = 1.0
-                    rows.append(h); z.append(val[j]); rv.append(s2)
+                    rows.append(h); z.append(over_ground[j]); rv.append(s2)
             else:
                 o = offs[[b[0] for b in pos_blocks].index(ci)]
                 for j in range(len(ax)):
@@ -212,12 +218,23 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
                         n_readings=nread, accel_sigma=accel_sigma)
 
 
+def dvl_over_ground(run, ch) -> np.ndarray:
+    """A DVL's readings as the body velocity over ground at the reference point (what a window starts from): a
+    water-tracking DVL plus the current, minus the rotation's part at the DVL's mount. NaN where it didn't read."""
+    v = np.array(ch.values, dtype=float)
+    if ch.track == "water" and run.current_body is not None:
+        v = v + run.current_body
+    if ch.lever_arm_m is not None:
+        v = v - np.cross(run.real_nu[:, 3:6], ch.lever_arm_m)
+    return v
+
+
 def _fallback(run, accel_sigma, why) -> SmoothResult:
     v = np.zeros((run.n_samples, 3))
     dvl = next((ch for ch in run.channels if ch.kind == "dvl"), None)
     if dvl is not None:
         ok = np.all(np.isfinite(dvl.values), axis=1)
-        v[ok] = dvl.values[ok]
+        v[ok] = dvl_over_ground(run, dvl)[ok]
     return SmoothResult(velocity=v, loglik=float("-inf"), nis_mean=float("nan"), n_readings=0,
                         accel_sigma=accel_sigma, fallback=why)
 
@@ -246,7 +263,7 @@ def set_anchors(runs: Sequence, params, vehicle, accel_sigma: float, noise: Opti
         dvl = next((ch for ch in r.channels if ch.kind == "dvl"), None)
         if dvl is not None:
             ok = np.all(np.isfinite(dvl.values), axis=1)
-            a[ok] = dvl.values[ok]
+            a[ok] = dvl_over_ground(r, dvl)[ok]
         r.anchor_lin = a
         if res.fallback:
             fallbacks.append(f"{r.filepath}: {res.fallback}")

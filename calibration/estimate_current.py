@@ -232,7 +232,8 @@ def main(argv=None) -> int:
     params = load_calibrated_parameters(args.params) if args.params else initial_parameters(spec)
     label = (f"the calibration `{os.path.basename(os.path.dirname(os.path.abspath(args.params)))}`" if args.params
              else "the vehicle description's default (uncalibrated) values")
-    dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors))
+    from run_calibration import _sensor_mounts
+    dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors), lever_arms=_sensor_mounts(spec))
     print(f"Estimating the current in {len(files)} recording(s) at {rate:g} Hz with {label}...", flush=True)
     rows = estimate_currents(files, params, spec.vehicle, dc, args.workers)
     for r in rows:

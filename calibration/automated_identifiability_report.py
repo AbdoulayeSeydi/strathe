@@ -68,10 +68,13 @@ def identifiability_for_result(result_dir: str, data_dir: str, spec_path: str, w
                        current_by_file=None if not by_file else tuple((f, tuple(c)) for f, c in by_file),
                        sensors=tuple(obj.get("sensors") or ("auto",)),
                        use_accelerometer=bool(obj.get("use_accelerometer", False)))
+    loaded = load_vehicle_spec(spec_path)
+    from dataclasses import replace as _replace
+    from run_calibration import _sensor_mounts
+    dc = _replace(dc, lever_arms=_sensor_mounts(loaded))
     csv_paths, _ = discover_csv_files(data_dir)
     split = split_by_date(csv_paths, heldout_dates=metrics["dataset"]["heldout_dates"])
     train_runs = [load_run(fp, dc) for fp in split.train_files]
-    loaded = load_vehicle_spec(spec_path)
     vehicle = loaded.vehicle
     from run_calibration import sensor_runs_from_metrics
     sensor_runs_from_metrics(train_runs, metrics, params, vehicle)   # the sensor suite's objective, as fitted (#96)

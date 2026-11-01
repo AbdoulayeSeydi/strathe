@@ -54,6 +54,17 @@ real readings, never against the smoother's estimate.
 **Refitting with better starts.** After the fit, the smoother runs again with the fitted values and the fit is
 repeated (`--anchor-rounds`, 2 by default). Better physics gives better starting velocities.
 
+**Where each sensor sits.** The vehicle description's optional `sensors:` section
+(`templates/vehicle_spec_template.yaml`) gives each sensor's mount, by its ingest name, in body FRD metres from the
+torques' reference point.
+- A DVL there reads v + ω×r.
+- A USBL transponder's or GPS antenna's fix is of its own point.
+- A pressure port reads its own depth.
+- `track: water` marks a DVL that measures velocity through the water rather than over the seabed: calibration adds
+  the water current back.
+
+Calibration models all of these. Leaving a mount out means the sensor is at the reference point.
+
 **Axes no sensor sees.** An axis with no sensor (surge and sway with no DVL and no horizontal fixes) has its
 parameters held at your vehicle description's values. Calibration says so in the log, `metrics.json`,
 `calibrated_parameters.yaml` and the report ("Surge: not calibrated. Your logs have no DVL or horizontal position

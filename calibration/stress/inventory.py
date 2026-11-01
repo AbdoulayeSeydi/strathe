@@ -192,7 +192,35 @@ def variables_95() -> list:
     return rows
 
 
-FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95}
+def variables_96() -> list:
+    """The sensor suite: strathe calibrate's sensor options and their values, the sensor channel kinds and position
+    axes, the vehicle description's sensor mount keys and DVL tracks, the heading source, the web form's sensor
+    fields, and every lab-facing module that reads logged velocity (tests/test_no_velocity_assumption.py's audit)."""
+    import strathe_cli as cli
+    sys.path.insert(0, os.path.join(CAL, "tests"))
+    from test_no_velocity_assumption import AUDITED
+    rows = []
+    parser = cli.build_parser() if hasattr(cli, "build_parser") else None
+    sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+    cal = sub.choices["calibrate"]
+    for act in cal._actions:
+        if act.option_strings and act.option_strings[0] in ("--sensors", "--use-accelerometer", "--anchor-rounds",
+                                                            "--smoother-accel-sigma", "--prediction-horizon-s"):
+            rows.append(("96", f"option:{act.option_strings[0]}", "calibrate option", "given / left out"))
+    rows += [("96", f"option:--sensors={v}", "--sensors value", v) for v in ("auto", "velocity", "all", "names")]
+    rows += [("96", f"channel:{k}", "sensor channel kind", k) for k in ("gyro", "dvl", "position", "depth",
+                                                                         "accelerometer")]
+    rows += [("96", f"position_axes:{k}", "position fix axes", k) for k in ("ned", "ne")]
+    rows += [("96", f"mount:{k}", "vehicle description sensors: key", k) for k in ("position_m", "track=bottom",
+                                                                                   "track=water")]
+    rows += [("96", f"heading:{k}", "heading source", k) for k in ("compass", "gyro")]
+    web = open(os.path.join(CAL, "strathe_web.py"), encoding="utf-8").read()
+    rows += [("96", f"web:{n}", "web calibrate field", n) for n in ("sensors", "use_accelerometer") if f"name={n}" in web]
+    rows += [("96", f"consumer:{m}", "reads logged velocity (audited)", m) for m in sorted(AUDITED)]
+    return rows
+
+
+FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95, "96": variables_96}
 
 
 def inventory(features=None) -> list:

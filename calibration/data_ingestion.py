@@ -1199,7 +1199,7 @@ def velocity_proxies(df: pd.DataFrame, rate_hz: float) -> pd.DataFrame:
     depth (heave), over 2-6 s between readings so their noise doesn't swamp the motion. Only for that sign check;
     calibration never uses it."""
     import sensor_ingest as si
-    if "Bu" in df.columns and df["Bu"].notna().mean() > 0.5:
+    if "Bu" in df.columns and df["Bu"].notna().sum() >= 20:   # a DVL, gaps and all: its own readings (pairwise)
         return df
     out = df.drop(columns=[c for c in ("Bu", "Bv", "Bw") if c in df.columns])
     t = np.arange(len(df)) / rate_hz
