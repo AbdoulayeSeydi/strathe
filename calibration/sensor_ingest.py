@@ -127,8 +127,10 @@ def drop_unreachable_fixes(t: np.ndarray, v: np.ndarray, max_speed_mps: float, a
 def place_on_grid(t_native: np.ndarray, v_native: np.ndarray, grid: np.ndarray) -> np.ndarray:
     """Readings at their own times -> the grid: each grid sample is the mean of the readings within half a sample
     of it, NaN where there were none. Never interpolated (see module docstring). Works for a non-uniform grid."""
-    v_native = np.asarray(v_native, float).reshape(len(t_native), -1)
-    out = np.full((len(grid), v_native.shape[1]), np.nan)
+    v_native = np.asarray(v_native, float)
+    k = v_native.shape[1] if v_native.ndim == 2 else 1
+    v_native = v_native.reshape(len(t_native), k)   # a sensor with no readings left: (0, k), all NaN out
+    out = np.full((len(grid), k), np.nan)
     if not len(t_native) or not len(grid):
         return out
     if len(grid) == 1:
@@ -153,8 +155,10 @@ def place_on_grid(t_native: np.ndarray, v_native: np.ndarray, grid: np.ndarray) 
 def native_stats(t: np.ndarray, v: np.ndarray, unit_scale: float = 1.0) -> dict:
     """A sensor's own rate and white noise, from its own readings (fit_sensor_noise's robust second difference)."""
     from fit_sensor_noise import white_noise_std, noise_correlation, FILTERED_ABOVE
-    v = np.asarray(v, float).reshape(len(t), -1)
     out = {"readings": int(len(t))}
+    if len(t) == 0:   # every reading dropped (outliers, drop_when, all empty)
+        return out
+    v = np.asarray(v, float).reshape(len(t), -1)
     if len(t) < 2:
         return out
     dts = np.diff(t)
