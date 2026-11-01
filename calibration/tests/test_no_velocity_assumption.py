@@ -26,7 +26,8 @@ AUDITED = {
     "check_sampling_rate_windowed.py": "refuses with --sampling-rate-hz advice when velocity or positions are missing",
     "stonefish_export.py": "axis_speeds: unmeasured speeds fall back to its short speed grid",
     "diagnose_calibration.py": "only identifiability_analysis is reachable (no velocity); its plots are a dev tool",
-    "simfit/core.py": "fit-sim: the sensor suite is part 3 of #96; until then it refuses runs without velocity",
+    "simfit/sensors.py": "gyro rates (real_nu[:, 3:6]) and NaN-aware velocity errors where a DVL read",
+    "simfit/core.py": "fit-sim: windows start from the estimated velocity, scored against the sensors (simfit/sensors.py)",
 }
 
 

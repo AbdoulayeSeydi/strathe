@@ -93,7 +93,7 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
         if drift:   # no compass: the heading integrated from the gyro, wandering off at this rate (the path is true)
             from scipy.spatial.transform import Rotation as _R
             yaw_err = np.radians(drift / 60.0) * np.arange(n) * run.dt
-            q_log = (_R.from_euler("z", yaw_err) * _R.from_quat(run.orientation_quat)).as_quat()
+            q_log = (_R.from_rotvec(np.outer(yaw_err, [0.0, 0.0, 1.0])) * _R.from_quat(run.orientation_quat)).as_quat()
         for k, c in enumerate(("qx", "qy", "qz", "qw")):
             df[c] = q_log[:, k]
         if "dvl" in sensors:

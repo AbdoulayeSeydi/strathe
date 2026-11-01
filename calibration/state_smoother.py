@@ -64,22 +64,27 @@ def _blocks(channels) -> list:
 
 
 def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict] = None) -> SmoothResult:
-    """Smoothed body velocity over one run (see module docstring). noise: {channel name: reading std (its units)}."""
+    """Smoothed body velocity over one run (see module docstring). noise: {channel name: reading std (its units)}.
+    params None: no physics, the velocity over ground held from sample to sample (a simulator's model of any
+    vehicle, fit-sim)."""
     from dynamics_model import SimulationConfig
     from fast_dynamics import FastDynamics
     from objective import with_thruster_lag
     from scipy.spatial.transform import Rotation
 
     noise = noise or {}
-    run_l = with_thruster_lag(run, params)
+    kinematic = params is None   # no physics (fit-sim on any vehicle): the velocity holds, the readings move it
+    run_l = run if kinematic else with_thruster_lag(run, params)
     n, dt = run.n_samples, run.dt
     cfg = SimulationConfig(dt=dt)
     ns, sdt = cfg.n_substeps, cfg.sub_dt
-    try:
-        dyn = FastDynamics(params, vehicle)
-    except (ValueError, np.linalg.LinAlgError) as e:
-        return _fallback(run, accel_sigma, f"the parameters don't give a valid mass matrix ({e})")
-    acc = dyn.acceleration_trig
+    acc = None
+    if not kinematic:
+        try:
+            dyn = FastDynamics(params, vehicle)
+        except (ValueError, np.linalg.LinAlgError) as e:
+            return _fallback(run, accel_sigma, f"the parameters don't give a valid mass matrix ({e})")
+        acc = dyn.acceleration_trig
     R = Rotation.from_quat(run.orientation_quat).as_matrix()
     F = run_l.forces_torques.tolist()
     RP = run.roll_pitch.tolist()
@@ -98,6 +103,8 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
         return max(float(np.max(np.atleast_1d(s))), NOISE_FLOOR[ch.kind])
 
     def propagate(v, k):
+        if kinematic:   # the velocity over ground holds; in the body it turns as the vehicle turns
+            return R[k + 1].T @ (R[k] @ np.asarray(v, dtype=float)) if k + 1 < n else np.array(v, dtype=float)
         tau = F[k]
         roll, pitch = RP[k]
         sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)

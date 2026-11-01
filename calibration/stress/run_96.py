@@ -151,6 +151,7 @@ def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.S
     t0 = time.time()
     log = out + ".log"
     shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(log, "w", encoding="utf-8") as f:
         rc = subprocess.run([PY, "strathe_cli.py", "calibrate", "--data", data, "--spec", spec, "--out", out,
                              "--name", os.path.basename(out), "--max-nfev", str(nfev), "--seed", "7", "--workers", "3",
@@ -310,14 +311,14 @@ def m_matrix() -> None:
 # --- every product step, without a DVL ----------------------------------------------------------------------------------
 def e_steps() -> None:
     """A vehicle with no DVL through each step a lab runs: calibrate (preflight, fit, finishing a checkpoint,
-    identifiability, validation, report), estimate-current, fit-noise, fit-sim (refused with a message: part 3),
-    export-sim (no velocity score, said)."""
+    identifiability, validation, report), estimate-current, fit-noise, fit-sim from the sensors."""
     root = _dataset("B-set-nominal", NOMINAL)
     data = os.path.join(root, "data")
     out = os.path.join(WORK, "fits", "E-steps")
     shutil.rmtree(out, ignore_errors=True)
     t0 = time.time()
     log = out + ".log"
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(log, "w", encoding="utf-8") as f:
         rc = subprocess.run([PY, "strathe_cli.py", "calibrate", "--data", data, "--spec", S.SPEC_BLUEROV2, "--out", out,
                              "--name", "esteps", "--max-nfev", "3", "--seed", "7", "--workers", "3",
@@ -348,15 +349,17 @@ def e_steps() -> None:
              "E-fit-noise": ["fit-noise", "--data", data, "--out", os.path.join(WORK, "fits", "E-noise.yaml")],
              "E-fit-sim": ["fit-sim", "--sim", "mujoco", "--model", os.path.join(CAL, "simulators", "mujoco", "example",
                                                                                 "auv.xml"),
+                           "--reference-point", "0", "0", "0",
                            "--data", data, "--heldout-dates", *HELD, "--out", os.path.join(WORK, "fits", "E-fitsim")],
              }
     for row, args in cases.items():
         t0 = time.time()
         p = subprocess.run([PY, "strathe_cli.py", *args], cwd=CAL, capture_output=True, text=True)
         txt = (p.stdout + p.stderr)
-        if row == "E-fit-sim":   # part 3: refused with what to do, not a traceback
-            ok = p.returncode != 0 and "no DVL reading" in txt and "Traceback" not in txt
-            expect = "refused with a message (fit-sim from sensors is part 3 of #96), no traceback"
+        if row == "E-fit-sim":   # part 3: from the sensors, its report saying so
+            rep = os.path.join(WORK, "fits", "E-fitsim", "mujoco_fit_report.md")
+            ok = p.returncode == 0 and os.path.exists(rep) and "No DVL in these logs" in open(rep).read()
+            expect = "runs from the sensors; its report says drift is against the position fixes"
         else:
             ok = p.returncode == 0 and "Traceback" not in txt
             expect = "runs without a DVL"
@@ -399,6 +402,93 @@ def w_web() -> None:
     record(F, "W-accelerometer", "web", "use_accelerometer", "the form's accelerometer box reaches the fit",
            "synthetic BlueROV2", {"exit": job.proc.returncode}, "--use-accelerometer passed; the job runs",
            "--use-accelerometer" in job.argv and job.proc.returncode == 0)
+
+
+# --- fit-sim and export-sim from the sensors (part 3) ----------------------------------------------------------------
+MJCF = os.path.join(CAL, "simulators", "mujoco", "example", "auv.xml")
+GZ = os.path.expanduser("~/strathe_gz_public")
+URI_SF = ["--scenario", os.path.expanduser("~/strathe_uri_lab_v3/stonefish_v2/lab/alpha_world.scn"), "--robot",
+          "alpha_rise", "--part", "Hull", "--reference-point", "-0.76", "0", "0", "--find",
+          "world_of_stonefish=" + os.path.expanduser("~/strathe_uri_lab_v2/stonefish/world"), "--stonefish-data",
+          os.path.expanduser("~/strathe_uri_lab_v3/stonefish_v2/world/data"), "--buoyancy-part", "Foam"]
+URI_NODVL = os.path.join(WORK, "uri_nodvl")   # ingested from URI's bags with the DVL left out (see real())
+
+
+def _split(root: str) -> tuple:
+    """The same synthetic recordings as two folders: velocity only (a DVL at every sample) and sensors only."""
+    v, s_ = os.path.join(root, "v"), os.path.join(root, "s")
+    for d in (v, s_):
+        os.makedirs(d, exist_ok=True)
+    for f in os.listdir(os.path.join(root, "data")):
+        df = pd.read_csv(os.path.join(root, "data", f))
+        df[[c for c in df.columns if not c.startswith(("pos_", "depth_", "acc_"))]].to_csv(os.path.join(v, f),
+                                                                                           index=False)
+        df.drop(columns=["Bu", "Bv", "Bw"]).to_csv(os.path.join(s_, f), index=False)
+    return v, s_
+
+
+def _score_model(xml: str, vdir: str) -> dict:
+    """A MuJoCo model's held-out score against the truth's own velocity (windows from the truth, the logged forces)."""
+    from simfit import cli as scli, core, runner
+    tmp = os.path.join(WORK, "fits", "score_tmp")
+    a = scli.build_parser("fit", "mujoco").parse_args(["--model", xml, "--reference-point", "0", "0", "0", "--data",
+                                                       vdir, "--heldout-dates", *HELD, "--out", tmp])
+    adapter = scli._module("mujoco").adapter_from_args(a)
+    _, held, _ = core.load_runs(vdir, list(HELD))
+    adapter.dt = held[0].dt
+    os.makedirs(tmp, exist_ok=True)
+    res, _ = runner._score_models(adapter, held, [("m", None)], tmp, {})
+    return res["m"]
+
+
+def f_simulators() -> None:
+    """fit-sim from the sensors against fit-sim from a DVL, the same MuJoCo model and data, both scored against the
+    truth's velocity; and fit-sim and export-sim from the sensors through Gazebo and Stonefish (Docker)."""
+    root = _dataset("FS-mujoco", {"dvl": {}, **NOMINAL})
+    vdir, sdir = _split(root)
+    nums = {}
+    for tag, d in (("velocity", vdir), ("sensors", sdir)):
+        out = os.path.join(WORK, "fits", f"FS-mujoco-{tag}")
+        shutil.rmtree(out, ignore_errors=True)
+        t0 = time.time()
+        p = subprocess.run([PY, "strathe_cli.py", "fit-sim", "--sim", "mujoco", "--model", MJCF, "--reference-point",
+                            "0", "0", "0", "--data", d, "--heldout-dates", *HELD, "--out", out, "--fit", "drag",
+                            "--max-iterations", "8", "--workers", "3"], cwd=CAL, capture_output=True, text=True)
+        xml = next((os.path.join(out, f) for f in os.listdir(out) if f.endswith("_calibrated.xml")), None) \
+            if os.path.isdir(out) else None
+        sc = _score_model(xml, vdir) if xml else {}
+        nums[tag] = {"exit": p.returncode, "seconds": round(time.time() - t0, 1),
+                     "drift_30s_m": (sc.get("30s") or {}).get("drift_median_m"),
+                     "velocity_rmse_10s": (sc.get("10s") or {}).get("velocity_rmse")}
+    orig = _score_model(MJCF, vdir)
+    nums["original_drift_30s_m"] = (orig.get("30s") or {}).get("drift_median_m")
+    v30, s30, o30 = nums["velocity"]["drift_30s_m"], nums["sensors"]["drift_30s_m"], nums["original_drift_30s_m"]
+    ok = (None not in (v30, s30, o30) and s30 < o30 and s30 <= max(1.25 * v30, v30 + 0.5))
+    record(F, "FS-mujoco", "fit-sim", "mujoco", "fit-sim from the sensors vs from a DVL (same MuJoCo model, data)",
+           "synthetic BlueROV2", nums, "the sensors' fit beats the original model and is within 25% (or 0.5 m) of the "
+           "DVL fit's 30 s drift, both scored against the truth", ok, 0.0)
+    cases = {
+        "FS-gazebo": ["fit-sim", "--sim", "gazebo", "--world", os.path.join(CAL, "simulators", "gazebo",
+                                                                             "example_bluerov2_gz", "world.sdf"),
+                      "--model-file", f"{GZ}/bluerov2_gz/models/bluerov2_heavy/model.sdf", "--resource-path",
+                      f"{GZ}/bluerov2_gz/models", "--reference-point", "0", "0", "0", "--fit", "buoyancy",
+                      "--max-iterations", "2", "--workers", "3", "--data", sdir, "--heldout-dates", *HELD],
+        "FS-stonefish": ["fit-stonefish", *URI_SF, "--fit", "drag", "--axisymmetric", "--max-iterations", "2",
+                         "--workers", "3", "--replay-tool", "docker", "--data", URI_NODVL],
+    }
+    for row, args in cases.items():
+        out = os.path.join(WORK, "fits", row)
+        shutil.rmtree(out, ignore_errors=True)
+        t0 = time.time()
+        p = subprocess.run([PY, "strathe_cli.py", *args, "--out", out], cwd=CAL, capture_output=True, text=True)
+        txt = p.stdout + p.stderr
+        rep = next((os.path.join(out, f) for f in os.listdir(out) if f.endswith("_report.md")), None) \
+            if os.path.isdir(out) else None
+        ok = p.returncode == 0 and rep is not None and "Traceback" not in txt
+        record(F, row, "fit-sim", row[3:], f"{args[0]} through {row[3:]} (Docker) from the sensors, no DVL",
+               "synthetic BlueROV2" if "gazebo" in row else "URI ALPHA RISE (no DVL)",
+               {"exit": p.returncode, "report": bool(rep), "tail": txt.strip().splitlines()[-1][:200] if txt.strip()
+                else ""}, "runs from the sensors and writes its report", ok, time.time() - t0)
 
 
 # --- the real data ----------------------------------------------------------------------------------------------------
@@ -500,7 +590,7 @@ def all_rows() -> set:
     rows = set(SWEEP) | set(REAL)
     rows |= {f"E-{s}" for s in ("preflight", "fit_or_finish", "identifiability", "validation", "report",
                                 "estimate-current", "fit-noise", "fit-sim")}
-    rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer"}
+    rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer", "FS-mujoco", "FS-gazebo", "FS-stonefish"}
     for bits in itertools.product((0, 1), repeat=4):
         for drift in (False, True):
             rows.add(mix_name(bits, drift))
@@ -516,4 +606,7 @@ if __name__ == "__main__":
         sys.exit(sweep(sys.argv[2:] or None))
     if cmd == "real":
         sys.exit(real(sys.argv[2]))
+    if cmd == "sim":
+        f_simulators()
+        sys.exit(0)
     sys.exit(fast())
