@@ -24,7 +24,7 @@ def _same_anywhere(text):
 
 def _check(tmp_path, out, names, prefix):
     for name in names:
-        text = (out / name).read_text().replace(str(tmp_path), "<tmp>")
+        text = (out / name).read_text(encoding="utf-8").replace(str(tmp_path), "<tmp>")
         golden = os.path.join(GOLDEN, f"{prefix}_{name}")
         if WRITE:
             open(golden, "w", encoding="utf-8").write(text)
