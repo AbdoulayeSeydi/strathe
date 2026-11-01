@@ -1,6 +1,7 @@
 """Stonefish and Gazebo in Docker, with nothing to build (sim_docker.py; PROJECT_STATUS.md #92). Docker itself is faked
 here; test_sim_docker_real.py runs the real images when they're built on the machine."""
 import os
+import re
 import subprocess
 import tempfile
 
@@ -43,13 +44,21 @@ def test_each_missing_piece_says_what_to_do(monkeypatch):
     D.require("strathe-gz-replay", "gazebo")
 
 
+def _host(mount):
+    """The host side of a -v HOST:CONTAINER mount (a Windows host path has its own colon)."""
+    return mount.rsplit(":", 1)[0]
+
+
 def test_the_container_runs_as_you_with_the_folders_at_the_same_paths(tmp_path):
     argv = D.run_prefix("img", [str(tmp_path / "b"), str(tmp_path / "a"), str(tmp_path / "a")], {"GZ_X": "/m"})
     assert argv[:3] == ["docker", "run", "--rm"] and argv[-1] == "img"
-    assert argv[argv.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"   # files it writes are yours
+    if hasattr(os, "getuid"):
+        assert argv[argv.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"   # files it writes are yours
+    else:
+        assert "--user" not in argv   # Windows: Docker Desktop maps file ownership itself
     assert "HOME=/tmp" in argv and "GZ_X=/m" in argv
     mounts = [argv[i + 1] for i, x in enumerate(argv) if x == "-v"]
-    assert mounts == [f"{tmp_path / 'a'}:{tmp_path / 'a'}", f"{tmp_path / 'b'}:{tmp_path / 'b'}"]
+    assert mounts == [f"{d}:{D.inside(d)}" for d in (str(tmp_path / "a"), str(tmp_path / "b"))]
 
 
 def test_windows_paths_as_the_container_sees_them(monkeypatch):
@@ -93,11 +102,12 @@ def test_a_folder_docker_cant_see_is_named_with_the_fix(tmp_path, monkeypatch):
 
     def fake_run(argv, timeout=60):
         calls.append(argv)
-        mounted = [argv[i + 1].split(":")[0] for i, x in enumerate(argv) if x == "-v"]
+        mounted = [_host(argv[i + 1]) for i, x in enumerate(argv) if x == "-v"]
         assert all(os.path.exists(os.path.join(d, f".strathe_docker_check_{os.getpid()}")) for d in mounted)
         return subprocess.CompletedProcess(argv, 0, f"{hidden}\n" if str(hidden) in mounted else "", "")
     monkeypatch.setattr(D, "_run", fake_run)
-    with pytest.raises(D.DockerError, match=rf"can't see {hidden}.*colima start --mount {hidden}:w.*File sharing"):
+    h = re.escape(str(hidden))
+    with pytest.raises(D.DockerError, match=rf"can't see {h}.*colima start --mount {h}:w.*File sharing"):
         D.check_shared("img", [str(seen), str(hidden)])
     assert not list(seen.iterdir()) and not list(hidden.iterdir())   # the marker files are removed
     D.check_shared("img", [str(seen)])
@@ -139,10 +149,10 @@ def test_the_replay_runs_in_the_container_with_its_paths(tmp_path, monkeypatch):
     t = RT.ReplayTool(["docker:img"], (0.0, 0.0, 0.0), extra=["--model-dir", str(tmp_path / "models")],
                       env={"GZ_SIM_RESOURCE_PATH": str(tmp_path)})
     argv = t._argv(str(tmp_path / "w" / "world.sdf"), (str(tmp_path / "work"),))
-    assert argv[argv.index("img") + 1:argv.index("img") + 3] == ["--model", str(tmp_path / "w" / "world.sdf")]
-    mounts = {argv[i + 1].split(":")[0] for i, x in enumerate(argv) if x == "-v"}
+    assert argv[argv.index("img") + 1:argv.index("img") + 3] == ["--model", D.inside(str(tmp_path / "w" / "world.sdf"))]
+    mounts = {_host(argv[i + 1]) for i, x in enumerate(argv) if x == "-v"}
     assert mounts == {str(tmp_path / "w"), str(tmp_path / "work"), str(tmp_path / "models"), str(tmp_path)}
-    assert f"GZ_SIM_RESOURCE_PATH={tmp_path}" in argv
+    assert f"GZ_SIM_RESOURCE_PATH={D.env_value(str(tmp_path))}" in argv
 
 
 def test_strathe_passes_docker_through_untouched(tmp_path):

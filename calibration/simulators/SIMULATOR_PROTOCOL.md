@@ -76,6 +76,8 @@ and T_b = diag(1, −1, −1).
   to by full path and the work folders at the same paths. It runs as your user id with `HOME=/tmp`, so your command
   mustn't need root ([DOCKER.md](DOCKER.md) section 6).
 
+On Windows, write paths with backslashes as usual; put a path with spaces in double quotes.
+
 ## 2. The simulator description (`my_sim.yaml`)
 
 ```yaml
