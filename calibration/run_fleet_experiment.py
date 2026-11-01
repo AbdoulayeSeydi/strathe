@@ -39,7 +39,7 @@ import yaml
 from build_two_agent_cores import load_calibrated_parameters
 from fleet_belief import BeliefSpec, interpolate_params
 from disturbance import load_disturbance
-from fleet_env import FleetConfig
+from fleet_env import BEACON_SIZE_BYTES, FleetConfig
 from fleet_eval import CellSpec, CommSpec, run_cells
 from fleet_experiment_schema import (ConfigError, PhysicsAlphaBelief, PhysicsParamsBelief,
                                      belief_label, load_fleet_experiment)
@@ -408,6 +408,11 @@ def write_report(path, cfg, summary, contrasts, doses, links, elapsed, n_eps, di
                 f"distance as fitted, and {cfg.communication.acoustic_fixed_latency_s:g} s of modem delay plus travel "
                 f"time at {cfg.communication.speed_of_sound_mps:g} m/s. "
                 if cfg.communication.acoustic_calibrated() else "")
+             + (f"The acoustic modem adds {cfg.communication.acoustic_fixed_latency_s:g} s of delay on top of travel "
+                f"time. " if cfg.communication.acoustic_fixed_latency_s and not cfg.communication.acoustic_calibrated()
+                else "")
+             + (f"The link carries at most {cfg.communication.overrides.bytes_per_tick:g} bytes per vehicle per tick "
+                f"(a beacon is {BEACON_SIZE_BYTES} bytes). " if cfg.communication.overrides.bytes_per_tick else "")
              + "Between beacons, each vehicle predicts where its teammate is with a **belief model**; that model is the "
              "only thing that changes between the conditions below. Both vehicles' true physics is "
              f"`{os.path.basename(cfg.truth_params)}` in every condition, and every condition sees the same starting "

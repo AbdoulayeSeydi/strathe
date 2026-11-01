@@ -249,8 +249,9 @@ def experiment_with_overrides(config: Optional[str], overrides: dict, jobs_dir: 
             exp[k] = {**exp[k], **v}
             if k == "communication" and "severities" in v:
                 exp[k].pop("severity", None)
-            if k == "communication" and isinstance(v.get("optical"), dict) and isinstance(before.get("optical"), dict):
-                exp[k]["optical"] = {**before["optical"], **v["optical"]}   # --optical-* flags change one field each
+            for sub in ("optical", "overrides"):   # --optical-* / --bandwidth-bytes change one field each
+                if k == "communication" and isinstance(v.get(sub), dict) and isinstance(before.get(sub), dict):
+                    exp[k][sub] = {**before[sub], **v[sub]}
         else:
             exp[k] = v
     exp["output_dir"] = os.path.join(jobs_dir, f"{safe_name(exp['name'])}_{stamp}")
@@ -978,6 +979,17 @@ def fleet_setting_overrides(args) -> dict:
         comm["severities"] = list(args.comm)
     if args.beacon_interval:
         comm["beacon_interval_s"] = [float(x) for x in args.beacon_interval]
+    if getattr(args, "modem_delay", None) is not None:
+        if getattr(args, "link_calibration", None):
+            raise ValueError("--modem-delay and --link-calibration both set the modem delay: the calibration measured "
+                             "it from your logs, so drop --modem-delay (or the calibration)")
+        if not 0 <= args.modem_delay <= 60:
+            raise ValueError(f"--modem-delay must be 0 to 60 s, got {args.modem_delay:g}")
+        comm["acoustic_fixed_latency_s"] = float(args.modem_delay)
+    if getattr(args, "bandwidth_bytes", None) is not None:
+        if args.bandwidth_bytes <= 0:
+            raise ValueError(f"--bandwidth-bytes must be positive, got {args.bandwidth_bytes:g}")
+        comm["overrides"] = {"bytes_per_tick": float(args.bandwidth_bytes)}
     comm.update(link_block(args))
     if comm:
         o["communication"] = comm
@@ -1062,6 +1074,9 @@ def cmd_fleet(args, runner=None) -> int:
             validate_experiment(config)
         except ValueError as e:
             print(f"❌ These settings don't make a valid experiment:\n{e}")
+            if getattr(args, "bandwidth_bytes", None) is not None and "ONE severity" in str(e):
+                print("   --bandwidth-bytes applies on top of one packet-loss level: add --comm with a single level, "
+                      "e.g. --comm L0.")
             os.remove(config)
             return 2
         if args.save_config:
@@ -1405,6 +1420,12 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--spec", default=DEFAULT_SPEC)
     v.set_defaults(fn=cmd_validate)
 
+    cs = sub.add_parser("comms-study", add_help=False,
+                        help="test N-vehicle coordination under acoustic latency, bandwidth and packet loss: sweeps "
+                             "each one and reports where coordination breaks (comms-study --help for its options)")
+    cs.add_argument("rest", nargs=argparse.REMAINDER)
+    cs.set_defaults(fn=cmd_comms_study)
+
     f = sub.add_parser("fleet", help="run a fleet coordination experiment")
     f.add_argument("--config", help="experiment YAML (default: the shipped default_experiment.yaml)")
     f.add_argument("--current-speed", type=float, nargs="+", metavar="MPS",
@@ -1425,6 +1446,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="packet-loss levels, one result cell each: L0 0%%, L1 10%%, L2 30%%, L3a 60%%, "
                         "L3b 60%% + bandwidth one byte short of a beacon")
     g.add_argument("--beacon-interval", nargs="+", type=float, metavar="S", help="seconds between beacons (list = sweep)")
+    g.add_argument("--modem-delay", type=float, metavar="S",
+                   help="the acoustic modem's own delay on top of travel time, s (default 0; `--link-calibration` "
+                        "measures it from your logs instead)")
+    g.add_argument("--bandwidth-bytes", type=float, metavar="BYTES",
+                   help="bytes the acoustic link carries per vehicle per 0.1 s tick. A beacon is 24 bytes, so this is "
+                        "all or nothing here; for bandwidth as time on the air shared by several vehicles, use "
+                        "`strathe comms-study`")
     g.add_argument("--beliefs", nargs="+", choices=BELIEF_NAMES, help="teammate models to compare")
     g.add_argument("--compare", nargs=2, metavar=("A", "B"), help="the headline pair (default calibrated generic)")
     g.add_argument("--target-separation", type=float, metavar="M")
@@ -1677,6 +1705,36 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def cmd_comms_study(args, runner=None) -> int:
+    """Everything after `comms-study` goes to comms_study.py as it is (its own --help lists the options)."""
+    return run_step(["comms_study.py", *comms_study_paths(args.rest)], runner)
+
+
+def comms_study_paths(rest: list) -> list:
+    """comms_study.py runs from the calibration folder: make the paths a user typed absolute."""
+    out, path_flags = [], ("--out", "--params", "--vehicle-spec", "--belief-params")
+    i = 0
+    while i < len(rest):
+        out.append(rest[i])
+        if rest[i] in path_flags and i + 1 < len(rest):
+            out.append(_abs(rest[i + 1]))
+            i += 2
+            continue
+        if rest[i] == "--controller-path":
+            i += 1
+            while i < len(rest) and not rest[i].startswith("--"):
+                out.append(_abs(rest[i]))
+                i += 1
+            continue
+        i += 1
+    if "--controller" in rest and ":" in (rest[rest.index("--controller") + 1:] or [""])[0] \
+            and "--controller-path" not in rest:
+        out += ["--controller-path", os.getcwd()]   # a controller module in the folder the user runs from
+    if "--out" not in rest and not ({"-h", "--help"} & set(rest)):
+        out += ["--out", _abs("comms_study")]
+    return out
+
+
 SIMULATORS = ("stonefish", "gazebo", "mujoco", "holoocean", "external")
 
 
@@ -1739,6 +1797,8 @@ def main(argv=None, runner=None) -> int:
     if argv and argv[0] == "convert-sim":  # PROJECT_STATUS.md #85; its options pass through (--help lists them)
         rest = [_abs(x) if (not x.startswith("-") and os.path.exists(x)) else x for x in argv[1:]]
         return run_step(["-m", "simfit.convert", *rest], runner)
+    if argv and argv[0] == "comms-study":  # its options belong to comms_study.py, --help included (#89)
+        return cmd_comms_study(argparse.Namespace(rest=list(argv[1:])), runner)
     args = build_parser().parse_args(argv)
     return args.fn(args, runner)
 

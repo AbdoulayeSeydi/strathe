@@ -2563,6 +2563,172 @@ calibrations, with every option varied. The writeup is `~/strathe_uri_lab_v3/URI
 - the Docker images (no Docker here);
 - a public Gazebo model (bluerov2_gz).
 
+### 89. `strathe comms-study`: N vehicles coordinating under acoustic latency, bandwidth and packet loss (2026-10-20)
+
+**Why.** Strathe has to show teams they can test multi-vehicle coordination under the limits of acoustic
+communication, not only simulate vehicles. `strathe fleet` is two vehicles flown by trained policies, over a
+point-to-point link with a per-tick byte budget. Its only comm knob is the bundled L0–L3b loss levels: latency and
+bandwidth couldn't be set on their own, and there was no shared channel.
+
+**What's new:**
+- **`acoustic_network.py`, a shared acoustic channel for N vehicles.** Every effect is in seconds:
+  - travel time (range ÷ 1500 m/s);
+  - time on the air (preamble + bits ÷ bit rate);
+  - the modem's decoding delay;
+  - TDMA slots or random access, with jitter;
+  - half duplex;
+  - collisions at each receiver;
+  - independent or bursty (Gilbert-Elliott) loss, an optional distance ramp, and range.
+
+  Every packet's fate is counted. It is vehicle-agnostic like `comm_channel.py`, and deterministic per seed.
+- **`fleet_coordination.py`, 2–12 vehicles on Strathe's calibrated physics.**
+  - **The task:** they follow a leader whose turns they can't predict, in a wedge, line, column or custom
+    formation.
+  - **What a vehicle knows:** its teammates only through beacons and a belief model (`fleet_belief.py` gains
+    `estimate_state`: position, velocity, heading).
+  - **Controllers:** a built-in leader-follower PID, or a team's own `module:Class`.
+  - **Scoring, always on the truth:** formation error, closest approach and collisions, belief error, beacon age,
+    and the channel's statistics.
+  - **A formation that turns with the leader** is refused when its outer slot would need to outrun the vehicle,
+    with the slowest turn that works.
+- **`strathe comms-study` (`comms_study.py`).** One setting at a time, on paired seeds:
+  - modem delay, bit rate, loss, burst length, fleet size, beacon interval, spacing;
+  - TDMA against random access, teammate prediction, and controller.
+
+  It writes `report.md` (where coordination holds and breaks, with Wilson intervals), `summary.csv`,
+  `episodes.csv`, plots and `study.yaml`. Modem classes `slow` / `medium` / `fast` / `ideal` are generic starting
+  points.
+- **Web card** "Test your fleet's coordination under acoustic limits". **Docs:** `calibration/COMMS_STUDY.md` (with
+  how to plug in a controller), README, LAB_GUIDE section 9, and a LIMITS section.
+- **Tests:**
+  - `tests/test_acoustic_network.py`:
+    - airtime and exact latency;
+    - TDMA never collides and its cycle is the update interval;
+    - random access collides when busy;
+    - half duplex;
+    - burst statistics;
+    - range and distance loss;
+    - determinism;
+    - no physics imports.
+  - `tests/test_fleet_coordination.py`:
+    - formations;
+    - refusals;
+    - a good channel holds and a saturated one doesn't;
+    - repeatability and paired leaders;
+    - six vehicles;
+    - every belief's state;
+    - a team's own controller;
+    - each setting changes only itself;
+    - verdicts;
+    - a small study end to end;
+    - the CLI pass-through.
+  - The web form test.
+
+**Navigation error in `comms-study`** (2026-10-22 review). Vehicles knew their own positions exactly, which LIMITS
+listed as not modelled.
+- **The model:** `--nav-drift PCT` gives each vehicle a heading-reference error, drawn per vehicle, so its dead reckoning
+  drifts by about that % of distance travelled. `--start-fix-error M` gives it a starting fix error.
+- **Who uses what:** its controller and its beacons use what it believes; sound travels the true distance; the score is
+  the truth.
+- **Independence:** the errors come from their own random stream, so everything else in an episode stays the same.
+  With both at 0 the results are unchanged.
+- **New study settings:** `nav_drift` and `fix_error`, now in the default study. Each report says each vehicle's mean
+  position error.
+- **On the shipped BlueROV2** (4 vehicles, 1 kbit/s TDMA, 30 paired episodes per value):
+
+  | Setting | Values tested | Success | Formation error |
+  |---|---|---|---|
+  | Drift | 0 → 5% | 100% throughout | 0.85 → 1.65 m |
+  | Starting fix error | 0.5 m | 100% | 1.27 m |
+  | | 1 m | 87% | 2.03 m |
+  | | 2 m | 23% (12–41%) | 3.75 m |
+  | | 5 m | 3% | 9.07 m |
+
+  A follower's slot is off by the difference between its error and the leader's, which beacons can't fix without
+  ranging.
+- **Web, docs, tests:** web fields and sweep boxes; COMMS_STUDY.md and LIMITS; tests for the model, the settings and
+  the web form.
+
+**`strathe fleet` gets the two settings it was missing** (2026-10-22 review). Its two-vehicle experiments had a modem
+delay and a byte budget in the experiment YAML, but no flag or web field, so testing latency or bandwidth meant hand-editing
+YAML:
+- **`--modem-delay S`** sets the acoustic modem's own delay on top of travel time. It's refused together with
+  `--link-calibration`, which measures the delay from the lab's logs.
+- **`--bandwidth-bytes N`** sets the bytes per vehicle per 0.1 s tick. A beacon is 24 bytes, so this is all or nothing
+  in this model, and the help points to `comms-study` for bandwidth shared by several vehicles. It applies on top of one
+  packet-loss level, and the error now says to add `--comm L0`.
+- **Merging:** the flag merges into the YAML's own loss settings instead of replacing them.
+- **Web and report:** both are fields on the web form, and the report states them.
+- **Tests:** `test_fleet_modem_delay_and_bandwidth_reach_the_experiment` and the web form test; a smoke experiment ran with
+  both.
+
+**Found while building it:**
+- A formation that turns rigidly with the leader is unflyable at survey turn rates: a wedge's outer slot moves at
+  1.5 m/s in a 3°/s turn, against a vehicle top speed of 0.35 m/s.
+- Without integral action the PID sat about 2 m behind its slot: drag at cruise is about 14 N.
+- Random access with fixed beacon periods locked two vehicles into colliding forever; random jitter fixed it.
+
+**Results on the shipped BlueROV2** (30 paired episodes per value; success = formation error under 3 m RMS and no
+collision; intervals are 95% Wilson). Every run's command, CSVs, plots and report are in `~/strathe_comms_demo/`.
+
+**1. The default study** (`strathe comms-study`, 22 min on 4 cores, 1,170 episodes). 4 vehicles in a 10 m wedge,
+a 1 kbit/s modem, TDMA, beacons every 2 s (TDMA cycle 3.4 s), constant-velocity prediction:
+
+| Setting | Holds up to | Breaks at | Formation error, easiest to hardest |
+|---|---|---|---|
+| Modem delay | 10 s (100%) | 20 s: 77% (59–88%) | 0.84 → 2.77 m |
+| Bit rate | 50 bit/s (100%; TDMA cycle 23 s) | – | 0.83 → 2.38 m |
+| Independent loss | 70% (100%) | – | 0.85 → 1.75 m |
+| The same 30% loss in bursts | bursts of 4 packets (97%) | 8: 53% (36–70%); 16: 23% | 0.93 → 6.68 m |
+| Fleet size | 8 vehicles (100%) | – | 0.82 → 0.92 m |
+| Beacon interval | 20 s (100%) | – | 0.85 → 1.53 m |
+| TDMA against random access | TDMA 100% | random access 0% (0–11%): 1% delivered, channel 151% busy | 0.85 against 24 m |
+
+Burst length matters more than the loss rate: 70% independent loss holds, while 30% loss in bursts of 8 fails half
+the time, because a burst leaves a teammate unheard for a whole turn.
+
+**2. A slow modem** (80 bit/s, 4.2 s on the air per beacon: `--modem slow`):
+- **Fleet size breaks it.** The TDMA cycle grows with the fleet: 8.5 s for 2 vehicles, 17 s for 4, 26 s for 6,
+  35 s for 8.
+  - 2–4 vehicles: 100%;
+  - 6: 93% (79–98%);
+  - 8: 3% (1–17%), with beacons 22 s old.
+- **Beacon interval below the cycle changes nothing:** 1–10 s are identical, because the cycle is the real update
+  interval. 20 s: 67%.
+- **Teammate prediction decides it.** Same 30 episodes:
+
+  | Prediction | Success | Formation error |
+  |---|---|---|
+  | Perfect knowledge | 100% | 0.99 m |
+  | The calibrated physics model | 100% | 1.16 m |
+  | Constant velocity | 100% | 1.72 m |
+  | **An uncalibrated physics model** (vehicle_spec defaults; drag 4–5× too low) | **43% (27–61%)** | 3.02 m |
+  | Last reported position | 0% (0–11%) | 3.16 m |
+
+  A wrong model is worse than none: the uncalibrated one loses to constant velocity. The calibrated row is a best
+  case, because the simulated vehicles are that model (LIMITS: "calibrated" in fleet results).
+
+**3. Random access has a sweet spot** (`--mac aloha`, 1 kbit/s, beacon interval varied):
+
+| Beacons every | Success | Delivered | Channel busy |
+|---|---|---|---|
+| 2 s | 0% | 1% | 151% |
+| 5 s | 43% | 33% | 60% |
+| 10 s | 70% | 62% | 30% |
+| 20 s | 67% | 81% | 15% |
+| 40 s | 17% | 89% | 7% |
+
+Too often and packets collide; too rarely and the information is stale. Unlike TDMA, random access also produced
+physical collisions between vehicles (1–2 episodes in 30 at 2–10 s and at 40 s). TDMA at the same modem holds at
+100%.
+
+**What this shows a team:** with the modem, fleet size, strategy and tolerance as inputs, the study finds the
+breaking points before a field trial. It also shows which lever fixes each one:
+- turn-taking instead of random access;
+- fewer vehicles per channel, or a faster modem, when the TDMA cycle is the limit;
+- a calibrated teammate model on slow links;
+- interleaving or redundancy against bursty loss.
+
 ### 90. A public Gazebo model on public logs: bluerov2_gz, and values a model has at zero (2026-10-21)
 
 **Why.** Everything in #88 was URI's vehicle and models converted from URI's Stonefish model. A lab's first try will
@@ -2674,6 +2840,7 @@ cost of 874):
     the message says which. A new fit removes old checkpoints.
   - **Tests:** `tests/test_simfit_finish.py`; a Stonefish finish test; the web checkboxes. The Stonefish golden file
     gains `finished_from_checkpoint: []`.
+
 
 ## Honest open items
 

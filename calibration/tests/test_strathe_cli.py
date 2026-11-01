@@ -182,9 +182,10 @@ def test_home_page_has_every_form(server):
     assert "One vehicle: train and test a controller" in body and "Train a fleet policy for your vehicle" in body
     assert "Calibrate the communication link" in body and "Roll and pitch from tank tests" in body
     assert "Calibrate your Stonefish model" in body and "Put your Strathe calibration into Stonefish" in body
+    assert "Test your fleet" in body and "under acoustic limits" in body
     assert "Calibrate your simulator model" in body and "Put your Strathe calibration into your simulator" in body
     assert "Describe your vehicle from your Stonefish model" in body
-    assert body.count(f"value='{token}'") == 12
+    assert body.count(f"value='{token}'") == 13
     ids = re.findall(r" id=([\w-]+)", body)
     assert len(ids) == len(set(ids))  # every label points at exactly one input
 
@@ -642,7 +643,8 @@ def test_web_fleet_settings_become_flags(server):
     body = [("token", token), ("shipped", "ci_smoke_experiment.yaml"), ("comm", "L0"), ("comm", "L3a"),
             ("beliefs", "calibrated"), ("beliefs", "oracle"), ("beacon_interval", "1 3"), ("seeds", "2"),
             ("target_separation", "3"), ("hold_steps", "25"), ("episode_steps", "250"), ("separations", "3.5, 5"),
-            ("backend", "mujoco"), ("disturbance", "fitted"), ("disturbance_scale", "1")]
+            ("backend", "mujoco"), ("disturbance", "fitted"), ("disturbance_scale", "1"), ("modem_delay", "2"),
+            ("bandwidth_bytes", "30")]
     import http.client
     from urllib.parse import urlencode
     port = [c.cell_contents for c in request.__closure__ if isinstance(c.cell_contents, int)][0]
@@ -656,6 +658,7 @@ def test_web_fleet_settings_become_flags(server):
     assert cmd[cmd.index("--beacon-interval") + 1:cmd.index("--beacon-interval") + 3] == ["1.0", "3.0"]
     assert cmd[cmd.index("--seeds") + 1] == "2" and cmd[cmd.index("--backend") + 1] == "mujoco"
     assert cmd[cmd.index("--separations") + 1:cmd.index("--separations") + 3] == ["3.5", "5.0"]
+    assert cmd[cmd.index("--modem-delay") + 1] == "2.0" and cmd[cmd.index("--bandwidth-bytes") + 1] == "30.0"
     cli.build_parser().parse_args(cmd)
     status, body, _ = request("POST", "/jobs/fleet", {"token": token, "shipped": "ci_smoke_experiment.yaml",
                                                       "beliefs": "oracle"})
@@ -816,6 +819,31 @@ def test_stonefish_forms_take_the_replay_tool_iterations_and_workers(tmp_path):
         web.stonefish_cli_args({**form, "replay_tool": str(tmp_path / "nope")})
 
 
+def test_comms_study_form(server):
+    """#89: the web card runs `strathe comms-study` with what was filled in."""
+    request, token, started, manager, tmp_path = server
+    status, _, _ = request("POST", "/jobs/comms_study", {"token": token, "name": "six boats", "fleet_size": "6",
+                                                         "modem": "slow", "loss": "0.2", "burst": "4",
+                                                         "sweep_latency": "1", "sweep_mac": "1", "episodes": "10",
+                                                         "nav_drift": "1", "start_fix_error": "0.5"})
+    assert status == 303
+    cmd = started[0]
+    assert cmd[3] == "comms-study"
+    for flag, val in (("--fleet-size", "6"), ("--modem", "slow"), ("--loss", "0.2"), ("--burst", "4.0"),
+                      ("--episodes", "10"), ("--nav-drift", "1.0"), ("--start-fix-error", "0.5")):
+        assert cmd[cmd.index(flag) + 1] == val
+    assert cmd[cmd.index("--sweep") + 1:cmd.index("--sweep") + 3] == ["latency", "mac"]
+    assert cmd[-1].endswith("comms_six_boats")
+    import comms_study
+    comms_study.build_parser().parse_args(cmd[4:])   # the study accepts exactly what the form built
+    for bad, msg in (({"fleet_size": "20"}, "Vehicles"), ({"loss": "1.5"}, "Packet loss"),
+                     ({"controller": "not a class"}, "module:Class")):
+        status, body, _ = request("POST", "/jobs/comms_study", {"token": token, "name": "x", **bad})
+        assert status == 400 and msg in body
+    status, body, _ = request("GET", "/", None)
+    assert "Test your fleet&#x27;s coordination" in body or "Test your fleet's coordination" in body
+
+
 def test_the_simulator_cards_start_fit_sim_and_export_sim(server):
     """PROJECT_STATUS.md #86: the "your simulator" cards reach `strathe fit-sim` / `export-sim`."""
     request, token, started, manager, tmp_path = server
@@ -831,3 +859,27 @@ def test_the_simulator_cards_start_fit_sim_and_export_sim(server):
     status, body, _ = request("POST", "/jobs/fit_sim", {"token": token, "sim": "gazebo", "model": str(world),
                                                        "reference_point": "0 0", "data": str(tmp_path), "name": "g2"})
     assert status == 400 and "three numbers" in body
+
+
+def test_fleet_modem_delay_and_bandwidth_reach_the_experiment(tmp_path, capsys):
+    """The two-vehicle experiment's channel had a modem delay and a byte budget in its YAML, but no flags (#89
+    review): a lab had to hand-edit YAML for the two settings the coordination tests are about."""
+    import yaml
+    out = tmp_path / "exp.yaml"
+    assert cli.main(["fleet", "--modem-delay", "2.5", "--bandwidth-bytes", "30", "--save-config", str(out)]) == 2
+    assert "add --comm with a single level" in capsys.readouterr().out   # the default experiment has five levels
+    assert cli.main(["fleet", "--comm", "L0", "--modem-delay", "2.5", "--bandwidth-bytes", "30",
+                     "--save-config", str(out)]) == 0
+    comm = yaml.safe_load(out.read_text())["communication"]
+    src = yaml.safe_load(open(cli.DEFAULT_FLEET_CONFIG))["communication"]
+    assert comm["acoustic_fixed_latency_s"] == 2.5 and comm["overrides"]["bytes_per_tick"] == 30.0
+    for k, v in (src.get("overrides") or {}).items():   # the YAML's own loss settings are kept, not replaced
+        if k != "bytes_per_tick":
+            assert comm["overrides"][k] == v
+    lc = tmp_path / "link.yaml"
+    lc.write_text("{}")
+    assert cli.main(["fleet", "--modem-delay", "1", "--link-calibration", str(lc), "--save-config",
+                     str(tmp_path / "x.yaml")]) == 2
+    assert "both set the modem delay" in capsys.readouterr().out
+    assert cli.main(["fleet", "--modem-delay", "90", "--save-config", str(tmp_path / "y.yaml")]) == 2
+    assert cli.main(["fleet", "--bandwidth-bytes", "0", "--save-config", str(tmp_path / "z.yaml")]) == 2

@@ -703,6 +703,9 @@ def fleet_settings_fields() -> str:
     return f"""<fieldset class=current><legend>Experiment settings (optional; anything left blank keeps the YAML's value)</legend>
 <p class=muted>Packet-loss levels (one result cell each):</p>{comm}
 <label for=fs-beacon>Seconds between beacons (one or more, e.g. <code>1 3</code>)</label><input type=text id=fs-beacon name=beacon_interval value="">
+<label for=fs-delay>Acoustic modem's own delay on top of travel time, s (optional; default 0)</label><input type=text id=fs-delay name=modem_delay value="">
+<label for=fs-bw>Bytes the acoustic link carries per vehicle per 0.1 s tick (optional; a beacon is 24 bytes, so this is
+all or nothing here; for bandwidth shared by several vehicles, use the fleet coordination study)</label><input type=text id=fs-bw name=bandwidth_bytes value="">
 <p class=muted>Teammate models to compare:</p>{beliefs}
 <label for=fs-sep>Target separation, m</label><input type=text id=fs-sep name=target_separation value="">
 <label for=fs-tol>Tolerance, m</label><input type=text id=fs-tol name=tolerance value="">
@@ -806,6 +809,49 @@ anything (see CUSTOM_EXPERIMENT.md).</p>
 {engine_disturbance_fields("fl")}
 {current_fieldset("cur", teammates=True)}
 <button>Start experiment</button></form></div>
+<div class=card><h2>Test your fleet's coordination under acoustic limits</h2>
+<p class=muted>2 to 12 vehicles hold a formation behind a leader whose turns they can't predict, knowing each other
+only through acoustic beacons on one shared channel. Strathe changes one thing at a time (latency, bit rate, packet
+loss, loss bursts, fleet size, beacon rate, turn-taking against random access, teammate prediction) and reports where
+coordination holds and where it breaks, with 95% intervals. About 10 minutes at the defaults
+(<code>calibration/COMMS_STUDY.md</code>).</p>
+<form method=post action=/jobs/comms_study>{tok}
+<label for=cs-n>Vehicles</label><input type=text id=cs-n name=fleet_size value="4">
+<label for=cs-form>Formation</label><select id=cs-form name=formation><option value=wedge>Wedge (a V behind the
+leader)</option><option value=line>Line abreast</option><option value=column>Column</option></select>
+<label for=cs-sp>Spacing, m</label><input type=text id=cs-sp name=spacing value="10">
+<label for=cs-modem>Your modem's class (or set its numbers below)</label><select id=cs-modem name=modem>
+<option value=medium>Medium: about 1 kbit/s</option><option value=slow>Slow: tens of bit/s (robust FSK)</option>
+<option value=fast>Fast: several kbit/s</option><option value=ideal>Ideal: travel time only</option></select>
+<label for=cs-br>Bit rate, bit/s (optional; overrides the class)</label><input type=text id=cs-br name=bit_rate value="">
+<label for=cs-lat>Modem decoding delay, s (optional; overrides the class)</label>
+<input type=text id=cs-lat name=latency value="">
+<label for=cs-loss>Packet loss, 0 to 1 (default 0)</label><input type=text id=cs-loss name=loss value="">
+<label for=cs-burst>Losses come in bursts of this many packets on average (optional)</label>
+<input type=text id=cs-burst name=burst value="">
+<label for=cs-mac>Sharing the channel</label><select id=cs-mac name=mac><option value=tdma>Take turns (TDMA)</option>
+<option value=aloha>Send when due (random access)</option></select>
+<label for=cs-bi>Seconds between each vehicle's beacons (default 2)</label><input type=text id=cs-bi name=beacon_interval value="">
+<label for=cs-bb>Beacon size, bytes (default 32)</label><input type=text id=cs-bb name=beacon_bytes value="">
+<label for=cs-nav>Navigation drift: each vehicle's dead reckoning drifts this % of the distance it travels (optional;
+default 0, exact)</label><input type=text id=cs-nav name=nav_drift value="">
+<label for=cs-fix>Each vehicle's starting position-fix error, m (optional; default 0)</label><input type=text id=cs-fix name=start_fix_error value="">
+<label for=cs-bel>Predicting a teammate between beacons</label><select id=cs-bel name=belief>
+<option value=constant_velocity>Constant velocity</option><option value=physics>Your calibrated physics</option>
+<option value=last_beacon>Last reported position</option><option value=oracle>Perfect knowledge (an upper bound)</option></select>
+<fieldset class=current><legend>Change one at a time (none ticked = all of them)</legend>
+{comms_sweep_fields()}
+</fieldset>
+<label for=cs-ep>Episodes per value (default 30; fewer = faster, wider intervals)</label>
+<input type=text id=cs-ep name=episodes value="">
+<label for=cs-ctrl>Your own coordination controller, <code>module:Class</code> (optional; COMMS_STUDY.md says what it
+gets and returns)</label><input type=text id=cs-ctrl name=controller value="">
+<label for=cs-ctrlp>Folder your controller module is in, full path</label><input type=text id=cs-ctrlp name=controller_path value="">
+<label for=cs-params>Calibration file for the vehicles, full path (optional; default the shipped BlueROV2)</label>
+<input type=text id=cs-params name=params value="">
+<label for=cs-spec>Vehicle description YAML for it, full path (optional)</label><input type=text id=cs-spec name=vehicle_spec value="">
+<label for=cs-name>Name for this study</label><input type=text id=cs-name name=name value="my_fleet" required>
+<button>Run the study</button></form></div>
 <div class=card><h2>Train a fleet policy for your vehicle</h2>
 <p class=muted>The shipped fleet policies were trained on the reference BlueROV2. For a different vehicle, train one
 on your calibration (about 40 minutes at the default budget), then list it under <code>policies:</code> in your
@@ -1252,6 +1298,11 @@ class StratheHandler(BaseHTTPRequestHandler):
                 args += current_cli_args(form)
                 title += " + water current"
             return self.manager.start("fleet", title, args, [])
+        if path == "/jobs/comms_study":
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_fleet"
+            out = os.path.join(JOBS_DIR, f"comms_{name}")
+            args = ["comms-study", *comms_study_cli_args(form), "--out", out]
+            return self.manager.start("comms_study", f"Comms study: {name}", args, [out])
         if path == "/jobs/free_decay":
             name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or "my_tank_tests"
             out = os.path.join(JOBS_DIR, f"free_decay_{name}")
@@ -1324,6 +1375,64 @@ def _existing_file(text: str, what: str, suffixes: tuple) -> str:
     return p
 
 
+COMMS_SWEEP_LABELS = {"latency": "Modem delay", "bit_rate": "Bit rate", "loss": "Packet loss", "burst": "Loss bursts",
+                      "fleet_size": "Fleet size", "beacon_interval": "Beacon rate", "spacing": "Spacing",
+                      "mac": "Turn-taking vs random access", "belief": "Teammate prediction",
+                      "nav_drift": "Navigation drift", "fix_error": "Position-fix error"}
+
+
+def comms_sweep_fields() -> str:
+    return "\n".join(f'<label class=inline><input type=checkbox id=cs-sw-{k} name=sweep_{k} value=1 '
+                     f'aria-label="{v}"> {v}</label>' for k, v in COMMS_SWEEP_LABELS.items())
+
+
+def comms_study_cli_args(form: dict) -> list:
+    """`strathe comms-study` arguments from the web form (PROJECT_STATUS.md #89), validated."""
+    args = ["--fleet-size", str(int(_number(form.get("fleet_size", "4") or "4", "Vehicles", 2, 12)))]
+    if form.get("formation", "wedge") not in ("wedge", "line", "column"):
+        raise ValueError("Pick a formation.")
+    args += ["--formation", form.get("formation", "wedge")]
+    if form.get("modem", "medium") not in ("medium", "slow", "fast", "ideal"):
+        raise ValueError("Pick a modem class.")
+    args += ["--modem", form.get("modem", "medium")]
+    if form.get("mac", "tdma") not in ("tdma", "aloha"):
+        raise ValueError("Pick how the vehicles share the channel.")
+    args += ["--mac", form.get("mac", "tdma")]
+    if form.get("belief", "constant_velocity") not in ("constant_velocity", "physics", "last_beacon", "oracle"):
+        raise ValueError("Pick how a vehicle predicts a teammate.")
+    args += ["--belief", form.get("belief", "constant_velocity")]
+    for key, flag, name, lo, hi in (("spacing", "--spacing", "Spacing", 1, 1000),
+                                    ("bit_rate", "--bit-rate", "Bit rate", 1, 1e7),
+                                    ("latency", "--latency", "Modem decoding delay", 0, 600),
+                                    ("loss", "--loss", "Packet loss", 0, 0.99),
+                                    ("burst", "--burst", "Burst length", 1, 1000),
+                                    ("beacon_interval", "--beacon-interval", "Beacon interval", 0.1, 3600),
+                                    ("beacon_bytes", "--beacon-bytes", "Beacon size", 1, 100000),
+                                    ("nav_drift", "--nav-drift", "Navigation drift", 0, 20),
+                                    ("start_fix_error", "--start-fix-error", "Starting fix error", 0, 100),
+                                    ("episodes", "--episodes", "Episodes", 1, 10000)):
+        if form.get(key, "").strip():
+            v = _number(form[key], name, lo, hi)
+            args += [flag, str(int(v)) if key in ("beacon_bytes", "episodes") else repr(v)]
+    sweep = [k for k in COMMS_SWEEP_LABELS if form.get(f"sweep_{k}")]
+    if sweep:
+        args += ["--sweep", *sweep]
+    ctrl = form.get("controller", "").strip()
+    if ctrl:
+        if not re.fullmatch(r"[\w.]+:\w+", ctrl):
+            raise ValueError("Your controller: give it as module:Class, e.g. my_formation:MyController")
+        args += ["--controller", ctrl]
+        folder = os.path.abspath(os.path.expanduser(form.get("controller_path", "").strip() or "."))
+        if not os.path.isdir(folder):
+            raise ValueError(f"Controller folder not found: {folder}")
+        args += ["--controller-path", folder]
+    if form.get("params", "").strip():
+        args += ["--params", _existing_file(form["params"], "Calibration file", (".yaml", ".yml"))]
+    if form.get("vehicle_spec", "").strip():
+        args += ["--vehicle-spec", _existing_file(form["vehicle_spec"], "Vehicle description", (".yaml", ".yml"))]
+    return args
+
+
 def _number(text: str, name: str, lo: float, hi: float) -> float:
     try:
         v = float(str(text).strip())
@@ -1391,6 +1500,10 @@ def fleet_settings_cli_args(form: dict) -> list:
     if form.get("beacon_interval", "").strip():
         vals = form["beacon_interval"].replace(",", " ").split()
         args += ["--beacon-interval", *[repr(_number(v, "Seconds between beacons", 0.1, 60)) for v in vals]]
+    if form.get("modem_delay", "").strip():
+        args += ["--modem-delay", repr(_number(form["modem_delay"], "Modem delay", 0, 60))]
+    if form.get("bandwidth_bytes", "").strip():
+        args += ["--bandwidth-bytes", repr(_number(form["bandwidth_bytes"], "Bytes per tick", 1, 1e9))]
     for key, flag, name, lo, hi, as_int in (
             ("target_separation", "--target-separation", "Target separation", 0.1, 100, False),
             ("tolerance", "--tolerance", "Tolerance", 0.01, 10, False),
