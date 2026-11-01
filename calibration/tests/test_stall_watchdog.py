@@ -60,7 +60,14 @@ def test_a_compute_bound_stall_is_classified_as_computing(tmp_path):
     with wd.measure("e"):
         _slow_computing_evaluation(0.8)
     wd.close()
-    assert _rows(wd)[0]["classification"] == "computing"
+    row = _rows(wd)[0]
+    wall, mono, cpu = (float(row[k]) for k in ("wall_s", "monotonic_s", "cpu_s"))
+    assert cpu >= 0.75
+    # On a busy machine (CI runs the suite in parallel) the loop can get under half a core, and then "CPU starved"
+    # is the right name; the label must follow the clocks the watchdog measured.
+    assert row["classification"] == classify(wall, mono, cpu)
+    if cpu >= 0.5 * mono:
+        assert row["classification"] == "computing"
 
 
 def test_threshold_adapts_to_normal_evaluation_time(tmp_path):
