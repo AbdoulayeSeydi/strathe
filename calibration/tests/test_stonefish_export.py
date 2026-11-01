@@ -243,15 +243,21 @@ def test_strathe_check_says_what_the_stonefish_build_supports(tmp_path):
                       ('{"patched": true, "axis_damping": false}', "older patch"),
                       ('{"patched": false, "axis_damping": false}', "without the patch"),
                       ("usage: ...", "older than this version")):
-        tool = tmp_path / "replay"
-        tool.write_text(f"#!/bin/sh\necho '{out}'\n")
-        tool.chmod(0o755)
+        if sys.platform == "win32":  # Windows can't run a shell script; a batch file stands in for the tool
+            tool = tmp_path / "replay.bat"
+            tool.write_text(f"@echo {out}\n")
+        else:
+            tool = tmp_path / "replay"
+            tool.write_text(f"#!/bin/sh\necho '{out}'\n")
+            tool.chmod(0o755)
         assert want in cli.stonefish_status(str(tool)), out
 
 
 def test_stonefish_runs_in_docker_with_its_folders_mounted(monkeypatch):
     """--replay-tool docker:IMAGE: nothing to build (PROJECT_STATUS.md #87)."""
     import shutil
+    if sys.platform == "win32":
+        pytest.skip("Docker paths on Windows (D:\\x mounted at /d/x) come with #92's sim_docker")
     r = SF.Replay(["docker:strathe-stonefish-replay"], "/data", "auv", (-0.76, 0.0, 0.0))
     argv = r._argv("/w/world.scn", ("/work",))
     assert argv[:3] == ["docker", "run", "--rm"] and "/data:/data" in argv and "/w:/w" in argv and "/work:/work" in argv

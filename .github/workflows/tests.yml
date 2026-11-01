@@ -7,9 +7,19 @@ name: Regression Tests
 # requiring a real HoloOcean environment would need a different setup
 # (e.g. a self-hosted runner with HoloOcean pre-installed), not this one.
 
+# Minutes: a private repo on GitHub Free gets 2,000 a month, and Windows minutes count double. Every push used
+# to run this twice per PR (the branch push and the pull request) and again on main after merging, about 110
+# billed minutes per PR. It now runs once per pull request (which tests the merge with main), on demand, and
+# weekly on main to keep the caches warm; a newer push to the same PR cancels the older run.
 on:
-  push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -19,6 +29,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
       # The public BlueROV2 dataset, pinned, so tests that validate against
       # real logs (thruster model, ingestion round-trip) run in CI instead of
       # skipping. ~230 MB.
@@ -30,7 +42,14 @@ jobs:
       # A second public BlueROV2 dataset (DFKI, Zenodo 10.5281/zenodo.17360027, CC BY 4.0), pinned by
       # checksum: an ArduSub vehicle with motion capture, which checks the thruster conventions against
       # measured motion (PROJECT_STATUS.md #62). ~223 MB.
+      - name: Restore the DFKI tether dataset
+        id: dfki
+        uses: actions/cache@v4
+        with:
+          path: data/raw/dfki_rov_tether
+          key: dfki-rov-tether-v3-F357044A1D6D1F76164C8C94048EF2AE
       - name: Fetch DFKI tether dataset
+        if: steps.dfki.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ProgressPreference = 'SilentlyContinue'
@@ -43,10 +62,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest pytest-xdist
       - name: Run regression suite
         working-directory: calibration
-        run: pytest tests/ -v
+        run: pytest tests/ -v -n auto
       # The fleet workflow (MuJoCo, comm channel, two-agent env) is what
       # labs actually run, and tests/ never imports it -- which let
       # modules it depends on go uncommitted without CI noticing.

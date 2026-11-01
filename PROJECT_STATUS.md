@@ -2289,6 +2289,15 @@ through a documented replay command.
 **Next:** Gazebo Harmonic (#82), MuJoCo (#83), HoloOcean (#84), then `setup-sim`, the Docker images, `convert-sim`, the
 web cards and the URI stress test of every simulator.
 
+**Found by Windows CI when the branch became a PR (2026-11-01):**
+- **A Windows replay command lost its backslashes.** `--replay-tool "C:\Python\python.exe D:\lab\replay.py"` (or the
+  same in a description's `replay:`) went through POSIX `shlex.split`, which reads `\` as an escape: "wasn't found".
+  `simfit.replay_tool.split_command` / `join_command` keep backslashes and use cmd's quoting on Windows.
+- **Docker on Windows mounts `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
+  `/d/x` and translates the paths; until it merges, the mount test skips on Windows.
+- **Tests:** the golden outputs compare paths with `/` and numbers to 10 significant figures on another platform (the
+  fitted values differed in the 15th digit on Windows).
+
 ### 82. Gazebo Harmonic: `fit-sim --sim gazebo`, an exact export, and `setup-sim` (2026-10-19)
 
 **What changed:**
