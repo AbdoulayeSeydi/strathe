@@ -21,6 +21,19 @@ Two commands put Strathe's calibration into the simulator you already use:
 On URI's ALPHA RISE, Stonefish calibrated this way had 53–66% less position error after 60 s on unseen missions than
 URI's original model, holding the surge added mass at a slender-body estimate (PROJECT_STATUS.md #71–#73).
 
+## 0. The quick way
+- **One command:** `python strathe.py setup-sim stonefish` clones the Stonefish fork the patch is made for
+  (GSO-soslab/stonefish @ 7d52673), applies the patch, builds and installs Stonefish into `~/.strathe/stonefish` and
+  builds the replay tool. It finishes with the `strathe check` line. Your own checkout: `--source PATH`. Elsewhere:
+  `--prefix PATH`.
+  - **Dependencies:** git, cmake, a C++ compiler, GLM, SDL2, Freetype and OpenGL. On macOS also Homebrew's `libomp`,
+    whose flags are added for you.
+- **Nothing to build, with Docker:**
+  `docker build -t strathe-stonefish-replay -f calibration/stonefish/Dockerfile calibration/stonefish` once, then
+  `--replay-tool docker:strathe-stonefish-replay`. **Not yet tested:** the development machine had no Docker.
+
+Sections 1 and 2 below do the same steps by hand.
+
 ## 1. Build Stonefish with the added-mass patch (recommended)
 Stonefish gives a body one added mass: the average of its three axes. A slender vehicle carries far less water moving
 forward than sideways (ALPHA RISE: about 11 kg forward, about 120 kg sideways), so the average makes its surge
@@ -100,6 +113,14 @@ python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hu
 - `stonefish_fit_report.md`: the held-out comparison (drift after 10, 30 and 60 s, velocity and attitude error), with
   `drift.png`.
 - `stonefish_fit.yaml`: the settings before and after, the fit's cost and the held-out numbers.
+- **Read the report's bottom line first.** It says when the calibrated model turns or tilts worse than your original,
+  blows up in some unseen windows, or loses to standing still.
+- **When the fit made the attitude worse by moving the centre of gravity,** Strathe fits again with it held, scores
+  both and keeps the better (`calibration/simulators/README.md`, "What the fit does for you"). The other is next to it
+  as `<your vehicle file>_calibrated_cg_tuned.scn` or `_cg_held.scn`. The second fit starts from your model as it is
+  and takes about as long as the first. `--no-cg-rerun` (or the web card's checkbox) skips it.
+- **Interrupted?** The best point so far is in `stonefish_fit_checkpoint.json`. Run the same command again with
+  `--finish` to score it and write the vehicle file and report, without fitting again.
 
 ## Describe your vehicle for Strathe from your Stonefish model: `describe-stonefish`
 
@@ -202,8 +223,11 @@ calibration, position error after 10 / 30 / 60 s on the unseen mission):
 
 - **Speeds match Strathe's model** (forward speed error after 10 s: 0.44 → 0.09 m/s and 0.42 → 0.13 m/s; Strathe's
   0.09 and 0.12), and the error after 10 s falls 56–68% against the conversion.
-- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°: that
-  is what still grows the pond's error over a minute.
+- **Pitch:** 4° after 10 s on the bay, better than Strathe's own model (10°). On the pond, 19° against Strathe's 11°.
+  That was the water density: these runs used `--density-by-date`. Scored without it, the pond export reproduces
+  Strathe's own model (pitch 11.2° against 10.9°, identical velocity errors, #88).
+- **`--density-by-date`:** give it only when the vehicle kept the same ballast in both waters. URI's ALPHA RISE scored
+  better without it, so it was probably re-trimmed for the pond, as vehicles usually are for fresh water.
 - **The steps that got here:** carrying the damping alone left pitch at 36° / 23°; carrying Strathe's fore-aft offset
   27° / 14°; the CG at the reference point 19° / 4°.
 - **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute

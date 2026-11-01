@@ -38,6 +38,7 @@ python strathe.py check
 | Nothing extra: the same logs | your sensors' white noise and DVL dropouts, for realistic simulation (biases need an independent reference) | `fit-noise` (command line only) |
 | Nothing extra: the same logs, plus your **Stonefish** scenario | your own Stonefish vehicle model: its drag, added mass, buoyancy and CG, scored against the original on unseen recordings | `fit-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
 | Nothing extra: your calibration, plus your **Stonefish** scenario | your calibration's values put into your Stonefish vehicle (minutes), scored the same way | `export-stonefish` ([calibration/stonefish/README.md](calibration/stonefish/README.md)) |
+| Nothing extra: the same logs, plus **another simulator's** model (Gazebo, MuJoCo, HoloOcean, in-house) | the same, in your simulator: `fit-sim` and `export-sim`, one workflow for all | `fit-sim --sim ...` ([calibration/simulators/README.md](calibration/simulators/README.md)) |
 
 ## 3. Pick a template
 
@@ -130,6 +131,9 @@ python strathe.py fit-link --log messages.csv --out my_link
 python strathe.py fit-stonefish --scenario my_world.scn --robot my_rov --part Hull --ingest-spec my_rov.yaml --reference-point 0 0 0
 python strathe.py export-stonefish --calibration calibration_output_my_rov --scenario my_world.scn --robot my_rov --part Hull --reference-point 0 0 0
 
+#    any other simulator: the same two commands with --sim (calibration/simulators/README.md); e.g. your own:
+python strathe.py fit-sim --sim external --simulator my_sim.yaml --ingest-spec my_rov.yaml --reference-point 0 0 0
+
 # 5. use the calibration
 python strathe.py arena --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --task station_keeping --compare-generic
 python strathe.py train-fleet --params calibration_output_my_rov/calibrated_parameters.yaml --spec my_vehicle_spec.yaml --thrusters my_rov.yaml --out my_policy
@@ -168,7 +172,15 @@ fleet policy before running `fleet` on another vehicle: the shipped policies wer
 **From the optional steps:**
 - **`free-decay`:** `free_decay.yaml` and a short report: the roll/pitch swing period, damping and righting.
 - **`fit-link`:** `link_calibration.yaml`, a report and plots: delivery against range and latency for each link.
-- **`fit-stonefish`:** your Stonefish vehicle file with the tuned part changed, and a report comparing it with the original on unseen recordings.
+- **`fit-stonefish` / `fit-sim`:** your simulator model with the tuned values changed, and a report comparing it with the original on unseen recordings.
+  - **Read the bottom line first.** It says when the calibrated model turns or tilts worse, blows up somewhere, or
+    loses to standing still.
+  - **When the fit made the attitude worse** by moving the centre of gravity, Strathe fitted again with it held and
+    kept the better model. The other is next to it (`..._cg_tuned` or `..._cg_held`), and the report says why.
+  - **Gazebo:** `calibrated_world/` runs the result as it is; its `RUN_ME.md` has the one-line command. It uses a
+    shorter physics step when the fitted damping needs one.
+  - **If it was interrupted:** run the same command again with `--finish`, as for `calibrate`. It finishes from the
+    best point so far in minutes, and the report says it isn't converged.
 - **`export-stonefish`:** your Stonefish vehicle file with your calibration's values in it, the same comparison, and what Stonefish can't carry.
 - **`arena` / `fleet`:** a report each, with confidence intervals, comparing your calibrated model against generic physics.
 

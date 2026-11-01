@@ -2,7 +2,8 @@ data/raw/
 __pycache__/
 *.pyc
 .DS_Store
-holoocean/
+# a HoloOcean checkout at the repository root (not calibration/simulators/holoocean)
+/holoocean/
 calibration/gate1_*_test_buffer.pkl
 calibration/gate1_*_test_model.zip
 calibration/gate1_*_resume_test.zip
@@ -22,4 +23,5 @@ calibration/results/ci_smoke/
 # local web interface job logs (strathe.py web)
 strathe_jobs/
 calibration/stonefish/build/
+calibration/simulators/gazebo/build/
 stonefish_fit_*/

@@ -1,0 +1,265 @@
+scenario: <tmp>/lab/world.scn
+robot: auv
+part: Hull
+buoyancy_part: Foam
+reference_point_m:
+- 0.0
+- 0.0
+- 0.0
+fitted:
+- drag
+- added_mass
+- buoyancy
+axisymmetric: false
+notes: []
+held: {}
+weighting: variation
+from_strathe: null
+axis_scales:
+- 0.7755216691256775
+- 0.15155936448876986
+- 0.15204273867541798
+- 0.248091452600598
+- 0.10715159671479497
+- 0.15117659179844498
+values:
+  quadratic_drag_x: 0.5927928298840496
+  quadratic_drag_y: 2.527335189686159
+  quadratic_drag_z: 2.5312649176189135
+  viscous_drag_x: 0.05062848106859162
+  viscous_drag_y: 0.2993605543437835
+  viscous_drag_z: 0.29865894623435635
+  added_mass_x: 7.96208377803564
+  added_mass_y: 69.99160928870616
+  added_mass_z: 69.91191873802865
+  buoyancy_scale: 1.2344904169290052
+train_dates:
+- 01-01-2030
+heldout_dates:
+- 02-01-2030
+fit:
+  start_cost: 104.50735845590913
+  cost: 6.855076928304145e-06
+  evaluations: 6
+  status: The maximum number of function evaluations is exceeded.
+before:
+  quadratic_drag:
+  - 0.2
+  - 1.0
+  - 1.0
+  viscous_drag:
+  - 0.02
+  - 0.1
+  - 0.1
+  added_mass:
+  - 5.0
+  - 40.0
+  - 40.0
+  added_inertia:
+  - 0.1
+  - 2.0
+  - 2.0
+after:
+  quadratic_drag:
+  - 0.5927928298840496
+  - 2.527335189686159
+  - 2.5312649176189135
+  viscous_drag:
+  - 0.05062848106859162
+  - 0.2993605543437835
+  - 0.29865894623435635
+  added_mass:
+  - 7.96208377803564
+  - 69.99160928870616
+  - 69.91191873802865
+  added_inertia:
+  - 0.1
+  - 2.0
+  - 2.0
+  anisotropic: true
+  buoyancy_scale: 1.2344904169290052
+stonefish_patched: true
+calibrated_vehicle_file: <tmp>/out/vehicle_calibrated.scn
+cg_rerun: null
+finished_from_checkpoint: []
+heldout:
+  Stonefish, original:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 10.307
+      drift_p90_m: 11.447
+      velocity_rmse:
+      - 0.5512
+      - 0.1524
+      - 1.0923
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    30s:
+      drift_median_m: 17.911
+      drift_p90_m: 21.051
+      velocity_rmse:
+      - 0.5653
+      - 0.1633
+      - 1.1817
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    60s:
+      drift_median_m: 19.896
+      drift_p90_m: 24.562
+      velocity_rmse:
+      - 0.507
+      - 0.1587
+      - 1.2136
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+  Stonefish, calibrated by Strathe:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 0.004
+      drift_p90_m: 0.009
+      velocity_rmse:
+      - 0.001
+      - 0.0001
+      - 0.0002
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    30s:
+      drift_median_m: 0.01
+      drift_p90_m: 0.012
+      velocity_rmse:
+      - 0.0011
+      - 0.0001
+      - 0.0002
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+    60s:
+      drift_median_m: 0.013
+      drift_p90_m: 0.02
+      velocity_rmse:
+      - 0.001
+      - 0.0001
+      - 0.0002
+      - 0.0
+      - 0.0
+      - 0.0
+      attitude_error_median_deg:
+      - 0.0
+      - 0.0
+      - 0.0
+  no motion:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 5.571
+      drift_p90_m: 7.411
+      velocity_rmse:
+      - 0.7085
+      - 0.145
+      - 0.2867
+      - 0.2738
+      - 0.1286
+      - 0.1652
+      attitude_error_median_deg:
+      - 64.73
+      - 18.73
+      - 85.06
+    30s:
+      drift_median_m: 8.64
+      drift_p90_m: 10.038
+      velocity_rmse:
+      - 0.7101
+      - 0.1386
+      - 0.2901
+      - 0.2506
+      - 0.1398
+      - 0.1721
+      attitude_error_median_deg:
+      - 117.94
+      - 31.48
+      - 88.1
+    60s:
+      drift_median_m: 14.125
+      drift_p90_m: 18.436
+      velocity_rmse:
+      - 0.6396
+      - 0.1397
+      - 0.2711
+      - 0.2608
+      - 0.2089
+      - 0.1743
+      attitude_error_median_deg:
+      - 95.05
+      - 73.18
+      - 97.78
+  keeps its starting velocity:
+    windows: 4
+    diverged: 0
+    10s:
+      drift_median_m: 8.132
+      drift_p90_m: 12.118
+      velocity_rmse:
+      - 0.9408
+      - 0.1257
+      - 0.1269
+      - 0.3275
+      - 0.185
+      - 0.2502
+      attitude_error_median_deg:
+      - 64.73
+      - 18.73
+      - 85.06
+    30s:
+      drift_median_m: 19.262
+      drift_p90_m: 30.2
+      velocity_rmse:
+      - 0.9503
+      - 0.1729
+      - 0.2617
+      - 0.3251
+      - 0.1862
+      - 0.2935
+      attitude_error_median_deg:
+      - 117.94
+      - 31.48
+      - 88.1
+    60s:
+      drift_median_m: 39.904
+      drift_p90_m: 56.396
+      velocity_rmse:
+      - 0.7843
+      - 0.1932
+      - 0.2411
+      - 0.3463
+      - 0.2715
+      - 0.2717
+      attitude_error_median_deg:
+      - 95.05
+      - 73.18
+      - 97.78

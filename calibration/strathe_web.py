@@ -476,6 +476,98 @@ def stonefish_cli_args(form: dict) -> list:
         if not all(re.fullmatch(r"[a-z_]+=-?[\d.]+(e-?\d+)?", h) for h in holds):
             raise ValueError("Held values are NAME=VALUE, e.g. added_mass_x=10.6.")
         args += ["--hold", *holds]
+    if form.get("no_cg_rerun"):
+        args += ["--no-cg-rerun"]
+    if form.get("finish"):
+        args += ["--finish"]
+    return args
+
+
+SIM_FIELDS = {  # the simulator's own files and names, by form field (PROJECT_STATUS.md #81-#86)
+    "gazebo": {"model": ("--world", "Gazebo world", (".sdf", ".world")), "second": ("--model-file", "Model file", (".sdf",)),
+               "vehicle": "--model-name", "link": "--link"},
+    "mujoco": {"model": ("--model", "MJCF", (".xml", ".mjcf")), "vehicle": "--body"},
+    "holoocean": {"model": ("--scenario", "HoloOcean scenario (JSON)", (".json",)), "vehicle": "--agent"},
+    "external": {"model": ("--simulator", "Simulator description", (".yaml", ".yml")), "second": ("--model", "Model file", None)},
+}
+
+
+def sim_cli_args(form: dict, command: str = "fit") -> list:
+    """`strathe fit-sim` / `export-sim` arguments from the web form, for any simulator but Stonefish (its own cards)."""
+    sim = form.get("sim", "").strip()
+    if sim not in SIM_FIELDS:
+        raise ValueError("Choose the simulator.")
+    f = SIM_FIELDS[sim]
+    flag, what, exts = f["model"]
+    args = ["--sim", sim, flag, _existing_file(form.get("model", ""), what, exts)]
+    if f.get("second") and form.get("second", "").strip():
+        flag2, what2, exts2 = f["second"]
+        args += [flag2, _existing_file(form["second"], what2, exts2) if exts2 else
+                 os.path.abspath(os.path.expanduser(form["second"].strip()))]
+    for key in ("vehicle", "link"):
+        if f.get(key) and form.get(key, "").strip():
+            if not re.fullmatch(r"[\w.:/-]+", form[key].strip()):
+                raise ValueError(f"The {key} name has characters that can't be a name: {form[key]!r}")
+            args += [f[key], form[key].strip()]
+    ref = form.get("reference_point", "").split()
+    try:
+        ref = [str(float(x)) for x in ref]
+    except ValueError:
+        ref = []
+    if len(ref) != 3:
+        raise ValueError("The reference point is three numbers: x y z in metres.")
+    args += ["--reference-point", *ref]
+    if command == "export":
+        args += ["--calibration", _calibration_folder(form.get("calibration", ""))]
+    elif form.get("ingest_spec", "").strip():
+        args += ["--ingest-spec", _existing_file(form["ingest_spec"], "Ingestion spec", (".yaml", ".yml"))]
+    elif form.get("data", "").strip():
+        data = os.path.abspath(os.path.expanduser(form["data"].strip()))
+        if not os.path.isdir(data):
+            raise ValueError(f"Folder not found: {data}")
+        args += ["--data", data]
+    else:
+        raise ValueError("Give the logs: an ingestion spec, or a folder of Strathe CSVs.")
+    if form.get("heldout", "").strip():
+        if not all(re.fullmatch(r"\d{2}-\d{2}-\d{4}", d) for d in form["heldout"].split()):
+            raise ValueError("Held-out dates look like 27-03-2026.")
+        args += ["--heldout-dates", *form["heldout"].split()]
+    dens = form.get("density_by_date", "").split()
+    if dens:
+        if not all(re.fullmatch(r"[\d-]+=[\d.]+", d) for d in dens):
+            raise ValueError("Water densities are DATE=RHO, e.g. 27-03-2026=1000.")
+        args += ["--density-by-date", *dens]
+    t = form.get("replay_tool", "").strip()
+    if t and sim in ("gazebo", "external"):
+        if not t.startswith("docker:") and not (os.path.isfile(os.path.expanduser(t))
+                                                 and os.access(os.path.expanduser(t), os.X_OK)):
+            raise ValueError(f"Replay tool not found or not runnable: {t}")
+        args += ["--replay-tool", t if t.startswith("docker:") else os.path.abspath(os.path.expanduser(t))]
+    if form.get("compare_params", "").strip() and command == "fit":
+        args += ["--compare-params", _existing_file(form["compare_params"], "Calibration file", (".yaml", ".yml"))]
+    if command == "fit":
+        if form.get("from_strathe", "").strip():
+            args += ["--from-strathe", _calibration_folder(form["from_strathe"])]
+        groups = form.get("fit", "").split()
+        if groups:
+            if not all(re.fullmatch(r"[a-z_]+", g) for g in groups):
+                raise ValueError("What to fit: group names, e.g. drag added_mass.")
+            args += ["--fit", *groups]
+        holds = form.get("hold", "").split()
+        if holds:
+            if not all(re.fullmatch(r"[\w/]+=-?[\d.]+(e-?\d+)?", h) for h in holds):
+                raise ValueError("Held values are NAME=VALUE, e.g. added_mass_x=10.6.")
+            args += ["--hold", *holds]
+        if form.get("axisymmetric"):
+            args += ["--axisymmetric"]
+        if form.get("max_iterations", "").strip():
+            args += ["--max-iterations", str(int(_number(form["max_iterations"], "Fit iterations", 1, 200)))]
+        if form.get("no_cg_rerun"):
+            args += ["--no-cg-rerun"]
+        if form.get("finish"):
+            args += ["--finish"]
+    if form.get("workers", "").strip():
+        args += ["--workers", str(int(_number(form["workers"], "Simulator runs at once", 1, 256)))]
     return args
 
 
@@ -764,7 +856,7 @@ you logged)</label>
 <p class=muted>Fits your own Stonefish vehicle's drag, added mass, buoyancy and centre of gravity (one part) to your logs,
 and scores it against the original on recordings it never saw. Writes your vehicle file back with only that part
 changed. Needs the replay tool built against your Stonefish (<code>calibration/stonefish/README.md</code>); an hour
-or more.</p>
+or more, twice that when it fits again with the centre of gravity held.</p>
 <form method=post action=/jobs/fit_stonefish>{tok}
 <label for=sf-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=sf-scn name=scenario required>
 <label for=sf-robot>Robot name in the scenario</label><input type=text id=sf-robot name=robot required>
@@ -793,6 +885,12 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label for=sf-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
 <input type=text id=sf-tool name=replay_tool value="">
 <label for=sf-iter>Fit iterations (optional; default 15)</label><input type=text id=sf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=sf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
+interrupted calibration (the laptop slept, the power went) from its best point so far, instead of fitting again. Use the
+same name and settings as the interrupted one; it takes minutes, not hours.</label>
+<label class=inline><input type=checkbox id=sf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
+centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
+again with it held (about as long again) and keeps the better of the two.</label>
 <label for=sf-workers>Stonefish runs at once (optional; default all cores but one)</label><input type=text id=sf-workers name=workers value="">
 <label for=sf-name>Name for this calibration</label><input type=text id=sf-name name=name value="my_stonefish" required>
 <button>Calibrate the Stonefish model</button></form></div>
@@ -845,6 +943,70 @@ e.g. your URDF's base_link)</label><input type=text id=sx-ref name=reference_poi
 <input type=text id=sx-tool name=replay_tool value="">
 <label for=sx-name>Name for this export</label><input type=text id=sx-name name=name value="my_stonefish" required>
 <button>Put it into Stonefish</button></form></div>
+<div class=card><h2>Calibrate your simulator model (Gazebo, MuJoCo, HoloOcean, your own)</h2>
+<p class=muted>The same as for Stonefish, for any simulator: tunes your own model's settings by replaying your logs in
+your simulator, scores it against the original on recordings it never saw, and writes your model back with only those
+values changed. Set-up for each simulator: <code>calibration/simulators/README.md</code> (Gazebo: <code>python strathe.py
+setup-sim gazebo</code>; MuJoCo: nothing to set up). Gazebo also gets <code>calibrated_world/</code>: your world with the
+calibrated model in it, at a physics step that's safe for the fitted damping, ready to run (its <code>RUN_ME.md</code> has
+the command).</p>
+<form method=post action=/jobs/fit_sim>{tok}
+<label for=simf-sim>Simulator</label><select id=simf-sim name=sim required><option value="gazebo">Gazebo Harmonic</option>
+<option value="mujoco">MuJoCo</option><option value="holoocean">HoloOcean (Fossen torpedo)</option>
+<option value="external">Your own (a simulator description YAML)</option></select>
+<label for=simf-model>Your model, full path: Gazebo world (.sdf), MuJoCo MJCF (.xml), HoloOcean scenario saved as JSON, or your
+simulator description (.yaml)</label><input type=text id=simf-model name=model required>
+<label for=simf-second>Gazebo: the vehicle's model.sdf when the world includes it from a model folder; your own simulator:
+the model file (optional)</label><input type=text id=simf-second name=second value="">
+<label for=simf-veh>The vehicle's name: Gazebo model, MuJoCo body or HoloOcean agent (optional when there's one)</label>
+<input type=text id=simf-veh name=vehicle value="">
+<label for=simf-link>Gazebo: the vehicle's link (optional; default the Hydrodynamics plugin's link_name)</label>
+<input type=text id=simf-link name=link value="">
+<label for=simf-ref>Where the logs' velocity and forces are measured, from the vehicle's origin: x y z, m
+(forward-right-down; 0 0 0 for base_link)</label><input type=text id=simf-ref name=reference_point value="0 0 0" required>
+<label for=simf-spec>Your logs: ingestion spec YAML (full path)</label><input type=text id=simf-spec name=ingest_spec value="">
+<label for=simf-data>…or a folder of logs already in Strathe's CSV layout</label><input type=text id=simf-data name=data value="">
+<label for=simf-heldout>Recording dates to hold out (optional; default the latest 30%)</label><input type=text id=simf-heldout name=heldout value="">
+<label for=simf-fit>What to fit, by group (optional; the simulator's guide lists them, e.g. drag added_mass)</label>
+<input type=text id=simf-fit name=fit value="">
+<label for=simf-hold>Hold values you measured, NAME=VALUE (optional)</label><input type=text id=simf-hold name=hold value="">
+<label><input type=checkbox id=simf-axi name=axisymmetric> Torpedo-shaped vehicle: sway = heave</label>
+<label for=simf-density>Water density per recording date, DATE=RHO (optional)</label><input type=text id=simf-density name=density_by_date value="">
+<label for=simf-from>Start from your Strathe calibration's values: its output folder (optional)</label><input type=text id=simf-from name=from_strathe value="">
+<label for=simf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label><input type=text id=simf-cmp name=compare_params value="">
+<label for=simf-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simf-tool name=replay_tool value="">
+<label for=simf-iter>Fit iterations (optional; default 15)</label><input type=text id=simf-iter name=max_iterations value="">
+<label class=inline><input type=checkbox id=simf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
+interrupted calibration (the laptop slept, the power went) from its best point so far, instead of fitting again. Use the
+same name and settings as the interrupted one; it takes minutes, not hours.</label>
+<label class=inline><input type=checkbox id=simf-nocg name=no_cg_rerun value=1 aria-label="Don't fit again with the centre of gravity held"> Don't fit again with the
+centre of gravity held. By default, when the fit makes the vehicle turn or tilt worse than your original, Strathe fits
+again with it held (about as long again) and keeps the better of the two.</label>
+<label for=simf-workers>Simulator runs at once (optional; default all cores but one)</label><input type=text id=simf-workers name=workers value="">
+<label for=simf-name>Name for this calibration</label><input type=text id=simf-name name=name value="my_sim" required>
+<button>Calibrate the simulator model</button></form></div>
+<div class=card><h2>Put your Strathe calibration into your simulator</h2>
+<p class=muted>Writes the values your calibration found into your own model where the simulator has the same physics
+(Gazebo: exact, with the logs measured at the link's origin; HoloOcean: as a Fossen class; your own: as your description
+maps them; MuJoCo can't take them), and scores it on the recordings the calibration never saw.</p>
+<form method=post action=/jobs/export_sim>{tok}
+<label for=simx-cal>Your calibration's output folder (from Calibrate, full path)</label><input type=text id=simx-cal name=calibration required>
+<label for=simx-sim>Simulator</label><select id=simx-sim name=sim required><option value="gazebo">Gazebo Harmonic</option>
+<option value="mujoco">MuJoCo</option><option value="holoocean">HoloOcean (Fossen torpedo)</option>
+<option value="external">Your own (a simulator description YAML)</option></select>
+<label for=simx-model>Your model, full path: Gazebo world (.sdf), MuJoCo MJCF (.xml), HoloOcean scenario saved as JSON, or your
+simulator description (.yaml)</label><input type=text id=simx-model name=model required>
+<label for=simx-second>Gazebo: the vehicle's model.sdf when the world includes it from a model folder; your own simulator:
+the model file (optional)</label><input type=text id=simx-second name=second value="">
+<label for=simx-veh>The vehicle's name: Gazebo model, MuJoCo body or HoloOcean agent (optional when there's one)</label>
+<input type=text id=simx-veh name=vehicle value="">
+<label for=simx-link>Gazebo: the vehicle's link (optional; default the Hydrodynamics plugin's link_name)</label>
+<input type=text id=simx-link name=link value="">
+<label for=simx-ref>Where the logs' velocity and forces are measured, from the vehicle's origin: x y z, m
+(forward-right-down; 0 0 0 for base_link)</label><input type=text id=simx-ref name=reference_point value="0 0 0" required>
+<label for=simx-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simx-tool name=replay_tool value="">
+<label for=simx-name>Name for this export</label><input type=text id=simx-name name=name value="my_sim_export" required>
+<button>Put it into the simulator</button></form></div>
 <div class=card><h2>Convert logs</h2>
 <form method=post action=/jobs/ingest>{tok}
 <label for=ing-spec>Ingestion spec YAML (full path; templates in <code>calibration/templates/</code>)</label><input type=text id=ing-spec name=spec required>
@@ -1137,6 +1299,12 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"stonefish_{name}")
             args = ["fit-stonefish", *stonefish_cli_args(form), "--out", out]
             return self.manager.start("fit_stonefish", f"Stonefish calibration: {name}", args, [out])
+        if path in ("/jobs/fit_sim", "/jobs/export_sim"):
+            command = "fit" if path.endswith("fit_sim") else "export"
+            name = re.sub(r"[^\w-]+", "_", form.get("name", "").strip()) or f"my_sim_{command}"
+            out = os.path.join(JOBS_DIR, f"sim_{command}_{name}")
+            args = [f"{command}-sim", *sim_cli_args(form, command), "--out", out]
+            return self.manager.start(f"{command}_sim", f"{form.get('sim', 'simulator')} {command}: {name}", args, [out])
         if path == "/jobs/ingest":
             spec = os.path.abspath(os.path.expanduser(form.get("spec", "").strip()))
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))

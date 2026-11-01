@@ -59,8 +59,8 @@ REQUIRED_PACKAGES = [("numpy", "numpy"), ("scipy", "scipy"), ("pandas", "pandas"
                      ("torch", "torch")]
 OPTIONAL_PACKAGES = [("rosbags", "rosbags", "reading ROS 1/ROS 2 bags directly"),
                      ("pymavlink", "pymavlink", "reading ArduPilot .bin / MAVLink .tlog logs directly"),
-                     ("mlflow", "mlflow", "experiment tracking"),
-                     ("holoocean", "holoocean", "HoloOcean engine (not needed for calibration or the fleet kit)")]
+                     ("mlflow", "mlflow", "experiment tracking")]
+# HoloOcean has its own `check` line with the simulators (#88: it was listed twice)
 
 
 def _abs(path: str) -> str:
@@ -306,6 +306,147 @@ def stonefish_status(tool: Optional[str] = None) -> str:
             "(calibration/stonefish/README.md)")
 
 
+GZ_DIR = os.path.join(CAL_DIR, "simulators", "gazebo")
+GZ_TOOL = os.path.join(GZ_DIR, "build", "strathe_gz_replay")
+GZ_INSTALL = """Install Gazebo Harmonic (gz-sim 8) first, one of:
+  - any OS, no admin rights (conda-forge; about 3 GB):
+      micromamba create -p ~/strathe_gz_env/env -c conda-forge gz-sim8 cmake ninja cxx-compiler pkg-config
+      python strathe.py setup-sim gazebo --prefix ~/strathe_gz_env/env
+  - Ubuntu 22.04/24.04: sudo apt install gz-harmonic libgz-sim8-dev (gazebosim.org/docs/harmonic/install_ubuntu)
+  - macOS with Homebrew: brew tap osrf/simulation && brew install gz-harmonic
+  - or nothing to build: --replay-tool docker:IMAGE (calibration/simulators/gazebo/README.md)"""
+
+
+def gazebo_status(tool: Optional[str] = None) -> str:
+    """One line for `strathe check`: the Gazebo replay tool (PROJECT_STATUS.md #82)."""
+    p = tool or os.environ.get("STRATHE_GZ_REPLAY") or GZ_TOOL
+    if not os.access(p, os.X_OK):
+        return ("➖ Gazebo replay tool not built (optional: fit-sim / export-sim --sim gazebo; "
+                "python strathe.py setup-sim gazebo)")
+    try:
+        out = subprocess.run([p, "--features"], capture_output=True, text=True, timeout=60).stdout
+        f = json.loads(out.strip().splitlines()[-1])
+        return f"✅ Gazebo replay tool (gz-sim {f.get('gz_sim', '?')})"
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return f"⚠️  Gazebo replay tool at {p} doesn't run: rebuild it (python strathe.py setup-sim gazebo)"
+
+
+SF_REPO, SF_COMMIT = "https://github.com/GSO-soslab/stonefish.git", "7d52673"  # the fork and commit the patch is made for
+
+
+def _macos_cmake_flags() -> list:
+    """macOS: OpenMP from Homebrew's libomp, and the SDK's C++ headers (what the URI lab build needed, #76)."""
+    import platform
+    import shutil
+    if platform.system() != "Darwin":
+        return []
+    flags = []
+    omp = subprocess.run(["brew", "--prefix", "libomp"], capture_output=True, text=True).stdout.strip() \
+        if shutil.which("brew") else ""
+    sdk = subprocess.run(["xcrun", "--show-sdk-path"], capture_output=True, text=True).stdout.strip() \
+        if shutil.which("xcrun") else ""
+    cxx = []
+    if sdk and os.path.isdir(os.path.join(sdk, "usr", "include", "c++", "v1")):
+        cxx += ["-nostdinc++", "-isystem", os.path.join(sdk, "usr", "include", "c++", "v1")]
+    if omp:
+        o = f"-Xpreprocessor -fopenmp -I{omp}/include"
+        cxx += o.split()
+        flags += [f"-DOpenMP_CXX_FLAGS={o}", f"-DOpenMP_C_FLAGS={o}", "-DOpenMP_CXX_LIB_NAMES=omp",
+                  "-DOpenMP_C_LIB_NAMES=omp", f"-DOpenMP_omp_LIBRARY={omp}/lib/libomp.dylib"]
+    if cxx:
+        flags.append("-DCMAKE_CXX_FLAGS=" + " ".join(cxx))
+    return flags
+
+
+def _setup_stonefish(args) -> int:
+    """Clone (or use --source), apply the patch, build and install Stonefish, build the replay tool, check (#86)."""
+    import shutil
+    if not shutil.which("cmake") or not shutil.which("git"):
+        print("❌ needs git and cmake (and Stonefish's dependencies: calibration/stonefish/README.md)")
+        return 2
+    home = os.path.expanduser("~/.strathe")
+    src = os.path.abspath(os.path.expanduser(args.source)) if args.source else os.path.join(home, "stonefish-src")
+    prefix = os.path.abspath(os.path.expanduser(args.prefix or os.path.join(home, "stonefish")))
+    patch = os.path.join(CAL_DIR, "stonefish", "stonefish_added_mass.patch")
+
+    def step(title, cmd, cwd=None):
+        print(title + "...", flush=True)
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        if r.returncode:
+            print(f"❌ {title} failed:\n" + (r.stderr or r.stdout)[-2000:])
+        return r.returncode
+    if not args.source and not os.path.isdir(os.path.join(src, ".git")):
+        if step(f"Cloning Stonefish ({SF_REPO} @ {SF_COMMIT})", ["git", "clone", "-q", SF_REPO, src]) or \
+                step("Checking out the patch's commit", ["git", "-C", src, "checkout", "-q", SF_COMMIT]):
+            return 2
+    if not os.path.isdir(src):
+        print(f"❌ no Stonefish source at {src}")
+        return 2
+    applied = subprocess.run(["git", "-C", src, "apply", "--reverse", "--check", patch], capture_output=True).returncode == 0
+    if applied:
+        print("The patch is already applied.")
+    elif step("Applying stonefish_added_mass.patch", ["git", "-C", src, "apply", patch]):
+        print("Re-apply it to a clean checkout (git -C SOURCE checkout .), or use a fresh --source.")
+        return 2
+    flags = _macos_cmake_flags()
+    build = os.path.join(src, "build-strathe")
+    jobs = str(args.jobs or max(1, (os.cpu_count() or 2) - 1))
+    if step("Configuring Stonefish", ["cmake", "-S", src, "-B", build, "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTS=OFF",
+                                      f"-DCMAKE_INSTALL_PREFIX={prefix}", *flags]) or \
+            step(f"Building Stonefish ({jobs} jobs; 10-40 minutes)", ["cmake", "--build", build, "-j", jobs]) or \
+            step(f"Installing it into {prefix}", ["cmake", "--install", build]):
+        return 2
+    tool_build = os.path.join(CAL_DIR, "stonefish", "build")
+    ppath = prefix + (";/opt/homebrew" if os.path.isdir("/opt/homebrew") else "")
+    if step("Configuring the replay tool", ["cmake", "-S", os.path.join(CAL_DIR, "stonefish"), "-B", tool_build,
+                                            f"-DCMAKE_PREFIX_PATH={ppath}", *flags]) or \
+            step("Building the replay tool", ["cmake", "--build", tool_build]):
+        return 2
+    line = stonefish_status()
+    print(line)
+    return 0 if line.startswith("✅") else 2
+
+
+def cmd_setup_sim(args, runner=None) -> int:
+    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82, #86)."""
+    import shutil
+    if args.sim == "stonefish":
+        return _setup_stonefish(args)
+    if args.sim != "gazebo":
+        guides = {"mujoco": "nothing: MuJoCo comes with pip install -r requirements.txt",
+                  "holoocean": "README.md 'Setup' step 2", "external": "calibration/simulators/SIMULATOR_PROTOCOL.md"}
+        print(f"{args.sim}: {guides[args.sim]}")
+        return 0
+    prefix = args.prefix or os.environ.get("CONDA_PREFIX")
+    if not shutil.which("cmake") and not (prefix and os.path.exists(os.path.join(prefix, "bin", "cmake"))):
+        print("❌ cmake isn't installed.\n" + GZ_INSTALL)
+        return 2
+    cmake = os.path.join(prefix, "bin", "cmake") if prefix and os.path.exists(os.path.join(prefix, "bin", "cmake")) else "cmake"
+    build = os.path.join(GZ_DIR, "build")
+    cfg = [cmake, "-S", GZ_DIR, "-B", build, "-DCMAKE_BUILD_TYPE=Release"]
+    if prefix:
+        cfg.append(f"-DCMAKE_PREFIX_PATH={os.path.abspath(os.path.expanduser(prefix))}")
+    env = dict(os.environ)
+    if prefix:
+        env["PATH"] = os.path.join(os.path.abspath(os.path.expanduser(prefix)), "bin") + os.pathsep + env.get("PATH", "")
+    print("Configuring the Gazebo replay tool...", flush=True)
+    r = subprocess.run(cfg, env=env, capture_output=True, text=True)
+    if r.returncode:
+        if "gz-sim8" in r.stdout + r.stderr:
+            print("❌ Gazebo Harmonic (gz-sim 8) wasn't found" + (f" under {prefix}" if prefix else "") + ".\n" + GZ_INSTALL)
+        else:
+            print("❌ cmake failed:\n" + (r.stderr or r.stdout)[-1500:])
+        return 2
+    print("Building it (a minute or two)...", flush=True)
+    r = subprocess.run([cmake, "--build", build], env=env, capture_output=True, text=True)
+    if r.returncode:
+        print("❌ the build failed:\n" + (r.stderr or r.stdout)[-1500:])
+        return 2
+    line = gazebo_status()
+    print(line)
+    return 0 if line.startswith("✅") else 2
+
+
 def cmd_check(args, runner=None) -> int:
     ok = True
     print(f"Python {sys.version.split()[0]} ({sys.executable})")
@@ -335,6 +476,18 @@ def cmd_check(args, runner=None) -> int:
     print(("✅" if len(policies) == 3 else "❌") + f" shipped fleet policies ({len(policies)}/3)")
     ok = ok and len(policies) == 3
     print(stonefish_status())
+    print(gazebo_status())
+    try:
+        import mujoco
+        print(f"✅ MuJoCo {mujoco.__version__} (fit-sim --sim mujoco: nothing to build)")
+    except ImportError:
+        print("➖ MuJoCo not installed (pip install -r requirements.txt)")
+    try:
+        importlib.import_module("holoocean.fossen_dynamics.torpedo")
+        print("✅ HoloOcean (fit-sim --sim holoocean; its engine for the HoloOcean studies)")
+    except Exception:
+        print("➖ HoloOcean not installed (optional: fit-sim --sim holoocean and the HoloOcean studies; Windows/Linux, "
+              "README 'Setup' step 2)")
     print("\nReady." if ok else "\nNot ready: fix the ❌ items above.")
     return 0 if ok else 1
 
@@ -1071,6 +1224,10 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
         argv += ["--axisymmetric"]
     if args.weighting != "variation":
         argv += ["--weighting", args.weighting]
+    if getattr(args, "no_cg_rerun", False):
+        argv += ["--no-cg-rerun"]
+    if getattr(args, "finish", False):
+        argv += ["--finish"]
     return argv
 
 
@@ -1424,6 +1581,12 @@ def build_parser() -> argparse.ArgumentParser:
                                                        "else Stonefish's)")
     sf.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
     sf.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (default 15)")
+    sf.add_argument("--finish", action="store_true",
+                    help="an interrupted fit: use its best point so far (the checkpoint in --out) instead of fitting "
+                         "again; give the same command as the interrupted run")
+    sf.add_argument("--no-cg-rerun", action="store_true",
+                    help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
+                         "(by default it does, and keeps the better of the two)")
     sf.add_argument("--workers", type=int, default=default_workers(), help="Stonefish runs at once")
     sf.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")
@@ -1471,6 +1634,24 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--name", default="my_vehicle", help="names the default output folder")
     ex.add_argument("--out", help="output folder (default: stonefish_export_<name> in the repository)")
     ex.set_defaults(fn=cmd_export_stonefish)
+    su = sub.add_parser("setup-sim", help="build what a simulator needs for fit-sim / export-sim, and check it "
+                                         "(gazebo: the replay tool; calibration/simulators/README.md)")
+    su.add_argument("sim", choices=list(SIMULATORS))
+    su.add_argument("--prefix", help="where the simulator is installed (e.g. the conda env with gz-sim8); default: "
+                                     "the active conda env, else the system")
+    su.add_argument("--source", help="stonefish: your Stonefish checkout (default: clone the fork the patch is made for)")
+    su.add_argument("--jobs", type=int, help="stonefish: parallel build jobs (default: all cores but one)")
+    su.set_defaults(fn=cmd_setup_sim)
+    # listed for --help; main() hands them to cmd_sim, which passes each simulator's own options through
+    sub.add_parser("fit-sim", add_help=False,
+                   help="calibrate your own simulator model from your logs, any simulator: --sim stonefish | gazebo | "
+                        "mujoco | holoocean | external (calibration/simulators/README.md)")
+    sub.add_parser("convert-sim", add_help=False,
+                   help="write your vehicle's model for another simulator (from Stonefish to Gazebo, MuJoCo or "
+                        "HoloOcean), a starting point for fit-sim (calibration/simulators/README.md)")
+    sub.add_parser("export-sim", add_help=False,
+                   help="put your Strathe calibration into your own simulator model, where it has the same physics "
+                        "(--sim ...; calibration/simulators/README.md)")
 
     d = sub.add_parser("free-decay", help="roll and pitch from free-decay tank tests (calibration/FREE_DECAY_PROTOCOL.md)")
     d.add_argument("--data", help="the tank-test logs in Strathe's CSV layout")
@@ -1496,7 +1677,68 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+SIMULATORS = ("stonefish", "gazebo", "mujoco", "holoocean", "external")
+
+
+def cmd_sim(command: str, rest: list, runner=None) -> int:
+    """`strathe fit-sim` / `export-sim --sim NAME ...` (PROJECT_STATUS.md #81): the same workflow for every simulator.
+    Stonefish goes to fit-stonefish / export-stonefish; the others to simfit (calibration/simfit/). The simulator's own
+    options pass through; `python strathe.py fit-sim --sim NAME --help` lists them."""
+    pre = argparse.ArgumentParser(prog=f"strathe {command}", add_help=False)
+    pre.add_argument("--sim", choices=SIMULATORS)
+    pre.add_argument("--ingest-spec")
+    pre.add_argument("--data")
+    pre.add_argument("--out")
+    pre.add_argument("--name", default="my_vehicle")
+    a, extra = pre.parse_known_args(rest)
+    if not a.sim:
+        print(f"❌ give --sim, one of {', '.join(SIMULATORS)} (calibration/simulators/README.md)")
+        return 2
+    short = command.split("-")[0]  # fit | export
+    if a.sim == "stonefish":
+        back = [x for kv in (("--ingest-spec", a.ingest_spec), ("--data", a.data), ("--out", a.out)) if kv[1]
+                for x in kv] + (["--name", a.name] if a.name != "my_vehicle" else [])
+        return main([f"{short}-stonefish", *back, *extra], runner)
+    if "-h" in extra or "--help" in extra:
+        return run_step(["-m", "simfit.cli", short, "--sim", a.sim, "--help"], runner)
+    out = _abs(a.out) if a.out else os.path.join(REPO_DIR, f"{a.sim}_{short}_{safe_name(a.name)}")
+    data = _abs(a.data) if a.data else None
+    if a.ingest_spec:
+        if short != "fit":
+            print("❌ --ingest-spec is for fit-sim; export-sim reads the calibration's own converted logs")
+            return 2
+        if data:
+            print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
+            return 2
+        if not os.path.exists(_abs(a.ingest_spec)):
+            print(f"❌ ingestion spec not found: {_abs(a.ingest_spec)}")
+            return 2
+        data = os.path.join(out, "ingested_logs")
+        _banner(1, 2, "Converting your logs into Strathe's layout")
+        rc = run_step(ingest_argv(a.ingest_spec, data) + ["--no-next-step"], runner)
+        if rc != 0:
+            print(f"\n❌ The logs couldn't be converted (exit code {rc}); the message above says why.")
+            return rc
+        _banner(2, 2, f"Calibrating your {a.sim} model (each step runs it on your recordings)")
+    elif short == "fit" and not data:
+        print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
+        return 2
+    elif data and not os.path.isdir(data):
+        print(f"❌ data folder not found: {data}")
+        return 2
+    # the step runs from the calibration folder: files and folders given relative to here become absolute
+    extra = [_abs(x) if (not x.startswith("-") and os.path.exists(x)) else x for x in extra]
+    return run_step(["-m", "simfit.cli", short, "--sim", a.sim, "--out", out, *(["--data", data] if data else []),
+                     *extra], runner)
+
+
 def main(argv=None, runner=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("fit-sim", "export-sim"):
+        return cmd_sim(argv[0], argv[1:], runner)
+    if argv and argv[0] == "convert-sim":  # PROJECT_STATUS.md #85; its options pass through (--help lists them)
+        rest = [_abs(x) if (not x.startswith("-") and os.path.exists(x)) else x for x in argv[1:]]
+        return run_step(["-m", "simfit.convert", *rest], runner)
     args = build_parser().parse_args(argv)
     return args.fn(args, runner)
 

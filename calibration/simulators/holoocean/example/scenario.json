@@ -1,0 +1,20 @@
+{
+  "name": "strathe_example",
+  "package_name": "Ocean",
+  "world": "OpenWater",
+  "main_agent": "auv0",
+  "ticks_per_sec": 100,
+  "agents": [
+    {
+      "agent_name": "auv0",
+      "agent_type": "TorpedoAUV",
+      "location": [0, 0, -3],
+      "rotation": [0, 0, 0],
+      "sensors": [{"sensor_type": "DynamicsSensor", "configuration": {"UseCOM": true, "UseRPY": false}}],
+      "control_scheme": 1,
+      "fossen_model": "torpedo",
+      "control_mode": "manualControl",
+      "dynamics": {"rho": 1026, "mass": 30.0, "T_surge": 20, "T_sway": 20, "T_yaw": 1, "Cd": 0.42, "r_bg": [0, 0, 0.02]}
+    }
+  ]
+}

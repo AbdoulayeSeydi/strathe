@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!-- An example underwater world for Strathe fit-sim with Gazebo (calibration/simulators/gazebo/README.md): a 10 kg
+     vehicle, neutrally buoyant, with Gazebo's Buoyancy and Hydrodynamics systems. Physics steps must divide the logs'
+     sample time (0.01 s steps for 10 Hz logs). -->
+<sdf version="1.11">
+  <world name="water">
+    <physics name="1ms" type="dart">
+      <max_step_size>0.01</max_step_size>
+      <real_time_factor>0</real_time_factor>
+    </physics>
+    <gravity>0 0 -9.81</gravity>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
+      <uniform_fluid_density>1000</uniform_fluid_density>
+    </plugin>
+    <model name="auv">
+      <link name="base_link">
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>10.0</mass>
+          <inertia><ixx>0.2</ixx><iyy>0.3</iyy><izz>0.4</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="hull">
+          <pose>0 0 0.02 0 0 0</pose>
+          <geometry><box><size>0.5 0.3 0.0666667</size></box></geometry>
+        </collision>
+      </link>
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics">
+        <link_name>base_link</link_name>
+        <xU>-5</xU><yV>-20</yV><zW>-20</zW><kP>-1</kP><mQ>-2</mQ><nR>-2</nR>
+        <xUabsU>-30</xUabsU><yVabsV>-60</yVabsV><zWabsW>-60</zWabsW>
+        <kPabsP>-1</kPabsP><mQabsQ>-1</mQabsQ><nRabsR>-1</nRabsR>
+      </plugin>
+    </model>
+  </world>
+</sdf>

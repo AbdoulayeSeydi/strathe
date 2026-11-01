@@ -2212,8 +2212,13 @@ hurt (#74, #75).
   - better than URI's model at every horizon in both directions.
 - **Bay held out:** better than Strathe's own model at every horizon (1.44 / 5.6 / 17.6 m against 1.47 / 9.1 / 30.6 m),
   with pitch 3.8° against 9.9°.
-- **Pond held out:** pitch is 19° against Strathe's 11°, which grows the error over a minute (36.0 m). Candidates for
-  the rest: the patch's explicit, clamped anisotropic added mass, and restoring with B rather than W.
+- **Pond held out:** pitch is 19° against Strathe's 11°, which grows the error over a minute (36.0 m).
+  - **The cause is water density (found in #88):** this run was scored with `--density-by-date`. The bay-calibrated
+    vehicle in fresh water is 2.3% less buoyant in the simulator, while Strathe's own model keeps its calibrated
+    buoyancy.
+  - **Scored without it,** the export reproduces Strathe's own model: 1.74 / 6.6 / 30.1 m against 1.74 / 10.3 / 26.4 m.
+    Velocity errors are identical; pitch 11.2° against 10.9°, yaw 7.2° against 7.2°.
+  - So the patched export carries Strathe's model, and the pond's gap was the density setting.
 - **So:** export with the patch for a model that behaves like Strathe's; `fit-stonefish` when the best over a minute
   matters on a hard mission (pond: 21.6 m).
 - **Tests:** the exact export (values unconverted, the mesh coefficients untouched, attributes written) and the
@@ -2223,6 +2228,452 @@ hurt (#74, #75).
 **Still open:**
 - the pond's remaining pitch difference;
 - `fit-stonefish` could fit the patch's damping directly, instead of the mesh coefficients.
+
+### 81. One workflow for every simulator: `fit-sim` / `export-sim`, and any simulator through a replay contract (2026-10-19)
+
+**Why.** Labs use Gazebo, MuJoCo, HoloOcean and in-house simulators, not only Stonefish (asked 2026-10-19; plan:
+Gazebo, then MuJoCo, then HoloOcean, plus a protocol for any simulator; stress-tested on URI's data). Half of
+`fit-stonefish` was already simulator-agnostic. This phase (P0–P1) pulls that half out, and makes any simulator usable
+through a documented replay command.
+
+**What changed:**
+- **`calibration/simfit/core.py`:** the shared half, moved from `stonefish_fit.py` unchanged:
+  - windows, scores, baselines, Strathe's free run;
+  - the least-squares fit, which now takes a `simulate(x, i, run, rows, folder)` callback;
+  - loading recordings, the table and the plot.
+
+  `stonefish_fit` keeps every name, and `StonefishFitError` is `SimFitError`. **Golden outputs** of `fit-stonefish` and
+  `export-stonefish` against the fake simulator were written before the move (`tests/test_golden_stonefish.py`), and
+  are byte-identical after it.
+- **`simfit/knobs.py`:** `KnobSpec` and `Knobs`, any tunable number in a model:
+  - transforms `log_factor`, `log` and `linear`;
+  - limits;
+  - `--hold`;
+  - ties for `--axisymmetric`.
+- **`simfit/editors.py`:** change numbers in a lab's own model file, leaving everything else byte for byte:
+  - XML by a small XPath (SDF, URDF, MJCF, .scn), using expat byte offsets so comments and formatting stay;
+  - JSON and YAML by JSON pointer;
+  - regex with one capture group.
+- **`simfit/replay_tool.py`:** Stonefish's replay CSV contract, for any command:
+  - `--features`, `--info`, `--windows IN --out OUT`, plus `--model-dir`;
+  - plain timeout messages;
+  - `docker:IMAGE`, which runs the tool in a container with the folders mounted, so there's nothing to build.
+- **`simfit/adapters/`:** `FileAdapter` (knob definitions, runnable copies, the calibrated file, export maps).
+  `external.py` builds one from a lab's YAML description.
+- **`simfit/runner.py`:** `run_fit` and `run_export`, the same steps and report as fit-stonefish for any adapter. The
+  outputs are `<model>_calibrated.<ext>`, `<sim>_fit.yaml`, `<sim>_fit_report.md` and `drift.png`.
+- **`strathe fit-sim` / `export-sim --sim stonefish|gazebo|mujoco|holoocean|external`:**
+  - `--sim stonefish` runs `fit-stonefish` / `export-stonefish` unchanged;
+  - the others go to `python -m simfit.cli`;
+  - `--ingest-spec` converts raw logs first;
+  - relative paths are made absolute;
+  - `--help` lists each simulator's options.
+- **Docs:**
+  - `calibration/simulators/README.md` (the overview, and both ways to run each simulator);
+  - `SIMULATOR_PROTOCOL.md` (the contract, frames, the YAML, a checklist);
+  - a working example in `calibration/simulators/example/` (`example_replay.py`, `vehicle.json`, `my_sim.yaml`; the
+    tests run it);
+  - LAB_GUIDE, README and LIMITS updated.
+
+**Tests (`tests/test_simfit_external.py`):**
+- fit-sim on a described simulator moves the knobs toward the truth and cuts held-out drift;
+- the calibrated file changes only the knobs;
+- `--axisymmetric` ties sway and heave;
+- export-sim puts Strathe's values in exactly (the true vehicle is reproduced: 0.00 m drift);
+- plain messages for a missing key, an incomplete description and missing logs;
+- knob transforms, holds and ties;
+- the editors change only the number;
+- `strathe fit-sim` routing;
+- the shipped example runs as documented.
+
+**Next:** Gazebo Harmonic (#82), MuJoCo (#83), HoloOcean (#84), then `setup-sim`, the Docker images, `convert-sim`, the
+web cards and the URI stress test of every simulator.
+
+**Found by Windows CI when the branch became a PR (2026-11-01):**
+- **A Windows replay command lost its backslashes.** `--replay-tool "C:\Python\python.exe D:\lab\replay.py"` (or the
+  same in a description's `replay:`) went through POSIX `shlex.split`, which reads `\` as an escape: "wasn't found".
+  `simfit.replay_tool.split_command` / `join_command` keep backslashes and use cmd's quoting on Windows.
+- **Docker on Windows mounts `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
+  `/d/x` and translates the paths; until it merges, the mount test skips on Windows.
+- **Tests:** the golden outputs compare paths with `/` and numbers to 10 significant figures on another platform (the
+  fitted values differed in the 15th digit on Windows).
+
+### 82. Gazebo Harmonic: `fit-sim --sim gazebo`, an exact export, and `setup-sim` (2026-10-19)
+
+**What changed:**
+- **`calibration/simulators/gazebo/strathe_gz_replay.cpp`:** the replay contract on `gz::sim::TestFixture`.
+  - The lab's world runs headless with its own Physics, Buoyancy and Hydrodynamics systems.
+  - **Each window:** the pose at `--depth` with the vehicle at rest, then the logged velocity in the link's axes on the
+    next step. Done in one step, the body-frame velocity was applied in the previous window's attitude: surge and sway
+    were off by 0.18 m/s.
+  - **Every step:** the logged wrench at the reference point (`AddWorldWrench`).
+  - Velocity is read back at the reference point.
+  - Frames are converted NED/FRD ↔ ENU/FLU.
+  - It refuses a physics step that doesn't divide the logs' sample time.
+  - `--info` reports the link's mass, inertia, centre of mass and primitive collision volumes from the SDF; `--features`
+    reports the gz-sim version.
+- **`simfit/adapters/gazebo.py`:** finds the vehicle (the model with the Hydrodynamics plugin, in the world or an
+  included model folder) and offers:
+  - `drag`: the plugin's damping terms present, with their magnitudes tuned;
+  - `added_mass`: `<fluid_added_mass>` or `xDotU…`;
+  - `buoyancy`: scaling the primitive collisions;
+  - `cg`: the inertial pose;
+  - `mass`;
+  - `--axisymmetric` ties.
+
+  A runnable copy edits only the model file. An included model folder is mirrored with symlinks and the world's
+  `<include>` repointed. `--density-by-date` goes into the Buoyancy system.
+- **The export is exact** because Gazebo's Hydrodynamics is Strathe's law:
+  - damping and hull lift into the plugin;
+  - added mass into `<fluid_added_mass>` (DART's own, with Coriolis and Munk terms), with the plugin's legacy explicit
+    `xDotU…` terms set to 0, since those turned a test vehicle 0.65 rad/s away from Strathe's model;
+  - mass, effective inertia, the centre of mass at the reference point;
+  - the collisions resized and moved for the net buoyancy and centre of buoyancy.
+- **A reference point away from the link origin:** Gazebo damps at the link origin.
+  - Linear damping (6×6 cross terms) and added mass (Jᵀ M J) are moved there exactly.
+  - Quadratic damping can't be, so the report says the export is close, not exact.
+- **`strathe setup-sim gazebo [--prefix]`** builds the tool against an installed gz-sim 8 (conda-forge, apt or Homebrew)
+  and checks it. If Gazebo isn't installed, it prints the install commands for each route.
+- **`strathe check`** has a Gazebo line.
+- **A Dockerfile** gives the no-compile route (`--replay-tool docker:strathe-gz-replay`, with folders and environment
+  passed through). It's untested: there's no Docker on the dev machine.
+
+**Checked on real Gazebo 8.10 (macOS, conda-forge):**
+- **Frames:** analytic steady states hit exactly.
+  - 20 N forward → 0.737 m/s;
+  - 20 N to starboard → +0.434 m/s;
+  - 0.5 N·m of yaw → +0.225 rad/s.
+- **Export against Strathe's own model,** over a 30 s random-thrust window with a moving, tilted start: at most 0.006 m/s
+  or rad/s, neutral or 2 N buoyant.
+- **`fit-sim`** recovered drag from logs generated by a "true" world, cutting held-out drift by more than half.
+- **Speed:** three 10 s windows replay in about 5 s.
+
+**Tests (`tests/test_simfit_gazebo.py`):**
+- Without Gazebo (they run in CI): finding the vehicle and knobs; only tuned numbers change; the export mapping
+  (FLU signs, lift, the added-mass matrix, buoyancy, cross terms for an offset reference); plain messages.
+- With Gazebo, skipped unless the tool is built: frames and steady states; the export against Strathe's model (neutral
+  and buoyant); fit-sim end to end.
+
+### 83. MuJoCo: `fit-sim --sim mujoco`, nothing to build (2026-10-19)
+
+**What changed:**
+- **`simfit/adapters/mujoco.py`:** the lab's MJCF vehicle (a body with a free joint, x forward, z up), replayed
+  in-process with the `mujoco` package Strathe already installs.
+  - **Each window:** the logged pose and velocity are set (the free joint's velocity is the body origin's in world axes;
+    its angular velocity is in body axes).
+  - **Every timestep:** the logged wrench at the reference point, through `xfrc_applied` moved to the centre of mass.
+    The kinematics are refreshed first: after `mj_step` they still describe the pose before the step.
+  - **Read-back:** velocity at a site added in memory at the reference point, after a forward pass.
+  - It refuses a timestep that doesn't divide the logs' sample time.
+- **What can be tuned, found in the file:**
+  - `drag`: each named ellipsoid hull geom's blunt, slender and angular coefficients. MJCF's default `fluidcoef` is
+    written in first, using a new editor helper, `ensure_attr`. With no ellipsoid geom (the inertia-box model), the
+    option's density and viscosity are tuned instead.
+  - `lift`: the Kutta and Magnus coefficients.
+  - `buoyancy`: `gravcomp`.
+  - `cg`: the inertial pos.
+  - `mass`.
+- **`export-sim` refuses with a plain message.** MuJoCo has no per-axis linear damping or buoyancy force, and doesn't
+  apply the part of added mass that resists acceleration. It points to `fit-sim` and to `mujoco_backend.py`, which runs
+  Strathe's own model in MuJoCo.
+- **`strathe check`** has a MuJoCo line.
+- **Guide:** `calibration/simulators/mujoco/README.md`, with an example `example/auv.xml`.
+
+**Tests (`tests/test_simfit_mujoco.py`; MuJoCo is a pip package, so they run in CI):**
+- every axis's sign in Strathe's frames;
+- the start state round-trips within 0.01 at an offset reference point (no water);
+- knobs found, MJCF defaults made explicit, only tuned numbers changed;
+- plain messages;
+- fit-sim recovers the ellipsoid drag coefficients from logs (held-out drift more than halved);
+- export refused.
+
+A 10 s window replays in about 0.3 s.
+
+### 84. HoloOcean: `fit-sim --sim holoocean` through its Fossen dynamics; export as a Fossen class (2026-10-19)
+
+**Why this way.** HoloOcean 2.x drives torpedo vehicles with Fossen's equations (`"fossen_model": "torpedo"`, control
+scheme 1), configured by the scenario's `agents[i]["dynamics"]` (docs v2.3.0). Those equations are Python
+(`holoocean.fossen_dynamics.torpedo.Torpedo`: `Minv`, `dynamics(eta, nu, u_actual, u_control, h) -> (nu_dot,
+u_actual)`). A window can therefore be replayed through the lab's own vehicle class without the Unreal engine, exactly:
+- the propeller and fins at rest;
+- the logged thrust added as M⁻¹τ, since the equations are linear in τ;
+- the velocity and thrust moved between the reference point and Fossen's origin.
+
+**What changed:**
+- **`simfit/adapters/holoocean.py`:** reads the scenario (JSON), finds the Fossen agent, and loads the class
+  (`--fossen-model`, `--configure`).
+  - **What it tunes,** in the `dynamics` keys, with class defaults when a key is missing: the `T_*` time constants,
+    `zeta_*`, `K_nomoto`, `Cd`, `e`, `r44`, `r_bg` x/z and `mass`.
+  - `--density-by-date` writes `rho`.
+  - **Integration:** at `--hz`, attitude by quaternion; frames are already NED/FRD.
+- **`export-sim`** writes `strathe_fossen.py`: a self-contained Fossen class (numpy only) with Strathe's model (damping,
+  added mass and Coriolis at the reference point, restoring, hull lift), moved to the class's origin
+  (M_o = Jᵀ M J, forces Jᵀ f). It has HoloOcean's `dynamics()` interface, for the custom-dynamics loop. The report scores
+  it on held-out recordings.
+- **`strathe check`** has a HoloOcean line.
+- **Guide:** `calibration/simulators/holoocean/README.md`, with an example scenario.
+
+**Tests (`tests/test_simfit_holoocean.py`):** against `tests/fake_holoocean`, a stand-in with HoloOcean's interface,
+since HoloOcean doesn't install on macOS or in CI.
+- knobs from the scenario and the class;
+- the calibrated scenario changes only those keys;
+- fit-sim recovers `T_surge` and `Cd` from logs (held-out drift more than halved);
+- the exported class replays like Strathe's own model within 0.02 over 30 s, at the origin and at an offset reference
+  point, with lift and buoyancy;
+- plain messages.
+
+**Still to do, on Windows:**
+- the real `holoocean.fossen_dynamics` (the parameter names follow the docs);
+- an in-engine run against the Python replay;
+- the tick-rate check (#40).
+
+HoloOcean results are provisional until then.
+
+### 85. `strathe convert-sim`: a Stonefish model written for Gazebo, MuJoCo or HoloOcean (2026-10-19)
+
+**Why.** The URI stress test of every simulator needs ALPHA RISE in each of them, and URI only has a Stonefish model.
+It's also useful for a lab moving between simulators.
+
+**What it does:** `simfit/convert.py` reads the source through the replay tool's `--info`. Each converted model has its
+origin at the logs' reference point.
+- **What it reads:**
+  - the mass (`--mass`), with the rigid inertia scaled to it;
+  - the CG and CB;
+  - the hull's length and diameter from the mesh;
+  - the displaced volume, grown to keep the model's trim when the weighed mass differs;
+  - added mass per axis and inertia;
+  - drag: quadratic matched at 0.5 m/s, viscous, rotational by strip theory.
+- **Gazebo:** a world with Physics, Buoyancy and Hydrodynamics, `<fluid_added_mass>`, and a cylinder collision at the CB
+  with the displaced volume. The hull-lift terms are written at 0 and are now a `lift` knob group (signed, linear) in
+  the Gazebo adapter.
+- **MuJoCo:** an MJCF with an ellipsoid hull. A body named `buoyancy` at the CB carries the buoyancy (gravcomp on
+  0.01 kg). The MuJoCo adapter now tunes that body's gravcomp when it exists (±15%).
+- **HoloOcean:** a torpedo scenario with first-order time constants from the damping and added mass.
+
+**Found on ALPHA RISE (URI's model, 33 kg):**
+- Keeping the weighed mass with the model's own volume made the Gazebo copy 52 N heavy, hence the trim fix.
+- Buoyancy at the centre of mass (plain gravcomp) left MuJoCo with no righting: it pitched 74° under 20 N of thrust.
+  With the buoyancy body, 9°.
+- A bare converted hull in Gazebo still pitches up under thrust: sway and heave added mass of about 230 kg against
+  10 kg in surge make a strong destabilising Munk moment, which ALPHA's fins counter. The conversion has no fin data,
+  so the `lift` knobs are there for `fit-sim`.
+
+**Tests (`tests/test_simfit_convert.py`):** the facts relative to the reference point and the trim kept; each converted
+model loads in its adapter, and a trimmed MuJoCo copy neither rises nor falls; `strathe convert-sim` passes its options
+through.
+
+### 86. The web page: "Calibrate your simulator model" and "Put your Strathe calibration into your simulator" (2026-10-19)
+
+**What changed:** two cards with a simulator selector (Gazebo Harmonic, MuJoCo, HoloOcean, your own description).
+- `strathe_web.sim_cli_args` maps each simulator's fields to its options (`SIM_FIELDS`):
+  - the model file;
+  - Gazebo's included model file;
+  - the vehicle's name (Gazebo model, MuJoCo body, HoloOcean agent) and Gazebo's link.
+- Shared fields: the logs (an ingestion spec or a folder), the reference point, held-out dates, what to fit, holds,
+  `--axisymmetric`, densities, `--from-strathe`, a comparison calibration, the replay tool (a path or `docker:IMAGE`),
+  iterations and workers.
+- Every field is checked, with a plain line for anything wrong.
+- The routes `/jobs/fit_sim` and `/jobs/export_sim` start `strathe fit-sim` / `export-sim`. Stonefish keeps its own cards.
+
+**Tests:**
+- every field reaches the command;
+- bad input is refused with a plain line;
+- the server starts exactly the command;
+- the home page has 11 forms, each label pointing at one input. The new cards first reused an existing `fs-` id prefix;
+  now `simf-` and `simx-`.
+
+Checked in the browser: the cards render and there are no console errors.
+
+### 87. `setup-sim stonefish`, and Stonefish and Gazebo with nothing to build (Docker) (2026-10-19)
+
+**What changed:**
+- **`strathe setup-sim stonefish [--source PATH] [--prefix PATH] [--jobs N]`** does what `calibration/stonefish/README.md`
+  sections 1–2 describe:
+  1. clone GSO-soslab/stonefish @ 7d52673 (the commit the patch is made for), or use the lab's checkout;
+  2. apply `stonefish_added_mass.patch` (it detects when it's already applied);
+  3. build and install Stonefish into `~/.strathe/stonefish`;
+  4. build the replay tool against it;
+  5. finish with the `strathe check` line.
+
+  On macOS it adds Homebrew's OpenMP and the SDK's C++ headers (what the URI lab build needed, #76). Each step that
+  fails prints its error.
+- **Checked on this Mac, on a clean copy of the source:** patched, built, installed, replay tool built and checked
+  (✅ added mass and damping) in 4 min 48 s.
+- **`--replay-tool docker:IMAGE` for Stonefish** (`stonefish_fit.Replay` and `find_tool`): the scenario's folder,
+  Stonefish's data folder and the work folders are mounted at the same paths. `calibration/stonefish/Dockerfile` builds
+  the image (Ubuntu 24.04, the fork at the patch's commit, patched, plus the replay tool). Gazebo's is in #82. **Both
+  images are untested:** there's no Docker on the dev machine.
+- The golden outputs of fit-stonefish and export-stonefish are unchanged.
+- **Tests:** the Docker command line and mounts; the plain "needs Docker" message; setup-sim saying what's missing;
+  the macOS flags.
+
+### 88. Stress test of every simulator on URI's ALPHA RISE (2026-10-19/20)
+
+**What was run:** a fresh clone of `feat/simfit` in `~/strathe_uri_lab_v3`, set up from the lab's side:
+- `check`;
+- `setup-sim gazebo` (48 s) and `setup-sim stonefish` (2 min 43 s);
+- `convert-sim` of URI's Stonefish model to Gazebo and MuJoCo (12 s each).
+
+Then 44 runs: Gazebo, MuJoCo and Stonefish through `fit-sim`, the protocol route, and exports of six Strathe
+calibrations, with every option varied. The writeup is `~/strathe_uri_lab_v3/URI_SIMULATORS_REPORT.md`, with
+`tables/sims.csv` and `NOTES.md`.
+
+**Results** (position error after 10 / 30 / 60 s on the unseen mission; pond, bay):
+- **Gazebo, calibrated through Gazebo** from the conversion: 0.81 / 5.1 / 15.3 m and 1.30 / 6.0 / 15.0 m. The
+  conversion was 6.10 / 19.2 / 40.1 and 4.76 / 17.9 / 37.7; URI's Stonefish model 2.40 / 15.9 / 47.6 and
+  1.92 / 11.4 / 37.4; Strathe's own model 1.74 / 10.3 / 26.4 and 1.47 / 9.1 / 30.6. The best simulator model of ALPHA
+  RISE so far.
+- **MuJoCo, calibrated:** 0.89 / 6.8 / 27.4 and 1.57 / 8.2 / 19.5 m. Its fluid model can't represent per-axis damping
+  or buoyancy at a CB.
+- **Exports reproduce Strathe's model** when scored in the calibration's own water: Gazebo B0 on the pond 1.75 / 10.7 /
+  27.1 m against Strathe's 1.74 / 10.3 / 26.4, with identical velocity errors and pitch 11.0° against 10.9°; Stonefish
+  (patched) 1.74 / 6.6 / 30.1 m, pitch 11.2°.
+  - The pond's earlier extra pitch drift (about 19°, #80) was `--density-by-date`: in fresh water the bay-calibrated
+    vehicle is 2.3% less buoyant in the simulator, and URI almost certainly re-trimmed it.
+  - The guides now say to use the flag only when the ballast was the same in both waters.
+- **Cross-checks:**
+  - `--sim external` reproduces Gazebo's adapter exactly (same cost, 744.502);
+  - `fit-sim --sim stonefish` reproduces `fit-stonefish` (F2) in both directions;
+  - workers 1 and 4 give identical results, in Gazebo and MuJoCo;
+  - exports re-run give identical results.
+- **Options** (the details are in the report):
+  - tune drag with buoyancy and the CG, not alone;
+  - hull lift and `--axisymmetric` cost over a minute;
+  - variation weighting beats magnitude;
+  - `--from-strathe` is not the better start (as #74).
+- **Multi-start (#79), pond held out:**
+  - B9 picks the good answer (+0.227, where the single start gave +0.176);
+  - V3 (describe-stonefish) +0.205 / 5.3 m, against the single start's +0.159;
+  - B8 still lands at +0.062: its split happens after round 1, the only multi-start round.
+
+**Friction found from the lab's side, all fixed:**
+- **F1:** `check` listed HoloOcean twice.
+- **F2:** the Gazebo export's rigid inertia broke the triangle inequality (Strathe's effective inertia isn't a rigid
+  body's) and Gazebo refused the link. Fix: a valid rigid inertia plus rotational `<fluid_added_mass>`, still exact.
+- **F3:** `--from-strathe` on MuJoCo gave export's message.
+- **F4:** an incomplete calibration crashed with a TypeError.
+- **F5:** a held-out date the logs don't have gave a traceback.
+
+**Ease of use:**
+- the "any simulator" guide's example ran as written in the fresh clone;
+- 15 common mistakes all give a plain line.
+
+**Not tested:**
+- real HoloOcean (needs Windows or Linux; a stand-in with its interface was used);
+- the Docker images (no Docker here);
+- a public Gazebo model (bluerov2_gz).
+
+### 90. A public Gazebo model on public logs: bluerov2_gz, and values a model has at zero (2026-10-21)
+
+**Why.** Everything in #88 was URI's vehicle and models converted from URI's Stonefish model. A lab's first try will
+often be a public model, so the Gazebo path was run on public parts end to end:
+- **The model:** [bluerov2_gz](https://github.com/clydemcqueen/bluerov2_gz), a BlueROV2 Heavy for Gazebo Harmonic. Its
+  licence is MIT (in `package.xml`; #88's plan wrongly said it was unstated).
+- **The logs:** oceansystemslab's BlueROV2 Heavy dataset, Strathe's reference data. 39 recordings on 4 days; 16 and
+  19 February held out.
+
+**A bug it found, fixed: a value the model has at 0 was never tuned.**
+- **What happened:** a `log_factor` knob scales its starting value by up to 30× either way, and a 0 started from a
+  1e-9 floor. The comment said "a zero drag still gets tuned"; it didn't.
+- **What it hid on bluerov2_gz:** it has quadratic drag only, no linear drag and no added mass, so 9 of its 18 tuned
+  values were stuck at zero.
+- **The fix:**
+  - **Gazebo:** a term at 0 now starts from a value sized from the vehicle, and the report notes it:
+    - added mass: 0.3 × the mass;
+    - linear drag: the same axis's quadratic drag × a typical speed (0.2 m/s, 0.5 rad/s);
+    - quadratic drag: the linear drag ÷ that speed;
+    - without either: from the mass or inertia.
+  - **The generic adapter (`external`)** refuses a zero with a plain message unless the knob has `if_zero: VALUE`
+    (documented in SIMULATOR_PROTOCOL.md).
+  - **MuJoCo and HoloOcean had the same bug** (found in the 2026-10-22 review): a zero sat on a 1e-3 or 1e-4 floor.
+    - **MuJoCo:** a zero fluid coefficient now starts from MuJoCo's own default (0.5 / 0.25 / 1.5 / 1.0 / 1.0), and a
+      zero water density or viscosity from water's.
+    - **HoloOcean:** a zero in the scenario starts from the Fossen class's own value, read before the scenario's are
+      applied. If the class has 0 too, a plain message asks for a starting value.
+    - Tested in `test_simfit_mujoco.py` and `test_simfit_holoocean.py`.
+  - **Tests:** `test_a_term_the_model_has_at_zero_still_gets_tuned` and `test_the_generic_adapter_refuses_a_zero_it_cant_scale`.
+
+**Preparing the logs.** The dataset is in ROS axes, so `example_bluerov2_gz/prepare_logs.py` converts it to
+forward-right-down exactly as `frame: flu` ingestion does. It applies the 8.5 cm torque shift Strathe's calibration uses
+for this dataset, which puts the torques at the horizontal-thruster plane: bluerov2_gz's `base_link` origin, so
+`--reference-point 0 0 0`.
+- **Check:** each force correlates with motion on its own axis (+0.88 surge, +0.81 sway and heave, +0.68 yaw).
+- **Buoyancy:** mean Fz is +1.4 N downward, a slightly buoyant vehicle holding depth.
+
+**Worked example:** `calibration/simulators/gazebo/example_bluerov2_gz/`:
+- `world.sdf`: physics, buoyancy and the vehicle, without bluerov2_gz's network includes;
+- `prepare_logs.py`;
+- the guide.
+
+**Results, the first run** (all 18 values, the default 15 evaluations, 2 cores). Held-out drift falls from
+3.51 / 8.11 / 11.99 m to **1.87 / 4.17 / 6.02 m** at 10 / 30 / 60 s, and velocity errors from 0.33 / 0.30 / 0.20 to
+0.22 / 0.10 / 0.08 m/s.
+- **But attitude got worse:** pitch error 7.8° → 17.3° after 10 s. The fit raised the centre of gravity (1.1 → 2.7
+  cm), shortening the righting arm to the buoyancy box.
+- **Standing still** beats both models after 30 s, because in a tank the vehicle stays within a few metres.
+- **The fit hadn't finished:** its cost was still falling at 15 evaluations.
+
+The full table is in the example's guide.
+
+**The report now warns what drift alone hides** (`simfit/runner.py` `_warnings`, tested):
+- the calibrated model turning or tilting worse than the original (an axis 25% and 2° worse after 10 s), with what
+  to try;
+- standing still beating it at some horizon, which is usual for tank or station-keeping logs.
+
+**Second run: centre of gravity held** (`--fit drag added_mass buoyancy`, converged after 27 evaluations at a training
+cost of 874):
+- **Better everywhere it was scored:** drift 1.89 / 3.69 / 5.37 m (−55% at 60 s). Roll, pitch and yaw errors are
+  3.5° / 6.2° / 41°, slightly better than the published model's.
+- **But it blew up in 35 of 712 unseen windows** at the world's 0.01 s step; the medians leave those out.
+  - **Rescored at 0.005 s:** 0 of 712, with the same medians (1.90 / 3.73 / 5.46 m).
+  - **Why:** the fitted roll and pitch damping (kP 17, mQ 14 N·m·s on 0.26 and 0.23 kg·m²) has an 11 ms time
+    constant, and Gazebo applies the Hydrodynamics forces step by step.
+- **Two report fixes from it** (both tested):
+  - the bottom line says when the calibrated model blew up in unseen windows, and how many;
+  - the Gazebo adapter checks, after the fit, each axis's damping time constant against the world's step. It names
+    the axes and the step to use: here roll and pitch, 0.005 s. It is silent for the first run and for the published
+    model, which never blew up.
+- **The guide** says the step must be short enough for the damping.
+
+**From warnings to fixes (2026-10-21).** The lab no longer has to act on the two warnings by hand:
+- **A second fit when the attitude gets worse.** When the first fit makes the vehicle turn or tilt worse (an axis 25%
+  and 2° worse after 10 s) and the centre of gravity was tuned, `fit-sim` and `fit-stonefish` fit again with it held.
+  - **Warm start:** `fit-sim` starts the refit from the first fit's other values; Stonefish starts from the model.
+  - **The choice:** the refit is kept if its attitude is no worse than the original's (or fewer axes are), its drift
+    is within 10% and it doesn't blow up more often (`simfit.core.prefer_cg_held`).
+  - **The files:** the kept model is `<model>_calibrated`; the other is `_cg_tuned` or `_cg_held`. Both are rows in
+    the report, which says which was kept and why.
+  - **Skipping it:** `--no-cg-rerun`, or a checkbox on both web cards.
+  - **On bluerov2_gz** this is exactly the two runs above, as one command.
+- **Gazebo: a safe step, used.** When the fitted damping is too stiff for the world's step, the models are scored at a
+  safe step (the longest dividing the logs' sample time, under half the shortest damping time constant).
+  `calibrated_world/` is written with it: a copy of the lab's world with the calibrated model in it, the model folder
+  copied rather than linked, ready for `gz sim`. The report says how to run it.
+  - **Moved or shared, it still runs** (found in the 2026-10-22 review): the copy first pointed at its model folder
+    by absolute path. It now includes it as `model://`, and `RUN_ME.md` gives the command with the folder first on
+    `GZ_SIM_RESOURCE_PATH`. Checked with real `gz sim` on bluerov2_gz after moving the folder: no errors, 0.005 s
+    step. Strathe's own replay tool still needs absolute paths, which it writes for itself.
+- **The warnings moved to `simfit.core`** (`attitude_worse`, `report_warnings`), so `fit-stonefish`'s report has them
+  too.
+- **Tests:**
+  - `tests/test_simfit_cg_rerun.py`: the choice rule, and the rerun's files, report and skips through `run_fit`;
+  - `test_attitude_worse_with_the_cg_tuned_refits_with_it_held` (Stonefish);
+  - the safe step and both kinds of world copy, one of them loaded by the real Gazebo tool;
+  - the web checkboxes and the CLI pass-through.
+  - The Stonefish golden file gains one line, `cg_rerun: null`.
+- **Docs:** `calibration/simulators/README.md` ("What the fit does for you"), the Gazebo and Stonefish guides,
+  LAB_GUIDE section 6, the README command table and the example's guide.
+- **A long simulator fit can be finished from its best point,** as `strathe calibrate --finish` does (2026-10-21).
+  - **The checkpoint:** `simfit.core.fit` writes its best point to `<sim>_fit_checkpoint.json` after every improving
+    evaluation, atomically, and the result marked complete at the end. The second fit writes
+    `..._checkpoint_cg_held.json`.
+  - **`--finish`** (`fit-sim`, `fit-stonefish`, a checkbox on both web cards) scores the checkpoint's point instead of
+    fitting, and writes the usual outputs. The report marks an unfinished fit as not converged, and says to run
+    without `--finish` if the second fit hadn't started.
+  - **Refusals:** a checkpoint from other settings (other tuned values, model, logs or held-out dates) is refused, and
+    the message says which. A new fit removes old checkpoints.
+  - **Tests:** `tests/test_simfit_finish.py`; a Stonefish finish test; the web checkboxes. The Stonefish golden file
+    gains `finished_from_checkpoint: []`.
 
 ## Honest open items
 
