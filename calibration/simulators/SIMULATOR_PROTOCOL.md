@@ -75,6 +75,8 @@ and T_b = diag(1, −1, −1).
 - `docker:IMAGE`: Strathe then runs it with `docker run`, mounting your model's folder and the temporary folders at the
   same paths.
 
+On Windows, write paths with backslashes as usual; put a path with spaces in double quotes.
+
 ## 2. The simulator description (`my_sim.yaml`)
 
 ```yaml
