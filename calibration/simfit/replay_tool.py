@@ -37,6 +37,22 @@ OUT_COLUMNS = ("u", "v", "w", "p", "q", "r", "qx", "qy", "qz", "qw")
 INFO_TIMEOUT_S, RUN_TIMEOUT_S = 600, 24 * 3600
 
 
+def _windows(windows: Optional[bool]) -> bool:
+    return os.name == "nt" if windows is None else windows
+
+
+def split_command(spec: str, windows: Optional[bool] = None) -> list:
+    """A command line -> argv. On Windows a backslash is a path separator, not an escape, and quotes group as in cmd."""
+    if not _windows(windows):
+        return shlex.split(spec)
+    return [p[1:-1] if len(p) > 1 and p[0] == p[-1] and p[0] in "\"'" else p for p in shlex.split(spec, posix=False)]
+
+
+def join_command(parts: list, windows: Optional[bool] = None) -> str:
+    """argv -> a command line that split_command reads back."""
+    return subprocess.list2cmdline(parts) if _windows(windows) else " ".join(shlex.quote(p) for p in parts)
+
+
 def write_windows(path: str, rows_by_window: list) -> None:
     with open(path, "w") as f:
         f.write(IN_COLUMNS + "\n")
@@ -75,7 +91,7 @@ def tool_argv(spec: str, sim: Optional[str] = None) -> list:
         if not os.access(spec, os.X_OK):
             raise SimFitError(f"the replay tool {spec} isn't executable (chmod +x, or give it as 'python {spec}')")
         return [spec]
-    argv = shlex.split(spec)
+    argv = split_command(spec)
     if not argv or not (shutil.which(argv[0]) or os.path.exists(argv[0])):
         raise SimFitError(f"the replay tool {spec!r} wasn't found: give its path, a command, or docker:IMAGE")
     return argv
