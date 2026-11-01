@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && curl -fsSL https://packages.osrfoundation.org/gazebo.gpg -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
        > /etc/apt/sources.list.d/gazebo-stable.list \
-    && apt-get update && apt-get install -y --no-install-recommends gz-harmonic libgz-sim8-dev cmake g++ make \
+    && apt-get update && apt-get install -y --no-install-recommends gz-harmonic libgz-sim8-dev cppzmq-dev cmake g++ make \
     && rm -rf /var/lib/apt/lists/*
 COPY CMakeLists.txt strathe_gz_replay.cpp /src/
 RUN cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release && cmake --build /build && cp /build/strathe_gz_replay /usr/local/bin/

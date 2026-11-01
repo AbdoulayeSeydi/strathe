@@ -60,8 +60,11 @@ You choose; each guide shows both.
 
 - **On your machine:** install the simulator, then build or point Strathe at its replay command.
   `python strathe.py check` says what's there and what's missing.
-- **Nothing to build:** use a pure-Python path (MuJoCo; HoloOcean's Fossen model) or a Docker image
-  (`--replay-tool docker:IMAGE`), which mounts your model's folder at the same path.
+- **Nothing to build:**
+  - MuJoCo and HoloOcean's Fossen model are pure Python.
+  - **Stonefish and Gazebo run in Docker:** `python strathe.py setup-sim stonefish --docker` (or `gazebo`) builds a
+    ready-made image once, and every command then uses it when the replay tool isn't built here. The results are
+    the same as a local build. Guide: [DOCKER.md](DOCKER.md).
 
 ## What every simulator shares
 - **The logs** are the same folder `strathe calibrate` uses (`--data`), or your raw logs with `--ingest-spec`.

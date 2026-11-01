@@ -12,8 +12,9 @@ in calibration/simulators/SIMULATOR_PROTOCOL.md; Stonefish's tool (calibration/s
   (x, y, z, w); wrench: body axes, about the reference point (N, N m), held over each sample. --info prints one JSON
   line (whatever the simulator knows: mass, version, ...); --features one JSON line without a model.
 
-A tool is a path, a command (`python my_tool.py`), or `docker:IMAGE`: the tool then runs in that image (`docker run`),
-with the model's and the work folders mounted at the same paths, so nothing has to be built.
+A tool is a path, a command (`python my_tool.py`), `docker:IMAGE`, or `docker` (Strathe's image for that simulator): the
+tool then runs in that image (`docker run`), with the model's and the work folders mounted at the same paths, so nothing
+has to be built (sim_docker.py; calibration/simulators/DOCKER.md).
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from typing import Optional
 
 import numpy as np
 
+import sim_docker
 from simfit.core import SimFitError
 
 IN_COLUMNS = "win,k,u,v,w,p,q,r,qx,qy,qz,qw,Fx,Fy,Fz,Tx,Ty,Tz"
@@ -74,13 +76,17 @@ def read_predictions(path: str, rows_by_window: list) -> list:
     return out
 
 
-def tool_argv(spec: str) -> list:
-    """A --replay-tool value -> argv prefix. `docker:IMAGE` is kept as is (ReplayTool mounts the folders)."""
-    if spec.startswith("docker:"):
-        if not shutil.which("docker"):
-            raise SimFitError("--replay-tool docker:... needs Docker (docker.com); or build the tool (the simulator's "
-                              "guide in calibration/simulators/)")
-        return [spec]
+def tool_argv(spec: str, sim: Optional[str] = None) -> list:
+    """A --replay-tool value -> argv prefix. `docker` / `docker:IMAGE` -> ["docker:IMAGE"] (ReplayTool mounts the
+    folders), once Docker is running and the image is there; work folders then go where Docker can see them."""
+    if sim_docker.is_docker(spec):
+        try:
+            image = sim_docker.image_for(spec, sim)
+            sim_docker.require(image, sim)
+        except sim_docker.DockerError as e:
+            raise SimFitError(str(e))
+        sim_docker.use_shared_temp()
+        return ["docker:" + image]
     if os.path.exists(spec):
         if not os.access(spec, os.X_OK):
             raise SimFitError(f"the replay tool {spec} isn't executable (chmod +x, or give it as 'python {spec}')")
@@ -109,9 +115,13 @@ class ReplayTool:
                 dirs |= {d for d in str(v).split(os.pathsep) if os.path.isabs(d) and os.path.isdir(d)}
             if "--model-dir" in self.extra:
                 dirs.add(self.extra[self.extra.index("--model-dir") + 1])
-            mounts = [x for d in sorted(dirs) for x in ("-v", f"{d}:{d}")]
-            envs = [x for k, v in self.env.items() for x in ("-e", f"{k}={v}")]
-            return ["docker", "run", "--rm", *mounts, *envs, self.tool[0][len("docker:"):], *base]
+            dirs |= sim_docker.referenced_dirs(os.path.dirname(os.path.abspath(model)))
+            image = self.tool[0][len("docker:"):]
+            try:
+                sim_docker.check_shared(image, dirs)
+            except sim_docker.DockerError as e:
+                raise SimFitError(str(e))
+            return sim_docker.run_prefix(image, dirs, self.env) + sim_docker.translate(base)
         return self.tool + base
 
     def _call(self, argv: list, timeout: int, what: str):
@@ -126,7 +136,7 @@ class ReplayTool:
 
     def features(self) -> dict:
         if self.tool[0].startswith("docker:"):
-            argv = ["docker", "run", "--rm", self.tool[0][len("docker:"):], "--features"]
+            argv = sim_docker.run_prefix(self.tool[0][len("docker:"):]) + ["--features"]
         else:
             argv = [*self.tool, "--features"]
         r = self._call(argv, 120, "answer")
@@ -146,17 +156,27 @@ class ReplayTool:
         os.makedirs(work_dir, exist_ok=True)
         fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
         write_windows(fin, rows_by_window)
-        r = self._call(self._argv(model, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+        io = ["--windows", fin, "--out", fout]
+        r = self._call(self._argv(model, (os.path.abspath(work_dir),))
+                       + (sim_docker.translate(io) if self.tool[0].startswith("docker:") else io),
                        RUN_TIMEOUT_S, "finish the replay")
         if r.returncode or not os.path.exists(fout):
             raise SimFitError(f"the {self.name} replay failed: {r.stderr.strip()[-800:]}")
         return read_predictions(fout, rows_by_window)
 
 
-def find(spec: Optional[str], env: str, default: Optional[str], what: str, guide: str) -> list:
-    """The replay tool: --replay-tool, else the environment variable, else the default build location."""
+def find(spec: Optional[str], env: str, default: Optional[str], what: str, guide: str, sim: Optional[str] = None) -> list:
+    """The replay tool: --replay-tool, else the environment variable, else the default build location, else Strathe's
+    Docker image for this simulator when it's built (the tool then needn't be built here)."""
     s = spec or os.environ.get(env) or default
-    if not s or (not s.startswith("docker:") and " " not in s and not os.path.exists(s)):
-        raise SimFitError(f"the {what} replay tool isn't built{f' ({s})' if s else ''}. {guide}, or give "
+    if not spec and not os.environ.get(env) and s and not os.path.exists(s) and sim:
+        image = sim_docker.auto_image(sim)
+        if image:
+            print(f"Using Strathe's Docker image {image}: the {what} replay tool isn't built here "
+                  f"({sim_docker.GUIDE})", flush=True)
+            s = "docker"
+    if not s or (not sim_docker.is_docker(s) and " " not in s and not os.path.exists(s)):
+        raise SimFitError(f"the {what} replay tool isn't built{f' ({s})' if s else ''}. {guide}; or, with nothing "
+                          f"to build, use Docker: python strathe.py setup-sim {sim or 'SIMULATOR'} --docker. Or give "
                           f"--replay-tool PATH (or docker:IMAGE)")
-    return tool_argv(s)
+    return tool_argv(s, sim)

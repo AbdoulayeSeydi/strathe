@@ -244,7 +244,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--part", help=argparse.SUPPRESS)
     ap.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
-    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image (setup-sim "
+                    "stonefish --docker, once); or docker:IMAGE (default: calibration/stonefish/build/, else the "
+                    "Docker image if it's built)")
     ap.add_argument("--out", default="my_vehicle_spec.yaml", help="the vehicle description to write")
     return ap
 

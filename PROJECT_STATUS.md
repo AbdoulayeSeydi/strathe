@@ -2295,8 +2295,8 @@ web cards and the URI stress test of every simulator.
 - **A Windows replay command lost its backslashes.** `--replay-tool "C:\Python\python.exe D:\lab\replay.py"` (or the
   same in a description's `replay:`) went through POSIX `shlex.split`, which reads `\` as an escape: "wasn't found".
   `simfit.replay_tool.split_command` / `join_command` keep backslashes and use cmd's quoting on Windows.
-- **Docker on Windows mounts `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
-  `/d/x` and translates the paths; until it merges, the mount test skips on Windows.
+- **Docker on Windows mounted `D:\x:D:\x`,** which a Linux container can't use. #92 (`sim_docker`) mounts `D:\x` at
+  `/d/x` and translates the paths; the Stonefish mount test checks that on Windows.
 - **Tests:** the golden outputs compare paths with `/` and numbers to 10 significant figures on another platform (the
   fitted values differed in the 15th digit on Windows).
 
@@ -2338,7 +2338,7 @@ web cards and the URI stress test of every simulator.
   and checks it. If Gazebo isn't installed, it prints the install commands for each route.
 - **`strathe check`** has a Gazebo line.
 - **A Dockerfile** gives the no-compile route (`--replay-tool docker:strathe-gz-replay`, with folders and environment
-  passed through). It's untested: there's no Docker on the dev machine.
+  passed through). It's untested: there's no Docker on the dev machine. (Tested in #92.)
 
 **Checked on real Gazebo 8.10 (macOS, conda-forge):**
 - **Frames:** analytic steady states hit exactly.
@@ -2504,7 +2504,7 @@ Checked in the browser: the cards render and there are no console errors.
 - **`--replay-tool docker:IMAGE` for Stonefish** (`stonefish_fit.Replay` and `find_tool`): the scenario's folder,
   Stonefish's data folder and the work folders are mounted at the same paths. `calibration/stonefish/Dockerfile` builds
   the image (Ubuntu 24.04, the fork at the patch's commit, patched, plus the replay tool). Gazebo's is in #82. **Both
-  images are untested:** there's no Docker on the dev machine.
+  images are untested:** there's no Docker on the dev machine. (Tested in #92.)
 - The golden outputs of fit-stonefish and export-stonefish are unchanged.
 - **Tests:** the Docker command line and mounts; the plain "needs Docker" message; setup-sim saying what's missing;
   the macOS flags.
@@ -2562,7 +2562,7 @@ calibrations, with every option varied. The writeup is `~/strathe_uri_lab_v3/URI
 
 **Not tested:**
 - real HoloOcean (needs Windows or Linux; a stand-in with its interface was used);
-- the Docker images (no Docker here);
+- the Docker images (no Docker here; tested in #92);
 - a public Gazebo model (bluerov2_gz).
 
 ### 89. `strathe comms-study`: N vehicles coordinating under acoustic latency, bandwidth and packet loss (2026-10-20)
@@ -2935,6 +2935,69 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
 - **F11** (#78) and **F20** (the fleet report's caution about policies trained on another vehicle) were already
   addressed; the list said otherwise.
 
+### 92. Docker, tested: Stonefish and Gazebo with nothing to build, wired in and documented (2026-10-23)
+
+Docker was installed on the dev Mac (Colima through Homebrew: no admin password, free), so the two images from #82 and
+#87 were finally built and run.
+
+**What running them found, all fixed:**
+- **The Gazebo image didn't build:** gz-transport needs the `cppzmq` headers, which `--no-install-recommends` leaves
+  out. Added `cppzmq-dev`.
+- **`strathe fit-stonefish` / `export-stonefish` / `describe-stonefish --replay-tool docker:IMAGE` never worked:** the
+  CLI made every `--replay-tool` a path, so `docker:IMAGE` became `/cwd/docker:IMAGE`. `--replay-tool` values starting
+  with `docker` now pass through untouched.
+- **Results could vanish silently.** Colima shares only the home folder, and the work folders were in the system temp
+  folder. Docker then mounts an empty folder in its place, and the replay writes its results there. Now:
+  - work folders go under `~/.strathe/tmp` when the replay runs in Docker (every set-up shares the home folder;
+    leftovers older than two days are removed);
+  - the first replay checks that Docker can see each folder it mounts, with a marker file. A folder it can't see is
+    named, with the fix for Colima and Docker Desktop. Checked for real with a model folder under `/private/tmp`.
+- **Files written by the container would be root's on Linux:** it now runs as the user's own id, with `HOME=/tmp`.
+- **Folders the model points at by full path** (meshes, included models) are mounted too.
+- **Windows paths** (`C:\x` → `/c/x`, path lists `;` → `:`) are translated for the container. Unit-tested only: not run
+  on Windows.
+
+**Made easy to use (`sim_docker.py`):**
+- **`strathe setup-sim stonefish --docker` / `setup-sim gazebo --docker`** builds Strathe's image once and finishes with
+  the `check` line. It says what's missing when Docker isn't installed or isn't running.
+- **Automatic:** when the replay tool isn't built here and Strathe's image is, every Stonefish and Gazebo command uses
+  it, and its first line says so.
+- **`--replay-tool docker`** asks for Strathe's image; `docker:IMAGE` still takes any image.
+- **`strathe check`** has a Docker line (installed, running, which images are built), and the Stonefish and Gazebo lines
+  report the image's tool when there's no local one.
+- **The web page:** a "Run Stonefish and Gazebo with nothing to build (Docker)" card shows Docker's state and builds
+  either image as a job. Every replay-tool field takes `docker`, and the Stonefish cards say Docker is an option.
+  Checked in the browser: the card renders, the button ran the Gazebo build job to its ✅ line, and there are no
+  console errors.
+- **A Gazebo fit run through Docker** says in `calibrated_world/RUN_ME.md` that viewing the world needs Gazebo
+  installed: the images have no display.
+
+**Checked against the local builds (M1 MacBook Air, Colima with 4 cores and 4 GB):**
+- **Gazebo:** 40 held-out windows of the bluerov2_gz example (#90) replayed through the local tool (gz-sim 8.10) and
+  the image (8.15) agree to 10⁻⁹ m/s and 10⁻¹¹ in the quaternion, the CSV's precision. Docker took 130 s against 86 s.
+  A full `fit-sim --sim gazebo`, with no `--replay-tool` and no local build, picked the image by itself and wrote its
+  report, model and `calibrated_world/`.
+- **Stonefish:** URI's ALPHA RISE scenario loads with the same mass, inertia, added mass, CG and CB as the local build,
+  to the 8th digit. The full URI export from #88 (`SE_B0_pondout`: B0 into URI's model, scored on the pond) run
+  through the image, again picked by itself, wrote a file whose 242 numbers all match the local run's (within 10⁻⁶),
+  with the same drifts (1.85 / 10.10 / 35.97 m). It took 18 minutes.
+- **Builds:** Stonefish image 8 min 22 s (0.5 GB), Gazebo about 4 min (2.7 GB).
+
+**Docs:** `calibration/simulators/DOCKER.md` is the lab guide: installing Docker on each OS, the licence, building,
+using, what happens when it runs, speed, and each message with its fix. Pointers to it are in README (the "what a lab
+can do" table, quick start, web, Setup), LAB_GUIDE, the simulators overview, the Gazebo and Stonefish guides,
+SIMULATOR_PROTOCOL and LIMITS (Docker is checked on a Mac only).
+
+**Tests:**
+- `tests/test_sim_docker.py` (15 tests, Docker faked): images, messages, mounts, the user id, Windows paths, the shared
+  temp folder, the folder check, the automatic fallback for both simulators, `setup-sim --docker`, `check`, the web
+  card and fields, and the pass-through fix.
+- `tests/test_sim_docker_real.py` (3 tests): the real images. They run when the images are built, and are skipped in
+  CI.
+- `conftest.py` hides a developer's built images from the other tests, so the results don't depend on the machine.
+
+**Not tested:** Docker Desktop (Colima was used; the same `docker` commands), Linux and Windows hosts.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
@@ -2960,7 +3023,7 @@ The open list from #76 had F1, F2, F5, F15, F18 and F21 still open. F21 is fixed
 
 ## What's actually next
 
-0. ~~**Calibrate any simulator a lab uses, not only Stonefish**~~: done in #81–#90 (`fit-sim` / `export-sim` / `convert-sim` for Stonefish, Gazebo, MuJoCo, HoloOcean and any simulator through a replay contract). HoloOcean's in-engine check still waits for a Windows machine (item 1).
+0. ~~**Calibrate any simulator a lab uses, not only Stonefish**~~: done in #81–#90 (`fit-sim` / `export-sim` / `convert-sim` for Stonefish, Gazebo, MuJoCo, HoloOcean and any simulator through a replay contract; Stonefish and Gazebo also run in Docker with nothing to build, #92). HoloOcean's in-engine check still waits for a Windows machine (item 1).
 1. **On a HoloOcean machine**: run `verify_holoocean_frame_conventions.py`; fix the scenario tick rate if it fails; re-run Claim A (`replay_comparison.py`). Only then revisit roll/yaw and the 150-step truncation hypothesis.
 2. **Review `vehicle_spec.yaml` bounds** for the translational parameters every fit pins, then re-fit.
 3. **Roll/pitch:** from a lab partner, free-decay tests (FREE_DECAY_PROTOCOL.md) and deliberate roll/pitch manoeuvres with the tether slack, to fit the thruster-driven roll/pitch, which is what's wrong (#50, #52, #64).

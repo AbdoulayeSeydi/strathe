@@ -35,6 +35,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
+import sim_docker
 from simfit import core
 from simfit.core import (ANGULAR_FLOOR, EVAL_STRIDE_S, EVAL_WINDOW_S, FIT_STRIDE_S, FIT_WINDOW_S,  # noqa: F401
                          HORIZONS_S, LINEAR_FLOOR, SimFitError, axis_scales, baselines, path, score,
@@ -320,14 +321,18 @@ class Replay:
     dt: float = 0.1
 
     def _argv(self, scenario, folders=()):
-        if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86)
-            dirs = sorted({os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders})
-            prefix = ["docker", "run", "--rm", *[x for d in dirs for x in ("-v", f"{d}:{d}")], self.tool[0][7:]]
-        else:
-            prefix = self.tool
-        return prefix + ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
-                            "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
-                            "--dt", f"{self.dt:g}"]
+        args = ["--scenario", scenario, "--data", self.data_dir, "--robot", self.robot,
+                "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
+                "--dt", f"{self.dt:g}"]
+        if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86, #92)
+            dirs = {os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders}
+            dirs |= sim_docker.referenced_dirs(os.path.dirname(os.path.abspath(scenario)))
+            try:
+                sim_docker.check_shared(self.tool[0][7:], dirs)
+            except sim_docker.DockerError as e:
+                raise StonefishFitError(str(e))
+            return sim_docker.run_prefix(self.tool[0][7:], dirs) + sim_docker.translate(args)
+        return self.tool + args
 
     def info(self, scenario: str) -> dict:
         try:
@@ -351,7 +356,9 @@ class Replay:
                 for k, row in enumerate(rows):
                     f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
         try:
-            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),)) + ["--windows", fin, "--out", fout],
+            io = ["--windows", fin, "--out", fout]
+            r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),))
+                               + (sim_docker.translate(io) if self.tool[0].startswith("docker:") else io),
                                capture_output=True, text=True, timeout=24 * 3600)
         except subprocess.TimeoutExpired:
             raise StonefishFitError("the Stonefish replay didn't finish within 24 hours; try fewer recordings or "
@@ -373,15 +380,27 @@ class Replay:
 
 
 def find_tool(path: Optional[str]) -> list:
+    """--replay-tool, else $STRATHE_STONEFISH_REPLAY, else the local build, else Strathe's Docker image if it's built.
+    `docker` is Strathe's image; `docker:IMAGE` any image with the tool (#86, #92)."""
     p = path or os.environ.get("STRATHE_STONEFISH_REPLAY") or DEFAULT_TOOL
-    if p.startswith("docker:"):
-        if not shutil.which("docker"):
-            raise StonefishFitError("--replay-tool docker:... needs Docker (docker.com), or build the tool: "
-                                    "python strathe.py setup-sim stonefish")
-        return [p]
+    if not path and not os.environ.get("STRATHE_STONEFISH_REPLAY") and not os.path.exists(p):
+        image = sim_docker.auto_image("stonefish")
+        if image:
+            print(f"Using Strathe's Docker image {image}: the Stonefish replay tool isn't built here "
+                  f"({sim_docker.GUIDE})", flush=True)
+            p = "docker"
+    if sim_docker.is_docker(p):
+        try:
+            image = sim_docker.image_for(p, "stonefish")
+            sim_docker.require(image, "stonefish")
+        except sim_docker.DockerError as e:
+            raise StonefishFitError(str(e))
+        sim_docker.use_shared_temp()
+        return ["docker:" + image]
     if not (os.path.exists(p) and os.access(p, os.X_OK)):
-        raise StonefishFitError(f"the Stonefish replay tool isn't built ({p}). Build it against your Stonefish: "
-                                f"calibration/stonefish/README.md, or give its path with --replay-tool")
+        raise StonefishFitError(f"the Stonefish replay tool isn't built ({p}). Build it: python strathe.py setup-sim "
+                                f"stonefish (calibration/stonefish/README.md); or, with nothing to build, use Docker: "
+                                f"python strathe.py setup-sim stonefish --docker. Or give its path with --replay-tool")
     return [p]
 
 
@@ -805,7 +824,9 @@ def add_arguments(ap) -> None:
                          "score it and write the vehicle file and report as usual. Give the same command as the "
                          "interrupted run")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="Stonefish runs at once")
-    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ap.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image "
+                                          "(setup-sim stonefish --docker, once); or docker:IMAGE (default: "
+                                          "calibration/stonefish/build/, else the Docker image if it's built)")
     ap.add_argument("--out", default="stonefish_fit", help="output folder")
 
 

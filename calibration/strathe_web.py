@@ -33,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional
 from urllib.parse import parse_qs, quote, urlparse
 
+import sim_docker
 import strathe_cli as cli
 
 JOBS_DIR = os.path.join(cli.REPO_DIR, "strathe_jobs")
@@ -436,15 +437,23 @@ def _calibration_folder(text: str) -> str:
     return d
 
 
-def _replay_tool_args(form: dict) -> list:
-    """--replay-tool from a Stonefish form, if given (the tool must exist and be runnable)."""
-    t = form.get("replay_tool", "").strip()
+def _tool_value(t: str, guide: str) -> list:
+    """--replay-tool from a form: a runnable file, `docker` (Strathe's image) or `docker:IMAGE` (#92)."""
+    t = t.strip()
     if not t:
         return []
-    t = os.path.abspath(os.path.expanduser(t))
-    if not (os.path.isfile(t) and os.access(t, os.X_OK)):
-        raise ValueError(f"Replay tool not found or not runnable: {t} (calibration/stonefish/README.md step 2 builds it)")
-    return ["--replay-tool", t]
+    if t == "docker" or t.startswith("docker:"):
+        return ["--replay-tool", t]
+    p = os.path.abspath(os.path.expanduser(t))
+    if not (os.path.isfile(p) and os.access(p, os.X_OK)):
+        raise ValueError(f"Replay tool not found or not runnable: {p} ({guide}; or docker for Strathe's Docker image, "
+                         f"docker:IMAGE for yours)")
+    return ["--replay-tool", p]
+
+
+def _replay_tool_args(form: dict) -> list:
+    """--replay-tool from a Stonefish form, if given."""
+    return _tool_value(form.get("replay_tool", ""), "python strathe.py setup-sim stonefish builds it")
 
 
 def stonefish_cli_args(form: dict) -> list:
@@ -537,12 +546,9 @@ def sim_cli_args(form: dict, command: str = "fit") -> list:
         if not all(re.fullmatch(r"[\d-]+=[\d.]+", d) for d in dens):
             raise ValueError("Water densities are DATE=RHO, e.g. 27-03-2026=1000.")
         args += ["--density-by-date", *dens]
-    t = form.get("replay_tool", "").strip()
-    if t and sim in ("gazebo", "external"):
-        if not t.startswith("docker:") and not (os.path.isfile(os.path.expanduser(t))
-                                                 and os.access(os.path.expanduser(t), os.X_OK)):
-            raise ValueError(f"Replay tool not found or not runnable: {t}")
-        args += ["--replay-tool", t if t.startswith("docker:") else os.path.abspath(os.path.expanduser(t))]
+    if sim in ("gazebo", "external"):
+        args += _tool_value(form.get("replay_tool", ""), "python strathe.py setup-sim gazebo builds it"
+                            if sim == "gazebo" else "your replay command, as a full path")
     if form.get("compare_params", "").strip() and command == "fit":
         args += ["--compare-params", _existing_file(form["compare_params"], "Calibration file", (".yaml", ".yml"))]
     if command == "fit":
@@ -724,6 +730,7 @@ def home_page(manager: JobManager, token: str) -> bytes:
     jobs = "".join(f"<tr><td><a href='/jobs/{j.id}'>{html.escape(j.title)}</a></td><td>{_status_html(j)}</td>"
                    f"<td>{time.strftime('%H:%M', time.localtime(j.started))}</td></tr>" for j in manager.all())
     tok = f"<input type=hidden name=token value='{token}'>"
+    docker_line = sim_docker.check_line()
     body = f"""
 <h1>Strathe</h1><p class=muted>Runs on this computer only. Close this tab or press Ctrl+C in the terminal to stop.</p>
 <div class=card><h2>Calibrate a vehicle</h2>
@@ -908,11 +915,23 @@ you logged)</label>
 <select id=lk-water name=optical_water><option value="">coastal (default)</option><option value=clear>clear</option>
 <option value=coastal>coastal</option><option value=harbor>harbour</option></select>
 <button>Calibrate the link</button></form></div>
+<div class=card><h2>Run Stonefish and Gazebo with nothing to build (Docker)</h2>
+<p class=muted>With Docker installed (Docker Desktop, or Colima on a Mac, or Docker Engine on Linux), Strathe builds a
+ready-made Linux image with the simulator and its replay tool, once: Stonefish about 8 minutes, Gazebo about 4 (on
+an M1 Mac; longer on a slow connection). Every
+Stonefish and Gazebo card below then uses it whenever the replay tool isn't built on this computer, with the same
+results. Guide: <code>calibration/simulators/DOCKER.md</code>.</p>
+<p>{html.escape(docker_line)}</p>
+<form method=post action=/jobs/setup_docker>{tok}
+<label for=dk-sim>Simulator</label><select id=dk-sim name=sim required><option value="stonefish">Stonefish</option>
+<option value="gazebo">Gazebo Harmonic</option></select>
+<button>Build its Docker image</button></form></div>
 <div class=card><h2>Calibrate your Stonefish model</h2>
 <p class=muted>Fits your own Stonefish vehicle's drag, added mass, buoyancy and centre of gravity (one part) to your logs,
 and scores it against the original on recordings it never saw. Writes your vehicle file back with only that part
-changed. Needs the replay tool built against your Stonefish (<code>calibration/stonefish/README.md</code>); an hour
-or more, twice that when it fits again with the centre of gravity held.</p>
+changed. Needs the replay tool built against your Stonefish (<code>calibration/stonefish/README.md</code>), or
+Strathe's Docker image (the card above); an hour or more, twice that when it fits again with the centre of gravity
+held.</p>
 <form method=post action=/jobs/fit_stonefish>{tok}
 <label for=sf-scn>Your Stonefish world scenario (.scn, full path)</label><input type=text id=sf-scn name=scenario required>
 <label for=sf-robot>Robot name in the scenario</label><input type=text id=sf-robot name=robot required>
@@ -938,7 +957,7 @@ experimental)</label><input type=text id=sf-from name=from_strathe value="">
 <label><input type=checkbox id=sf-axi name=axisymmetric> Torpedo-shaped vehicle: one value across the hull</label>
 <label for=sf-hold>Hold values you measured, NAME=VALUE (optional; e.g. added_mass_x=10.6)</label>
 <input type=text id=sf-hold name=hold value="">
-<label for=sf-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<label for=sf-tool>The replay tool (optional): empty uses the one built here, else Strathe's Docker image; or a full path, <code>docker</code> or <code>docker:IMAGE</code></label>
 <input type=text id=sf-tool name=replay_tool value="">
 <label for=sf-iter>Fit iterations (optional; default 15)</label><input type=text id=sf-iter name=max_iterations value="">
 <label class=inline><input type=checkbox id=sf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
@@ -966,7 +985,7 @@ e.g. your URDF's base_link)</label><input type=text id=ds-ref name=reference_poi
 <label for=ds-sfdata>Stonefish data folder for meshes (optional; default the scenario's folder)</label>
 <input type=text id=ds-sfdata name=stonefish_data value="">
 <label><input type=checkbox id=ds-lift name=hull_lift> Slender hull: include the hull-lift terms</label>
-<label for=ds-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<label for=ds-tool>The replay tool (optional): empty uses the one built here, else Strathe's Docker image; or a full path, <code>docker</code> or <code>docker:IMAGE</code></label>
 <input type=text id=ds-tool name=replay_tool value="">
 <label for=ds-name>Vehicle name</label><input type=text id=ds-name name=name value="my_vehicle" required>
 <button>Write the vehicle description</button></form></div>
@@ -974,7 +993,7 @@ e.g. your URDF's base_link)</label><input type=text id=ds-ref name=reference_poi
 <p class=muted>Converts the values your calibration found (mass, buoyancy, centre of gravity, inertia, drag, added mass)
 into your own Stonefish vehicle's settings on one part, and scores the original and the converted model on the
 recordings the calibration never saw. Minutes, not hours. Needs the replay tool (<code>calibration/stonefish/README.md
-</code>). With Stonefish built with <code>calibration/stonefish/stonefish_added_mass.patch</code>, the drag goes in as
+</code>), or Strathe's Docker image (the card above). With Stonefish built with <code>calibration/stonefish/stonefish_added_mass.patch</code>, the drag goes in as
 Strathe's own damping and the model behaves like Strathe's over seconds; <code>python strathe.py check</code> says
 whether yours has it. For the best model over a minute, use "Calibrate your Stonefish model".</p>
 <form method=post action=/jobs/export_stonefish>{tok}
@@ -995,7 +1014,7 @@ e.g. your URDF's base_link)</label><input type=text id=sx-ref name=reference_poi
 <input type=text id=sx-sfdata name=stonefish_data value="">
 <label for=sx-density>Water density per recording date, DATE=RHO (optional; e.g. 27-03-2026=1000)</label>
 <input type=text id=sx-density name=density_by_date value="">
-<label for=sx-tool>The built replay tool, full path (optional; default calibration/stonefish/build/strathe_stonefish_replay)</label>
+<label for=sx-tool>The replay tool (optional): empty uses the one built here, else Strathe's Docker image; or a full path, <code>docker</code> or <code>docker:IMAGE</code></label>
 <input type=text id=sx-tool name=replay_tool value="">
 <label for=sx-name>Name for this export</label><input type=text id=sx-name name=name value="my_stonefish" required>
 <button>Put it into Stonefish</button></form></div>
@@ -1030,7 +1049,7 @@ the model file (optional)</label><input type=text id=simf-second name=second val
 <label for=simf-density>Water density per recording date, DATE=RHO (optional)</label><input type=text id=simf-density name=density_by_date value="">
 <label for=simf-from>Start from your Strathe calibration's values: its output folder (optional)</label><input type=text id=simf-from name=from_strathe value="">
 <label for=simf-cmp>Also score your Strathe calibration: calibrated_parameters.yaml (optional)</label><input type=text id=simf-cmp name=compare_params value="">
-<label for=simf-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simf-tool name=replay_tool value="">
+<label for=simf-tool>The replay tool (optional): empty uses the one built here, else Strathe's Docker image; or a full path, <code>docker</code> or <code>docker:IMAGE</code></label><input type=text id=simf-tool name=replay_tool value="">
 <label for=simf-iter>Fit iterations (optional; default 15)</label><input type=text id=simf-iter name=max_iterations value="">
 <label class=inline><input type=checkbox id=simf-finish name=finish value=1 aria-label="Finish an interrupted calibration from its best point"> Finish an
 interrupted calibration (the laptop slept, the power went) from its best point so far, instead of fitting again. Use the
@@ -1060,7 +1079,7 @@ the model file (optional)</label><input type=text id=simx-second name=second val
 <input type=text id=simx-link name=link value="">
 <label for=simx-ref>Where the logs' velocity and forces are measured, from the vehicle's origin: x y z, m
 (forward-right-down; 0 0 0 for base_link)</label><input type=text id=simx-ref name=reference_point value="0 0 0" required>
-<label for=simx-tool>Gazebo or your own simulator: the replay tool (full path, or docker:IMAGE; optional)</label><input type=text id=simx-tool name=replay_tool value="">
+<label for=simx-tool>The replay tool (optional): empty uses the one built here, else Strathe's Docker image; or a full path, <code>docker</code> or <code>docker:IMAGE</code></label><input type=text id=simx-tool name=replay_tool value="">
 <label for=simx-name>Name for this export</label><input type=text id=simx-name name=name value="my_sim_export" required>
 <button>Put it into the simulator</button></form></div>
 <div class=card><h2>Convert logs</h2>
@@ -1380,6 +1399,11 @@ class StratheHandler(BaseHTTPRequestHandler):
             out = os.path.join(JOBS_DIR, f"sim_{command}_{name}")
             args = [f"{command}-sim", *sim_cli_args(form, command), "--out", out]
             return self.manager.start(f"{command}_sim", f"{form.get('sim', 'simulator')} {command}: {name}", args, [out])
+        if path == "/jobs/setup_docker":
+            sim = form.get("sim", "").strip()
+            if sim not in sim_docker.IMAGES:
+                raise ValueError("Choose Stonefish or Gazebo.")
+            return self.manager.start("setup_docker", f"Docker image: {sim}", ["setup-sim", sim, "--docker"], [])
         if path == "/jobs/ingest":
             spec = os.path.abspath(os.path.expanduser(form.get("spec", "").strip()))
             out = os.path.abspath(os.path.expanduser(form.get("out", "").strip()))

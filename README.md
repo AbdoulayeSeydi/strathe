@@ -42,6 +42,8 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 | Use logs with normalized thruster commands (e.g. −1..1) | `command: normalized` in the thrusters block, with your command-to-thrust table: `templates/ingest_rosbag_normalized_thrusters.yaml` |
 | Fit how fast your thrusters respond | a `thruster_dynamics` section in `vehicle_spec.yaml` (opt-in; see the commented example) |
 | Measure roll and pitch in a tank | `free-decay --ingest-spec my_tank_tests.yaml`, then `calibrate ... --free-decay free_decay.yaml` (opt-in; `calibration/FREE_DECAY_PROTOCOL.md`) |
+| Calibrate your own simulator model (Stonefish, Gazebo, MuJoCo, HoloOcean, your own) | `fit-stonefish`, or `fit-sim --sim ...`; `export-stonefish` / `export-sim` put your calibration into it (`calibration/simulators/README.md`) |
+| Use Stonefish or Gazebo without installing or compiling them | Docker: `setup-sim stonefish --docker` or `setup-sim gazebo --docker` once, then every command uses the image, with the same results (`calibration/simulators/DOCKER.md`) |
 
 **2. Run experiments with your vehicle**
 
@@ -255,17 +257,18 @@ python strathe.py check
 | `python strathe.py estimate-current --data <logs>` | Open water: estimates the current in each recording. Calibration then uses each recording's own current. |
 | `python strathe.py train-fleet --params <your calibration> --out my_policy` | Trains a fleet policy for your vehicle (~40 min). `--algorithm sac\|td3`, `--mode noisy` and `--buoyancy MIN MAX` train with other algorithms or conditions. |
 | `python strathe.py fit-noise --data <logs> --out my_noise.yaml` | Measures how noisy your vehicle's sensors are from its logs, for `--noise my_noise.yaml` (and the web page's "From my own file" option). Command line only; there's no web form for it yet. |
-| `python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hull --data <logs> --reference-point X Y Z` | Calibrates **your own Stonefish model** from the same logs: drag, added mass, buoyancy and centre of gravity of one part, scored against the original on recordings it never saw; writes your vehicle file back with only that part changed. Needs the replay tool built against Stonefish (`calibration/stonefish/README.md`, with an added-mass patch). `--from-strathe <your calibration folder>` starts from your calibration's values instead (didn't help on ALPHA RISE, #74). |
+| `python strathe.py fit-stonefish --scenario my_world.scn --robot my_auv --part Hull --data <logs> --reference-point X Y Z` | Calibrates **your own Stonefish model** from the same logs: drag, added mass, buoyancy and centre of gravity of one part, scored against the original on recordings it never saw; writes your vehicle file back with only that part changed. Needs the replay tool built against Stonefish (`calibration/stonefish/README.md`, with an added-mass patch), or Docker with nothing to build (`setup-sim stonefish --docker`). `--from-strathe <your calibration folder>` starts from your calibration's values instead (didn't help on ALPHA RISE, #74). |
 | `python strathe.py describe-stonefish --scenario my_world.scn --robot my_auv --mass 33 --out my_vehicle_spec.yaml` | Writes your vehicle description (for `--spec`) from your own Stonefish model: mass, inertia, added mass, drag, buoyancy and centre of gravity as starting values, with ranges sized from the hull. No template to fill in. Calibrate it with `--restarts 4`: one starting point isn't reliable with its wide limits. |
 | `python strathe.py export-stonefish --calibration <your calibration folder> --scenario my_world.scn --robot my_auv --part Hull --reference-point X Y Z` | Puts your calibration's values (mass, buoyancy, CG, inertia, drag, added mass) into your own Stonefish vehicle in minutes, checks each one by reloading Stonefish, and scores the original and converted model on recordings the calibration never saw. Lists what Stonefish has no setting for. With Stonefish built with the patch, the damping goes in as it is, the CG goes where Strathe's model has it, and the model behaves like Strathe's (#80: on ALPHA RISE's bay mission, better than Strathe's own model at every horizon); without the patch the drag is converted, which hurt after 10 s (#74). On a hard mission, `fit-stonefish` can still be better over a minute. |
 | `python strathe.py fit-sim --sim stonefish\|gazebo\|mujoco\|holoocean\|external ...` / `export-sim --sim ...` | The same two Stonefish commands for any simulator: calibrate your own model through your simulator, or put your calibration into it, with one workflow and report (`calibration/simulators/README.md`). Any simulator connects through a replay command and a short YAML (`--sim external`, `calibration/simulators/SIMULATOR_PROTOCOL.md`). Gazebo Harmonic is in (`--sim gazebo`, `python strathe.py setup-sim gazebo` builds its replay tool; exact export); MuJoCo is in (`--sim mujoco`, nothing to build; fit only); HoloOcean's Fossen torpedo too (`--sim holoocean`; export writes Strathe's model as a Fossen class; provisional until checked on Windows).  When a fit makes the vehicle turn or tilt worse, it fits again with the centre of gravity held and keeps the better one (`--no-cg-rerun` skips it). Gazebo also writes `calibrated_world/`, ready to run at a physics step safe for the fitted damping (its `RUN_ME.md` has the command).  An interrupted fit is finished from its best point with `--finish`. |
+| `python strathe.py setup-sim stonefish\|gazebo` | Builds the simulator's replay tool on this machine and checks it. **`--docker`** builds a ready-made Docker image instead: nothing to install but Docker, and the same results. Every Stonefish and Gazebo command then uses it when the tool isn't built here (`calibration/simulators/DOCKER.md`). |
 | `python strathe.py validate --result <output folder>` | Compares an existing calibration with the real vehicle on unseen recordings (`calibrate` does it automatically) and rewrites its report. |
 | `python strathe.py free-decay --ingest-spec my_tank_tests.yaml --out <folder>` | Roll and pitch from free-decay tank tests (`calibration/FREE_DECAY_PROTOCOL.md`), for `calibrate --free-decay`. |
 | `python strathe.py fit-link --log messages.csv --out <folder>` | Calibrates the acoustic and/or optical link from your modems' message logs, for `fleet` / `train-fleet --link-calibration`. |
 | `python strathe.py ingest --spec my_vehicle.yaml --out <folder>` | Only converts your own logs into Strathe's layout. |
 | `python strathe.py report --result <output folder> --data <logs>` | Writes the plain-language report for an existing calibration. |
 
-The web page has a form for `calibrate` (with a checkbox for estimating unknown currents and a field for tank-measured roll and pitch), `arena`, `fleet`, `comms-study`, `train-fleet`, `free-decay`, `fit-link` and `ingest`, and shows each report with its plots. `check`, `report`, `validate`, a standalone `estimate-current` and `fit-noise` are command line only for now (LIMITS.md). The web page runs on this computer only: it can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
+The web page has a form for `calibrate` (with a checkbox for estimating unknown currents and a field for tank-measured roll and pitch), `arena`, `fleet`, `comms-study`, `train-fleet`, `free-decay`, `fit-link` and `ingest`, cards for your own simulator model, and a button that builds the Stonefish or Gazebo Docker image. It shows each report with its plots. `check`, `report`, `validate`, a standalone `estimate-current` and `fit-noise` are command line only for now (LIMITS.md). The web page runs on this computer only: it can't be reached from the network, and it only starts Strathe's own commands. Long jobs keep the computer awake by themselves. The individual scripts described below still work for specialists.
 
 ## Setup
 
@@ -302,6 +305,19 @@ Full official docs:
 [HoloOcean Installation Guide](https://byu-holoocean.github.io/holoocean-docs/v2.0.0/usage/installation.html).
 
 MuJoCo (used for the multi-agent fleet work below) needs no manual install step — it's a normal pip package, already pinned in `requirements.txt`.
+
+### Optional: Stonefish and Gazebo with nothing to build (Docker)
+
+Only for calibrating your own Stonefish or Gazebo model. Install Docker (Docker Desktop; on a Mac without admin rights,
+`brew install colima docker && colima start`; on Linux, Docker Engine), then once per simulator:
+
+```bash
+python strathe.py setup-sim stonefish --docker
+python strathe.py setup-sim gazebo --docker
+```
+
+Every Stonefish and Gazebo command then uses the image when the simulator isn't built on your machine.
+`python strathe.py check` shows what's there. Guide: [calibration/simulators/DOCKER.md](calibration/simulators/DOCKER.md).
 
 ### 3. Use the calibrated model directly
 

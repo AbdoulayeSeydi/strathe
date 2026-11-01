@@ -67,6 +67,11 @@ def _abs(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
 
 
+def _tool(value: str) -> str:
+    """A --replay-tool value: a path made absolute; `docker` / `docker:IMAGE` as they are (#92)."""
+    return value if value == "docker" or value.startswith("docker:") else _abs(value)
+
+
 def spec_file(path: str) -> str:
     """Absolute path of a vehicle description given on the command line (see spec_path); must exist."""
     p = spec_path(path)
@@ -283,28 +288,46 @@ def _banner(i, n, text):
     print(f"\n{'=' * 70}\n[{i}/{n}] {text}\n{'=' * 70}", flush=True)
 
 
-def stonefish_status(tool: Optional[str] = None) -> str:
-    """One line for `strathe check`: whether the Stonefish replay tool is built, and which of the patch's features its
-    Stonefish has (per-axis added mass, #72; Strathe's damping, #80). Optional: only the Stonefish commands need it."""
+def _stonefish_features_line(f: dict, what: str) -> str:
+    if f.get("patched") and f.get("axis_damping"):
+        return f"✅ {what}, with the patch: per-axis added mass and Strathe's damping"
+    if f.get("patched"):
+        return (f"⚠️  {what}, with an older patch: per-axis added mass, but export-stonefish can't carry Strathe's "
+                f"damping. Re-apply calibration/stonefish/stonefish_added_mass.patch and rebuild")
+    return (f"⚠️  {what}, without the patch: fit-stonefish can't fit added mass and export-stonefish converts the "
+            f"drag. Apply calibration/stonefish/stonefish_added_mass.patch and rebuild (calibration/stonefish/README.md)")
+
+
+def _docker_status(sim: str, what: str, line) -> Optional[str]:
+    """The status line for Strathe's Docker image of this simulator, if it's built (#92); else None."""
+    import sim_docker
+    image = sim_docker.auto_image(sim)
+    if not image:
+        return None
+    try:
+        return line(sim_docker.features(image), f"{what} in Docker ({image})")
+    except sim_docker.DockerError as e:
+        return f"⚠️  {what} in Docker ({image}) doesn't run: {e}. Rebuild it: python strathe.py setup-sim {sim} --docker"
+
+
+def stonefish_status(tool: Optional[str] = None, docker: bool = True, local: bool = True) -> str:
+    """One line for `strathe check`: whether the Stonefish replay tool is built (here, or Strathe's Docker image), and
+    which of the patch's features its Stonefish has (per-axis added mass, #72; Strathe's damping, #80). Optional: only
+    the Stonefish commands need it. local=False: only the Docker image."""
     p = (tool or os.environ.get("STRATHE_STONEFISH_REPLAY")
          or os.path.join(CAL_DIR, "stonefish", "build", "strathe_stonefish_replay"))
-    if not (os.path.exists(p) and os.access(p, os.X_OK)):
-        return ("➖ Stonefish replay tool not built (optional: only fit-stonefish, export-stonefish and "
-                "describe-stonefish need it; calibration/stonefish/README.md)")
+    if not local or not (os.path.exists(p) and os.access(p, os.X_OK)):
+        in_docker = _docker_status("stonefish", "Stonefish replay tool", _stonefish_features_line) if docker else None
+        return in_docker or ("➖ Stonefish replay tool not built (optional: only fit-stonefish, export-stonefish and "
+                             "describe-stonefish need it; python strathe.py setup-sim stonefish, or with nothing to "
+                             "build: setup-sim stonefish --docker)")
     try:
         out = subprocess.run([p, "--features"], capture_output=True, text=True, timeout=30).stdout
         f = json.loads(out.strip().splitlines()[-1])
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return (f"⚠️  Stonefish replay tool at {p} is older than this version: rebuild it "
                 f"(calibration/stonefish/README.md) to see what its Stonefish supports")
-    if f.get("patched") and f.get("axis_damping"):
-        return "✅ Stonefish replay tool, with the patch: per-axis added mass and Strathe's damping"
-    if f.get("patched"):
-        return ("⚠️  Stonefish replay tool, with an older patch: per-axis added mass, but export-stonefish can't carry "
-                "Strathe's damping. Re-apply calibration/stonefish/stonefish_added_mass.patch and rebuild")
-    return ("⚠️  Stonefish replay tool, without the patch: fit-stonefish can't fit added mass and export-stonefish "
-            "converts the drag. Apply calibration/stonefish/stonefish_added_mass.patch and rebuild "
-            "(calibration/stonefish/README.md)")
+    return _stonefish_features_line(f, "Stonefish replay tool")
 
 
 GZ_DIR = os.path.join(CAL_DIR, "simulators", "gazebo")
@@ -315,19 +338,23 @@ GZ_INSTALL = """Install Gazebo Harmonic (gz-sim 8) first, one of:
       python strathe.py setup-sim gazebo --prefix ~/strathe_gz_env/env
   - Ubuntu 22.04/24.04: sudo apt install gz-harmonic libgz-sim8-dev (gazebosim.org/docs/harmonic/install_ubuntu)
   - macOS with Homebrew: brew tap osrf/simulation && brew install gz-harmonic
-  - or nothing to build: --replay-tool docker:IMAGE (calibration/simulators/gazebo/README.md)"""
+  - or nothing to build, with Docker: python strathe.py setup-sim gazebo --docker (calibration/simulators/DOCKER.md)"""
 
 
-def gazebo_status(tool: Optional[str] = None) -> str:
-    """One line for `strathe check`: the Gazebo replay tool (PROJECT_STATUS.md #82)."""
+def _gazebo_features_line(f: dict, what: str) -> str:
+    return f"✅ {what} (gz-sim {f.get('gz_sim', '?')})"
+
+
+def gazebo_status(tool: Optional[str] = None, docker: bool = True, local: bool = True) -> str:
+    """One line for `strathe check`: the Gazebo replay tool, here or Strathe's Docker image (#82, #92)."""
     p = tool or os.environ.get("STRATHE_GZ_REPLAY") or GZ_TOOL
-    if not os.access(p, os.X_OK):
-        return ("➖ Gazebo replay tool not built (optional: fit-sim / export-sim --sim gazebo; "
-                "python strathe.py setup-sim gazebo)")
+    if not local or not os.access(p, os.X_OK):
+        in_docker = _docker_status("gazebo", "Gazebo replay tool", _gazebo_features_line) if docker else None
+        return in_docker or ("➖ Gazebo replay tool not built (optional: fit-sim / export-sim --sim gazebo; "
+                             "python strathe.py setup-sim gazebo, or with nothing to build: setup-sim gazebo --docker)")
     try:
         out = subprocess.run([p, "--features"], capture_output=True, text=True, timeout=60).stdout
-        f = json.loads(out.strip().splitlines()[-1])
-        return f"✅ Gazebo replay tool (gz-sim {f.get('gz_sim', '?')})"
+        return _gazebo_features_line(json.loads(out.strip().splitlines()[-1]), "Gazebo replay tool")
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return f"⚠️  Gazebo replay tool at {p} doesn't run: rebuild it (python strathe.py setup-sim gazebo)"
 
@@ -408,9 +435,42 @@ def _setup_stonefish(args) -> int:
     return 0 if line.startswith("✅") else 2
 
 
+def _setup_docker(sim: str) -> int:
+    """`setup-sim SIMULATOR --docker`: build Strathe's image for it once, then check the tool runs in it (#92)."""
+    import sim_docker
+    if sim not in sim_docker.IMAGES:
+        print({"mujoco": "mujoco: nothing to build, no Docker needed (it comes with pip install -r requirements.txt)",
+               "holoocean": "holoocean: no Docker image; Strathe's HoloOcean fit is pure Python (calibration/simulators/"
+                            "holoocean/README.md)",
+               "external": "external: give your own image as --replay-tool docker:IMAGE (calibration/simulators/"
+                           "SIMULATOR_PROTOCOL.md)"}[sim])
+        return 0
+    st, version = sim_docker.state()
+    if st != "running":
+        print("❌ " + (sim_docker.NOT_INSTALLED if st == "missing" else sim_docker.NOT_RUNNING))
+        return 2
+    image = sim_docker.IMAGES[sim]
+    print(f"Building {image} with Docker {version}: {sim.capitalize()} and Strathe's replay tool in a Linux image. "
+          f"Once, about {sim_docker.BUILD_MINUTES[sim]} minutes (it downloads and compiles); later runs reuse it.\n",
+          flush=True)
+    if sim_docker.build(sim):
+        print(f"\n❌ the image didn't build (Docker's output is above). Usual causes: no internet connection, or "
+              f"Docker's disk is full (docker system df; docker system prune frees space).")
+        return 2
+    line = (stonefish_status if sim == "stonefish" else gazebo_status)(local=False)
+    print("\n" + line)
+    if line.startswith("✅"):
+        print(f"Every {sim} command now uses it when the replay tool isn't built here; or say so: --replay-tool docker "
+              f"({sim_docker.GUIDE})")
+    return 0 if line.startswith("✅") else 2
+
+
 def cmd_setup_sim(args, runner=None) -> int:
-    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82, #86)."""
+    """`strathe setup-sim SIMULATOR`: build what a simulator needs and check it (PROJECT_STATUS.md #82, #86); with
+    --docker, Strathe's Docker image instead, so nothing is compiled here (#92)."""
     import shutil
+    if getattr(args, "docker", False):
+        return _setup_docker(args.sim)
     if args.sim == "stonefish":
         return _setup_stonefish(args)
     if args.sim != "gazebo":
@@ -476,6 +536,8 @@ def cmd_check(args, runner=None) -> int:
                 if os.path.exists(os.path.join(CAL_DIR, p))]
     print(("✅" if len(policies) == 3 else "❌") + f" shipped fleet policies ({len(policies)}/3)")
     ok = ok and len(policies) == 3
+    import sim_docker
+    print(sim_docker.check_line())
     print(stonefish_status())
     print(gazebo_status())
     try:
@@ -1246,7 +1308,7 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
                         ("--compare-params", args.compare_params), ("--replay-tool", args.replay_tool),
                         ("--from-strathe", args.from_strathe)):
         if value:
-            argv += [flag, value if flag == "--buoyancy-part" else _abs(value)]
+            argv += [flag, value if flag == "--buoyancy-part" else _tool(value) if flag == "--replay-tool" else _abs(value)]
     if args.compare_mass:
         argv += ["--compare-mass", str(args.compare_mass)]
     if args.axisymmetric:
@@ -1299,7 +1361,7 @@ def export_stonefish_argv(args, out: str) -> list:
     for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
                         ("--data", args.data), ("--replay-tool", args.replay_tool)):
         if value:
-            argv += [flag, value if flag == "--buoyancy-part" else _abs(value)]
+            argv += [flag, value if flag == "--buoyancy-part" else _tool(value) if flag == "--replay-tool" else _abs(value)]
     if args.mass:
         argv += ["--mass", str(args.mass)]
     return argv
@@ -1329,7 +1391,7 @@ def describe_stonefish_argv(args, out: str) -> list:
         argv += ["--find", *args.find]
     for flag, value in (("--stonefish-data", args.stonefish_data), ("--replay-tool", args.replay_tool)):
         if value:
-            argv += [flag, _abs(value)]
+            argv += [flag, _tool(value) if flag == "--replay-tool" else _abs(value)]
     if args.hull_lift:
         argv += ["--hull-lift"]
     return argv
@@ -1643,7 +1705,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="don't fit again with the centre of gravity held when the first fit makes the attitude worse "
                          "(by default it does, and keeps the better of the two)")
     sf.add_argument("--workers", type=int, default=default_workers(), help="Stonefish runs at once")
-    sf.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    sf.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image (setup-sim "
+                    "stonefish --docker, once); or docker:IMAGE (default: calibration/stonefish/build/, else the "
+                    "Docker image if it's built)")
     sf.add_argument("--name", default="my_vehicle", help="names the default output folder")
     sf.add_argument("--out", help="output folder (default: stonefish_fit_<name> in the repository)")
     sf.set_defaults(fn=cmd_fit_stonefish)
@@ -1661,7 +1725,9 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--hull-lift", action="store_true", help="slender hulls: include the hull-lift terms (off by default)")
     ds.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     ds.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
-    ds.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ds.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image (setup-sim "
+                    "stonefish --docker, once); or docker:IMAGE (default: calibration/stonefish/build/, else the "
+                    "Docker image if it's built)")
     ds.add_argument("--name", default="my_vehicle", help="the vehicle's name")
     ds.add_argument("--out", help="the description to write (default: <name>_vehicle_spec.yaml here)")
     ds.set_defaults(fn=cmd_describe_stonefish)
@@ -1685,17 +1751,23 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date, e.g. 27-03-2026=1000 for fresh water")
     ex.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")
-    ex.add_argument("--replay-tool", help="the built strathe_stonefish_replay (default: calibration/stonefish/build/)")
+    ex.add_argument("--replay-tool", help="the built strathe_stonefish_replay; or docker: Strathe's Stonefish image (setup-sim "
+                    "stonefish --docker, once); or docker:IMAGE (default: calibration/stonefish/build/, else the "
+                    "Docker image if it's built)")
     ex.add_argument("--name", default="my_vehicle", help="names the default output folder")
     ex.add_argument("--out", help="output folder (default: stonefish_export_<name> in the repository)")
     ex.set_defaults(fn=cmd_export_stonefish)
     su = sub.add_parser("setup-sim", help="build what a simulator needs for fit-sim / export-sim, and check it "
-                                         "(gazebo: the replay tool; calibration/simulators/README.md)")
+                                         "(gazebo: the replay tool; --docker: nothing to compile, Strathe's Docker "
+                                         "image; calibration/simulators/README.md)")
     su.add_argument("sim", choices=list(SIMULATORS))
     su.add_argument("--prefix", help="where the simulator is installed (e.g. the conda env with gz-sim8); default: "
                                      "the active conda env, else the system")
     su.add_argument("--source", help="stonefish: your Stonefish checkout (default: clone the fork the patch is made for)")
     su.add_argument("--jobs", type=int, help="stonefish: parallel build jobs (default: all cores but one)")
+    su.add_argument("--docker", action="store_true",
+                    help="stonefish / gazebo: build Strathe's Docker image instead, so nothing is compiled on this "
+                         "machine; every command then uses it (calibration/simulators/DOCKER.md)")
     su.set_defaults(fn=cmd_setup_sim)
     # listed for --help; main() hands them to cmd_sim, which passes each simulator's own options through
     sub.add_parser("fit-sim", add_help=False,
