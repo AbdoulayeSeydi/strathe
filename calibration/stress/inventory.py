@@ -211,8 +211,9 @@ def variables_96() -> list:
     rows += [("96", f"channel:{k}", "sensor channel kind", k) for k in ("gyro", "dvl", "position", "depth",
                                                                          "accelerometer")]
     rows += [("96", f"position_axes:{k}", "position fix axes", k) for k in ("ned", "ne")]
-    rows += [("96", f"mount:{k}", "vehicle description sensors: key", k) for k in ("position_m", "track=bottom",
-                                                                                   "track=water")]
+    from vehicle_spec_schema import SensorMount   # every key a sensor mount takes, so a new one needs its row
+    keys = [k for k in SensorMount.model_fields if k not in ("note", "track")] + ["track=bottom", "track=water"]
+    rows += [("96", f"mount:{k}", "vehicle description sensors: key", k) for k in keys]
     rows += [("96", f"heading:{k}", "heading source", k) for k in ("compass", "gyro")]
     web = open(os.path.join(CAL, "strathe_web.py"), encoding="utf-8").read()
     rows += [("96", f"web:{n}", "web calibrate field", n) for n in ("sensors", "use_accelerometer") if f"name={n}" in web]

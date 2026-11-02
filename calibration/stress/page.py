@@ -1,5 +1,5 @@
 """
-stress/page.py -- the private results page for #93-#95: each feature's proof on real data, then every stress row,
+stress/page.py -- the private results page for #93-#96: each feature's proof on real data, then every stress row,
 from the same stress/results_<feature>.csv as STRESS_TEST_93_95.md.
 
     python stress/page.py OUT.html
@@ -189,6 +189,59 @@ def section_95(rows: dict) -> str:
     return "".join(out)
 
 
+def skill_cells(sk: list) -> str:
+    """Per-axis held-out skill, each cell shaded by its value."""
+    return "".join(f'<td class="sk" style="--lvl:{max(0.0, min(1.0, x)):.2f}">{x:+.2f}</td>' for x in sk)
+
+
+def section_96(rows: list) -> str:
+    by = {r["row"]: r for r in rows}
+    out, dots = [], []
+    for key, title in report.DATASETS_96:
+        grp = sorted((r for r in rows if r["row"].startswith(key + "-")), key=lambda r: (r["row"][-1] != "V", r["row"]))
+        if not grp:
+            continue
+        V = _n(by.get(f"{key}-V")) if by.get(f"{key}-V") else {}
+        body, default = [], None
+        for r in grp:
+            n = _n(r)
+            default = default or n.get("default_skill")
+            cls, label = _status(r, "96")
+            blind = ", ".join(AXES["uvw".index(a)] for a, b in (n.get("axes_seen_by") or {}).items() if not b) or "–"
+            dr = (f'{n["drift_60s_m"]:.1f} m <span class="muted">({n["drift_60s_default_m"]:.1f})</span>'
+                  if n.get("drift_60s_m") is not None else "")
+            body.append(f'<tr><td><code>{E(r["row"])}</code></td><td>{E(r["what"])}</td>{skill_cells(n["skill"])}'
+                        f'<td><b>{n["mean_skill"]:+.3f}</b></td><td>{dr}</td><td>{E(blind)}</td>'
+                        f'<td>{chip(cls, label)}</td></tr>')
+            if V and not r["row"].endswith("-V"):
+                dots.append((f'{key}-{r["row"].split("-")[1]} · {r["what"].split(": ", 1)[-1][:46]}',
+                             {"hand_mean_skill": V["mean_skill"], "generated_mean_skill": n["mean_skill"]}, cls))
+        if default:
+            body.append(f'<tr class="def"><td>default</td><td>the description\'s physics, nothing fitted</td>'
+                        f'{skill_cells(default)}<td>{sum(default) / 6:+.3f}</td><td></td><td></td><td></td></tr>')
+        out.append(f'<h3>{E(title)}</h3><div class="scroll"><table class="skill"><thead><tr><th>Row</th><th>Sensors</th>'
+                   + "".join(f"<th>{a}</th>" for a in AXES) + '<th>Mean</th><th>Drift 60 s (default)</th>'
+                   '<th>Not calibrated</th><th>Bar</th></tr></thead><tbody>' + "".join(body) + "</tbody></table></div>")
+    head = ('<p>The velocity a fit usually needs was in each of these logs, so it could be hidden and used to score the '
+            'fit afterwards. Each no-velocity fit saw only the sensors named; its held-out skill is against the hidden '
+            'velocity. 1 is perfect, 0 is no better than predicting no motion.</p>'
+            '<p class="key"><span class="k ring"></span> the velocity fit (V) <span class="k dot pass"></span> the same '
+            'data with no velocity <span class="k band"></span> 0.05 below V. Mean held-out skill over the 6 axes.</p>')
+    syn = []
+    for r in rows:
+        n = _n(r)
+        if r["row"].startswith(("B-set-", "B-ref-")) and "skill" in n:
+            syn.append(f'<tr><td><code>{E(r["row"])}</code></td><td>{E(r["value"])}</td>{skill_cells(n["skill"])}'
+                       f'<td><b>{n["mean_skill"]:+.3f}</b></td><td>{len(n.get("held_unobserved") or [])}</td>'
+                       f'<td>{chip(*_status(r, "96"))}</td></tr>')
+    known = ('<h3>Known truth: what each sensor set recovers</h3><p>A vehicle with known parameters replays the real '
+             'logged thrust, with simulated sensors; skill against its true velocity on held-out data.</p>'
+             '<div class="scroll"><table class="skill"><thead><tr><th>Row</th><th>Sensors</th>' +
+             "".join(f"<th>{a}</th>" for a in AXES) + '<th>Mean</th><th>Held</th><th>Bar</th></tr></thead><tbody>' +
+             "".join(syn) + "</tbody></table></div>") if syn else ""
+    return head + dotplot(dots) + "".join(out) + known
+
+
 def section_93(rows: list) -> str:
     body = []
     for r in rows:
@@ -234,7 +287,7 @@ def all_rows(feature: str, rows: list) -> str:
 
 
 def render() -> str:
-    feats = {f: report._latest(load_rows(f)) for f in ("93", "94", "95")}
+    feats = {f: report._latest(load_rows(f)) for f in ("93", "94", "95", "96")}
     rows95 = {r["row"]: r for r in feats["95"]}
     try:
         import run_95
@@ -245,7 +298,8 @@ def render() -> str:
     cards = []
     for f, line in (("93", "Calibrate from one field day: whole recordings, or the last part of one, held out."),
                     ("94", "PX4 .ulg, MOOS-IvP .alog and LCM logs read directly, with no converter."),
-                    ("95", "A vehicle description from a tape measure and a scale, or from any simulator model.")):
+                    ("95", "A vehicle description from a tape measure and a scale, or from any simulator model."),
+                    ("96", "Calibrate from the sensors the vehicle has: position fixes, depth, a DVL with gaps, or none.")):
         rows = feats[f]
         ok = sum(_status(r, f)[0] in ("pass", "wrong", "old") for r in rows)
         bad = [r["row"] for r in rows if _status(r, f)[0] == "fail"]
@@ -304,6 +358,8 @@ table.rows td:nth-child(4) {{ min-width: 280px; }}
 .axes {{ display: inline-grid; grid-template-columns: repeat(6, 44px); gap: 2px; }}
 .ax {{ display: grid; text-align: center; padding: 2px 0; border-radius: 3px; font-family: var(--mono); font-size: .68rem;
   background: rgb(var(--cell) / calc(var(--lvl) * .45)); }}
+table.skill td.sk {{ font-family: var(--mono); background: rgb(var(--cell) / calc(var(--lvl) * .45)); text-align: right; }}
+table.skill tr.def td {{ color: var(--muted); }}
 .ax b {{ font-weight: 500; color: var(--muted); }} .ax i {{ font-style: normal; }} .ax s {{ text-decoration: none; color: var(--muted); }}
 svg.dots {{ width: 100%; max-width: 960px; height: auto; display: block; }}
 svg .grid {{ stroke: var(--rule); stroke-width: 1; }} svg .tick, svg .lab {{ fill: var(--muted); font: 11px var(--mono); }}
@@ -327,22 +383,23 @@ footer {{ color: var(--muted); font-size: .82rem; border-top: 1px solid var(--ru
 <header>
   <p class="eyebrow">Strathe · private · {time.strftime('%d %b %Y, %H:%M')}</p>
   <h1>Strathe Lab Onboarding Proof</h1>
-  <p>Three things turned labs away before calibration started: logs from a single field day, log formats Strathe
-  couldn't read, and a vehicle description written by hand. Each is now built, stress-tested on every option the code
+  <p>Four things turned labs away before calibration started: logs from a single field day, log formats Strathe
+  couldn't read, a vehicle description written by hand, and no DVL. Each is now built, stress-tested on every option the code
   has, and proven on real vehicles' logs. The list of options comes from the code, and a test fails if one has no row
   here.</p>
 </header>
 <div class="cards">{"".join(cards)}</div>
+<section id="f96"><p class="eyebrow">#96 · real data, the truth hidden</p><h2>{E(report.TITLES["96"])}</h2>{section_96(feats["96"])}</section>
 <section id="f95"><p class="eyebrow">#95 · real data</p><h2>{E(report.TITLES["95"])}</h2>{section_95(rows95)}</section>
 <section id="f93"><p class="eyebrow">#93 · real data</p><h2>{E(report.TITLES["93"])}</h2>{section_93(feats["93"])}</section>
 <section id="f94"><p class="eyebrow">#94 · real data</p><h2>{E(report.TITLES["94"])}</h2>{section_94()}</section>
 <section id="rows"><p class="eyebrow">Every row</p><h2>The stress tests, row by row</h2>
 <p class="muted">The last result of each row; a row re-run after a fix replaces the earlier one. Rows kept on record
 from before a fix say which row shows it.</p>
-{"".join(f'<h3>#{f}. {E(report.TITLES[f])}</h3>' + all_rows(f, feats[f]) for f in ("95", "93", "94"))}
+{"".join(f'<h3>#{f}. {E(report.TITLES[f])}</h3>' + all_rows(f, feats[f]) for f in ("96", "95", "93", "94"))}
 </section>
 <footer>Written by <code>calibration/stress/page.py</code> from <code>stress/results_93.csv</code>, <code>_94</code> and
-<code>_95</code>; the same rows as <code>STRESS_TEST_93_95.md</code>. Details: PROJECT_STATUS.md #93–#95.</footer>
+<code>_95</code>, <code>_96</code>; the same rows as <code>STRESS_TEST_93_95.md</code>. Details: PROJECT_STATUS.md #93–#96.</footer>
 </main>
 """
 

@@ -112,6 +112,7 @@ def test_depth_only_holds_surge_and_sway_and_says_so(tmp_path):
     assert v["v"]["verdict"] == cr.BAD and v["w"]["unit"] == "m"
     text = open(out["report"], encoding="utf-8").read()
     assert "Surge: not calibrated." in text and "forward drag" in text
+    assert "predict less well than they would with position fixes" in text   # the measured cost of no horizontal sensor (#96, R-3)
     del rep
 
 
@@ -145,3 +146,23 @@ def test_a_dvl_at_every_sample_still_takes_the_original_fit(tmp_path):
     m = json.load(open(tmp_path / "out" / "metrics.json", encoding="utf-8"))
     assert "sensor_suite" not in m and m["objective"]["prediction_horizon_samples"] is None
     del rep
+
+
+def test_the_stress_scorer_predicts_in_the_water_the_truth_moved_in(tmp_path):
+    """stress/synthetic_96.truth_skill scores a calibration in the current the truth vehicle was driven in: the truth's
+    own values score ~1 there, and in still water they don't (the first sweep scored B-current-known and B-dvl-water
+    without it, and their exact fits read 0.47 in sway)."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stress"))
+    import synthetic_96 as S
+    df, _, _ = truth_frame(n=600, seed=4)
+    src = tmp_path / "synth-01-10-2026-run1.csv"
+    df.to_csv(src, index=False)
+    current = (0.15, -0.05, 0.0)
+    S.truth_dataset(str(tmp_path / "ds"), [str(src)], sensors={"dvl": {}}, current_world=current)
+    truth = S.load_params(S.TRUTH_BLUEROV2)
+    args = (truth, S.SPEC_BLUEROV2, str(tmp_path / "ds" / "data"), str(tmp_path / "ds" / "truth"), [src.name])
+    same = S.truth_skill(*args, current_world=current)
+    still = S.truth_skill(*args)
+    assert min(same["skill"]) > 0.999
+    assert min(still["skill"]) < 0.99

@@ -3,6 +3,7 @@ stress/run_96.py -- stress test of the sensor suite (PROJECT_STATUS.md #96): cal
 
     python stress/run_96.py fast        # the sensor matrix (64 mixes), and every product step without a DVL (an hour)
     python stress/run_96.py sweep [ROW] # synthetic truth recovery, one variable at a time (hours)
+    python stress/run_96.py rescore [ROW]  # the same rows scored again from their finished fits (no refit)
     python stress/run_96.py real DIR    # the real-data rows, scored from finished fits in DIR (see real_fits())
     python stress/run_96.py list
 
@@ -121,7 +122,20 @@ SWEEP.update({
                             ["--sensors", "all", "--current-world-mps", "0.15", "-0.05", "0"], "limit",
                             "the same DVL taken as bottom-tracking"),
 })
-SPEC_SENSORS = {"B-lever-known": {"usbl": {"position_m": ARM}}, "B-dvl-water": {"dvl": {"track": "water"}}}
+# the smoother's reading noise (measurements.smoother_noise): these logs have no ingest report, so B-set-nominal uses the
+# defaults (position 0.2 m, depth 0.02 m); the truth is 0.17 m and 0.24 cm
+SWEEP.update({
+    "B-grade-usbl": ("sensor noise", "grade ugps_g2, 85 m", NOMINAL, [], "seen",
+                     "the USBL's grade (0.2% of an 85 m range: 0.17 m, its true noise) in the description's sensors:"),
+    "B-noise-given": ("sensor noise", "given, right", NOMINAL, [], "seen",
+                      "the true noise given as noise: (USBL 0.17 m, depth 0.24 cm)"),
+    "B-noise-overconfident": ("sensor noise", "given, 30x too small", NOMINAL, [], "limit",
+                              "the USBL's noise given as 5 mm: the smoother trusts the fixes far too much"),
+})
+SPEC_SENSORS = {"B-lever-known": {"usbl": {"position_m": ARM}}, "B-dvl-water": {"dvl": {"track": "water"}},
+                "B-grade-usbl": {"usbl": {"grade": "ugps_g2", "range_m": 85}},
+                "B-noise-given": {"usbl": {"noise": 0.17}, "main": {"noise": 0.0024}},
+                "B-noise-overconfident": {"usbl": {"noise": 0.005}}}
 CURRENT_ROWS = {"B-current-known": (0.15, -0.05, 0.0), "B-current-ignored": (0.15, -0.05, 0.0),
                 "B-dvl-water": (0.15, -0.05, 0.0), "B-dvl-water-ignored": (0.15, -0.05, 0.0)}
 
@@ -160,10 +174,11 @@ def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.S
     return {"exit": rc, "seconds": round(time.time() - t0, 1), "log": log}
 
 
-def _score(out: str, root: str) -> dict:
+def _score(out: str, root: str, current=None) -> dict:
     from dynamics_model import CalibrationParameters
     p = CalibrationParameters(**yaml.safe_load(open(os.path.join(out, "calibrated_parameters.yaml")))["parameters"])
-    sk = S.truth_skill(p, S.SPEC_BLUEROV2, os.path.join(root, "data"), os.path.join(root, "truth"), [HELD_FILE])
+    sk = S.truth_skill(p, S.SPEC_BLUEROV2, os.path.join(root, "data"), os.path.join(root, "truth"), [HELD_FILE],
+                       current_world=current)
     err = S.range_error(p, S.load_params(S.TRUTH_BLUEROV2))
     m = json.load(open(os.path.join(out, "metrics.json")))
     ss = m.get("sensor_suite") or {}
@@ -181,7 +196,7 @@ def _reference(name: str) -> dict:
     return json.loads(rows[-1]["numbers"]) if rows else {}
 
 
-def sweep(only=None) -> int:
+def sweep(only=None, rescore: bool = False) -> int:
     from optimizer import initial_parameters, load_vehicle_spec
     default = initial_parameters(load_vehicle_spec(S.SPEC_BLUEROV2))
     for row, (var, val, sensors, flags, kind, what) in SWEEP.items():
@@ -189,16 +204,23 @@ def sweep(only=None) -> int:
             continue
         root = _dataset(row, sensors)
         out = os.path.join(WORK, "fits", row)
-        run = _calibrate(os.path.join(root, "data"), out, flags, spec=_spec_for(row))
+        if rescore:   # the scorer changed, not the fit: the fit's own exit and time are kept
+            if not os.path.exists(os.path.join(out, "calibrated_parameters.yaml")):
+                continue
+            old = _reference(row)
+            run = {"exit": old.get("exit", 0), "seconds": old.get("seconds", 0.0)}
+        else:
+            run = _calibrate(os.path.join(root, "data"), out, flags, spec=_spec_for(row))
         nums = {"exit": run["exit"], "seconds": run["seconds"]}
         if not os.path.exists(os.path.join(out, "calibrated_parameters.yaml")):
             record(F, row, var, val, what, "synthetic BlueROV2 (reference recordings)", nums, "a calibration", False,
                    run["seconds"])
             continue
-        sc = _score(out, root)
+        sc = _score(out, root, CURRENT_ROWS.get(row))
         nums.update({k: v for k, v in sc.items() if k != "params"})
         nums["default_skill"] = S.truth_skill(default, S.SPEC_BLUEROV2, os.path.join(root, "data"),
-                                              os.path.join(root, "truth"), [HELD_FILE])["skill"]
+                                              os.path.join(root, "truth"), [HELD_FILE],
+                                              current_world=CURRENT_ROWS.get(row))["skill"]
         ok, expect = _judge(row, kind, nums, sc)
         record(F, row, var, val, what, "synthetic BlueROV2 (reference recordings)", nums, expect, ok, run["seconds"])
     return 0
@@ -358,7 +380,7 @@ def e_steps() -> None:
         txt = (p.stdout + p.stderr)
         if row == "E-fit-sim":   # part 3: from the sensors, its report saying so
             rep = os.path.join(WORK, "fits", "E-fitsim", "mujoco_fit_report.md")
-            ok = p.returncode == 0 and os.path.exists(rep) and "No DVL in these logs" in open(rep).read()
+            ok = p.returncode == 0 and os.path.exists(rep) and "No DVL in these logs" in open(rep, encoding="utf-8").read()
             expect = "runs from the sensors; its report says drift is against the position fixes"
         else:
             ok = p.returncode == 0 and "Traceback" not in txt
@@ -599,7 +621,8 @@ def all_rows() -> set:
     rows = set(SWEEP) | set(REAL)
     rows |= {f"E-{s}" for s in ("preflight", "fit_or_finish", "identifiability", "validation", "report",
                                 "estimate-current", "fit-noise", "fit-sim")}
-    rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer", "FS-mujoco", "FS-gazebo", "FS-stonefish"}
+    rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer", "FS-mujoco", "FS-gazebo", "FS-stonefish",
+             "S-solaqua"}   # stress/solaqua_96.py
     for bits in itertools.product((0, 1), repeat=4):
         for drift in (False, True):
             rows.add(mix_name(bits, drift))
@@ -613,6 +636,8 @@ if __name__ == "__main__":
         sys.exit(0)
     if cmd == "sweep":
         sys.exit(sweep(sys.argv[2:] or None))
+    if cmd == "rescore":
+        sys.exit(sweep(sys.argv[2:] or None, rescore=True))
     if cmd == "real":
         sys.exit(real(sys.argv[2]))
     if cmd == "sim":

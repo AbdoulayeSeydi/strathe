@@ -217,6 +217,20 @@ assumed 10 Hz (PROJECT_STATUS.md #56).
 - `strathe free-decay` measures the unforced roll and pitch from them; `calibrate --free-decay` holds those values, and the report says they were measured.
 - Limit: the thruster-driven roll/pitch isn't fitted yet. On the reference dataset, holding the measured values made whole-mission roll/pitch prediction worse (PROJECT_STATUS.md #64), so compare with a calibration made without them before simulating attitude-sensitive tasks.
 
+**C8. My vehicle has no DVL.** PASS, with what physics allows (#96, `SENSORS.md`).
+- Log what it has: depth or pressure, the IMU, attitude, and any position fixes (USBL, LBL, GPS while surfaced,
+  motion capture). The ingest spec's `depth:`, `pressure:` and `position: {use: calibrate}` blocks read them
+  (`templates/ingest_ardusub_no_dvl.yaml`, `ingest_rosbag_sensors.yaml`).
+- `strathe calibrate` notices there's no DVL and fits each sensor to what the simulated vehicle would have read.
+  The report's "What your sensors could calibrate" names each axis and what calibrated it. Axes no sensor sees
+  are held at your description's values, and the report says so.
+- With the velocity hidden on real logs: 1 Hz USBL-like fixes and depth scored 0.383 against 0.394 with velocity
+  (a BlueROV2 tank). Depth and an IMU alone calibrate heave, roll, pitch and yaw but not surge or sway, and yaw is
+  weaker (LIMITS.md).
+- Where each sensor sits (`position_m`), a water-tracking DVL (`track: water`) and each sensor's noise (`noise:`
+  or a datasheet `grade:`) go in the description's `sensors:` section.
+- `fit-sim` and `export-sim` work the same way for your simulator.
+
 ## The single-vehicle journey
 
 ```bash

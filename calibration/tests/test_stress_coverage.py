@@ -53,6 +53,6 @@ def test_the_results_page_lists_every_row():
     import page
     from common import load_rows
     text = page.render()
-    for feature in ("93", "94", "95"):
+    for feature in ("93", "94", "95", "96"):
         missing = [r["row"] for r in load_rows(feature) if f"<code>{page.E(r['row'])}</code>" not in text]
         assert not missing, f"#{feature} rows missing from the page: {missing[:5]}"

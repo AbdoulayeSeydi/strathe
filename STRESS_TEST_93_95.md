@@ -1,6 +1,6 @@
-# Stress test: #93-#95
+# Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-10-31 14:17. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-02 02:07. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -183,7 +183,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #94. PX4, MOOS-IvP and LCM logs, read directly
 
-**356 of 356 rows pass** (294 variables found in the code, each with a row).
+**419 of 419 rows pass** (483 variables found in the code, each with a row).
 
 
 ### Every real recording through each format, against the CSV route
@@ -607,6 +607,74 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | E-mujoco-moos | calibration = moos | bluerov: fit-sim --sim mujoco from moos vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "moos": {"hull_blunt_drag": 1.0... | 0 min |
 | E-mujoco-lcm | calibration = lcm | bluerov: fit-sim --sim mujoco from lcm vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "lcm": {"hull_blunt_drag": 1.01... | 0 min |
 
+### Other rows (SN)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| SN-px4-usbl | sensor = usbl | px4: a USBL fix at 1 Hz, delayed 0.3 s, use: calibrate, source usbl, its own tolerance (noise_m) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.5, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-mocap_cm | sensor = mocap_cm | px4: motion capture in cm at 2 Hz (use: calibrate, source mocap, max_speed_mps) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-lbl_xy | sensor = lbl_xy | px4: an LBL fix with no vertical (x, y), source lbl | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.0, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-other_check | sensor = other_check | px4: position use: check from a source 'other' (the original orientation check) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 0.9, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-odometry_check | sensor = odometry_check | px4: an odometry position for use: check (allowed; use: calibrate is refused) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-gps_deg | sensor = gps_deg | px4: GPS lat/lon in degrees, a fix only while surfaced (drop_when on the fix status, below) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 1.3962511147269652e-09, "worst_column": "pos_gps_n", "seconds": 1.3, "warnings_fmt": [], "ax... | 0 min |
+| SN-px4-gps_rad | sensor = gps_rad | px4: GPS lat/lon in radians, dropped by a surfaced flag (drop_when above) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.207005467269596e-09, "worst_column": "pos_gps_e", "seconds": 1.2, "warnings_fmt": [], "axe... | 0 min |
+| SN-px4-depth_m | sensor = depth_m | px4: a depth sensor in m, positive down, named, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.0, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-depth_cm_up | sensor = depth_cm_up | px4: depth in cm, positive up | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-depth_mm | sensor = depth_mm | px4: depth in mm | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_Pa | sensor = press_Pa | px4: pressure in Pa, fresh water, surface given | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_hPa | sensor = press_hPa | px4: pressure in hPa, salt water, surface auto | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.0, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_kPa | sensor = press_kPa | px4: pressure in kPa | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_mbar | sensor = press_mbar | px4: pressure in mbar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_bar | sensor = press_bar | px4: pressure in bar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-press_psi | sensor = press_psi | px4: pressure in psi, salt water | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-acc | sensor = acc | px4: an accelerometer in m/s^2, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-acc_g_mount | sensor = acc_g_mount | px4: an accelerometer in g, mounted yawed 90 degrees | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.5, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-dvl_keep | sensor = dvl_keep | px4: a DVL with dropouts, linear_gaps: keep | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-dvl_interpolate | sensor = dvl_interpolate | px4: the DVL, linear_gaps: interpolate (the default) stated | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-skips | sensor = skips | px4: every sensor check listed in skip_checks | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-usbl | sensor = usbl | moos: a USBL fix at 1 Hz, delayed 0.3 s, use: calibrate, source usbl, its own tolerance (noise_m) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-mocap_cm | sensor = mocap_cm | moos: motion capture in cm at 2 Hz (use: calibrate, source mocap, max_speed_mps) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-lbl_xy | sensor = lbl_xy | moos: an LBL fix with no vertical (x, y), source lbl | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-other_check | sensor = other_check | moos: position use: check from a source 'other' (the original orientation check) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-odometry_check | sensor = odometry_check | moos: an odometry position for use: check (allowed; use: calibrate is refused) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-gps_deg | sensor = gps_deg | moos: GPS lat/lon in degrees, a fix only while surfaced (drop_when on the fix status, below) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 1.3962511147269652e-09, "worst_column": "pos_gps_n", "seconds": 2.4, "warnings_fmt": [], "ax... | 0 min |
+| SN-moos-gps_rad | sensor = gps_rad | moos: GPS lat/lon in radians, dropped by a surfaced flag (drop_when above) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.207005467269596e-09, "worst_column": "pos_gps_e", "seconds": 2.4, "warnings_fmt": [], "axe... | 0 min |
+| SN-moos-depth_m | sensor = depth_m | moos: a depth sensor in m, positive down, named, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-depth_cm_up | sensor = depth_cm_up | moos: depth in cm, positive up | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-depth_mm | sensor = depth_mm | moos: depth in mm | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.9, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_Pa | sensor = press_Pa | moos: pressure in Pa, fresh water, surface given | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_hPa | sensor = press_hPa | moos: pressure in hPa, salt water, surface auto | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_kPa | sensor = press_kPa | moos: pressure in kPa | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_mbar | sensor = press_mbar | moos: pressure in mbar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_bar | sensor = press_bar | moos: pressure in bar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-press_psi | sensor = press_psi | moos: pressure in psi, salt water | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-acc | sensor = acc | moos: an accelerometer in m/s^2, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-acc_g_mount | sensor = acc_g_mount | moos: an accelerometer in g, mounted yawed 90 degrees | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-dvl_keep | sensor = dvl_keep | moos: a DVL with dropouts, linear_gaps: keep | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-dvl_interpolate | sensor = dvl_interpolate | moos: the DVL, linear_gaps: interpolate (the default) stated | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-skips | sensor = skips | moos: every sensor check listed in skip_checks | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.8, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-usbl | sensor = usbl | lcm: a USBL fix at 1 Hz, delayed 0.3 s, use: calibrate, source usbl, its own tolerance (noise_m) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-mocap_cm | sensor = mocap_cm | lcm: motion capture in cm at 2 Hz (use: calibrate, source mocap, max_speed_mps) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.9, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-lbl_xy | sensor = lbl_xy | lcm: an LBL fix with no vertical (x, y), source lbl | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-other_check | sensor = other_check | lcm: position use: check from a source 'other' (the original orientation check) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.7, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-odometry_check | sensor = odometry_check | lcm: an odometry position for use: check (allowed; use: calibrate is refused) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-gps_deg | sensor = gps_deg | lcm: GPS lat/lon in degrees, a fix only while surfaced (drop_when on the fix status, below) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 1.3962511147269652e-09, "worst_column": "pos_gps_n", "seconds": 3.0, "warnings_fmt": [], "ax... | 0 min |
+| SN-lcm-gps_rad | sensor = gps_rad | lcm: GPS lat/lon in radians, dropped by a surfaced flag (drop_when above) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.207005467269596e-09, "worst_column": "pos_gps_e", "seconds": 3.4, "warnings_fmt": [], "axe... | 0 min |
+| SN-lcm-depth_m | sensor = depth_m | lcm: a depth sensor in m, positive down, named, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-depth_cm_up | sensor = depth_cm_up | lcm: depth in cm, positive up | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-depth_mm | sensor = depth_mm | lcm: depth in mm | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_Pa | sensor = press_Pa | lcm: pressure in Pa, fresh water, surface given | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_hPa | sensor = press_hPa | lcm: pressure in hPa, salt water, surface auto | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.7, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_kPa | sensor = press_kPa | lcm: pressure in kPa | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_mbar | sensor = press_mbar | lcm: pressure in mbar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_bar | sensor = press_bar | lcm: pressure in bar | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.8, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-press_psi | sensor = press_psi | lcm: pressure in psi, salt water | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.3, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-acc | sensor = acc | lcm: an accelerometer in m/s^2, delay_s, drop_when | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.5, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-acc_g_mount | sensor = acc_g_mount | lcm: an accelerometer in g, mounted yawed 90 degrees | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-dvl_keep | sensor = dvl_keep | lcm: a DVL with dropouts, linear_gaps: keep | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.1, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-dvl_interpolate | sensor = dvl_interpolate | lcm: the DVL, linear_gaps: interpolate (the default) stated | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-skips | sensor = skips | lcm: every sensor check listed in skip_checks | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 3.6, "warnings_fmt": [], "axes_not_s... | 0 min |
+
 ## #95. Vehicle spec from basic measurements, or from any simulator model
 
 **146 of 154 rows pass** (46 variables found in the code, each with a row).
@@ -805,4 +873,209 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | P-23 | pairwise = {"vehicle": "blue", "scale": 0.7, "shape": "torpedo", "water": "sea", "inertia": "yes", "cg": "yes", "net_buoyancy": "plus", "reference_point": "yes", "thrusters": "allocation", "hull_lift": "on", "volume": "no"} | all-pairs case 24: describe-vehicle --mass 8.05 --length 0.3199 --width 0.4025 --height 0.1778 --shape torpedo --water sea --inertia 0.08050 0.16100 0.16100 --cg-below-cb 0.01 --net-buoyancy=2.0 --reference-point 0.05 0 0.02 --thrusters /Users/abdoulayeseydi/strathe_describe_data/alloc_ingest.yaml --hull-lift | blue | ✅ | {"exit": 0, "problems": []} | 0 min |
 | P-24 | pairwise = {"vehicle": "alpha", "scale": 1.0, "shape": "auto", "water": "default", "inertia": "no", "cg": "no", "net_buoyancy": "minus", "reference_point": "yes", "thrusters": "allocation", "hull_lift": "off", "volume": "yes"} | all-pairs case 25: describe-vehicle --mass 33.0 --length 1.5 --diameter 0.254 --net-buoyancy=-2.0 --reference-point 0.05 0 0.02 --thrusters /Users/abdoulayeseydi/strathe_describe_data/alloc_ingest.yaml --volume 0.032195 | alpha | ✅ | {"exit": 0, "problems": []} | 0 min |
 | P-25 | pairwise = {"vehicle": "blue", "scale": 1.0, "shape": "torpedo", "water": "1010", "inertia": "yes", "cg": "no", "net_buoyancy": "no", "reference_point": "no", "thrusters": "dfki", "hull_lift": "off", "volume": "yes"} | all-pairs case 26: describe-vehicle --mass 11.5 --length 0.457 --width 0.575 --height 0.254 --shape torpedo --water 1010 --inertia 0.11500 0.23000 0.23000 --thrusters /Users/abdoulayeseydi/strathe_describe_v_wt/calibration/examples/dfki_tether/ingest_dfki_tether.yaml --volume 0.011220 | blue | ✅ | {"exit": 0, "problems": []} | 0 min |
+
+## #96. Calibrate from what the vehicle measures: no DVL needed
+
+**99 of 104 rows pass** (42 variables found in the code, each with a row).
+
+### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
+
+Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion); 60 s drift is against what the fit had (the position fixes, or depth), median.
+
+| Row | Sensors | surge | sway | heave | roll | pitch | yaw | Mean | Drift 60 s (default) | Not calibrated | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| R-V | today's velocity fit on the reference tank recordings | +0.71 | +0.53 | +0.60 | -0.02 | -0.03 | +0.58 | **+0.394** | 1.86 m (9.11) | none | ✅ |
+| R-1 | no velocity: motion-capture positions and depth | +0.69 | +0.49 | +0.57 | -0.02 | -0.04 | +0.60 | **+0.383** | 1.90 m (9.40) | none | ✅ |
+| R-2 | no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth | +0.69 | +0.49 | +0.57 | -0.02 | -0.04 | +0.60 | **+0.383** | 2.06 m (9.46) | none | ✅ |
+| R-3 | no velocity: depth and the gyro only | -0.27 | -0.63 | +0.56 | -0.14 | -0.10 | +0.29 | **-0.047** | 3.89 m (8.44) | u, v | ❌ |
+| R-4 | a DVL with 30% dropouts plus R-2's fixes | +0.69 | +0.51 | +0.58 | -0.02 | -0.04 | +0.60 | **+0.388** | 1.93 m (9.49) | none | ✅ |
+| default | the description's physics, nothing fitted | +0.40 | -0.57 | -1.19 | -4.33 | -7.47 | +0.15 | -2.166 | | | |
+
+### DFKI's BlueROV2 basin (held-out recordings, against the hidden motion-capture velocity)
+
+Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion); 60 s drift is against what the fit had (the position fixes, or depth), median.
+
+| Row | Sensors | surge | sway | heave | roll | pitch | yaw | Mean | Drift 60 s (default) | Not calibrated | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| D-V | today's velocity fit on DFKI's BlueROV2 (motion-capture velocity) | +0.86 | +0.62 | +0.48 | -0.15 | +0.03 | +0.58 | **+0.401** | 1.51 m (5.91) | none | ✅ |
+| D-1 | no velocity: motion-capture positions and the Bar30 | +0.87 | +0.65 | +0.44 | -0.16 | +0.03 | +0.58 | **+0.402** | 1.31 m (5.96) | none | ✅ |
+| D-2 | no velocity: USBL-like fixes and the Bar30 | +0.87 | +0.64 | +0.44 | -0.16 | +0.03 | +0.58 | **+0.401** | 1.50 m (5.73) | none | ✅ |
+| D-3 | the BlueROV2 lab with no DVL: Bar30, gyro and attitude only | +0.30 | -0.94 | +0.29 | -0.13 | +0.04 | +0.34 | **-0.018** | 2.37 m (4.56) | u, v | ❌ |
+| D-4 | D-3 plus the raw IMU's accelerometer (exploratory) | +0.30 | -0.92 | +0.34 | -0.13 | +0.04 | +0.33 | **-0.007** | 2.90 m (4.56) | u, v | ✅ |
+| default | the description's physics, nothing fitted | +0.65 | -1.30 | -0.76 | -7.92 | -5.64 | -0.17 | -2.525 | | | |
+
+### URI's ALPHA RISE at sea (the held-out day, against the hidden raw DVL)
+
+Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion); 60 s drift is against what the fit had (the position fixes, or depth), median.
+
+| Row | Sensors | surge | sway | heave | roll | pitch | yaw | Mean | Drift 60 s (default) | Not calibrated | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| U-V | today's DVL fit on URI's ALPHA RISE (raw DVL, interpolated) | +0.89 | +0.20 | +0.35 | -0.01 | -0.13 | -0.33 | **+0.163** | 3.70 m (22.61) | none | ✅ |
+| U-1 | URI with no DVL: RTK GPS (surface), depth, IMU | +0.80 | -0.04 | +0.39 | +0.01 | -0.14 | -0.16 | **+0.145** | 12.56 m (11.93) | none | ❌ |
+| U-2 | U-1 plus the accelerometer (exploratory) | +0.84 | -0.10 | +0.39 | +0.01 | -0.14 | -0.16 | **+0.140** | 10.85 m (11.93) | none | ✅ |
+| default | the description's physics, nothing fitted | +0.74 | -1.91 | -2.03 | -6.51 | -5.07 | -4.38 | -3.192 | | | |
+
+### Known truth: what each sensor set recovers
+
+A vehicle with known parameters replays the real logged thrust; its sensors are simulated. Held-out skill against its true velocity, and the median parameter error as a share of each parameter's range.
+
+| Row | Sensors | surge | sway | heave | roll | pitch | yaw | Mean | Parameter error | Held | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| B-ref-velocity | velocity | +1.00 | +1.00 | +1.00 | +1.00 | +1.00 | +1.00 | **+1.000** | 0.000 | 0 | ✅ |
+| B-set-mocap | mocap 10 Hz + depth | +1.00 | +1.00 | +1.00 | +1.00 | +1.00 | +1.00 | **+1.000** | 0.000 | 0 | ✅ |
+| B-set-nominal | USBL-like + depth | +1.00 | +0.99 | +0.99 | +0.99 | +0.99 | +1.00 | **+0.993** | 0.001 | 0 | ✅ |
+| B-set-2d | horizontal fixes + depth | +1.00 | +0.97 | +1.00 | +0.99 | +1.00 | +1.00 | **+0.991** | 0.001 | 0 | ✅ |
+| B-set-depth | depth only | -0.47 | -0.95 | +0.75 | +0.38 | +0.42 | +0.22 | **+0.058** | 0.187 | 7 | ❌ |
+| B-set-dvlgaps | DVL 30% dropouts + fixes | +0.99 | +0.99 | +0.99 | +0.99 | +0.99 | +1.00 | **+0.993** | 0.001 | 0 | ✅ |
+| B-set-accel | + accelerometer | +0.99 | +1.00 | +1.00 | +1.00 | +0.99 | +1.00 | **+0.996** | 0.000 | 0 | ✅ |
+
+
+### Real: the reference BlueROV2 tank, motion-capture velocity hidden
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| R-V | real data = rV | today's velocity fit on the reference tank recordings | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.7138, 0.529, 0.5962, -0.0207, -0.0341, 0.5777], "mean_skill": 0.3936, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "windo... | 0 min |
+| R-1 | real data = r1 | no velocity: motion-capture positions and depth | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6922, 0.4895, 0.5732, -0.0188, -0.0428, 0.6027], "mean_skill": 0.3827, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "wind... | 0 min |
+| R-2 | real data = r2 | no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6922, 0.4915, 0.5735, -0.0185, -0.0427, 0.6022], "mean_skill": 0.383, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "windo... | 0 min |
+| R-3 | real data = r3 | no velocity: depth and the gyro only | oceansystemslab BlueROV2 tank | ❌ | {"skill": [-0.2653, -0.6266, 0.5552, -0.1397, -0.098, 0.2921], "mean_skill": -0.0471, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "wi... | 0 min |
+| R-4 | real data = r4 | a DVL with 30% dropouts plus R-2's fixes | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6933, 0.5106, 0.5794, -0.0177, -0.0399, 0.6028], "mean_skill": 0.3881, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "wind... | 0 min |
+
+### Real: DFKI's BlueROV2, its own Bar30, IMU and attitude, motion-capture velocity hidden
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| D-V | real data = dV | today's velocity fit on DFKI's BlueROV2 (motion-capture velocity) | DFKI BlueROV2 basin | ✅ | {"skill": [0.8605, 0.6171, 0.48, -0.1541, 0.0267, 0.5774], "mean_skill": 0.4013, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "window... | 0 min |
+| D-2 | real data = d2 | no velocity: USBL-like fixes and the Bar30 | DFKI BlueROV2 basin | ✅ | {"skill": [0.8662, 0.643, 0.4418, -0.1582, 0.029, 0.5821], "mean_skill": 0.4006, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "window... | 0 min |
+| D-3 | real data = d3 | the BlueROV2 lab with no DVL: Bar30, gyro and attitude only | DFKI BlueROV2 basin | ❌ | {"skill": [0.2986, -0.9449, 0.2879, -0.1267, 0.0396, 0.3361], "mean_skill": -0.0182, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wi... | 0 min |
+| D-1 | real data = d1 | no velocity: motion-capture positions and the Bar30 | DFKI BlueROV2 basin | ✅ | {"skill": [0.8711, 0.6462, 0.4403, -0.1583, 0.0276, 0.5822], "mean_skill": 0.4015, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wind... | 0 min |
+| D-4 | real data = d4 | D-3 plus the raw IMU's accelerometer (exploratory) | DFKI BlueROV2 basin | ✅ | {"skill": [0.2965, -0.9199, 0.3375, -0.1286, 0.0398, 0.3338], "mean_skill": -0.0068, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wi... | 0 min |
+
+### Real: URI's ALPHA RISE at sea, the raw DVL hidden
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| U-V | real data = uV | today's DVL fit on URI's ALPHA RISE (raw DVL, interpolated) | URI ALPHA RISE | ✅ | {"skill": [0.8923, 0.1973, 0.3502, -0.009, -0.1297, -0.3252], "mean_skill": 0.1627, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "win... | 0 min |
+| U-1 | real data = u1 | URI with no DVL: RTK GPS (surface), depth, IMU | URI ALPHA RISE | ❌ | {"skill": [0.8004, -0.0354, 0.3918, 0.0094, -0.1407, -0.1554], "mean_skill": 0.145, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "win... | 0 min |
+| U-2 | real data = u2 | U-1 plus the accelerometer (exploratory) | URI ALPHA RISE | ✅ | {"skill": [0.8418, -0.1027, 0.3915, 0.0082, -0.141, -0.1567], "mean_skill": 0.1402, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "win... | 0 min |
+
+### Known truth, one variable at a time
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| B-ref-velocity | sensor set = velocity | the DVL fit, today's method, on the same data: the reference | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 781.8, "skill": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0], "mean_skill": 1.0, "median_param_error_of_range": 0.0, "worst_params": [["Ieff_roll", 0.0... | 13 min |
+| B-set-mocap | sensor set = mocap 10 Hz + depth | no DVL: perfect position and depth | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1012.0, "skill": [0.9999, 0.9999, 1.0, 0.9999, 0.9999, 1.0], "mean_skill": 0.9999, "median_param_error_of_range": 0.0, "worst_params": [[... | 17 min |
+| B-set-nominal | sensor set = USBL-like + depth | no DVL: 1 Hz fixes, 0.17 m noise, 6.5% dropouts (SOLAQUA), depth 0.24 cm | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 669.7, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_para... | 11 min |
+| B-set-2d | sensor set = horizontal fixes + depth | fixes with no vertical (a 2-D system) and depth | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 574.9, "skill": [0.9958, 0.9698, 0.9979, 0.9913, 0.9965, 0.9956], "mean_skill": 0.9912, "median_param_error_of_range": 0.0008, "worst_par... | 10 min |
+| B-set-depth | sensor set = depth only | depth and the gyro only: surge and sway can't be seen and must be held | synthetic BlueROV2 (reference recordings) | ❌ | {"exit": 0, "seconds": 622.8, "skill": [-0.473, -0.9524, 0.7539, 0.3834, 0.4197, 0.2158], "mean_skill": 0.0579, "median_param_error_of_range": 0.1871, "worst_pa... | 10 min |
+| B-set-dvlgaps | sensor set = DVL 30% dropouts + fixes | a DVL losing bottom lock 30% of the time, with the fixes | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 465.7, "skill": [0.9931, 0.9944, 0.9888, 0.9916, 0.9907, 0.9979], "mean_skill": 0.9927, "median_param_error_of_range": 0.0006, "worst_par... | 8 min |
+| B-set-accel | sensor set = + accelerometer | the nominal set plus the accelerometer (exploratory: reported against nominal) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 616.8, "skill": [0.9941, 0.9964, 0.9983, 0.9966, 0.9948, 0.9975], "mean_skill": 0.9963, "median_param_error_of_range": 0.0003, "worst_par... | 10 min |
+| B-rate-10 | position rate = 10.0 | fixes at 10 Hz | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 914.0, "skill": [0.9981, 0.9953, 0.9965, 0.9958, 0.9961, 0.9984], "mean_skill": 0.9967, "median_param_error_of_range": 0.0001, "worst_par... | 15 min |
+| B-rate-2 | position rate = 2.0 | fixes at 2 Hz | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 491.5, "skill": [0.9984, 0.9981, 0.9927, 0.9955, 0.9942, 0.998], "mean_skill": 0.9961, "median_param_error_of_range": 0.0012, "worst_para... | 8 min |
+| B-rate-0.5 | position rate = 0.5 | fixes at 0.5 Hz | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 466.8, "skill": [0.9984, 0.9746, 0.9872, 0.9922, 0.9962, 0.9934], "mean_skill": 0.9903, "median_param_error_of_range": 0.0016, "worst_par... | 8 min |
+| B-rate-0.2 | position rate = 0.2 | fixes at 0.2 Hz | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 499.1, "skill": [0.9893, 0.9762, 0.9766, 0.9809, 0.9784, 0.998], "mean_skill": 0.9832, "median_param_error_of_range": 0.0004, "worst_para... | 8 min |
+| B-noise-0 | position noise = 0.0 | fix noise 0 m | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 558.7, "skill": [0.9998, 0.9999, 0.9997, 0.9997, 0.9997, 1.0], "mean_skill": 0.9998, "median_param_error_of_range": 0.0, "worst_params": ... | 9 min |
+| B-noise-0.05 | position noise = 0.05 | fix noise 0.05 m | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 584.9, "skill": [0.9986, 0.9968, 0.9967, 0.9979, 0.9975, 0.9994], "mean_skill": 0.9978, "median_param_error_of_range": 0.0005, "worst_par... | 10 min |
+| B-noise-0.5 | position noise = 0.5 | fix noise 0.5 m | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 671.3, "skill": [0.9877, 0.941, 0.981, 0.9822, 0.9892, 0.9905], "mean_skill": 0.9786, "median_param_error_of_range": 0.002, "worst_params... | 11 min |
+| B-noise-1 | position noise = 1.0 | fix noise 1 m | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 776.6, "skill": [0.9726, 0.8806, 0.9741, 0.9715, 0.9816, 0.9823], "mean_skill": 0.9604, "median_param_error_of_range": 0.0016, "worst_par... | 13 min |
+| B-dropout-0 | position dropout = 0.0 | 0% of fixes lost | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 421.2, "skill": [0.995, 0.9777, 0.9776, 0.992, 0.9915, 0.9977], "mean_skill": 0.9886, "median_param_error_of_range": 0.0031, "worst_param... | 7 min |
+| B-dropout-0.3 | position dropout = 0.3 | 30% of fixes lost | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 415.3, "skill": [0.9881, 0.984, 0.9803, 0.9953, 0.995, 0.9974], "mean_skill": 0.99, "median_param_error_of_range": 0.0003, "worst_params"... | 7 min |
+| B-dropout-surface | position dropout = surface only | fixes only within 0.5 m of the shallowest point (GPS at the surface) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 432.5, "skill": [-0.3666, -1.3243, 0.1377, 0.2572, 0.2506, 0.1269], "mean_skill": -0.1531, "median_param_error_of_range": 0.2549, "worst_... | 7 min |
+| B-latency-0.3 | position latency = 0.3 | fixes 0.3 s late, uncorrected | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 373.5, "skill": [0.9749, 0.9061, 0.9667, 0.9515, 0.9621, 0.983], "mean_skill": 0.9574, "median_param_error_of_range": 0.0003, "worst_para... | 6 min |
+| B-latency-1 | position latency = 1.0 | fixes 1 s late, uncorrected | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 378.8, "skill": [0.9338, 0.7118, 0.9146, 0.8622, 0.8951, 0.9382], "mean_skill": 0.876, "median_param_error_of_range": 0.0004, "worst_para... | 6 min |
+| B-depthnoise-0.02 | depth noise = 0.02 | depth noise 2 cm | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 465.4, "skill": [0.9959, 0.9898, 0.9906, 0.9939, 0.9941, 0.9976], "mean_skill": 0.9937, "median_param_error_of_range": 0.0012, "worst_par... | 8 min |
+| B-depthnoise-0.1 | depth noise = 0.1 | depth noise 10 cm | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 426.6, "skill": [0.9821, 0.968, 0.9731, 0.9685, 0.9653, 0.9968], "mean_skill": 0.9756, "median_param_error_of_range": 0.0063, "worst_para... | 7 min |
+| B-depthrate-1 | depth rate = 1.0 | depth at 1 Hz | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 455.9, "skill": [0.9954, 0.9869, 0.9897, 0.9936, 0.9932, 0.9976], "mean_skill": 0.9927, "median_param_error_of_range": 0.001, "worst_para... | 8 min |
+| B-gyronoise-0.0056 | gyro noise = 0.0056 | gyro noise 0.0056 rad/s | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 513.8, "skill": [0.9955, 0.9871, 0.9896, 0.9933, 0.9929, 0.9979], "mean_skill": 0.9927, "median_param_error_of_range": 0.0014, "worst_par... | 9 min |
+| B-gyronoise-0.0175 | gyro noise = 0.0175 | gyro noise 0.0175 rad/s | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 670.3, "skill": [0.9955, 0.988, 0.9892, 0.9929, 0.9923, 0.9986], "mean_skill": 0.9928, "median_param_error_of_range": 0.0044, "worst_para... | 11 min |
+| B-gyrobias-0.0087 | gyro bias = 0.0087 | gyro bias 0.5 deg/s | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 573.5, "skill": [0.996, 0.9886, 0.991, 0.98, 0.9789, 0.9984], "mean_skill": 0.9888, "median_param_error_of_range": 0.006, "worst_params":... | 10 min |
+| B-horizon-3 | horizon = 3.0 | 3 s prediction windows | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 481.1, "skill": [0.9802, 0.9551, 0.9762, 0.9744, 0.9745, 0.9931], "mean_skill": 0.9756, "median_param_error_of_range": 0.001, "worst_para... | 8 min |
+| B-horizon-5 | horizon = 5.0 | 5 s prediction windows | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 10810.6, "skill": [0.9832, 0.9634, 0.9856, 0.984, 0.9867, 0.9946], "mean_skill": 0.9829, "median_param_error_of_range": 0.0025, "worst_pa... | 180 min |
+| B-horizon-20 | horizon = 20.0 | 20 s prediction windows | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 518.4, "skill": [0.9984, 0.9903, 0.9979, 0.9967, 0.9968, 0.9978], "mean_skill": 0.9963, "median_param_error_of_range": 0.0002, "worst_par... | 9 min |
+| B-horizon-60 | horizon = 60.0 | 60 s prediction windows | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 632.2, "skill": [0.9956, 0.996, 0.9986, 0.9986, 0.9981, 0.9991], "mean_skill": 0.9977, "median_param_error_of_range": 0.0002, "worst_para... | 11 min |
+| B-rounds-1 | anchor rounds = 1 | 1 anchor round(s) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 507.5, "skill": [0.9921, 0.9902, 0.9849, 0.9857, 0.9886, 0.9964], "mean_skill": 0.9897, "median_param_error_of_range": 0.0031, "worst_par... | 8 min |
+| B-rounds-3 | anchor rounds = 3 | 3 anchor round(s) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1265.1, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_par... | 21 min |
+| B-sigma-0.01 | smoother accel sigma = 0.01 | the smoother's process noise forced to 0.01 m/s^2 | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 563.5, "skill": [0.9957, 0.9867, 0.9896, 0.9931, 0.9931, 0.9978], "mean_skill": 0.9926, "median_param_error_of_range": 0.0016, "worst_par... | 9 min |
+| B-sigma-1 | smoother accel sigma = 1.0 | the smoother's process noise forced to 1 m/s^2 | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 420.6, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_para... | 7 min |
+| B-restarts-3 | restarts = 3 | three starting points | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 708.8, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_para... | 12 min |
+| B-current-known | current = 0.15 m/s known | a 0.16 m/s current the calibration is told | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 425.6, "skill": [0.9961, 0.9926, 0.99, 0.9947, 0.9935, 0.9984], "mean_skill": 0.9942, "median_param_error_of_range": 0.0002, "worst_param... | 7 min |
+| B-current-ignored | current = 0.15 m/s ignored | the same current, not told (it shows as drag) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 361.1, "skill": [0.9974, 0.994, 0.9888, 0.9939, 0.9921, 0.9919], "mean_skill": 0.993, "median_param_error_of_range": 0.0011, "worst_param... | 6 min |
+| B-lever-known | lever arm = given | the USBL transponder 0.36 m from the reference point, given in the description's sensors: | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 344.0, "skill": [0.9964, 0.987, 0.9903, 0.9933, 0.9934, 0.9978], "mean_skill": 0.993, "median_param_error_of_range": 0.0012, "worst_param... | 6 min |
+| B-lever-ignored | lever arm = ignored | the same transponder, its mount not given | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 435.0, "skill": [0.9757, 0.945, 0.9622, 0.9636, 0.9641, 0.9823], "mean_skill": 0.9655, "median_param_error_of_range": 0.0016, "worst_para... | 7 min |
+| B-dvl-water | DVL track = water, given | a water-tracking DVL in a 0.16 m/s current, given as track: water | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 423.4, "skill": [0.9999, 0.9999, 0.9996, 0.9998, 0.9998, 0.9999], "mean_skill": 0.9998, "median_param_error_of_range": 0.0, "worst_params... | 7 min |
+| B-dvl-water-ignored | DVL track = water, not given | the same DVL taken as bottom-tracking | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 395.8, "skill": [0.9926, 0.9879, 0.9924, 0.9877, 0.9897, 0.9595], "mean_skill": 0.985, "median_param_error_of_range": 0.0, "worst_params"... | 7 min |
+| B-grade-usbl | sensor noise = grade ugps_g2, 85 m | the USBL's grade (0.2% of an 85 m range: 0.17 m, its true noise) in the description's sensors: | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 344.2, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.9931, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0009, "worst_par... | 6 min |
+| B-noise-given | sensor noise = given, right | the true noise given as noise: (USBL 0.17 m, depth 0.24 cm) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 389.4, "skill": [0.9958, 0.9868, 0.9899, 0.9935, 0.9934, 0.9975], "mean_skill": 0.9928, "median_param_error_of_range": 0.0003, "worst_par... | 6 min |
+| B-noise-overconfident | sensor noise = given, 30x too small | the USBL's noise given as 5 mm: the smoother trusts the fixes far too much | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 332.1, "skill": [0.9707, 0.9401, 0.9548, 0.9481, 0.9409, 0.9959], "mean_skill": 0.9584, "median_param_error_of_range": 0.0092, "worst_par... | 6 min |
+
+### Every sensor combination (what is calibrated, what is held)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| M-gyroonly | sensor mix = gyro only | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 247.2, "sensors": [], "blind": ["u", "v", "w"], "expected_blind": ["u", "v", "w"], "held": ["Xq_dot", "Xu", "Xu_dot", "Xuu", "Yv", "Yv_do... | 4 min |
+| M-gyroonly-gyroheading | sensor mix = heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 243.9, "sensors": ["heading_drift_deg_per_min"], "blind": ["u", "v", "w"], "expected_blind": ["u", "v", "w"], "held": ["Xq_dot", "Xu", "X... | 4 min |
+| M-a | sensor mix = accelerometer | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 245.7, "sensors": ["accelerometer"], "blind": ["u", "v", "w"], "expected_blind": ["u", "v", "w"], "held": ["Xq_dot", "Xu", "Xu_dot", "Xuu... | 4 min |
+| M-a-gyroheading | sensor mix = accelerometer+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 244.2, "sensors": ["accelerometer", "heading_drift_deg_per_min"], "blind": ["u", "v", "w"], "expected_blind": ["u", "v", "w"], "held": ["... | 4 min |
+| M-v | sensor mix = depth | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 557.7, "sensors": ["depth"], "blind": ["u", "v"], "expected_blind": ["u", "v"], "held": ["Xq_dot", "Xu", "Xu_dot", "Xuu", "Yv", "Yv_dot",... | 9 min |
+| M-v-gyroheading | sensor mix = depth+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 554.9, "sensors": ["depth", "heading_drift_deg_per_min"], "blind": ["u", "v"], "expected_blind": ["u", "v"], "held": ["Xq_dot", "Xu", "Xu... | 9 min |
+| M-va | sensor mix = accelerometer+depth | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 556.6, "sensors": ["accelerometer", "depth"], "blind": ["u", "v"], "expected_blind": ["u", "v"], "held": ["Xq_dot", "Xu", "Xu_dot", "Xuu"... | 9 min |
+| M-va-gyroheading | sensor mix = accelerometer+depth+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 561.4, "sensors": ["accelerometer", "depth", "heading_drift_deg_per_min"], "blind": ["u", "v"], "expected_blind": ["u", "v"], "held": ["X... | 9 min |
+| M-h | sensor mix = position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 294.5, "sensors": ["position"], "blind": ["w"], "expected_blind": ["w"], "held": ["Zq_dot", "Zw", "Zw_dot", "Zww", "net_buoyancy_z"], "fi... | 5 min |
+| M-h-gyroheading | sensor mix = heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 300.8, "sensors": ["heading_drift_deg_per_min", "position"], "blind": ["w"], "expected_blind": ["w"], "held": ["Zq_dot", "Zw", "Zw_dot", ... | 5 min |
+| M-ha | sensor mix = accelerometer+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 299.6, "sensors": ["accelerometer", "position"], "blind": ["w"], "expected_blind": ["w"], "held": ["Zq_dot", "Zw", "Zw_dot", "Zww", "net_... | 5 min |
+| M-ha-gyroheading | sensor mix = accelerometer+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 296.2, "sensors": ["accelerometer", "heading_drift_deg_per_min", "position"], "blind": ["w"], "expected_blind": ["w"], "held": ["Zq_dot",... | 5 min |
+| M-hv | sensor mix = depth+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 327.7, "sensors": ["depth", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-hv-gyroheading | sensor mix = depth+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 329.1, "sensors": ["depth", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-hva | sensor mix = accelerometer+depth+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 326.4, "sensors": ["accelerometer", "depth", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-hva-gyroheading | sensor mix = accelerometer+depth+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 334.5, "sensors": ["accelerometer", "depth", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": [], "fi... | 6 min |
+| M-d | sensor mix = dvl | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 311.2, "sensors": ["dvl"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-d-gyroheading | sensor mix = dvl+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 317.0, "sensors": ["dvl", "heading_drift_deg_per_min"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-da | sensor mix = accelerometer+dvl | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 322.0, "sensors": ["accelerometer", "dvl"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-da-gyroheading | sensor mix = accelerometer+dvl+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 317.7, "sensors": ["accelerometer", "dvl", "heading_drift_deg_per_min"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-dv | sensor mix = depth+dvl | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 338.2, "sensors": ["depth", "dvl"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 6 min |
+| M-dv-gyroheading | sensor mix = depth+dvl+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 336.5, "sensors": ["depth", "dvl", "heading_drift_deg_per_min"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 6 min |
+| M-dva | sensor mix = accelerometer+depth+dvl | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 353.8, "sensors": ["accelerometer", "depth", "dvl"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 6 min |
+| M-dva-gyroheading | sensor mix = accelerometer+depth+dvl+heading_drift_deg_per_min | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 303.4, "sensors": ["accelerometer", "depth", "dvl", "heading_drift_deg_per_min"], "blind": [], "expected_blind": [], "held": [], "finite"... | 5 min |
+| M-dh | sensor mix = dvl+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 324.7, "sensors": ["dvl", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 5 min |
+| M-dh-gyroheading | sensor mix = dvl+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 113.4, "sensors": ["dvl", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 2 min |
+| M-dha | sensor mix = accelerometer+dvl+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 185.8, "sensors": ["accelerometer", "dvl", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 3 min |
+| M-dha-gyroheading | sensor mix = accelerometer+dvl+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 229.2, "sensors": ["accelerometer", "dvl", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": [], "fini... | 4 min |
+| M-dhv | sensor mix = depth+dvl+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 239.7, "sensors": ["depth", "dvl", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 4 min |
+| M-dhv-gyroheading | sensor mix = depth+dvl+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 237.4, "sensors": ["depth", "dvl", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": [], "finite": tru... | 4 min |
+| M-dhva | sensor mix = accelerometer+depth+dvl+position | this sensor mix, heading from a compass | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 220.5, "sensors": ["accelerometer", "depth", "dvl", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 4 min |
+| M-dhva-gyroheading | sensor mix = accelerometer+depth+dvl+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 207.7, "sensors": ["accelerometer", "depth", "dvl", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": ... | 3 min |
+
+### Real: SOLAQUA's USBL against its DVL (the smoother alone)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| S-solaqua | real USBL = SOLAQUA | the smoother's velocity from a real USBL (0.5 Hz) and depth, no physics, against the A50 DVL (net drift and heading rotation fitted) | SINTEF SOLAQUA BlueROV2 | ❌ | {"recordings": 52, "scored": 52, "median_skill": -0.45102600334848175, "share_above_zero": 0.15384615384615385, "quartiles": [-1.551313947362369, -0.18196112510... | 2 min |
+
+### End to end through strathe, no DVL
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| E-preflight | step = preflight | strathe calibrate with no DVL: preflight | synthetic BlueROV2 | ✅ | {"exit": 0} | 8 min |
+| E-fit_or_finish | step = fit_or_finish | strathe calibrate with no DVL: fit_or_finish | synthetic BlueROV2 | ✅ | {"exit": 0} | 8 min |
+| E-identifiability | step = identifiability | strathe calibrate with no DVL: identifiability | synthetic BlueROV2 | ✅ | {"exit": 0} | 8 min |
+| E-validation | step = validation | strathe calibrate with no DVL: validation | synthetic BlueROV2 | ✅ | {"exit": 0, "drift_against": "the position fixes (usbl)"} | 8 min |
+| E-report | step = report | strathe calibrate with no DVL: report | synthetic BlueROV2 | ✅ | {"exit": 0, "section": true} | 8 min |
+| E-estimate-current | step = estimate-current | estimate-current with no DVL | synthetic BlueROV2 | ✅ | {"exit": 0, "tail": "Wrote /Users/abdoulayeseydi/strathe_sensor_data/fits/E-currents.csv and /Users/abdoulayeseydi/strathe_sensor_data/fits/current_estimates.md... | 16 min |
+| E-fit-noise | step = fit-noise | fit-noise with no DVL | synthetic BlueROV2 | ✅ | {"exit": 0, "tail": "  note: These logs look smoothed (filtered by the vehicle, or resampled by interpolating between samples) for gyro_std_rps (second differen... | 0 min |
+| E-fit-sim | step = fit-sim | fit-sim with no DVL | synthetic BlueROV2 | ✅ | {"exit": 0, "tail": "  keeps its starting velocity          drift 4.02 / 11.50 / 19.11 m"} | 4 min |
+
+### The web form
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| W-sensors | web = sensors | the web calibrate form with sensors given, no DVL | synthetic BlueROV2 | ✅ | {"exit": 0, "argv_has_sensors": true} | 8 min |
+| W-refuse-sensor-name | web = malformed | the form refuses a malformed sensor name | - | ✅ | {"message": "Sensors: ['USBL!'] aren't sensor names (lowercase letters, digits, _): auto, all, velocity, dvl, acc, or a position or depth sensor's name from the... | 0 min |
+| W-accelerometer | web = use_accelerometer | the form's accelerometer box reaches the fit | synthetic BlueROV2 | ✅ | {"exit": 0} | 0 min |
+
+### fit-sim in each simulator
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| FS-mujoco | fit-sim = mujoco | fit-sim from the sensors vs from a DVL (same MuJoCo model, data) | synthetic BlueROV2 | ✅ | {"velocity": {"exit": 0, "seconds": 608.1, "drift_30s_m": 4.284, "velocity_rmse_10s": [0.151, 0.0784, 0.0679, 0.1658, 0.392, 0.3934]}, "sensors": {"exit": 0, "s... | 0 min |
+| FS-gazebo | fit-sim = gazebo | fit-sim through gazebo (Docker) from the sensors, no DVL | synthetic BlueROV2 | ✅ | {"exit": 0, "report": true, "tail": "  keeps its starting velocity          drift 3.91 / 12.85 / 23.23 m"} | 4 min |
+| FS-stonefish | fit-sim = stonefish | fit-stonefish through stonefish (Docker) from the sensors, no DVL | URI ALPHA RISE (no DVL) | ✅ | {"exit": 0, "report": true, "tail": "  keeps its starting velocity          drift 0.50 / 1.76 / 3.06 m"} | 21 min |
 

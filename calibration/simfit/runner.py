@@ -144,13 +144,26 @@ def _print_results(results) -> None:
         print(f"  {name:36s} drift {' / '.join(hs)} m")
 
 
-def _physics_starts(runs, params, mass) -> None:
+def _calibration_noise(pfile: str, data: str) -> dict:
+    """The reading noise the Strathe calibration's smoother used (its description's noise: and grade:, and what was
+    measured: metrics.json), else what ingestion measured in these logs."""
+    from measurements import measured_noise
+    from run_calibration import smoother_noise_of
+    mp = os.path.join(os.path.dirname(os.path.abspath(pfile)), "metrics.json")
+    if os.path.exists(mp):
+        ss = json.load(open(mp, encoding="utf-8")).get("sensor_suite") or {}
+        if ss:
+            return smoother_noise_of(ss)
+    return measured_noise(data)
+
+
+def _physics_starts(runs, params, mass, noise=None) -> None:
     """No DVL (#96): with a Strathe calibration at hand, each window starts from the smoother run with its physics
     (about 4x closer to the truth than physics-free in tests/test_simfit_sensors.py) instead of without."""
     if mass and runs and getattr(runs[0], "channels", None) is not None:
         from dynamics_model import VehicleConstants
         from simfit.sensors import set_starts
-        set_starts(runs, params, VehicleConstants(float(mass)))
+        set_starts(runs, params, VehicleConstants(float(mass)), noise)
         print("  Window starts from the smoother with your Strathe calibration's physics.", flush=True)
 
 
@@ -169,7 +182,7 @@ def run_fit(adapter, a) -> int:
         if a.from_strathe:
             from stonefish_export import load_calibration, training_density
             sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)
-            _physics_starts(train + held, sp, smass)
+            _physics_starts(train + held, sp, smass, _calibration_noise(pfile, a.data))
             info0 = adapter.info()
             rho = training_density(split.train_groups, densities, info0.get("water_density") or 1025.0)
             try:
@@ -392,7 +405,7 @@ def run_export(adapter, a) -> int:
     try:
         train, held, split = core.load_runs(data, heldout)
         adapter.dt = (train or held)[0].dt
-        _physics_starts(train + held, params, mass)   # no DVL (#96): starts from the smoother with the calibration
+        _physics_starts(train + held, params, mass, _calibration_noise(pfile, data))   # no DVL (#96): physics starts
         no_dvl = False
         densities = _densities(a)
         info = adapter.info()

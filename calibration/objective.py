@@ -160,6 +160,7 @@ class DatasetConfig:
     sensors: tuple = ("auto",)
     use_accelerometer: bool = False     # the accelerometer as a channel (opt-in: #96 measures whether it helps)
     lever_arms: Optional[dict] = None   # {sensor name: (x, y, z) m in the body, FRD} for the measurement model
+    sensor_noise: Optional[dict] = None  # {sensor name: reading std} for the state smoother (measurements.smoother_noise)
 
     def current_for(self, filepath: str) -> Optional[tuple]:
         if self.current_by_file:

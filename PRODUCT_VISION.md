@@ -266,6 +266,13 @@ just what's missing but why it matters.
     vehicles vary widely (DVL or not, different IMU quality) — a
     genuinely different problem than data *format* ingestion; it's about
     what's actually measured at all.
+    **Done (#96):** calibration fits to what the vehicle measures (a DVL
+    with gaps or none, USBL/LBL/GPS/motion-capture fixes, depth or pressure,
+    the gyro, optionally the accelerometer), in `calibrate` and in
+    `fit-sim`/`export-sim`; an axis no sensor sees is held and the report
+    says so. With the velocity hidden on real logs, 1 Hz fixes and depth
+    score within 0.011 of the velocity fit on the reference tank.
+    Limits measured: LIMITS.md.
 
 ### B. Data ingestion
 

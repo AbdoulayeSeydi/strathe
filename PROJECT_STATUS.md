@@ -3374,6 +3374,176 @@ caught), 33 calibrations and 1 Gazebo comparison. The 8 that fail are the ALPHA 
 **Tests:** `tests/test_vehicle_describe.py` (fast), the coverage gate, and the real-data rows above (skipped when the
 data isn't present).
 
+### 96. Calibrate from what the vehicle measures: no DVL needed (2026-10-31/11-02)
+
+**Why:** calibration fitted simulated against logged body velocity, so it needed a DVL, motion capture or a
+positioning system's velocity (PRODUCT_VISION item 10; LIMITS "Body-frame velocity is required"). Many labs, BlueROV2
+labs on ArduSub most of all, log an IMU, depth and attitude, sometimes a USBL or a GPS fix, and no DVL. It's the fourth
+thing that turned labs away before calibration started.
+
+**What changed** (PRs #49, #50 and this one; guide: `calibration/SENSORS.md`):
+- **Ingestion reads each sensor as it was logged** (#49): position fixes (`position:`, x/y/z or lat/lon, a source,
+  `drop_when`, a delay, a speed limit for outliers), depth or pressure (`depth:`, `pressure:` in Pa/kPa/mbar/bar,
+  fresh or salt water), the accelerometer, a DVL with gaps. Each reading lands on the grid sample it belongs to and is
+  never interpolated. New checks: the gyro against the orientation (catches deg/s, a sign or a mirrored frame), gravity
+  from the accelerometer (catches g against m/s²), depth against position, fixes faster than the vehicle can move.
+- **The fit compares each sensor with what the simulated vehicle would have read** (`measurements.py`): the gyro, the
+  DVL where it read, position fixes and depth integrated along the replay (the unknown start position removed exactly
+  per window), the accelerometer (opt-in). Each sensor weighs one unit, scaled by its own "predict no motion" error.
+  Lever arms and a water-track DVL come from the vehicle description's new `sensors:` mounts.
+- **Window starts without a DVL** come from an EKF + RTS smoother (`state_smoother.py`) driven by Strathe's own physics;
+  after the fit, the starts are re-estimated with the fitted values and the fit refined (`--anchor-rounds`, default 2).
+  The residuals are always against the real readings, never the smoothed velocity.
+- **What isn't seen is held, and said:** surge and sway need horizontal fixes or a DVL, heave needs depth, vertical
+  fixes or a DVL. An axis nothing sees keeps the description's values, and the report's new section "What your sensors
+  could calibrate" names each axis, what calibrated it, what was held and why, and each sensor's held-out skill.
+- **The noise each sensor is assumed to have** comes from the description's `noise:`, then what ingestion measured,
+  then a datasheet `grade:` (`sensor_grades.yaml`: Nucleus1000, Bar30, Bar02, u-blox F9P RTK and standalone, Water
+  Linked UGPS G2, each with its source; none for the A50, which publishes no noise), then a default; the report
+  says which. Measured on a test vehicle with 5 cm fixes: assuming 8.5 mm made physics-aided starts 6× worse,
+  assuming 1.27 m made physics-free ones 2.6× worse.
+- **Validation measures drift against the fixes** (or depth) when there are any: an independent measurement, where the
+  DVL's own integration was all there was before.
+- **fit-sim and export-sim** score a simulator against the same sensors (`simfit/sensors.py`); starts come from a
+  Strathe calibration's physics when one is given (`--from-strathe`; export-sim always has one).
+- **Wired in:** `strathe calibrate --sensors auto|velocity|all|<names> --use-accelerometer --anchor-rounds`, the web
+  form's sensors fields, preflight checks (schema, integrity, Coriolis, plausibility, sampling) that no longer assume a
+  DVL, `estimate-current`, `fit-noise`, identifiability. `tests/test_no_velocity_assumption.py` fails if new code
+  reads the logged velocity without going through the sensor masks. With a dense DVL nothing changes (`auto`), bit for
+  bit.
+- **Found and fixed on the way:**
+  - preflight refused logs with no DVL (four checks read `Bu`);
+  - an empty sensor crashed a reshape (found by the fuzz tests);
+  - a DVL with 40% readings was ignored as a velocity source for the checks;
+  - the physics-free smoother held body-frame velocity, wrong in a turn: it now holds it over ground. That still
+    reaches only 8 cm/s against 2 cm/s with physics, so fit-sim uses Strathe's physics when it has a calibration;
+  - #93's retry called a perfect synthetic fit "rough" (training cost near 0): a near-exact fit is no longer judged;
+  - fit-sim's smoother ignored the noise ingestion had measured; it now uses it (and a Strathe calibration's);
+  - on Windows, the firewall test (a hidden DVL never reaches the fit) differed at 1e-8 because the test rewrote every
+    column through pandas' default float parser; it now rewrites them exactly.
+
+**Proof on real data, the truth hidden.** Each of these logs had the velocity a fit usually needs, so it was hidden
+from the fit (the spec has no velocity; `--sensors` names only what's allowed) and used afterwards to score it. Held-out
+skill per axis (1 is perfect, 0 is no better than predicting no motion), against the hidden velocity. Bars were written
+before any result; a missed bar is recorded, not moved.
+
+The reference BlueROV2 tank (held-out days 16 and 19 Feb; truth: motion-capture velocity):
+
+| Row | What the fit had | Surge | Sway | Heave | Roll | Pitch | Yaw | Mean | Bar |
+|---|---|---|---|---|---|---|---|---|---|
+| R-V | the velocity (today's fit) | 0.71 | 0.53 | 0.60 | −0.02 | −0.03 | 0.58 | **0.394** | reference |
+| R-1 | motion-capture positions and depth | 0.69 | 0.49 | 0.57 | −0.02 | −0.04 | 0.60 | **0.383** | ✅ within 0.03 of V, each axis within 0.05 |
+| R-2 | USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts: SOLAQUA's) and depth | 0.69 | 0.49 | 0.57 | −0.02 | −0.04 | 0.60 | **0.383** | ✅ every axis beats default, within 0.10 of V |
+| R-3 | depth and the gyro only | (−0.27) | (−0.63) | 0.56 | −0.14 | −0.10 | 0.29 | −0.047 | ❌ yaw 0.29, bar 0.53 |
+| R-4 | a DVL with 30% dropouts and R-2's fixes | 0.69 | 0.51 | 0.58 | −0.02 | −0.04 | 0.60 | **0.388** | ✅ within 0.02 of V |
+| | default physics | 0.40 | −0.57 | −1.19 | −4.33 | −7.47 | 0.15 | −2.166 | |
+
+(Surge and sway in brackets: not calibrated, held, and the report says so.) Roll and pitch are near zero for every
+fit, with velocity too: the tank logs barely excite them (#63).
+
+DFKI's BlueROV2 (6 thrusters, a slack tether; its held-out recordings; truth: the motion capture's velocity; the
+fit had the BlueROV2's own sensors as ArduSub logged them: the Bar30 outside the hull, the raw IMU, attitude;
+`stress/prepare_dfki_96.py`):
+
+| Row | What the fit had | Surge | Sway | Heave | Roll | Pitch | Yaw | Mean | 60 s drift (default) | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|
+| D-V | the velocity (today's fit) | 0.86 | 0.62 | 0.48 | −0.15 | 0.03 | 0.58 | **0.401** | 1.5 m (5.9) | reference |
+| D-1 | motion-capture positions and the Bar30 | 0.87 | 0.65 | 0.44 | −0.16 | 0.03 | 0.58 | **0.402** | 1.3 m (6.0) | ✅ |
+| D-2 | USBL-like fixes and the Bar30 | 0.87 | 0.64 | 0.44 | −0.16 | 0.03 | 0.58 | **0.401** | 1.5 m (5.7) | ✅ |
+| D-3 | the Bar30, gyro and attitude: the BlueROV2 lab with no DVL | (0.30) | (−0.94) | 0.29 | −0.13 | 0.04 | 0.34 | −0.018 | 2.4 m (4.6) | ❌ heave 0.29 and yaw 0.34, bars 0.43 and 0.53 |
+| D-4 | D-3 and the raw IMU's accelerometer | (0.30) | (−0.92) | 0.34 | −0.13 | 0.04 | 0.33 | −0.007 | 2.9 m (4.6) | exploratory |
+| | default physics | 0.65 | −1.30 | −0.76 | −7.92 | −5.64 | −0.17 | −2.525 | | |
+
+
+URI's ALPHA RISE at sea (held-out day: the pond; truth: the raw Nucleus bottom-lock DVL; the fit had RTK GPS while
+surfaced, depth and the IMU, never `/odometry/filtered`, which fuses the DVL):
+
+| Row | What the fit had | Surge | Sway | Heave | Roll | Pitch | Yaw | Mean | 60 s drift vs GPS (default) | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|
+| U-V | the DVL (today's fit) | 0.89 | 0.20 | 0.35 | −0.01 | −0.13 | −0.33 | **0.163** | | reference |
+| U-1 | GPS (surface), depth, IMU | 0.80 | −0.04 | 0.39 | 0.01 | −0.14 | −0.16 | **0.145** | 12.6 m (11.9) | ❌ beats default on every axis; drift doesn't |
+| U-2 | U-1 and the accelerometer | 0.84 | −0.10 | 0.39 | 0.01 | −0.14 | −0.16 | **0.140** | 10.9 m (11.9) | exploratory |
+| | default physics | 0.74 | −1.91 | −2.03 | −6.51 | −5.07 | −4.38 | −3.192 | | |
+
+**Known truth: what each sensor set recovers** (a BlueROV2 with known parameters replaying the real logged thrust,
+its sensors simulated; skill against its true velocity on held-out data):
+
+| Sensors | Mean skill | Median parameter error (share of range) | Held | Bar |
+|---|---|---|---|---|
+| the velocity (reference) | 1.000 | 0.000 | 0 | ✅ |
+| motion capture 10 Hz and depth | 1.000 | 0.000 | 0 | ✅ |
+| USBL-like (1 Hz, 0.17 m) and depth | 0.993 | 0.001 | 0 | ✅ (roll and pitch inertia not pinned down) |
+| horizontal fixes only, and depth | 0.991 | 0.001 | 0 | ✅ |
+| a DVL with 30% dropouts and fixes | 0.993 | 0.001 | 0 | ✅ |
+| fixes, depth and the accelerometer | 0.996 | 0.000 | 0 | ✅ |
+| depth only | 0.058 (heave 0.75) | 0.187 | 7 | ❌ heave 0.75, bar 0.9 |
+
+**One variable at a time** (known truth, from the USBL-like nominal: mean skill, worst axis):
+
+| Variable | Values → mean (worst axis) | Bar |
+|---|---|---|
+| fix rate | 10 Hz 0.997 · 2 Hz 0.996 · 0.5 Hz 0.990 (0.97) · 0.2 Hz 0.983 (0.98) | ✅ |
+| fix noise | 0 m 1.000 · 0.05 m 0.998 · 0.5 m 0.979 (0.94) · 1 m 0.960 (0.88) | ✅ |
+| fix dropouts | none 0.989 · 6.5% (nominal) 0.993 · 30% 0.990 · surface only −0.15 | ✅ (surface only is a limit: unseen underwater) |
+| fix latency, not given | 0.3 s 0.957 (0.91) · 1 s 0.876 (0.71) | ✅ rows; ❌ the plan's bar that ingest or the report flags 1 s: nothing does |
+| depth noise / rate | 2 cm 0.994 · 10 cm 0.976 / 1 Hz 0.993 | ✅ |
+| gyro noise / bias | 0.32 °/s 0.993 · 1 °/s 0.993 / 0.5 °/s bias 0.989 | ✅ |
+| window | 3 s 0.976 · 5 s 0.983 · 10 s (default) 0.993 · 20 s 0.996 · 60 s 0.998 | ✅ |
+| smoother rounds | 1 0.990 · 2 (default) 0.993 · 3 0.993 | ✅ |
+| smoother acceleration σ | ×0.01 0.993 · ×1 0.993 · auto 0.993 | ✅ |
+| restarts | 1 0.993 · 3 0.993 | ✅ |
+| USBL lever arm 0.36 m | given 0.993 · ignored 0.966 (0.95) | ✅ |
+| sensor noise | grade `ugps_g2` at 85 m 0.993 · given right 0.993 · given 30× too small 0.958 (0.94) | ✅ |
+| current 0.16 m/s | given 0.994 · not given 0.993 | ✅ |
+| water-track DVL in that current | declared `track: water` 1.000 · taken as bottom-track 0.985 (yaw 0.96) | ✅ |
+
+The first scoring of the two current rows read 0.47 in sway with parameters recovered to 0.0002 of their range: the
+scorer predicted the held-out day in still water while the truth moved in the current. Scored in the same water (now
+tested), both pass; the fits weren't rerun.
+
+**Every sensor combination** (32 rows: each subset of DVL, horizontal fixes, vertical fixes or depth, accelerometer,
+heading from a compass or from the gyro alone): every one calibrated, its values finite, and the axes it calls
+calibrated exactly the ones its sensors see; the rest held, with nothing else held. **End to end** with no DVL: preflight,
+the fit, finishing from a checkpoint, identifiability, validation (drift against the fixes), the report, estimate-current,
+fit-noise, fit-sim; the web form with sensors (and a bad sensor name refused with a sentence). **In simulators:** fit-sim
+from the sensors on MuJoCo drifted 3.97 m at 30 s against 4.28 m fitted from a DVL and 4.59 m for the original model;
+Gazebo and Stonefish (Docker) ran from the sensors with their reports.
+
+**What failed, and why** (each is in LIMITS):
+- **Depth and the gyro alone (R-3, D-3), on both BlueROV2s:** yaw 0.29 and 0.34 against 0.58; heave 0.56 against
+  0.60 on the tank (inside its bar), 0.29 against 0.48 on DFKI's. Putting the
+  velocity fit's surge and sway values into R-3's fit didn't help yaw (0.27), so yaw was fitted against windows whose
+  surge and sway starts no sensor could see. The held surge and sway are the description's and, with roll and pitch
+  calibrated around them, predicted worse than the description alone (surge −0.27 against +0.40). The report now
+  warns about both whenever no horizontal sensor is logged.
+- **Depth only, known truth (B-set-depth):** heave 0.75 against a 0.9 bar; surge and sway correctly held. The unseen
+  surge leaks into depth through pitch.
+- **GPS at the surface (U-1):** every axis beats default physics against the hidden DVL, but the 60 s drift against
+  the GPS was 12.6 m against the default's 11.9 m, over 4 windows, all at the surface. That drift doesn't separate the
+  models there; the skill does.
+- **SOLAQUA's real USBL (S-solaqua)**, the only public log with one (no thruster forces, so the smoother alone): its
+  velocity from the 0.5 Hz fixes (0.11 m error) and depth, no physics, against the A50 DVL, with the net's drift and
+  the heading's rotation fitted as #60 did. Median skill −0.45 over 52 recordings (bar 0.3). A control, fixes made
+  from the DVL's own track with the same noise at the same times, scored 0.01: the vehicle hovered, moving about
+  4 cm/s within 20 s, which such fixes can't resolve. Applying ingestion's outlier filter changed nothing.
+- **The accelerometer** was pre-registered as exploratory, to become a default only if it beat the same sensors without
+  it on held-out data in both datasets. On URI it didn't (0.140 against 0.145); on DFKI it helped heave (0.34 against 0.29; mean −0.007 against −0.018).
+  It stays opt-in.
+
+**Open:**
+- No lab has yet calibrated its own vehicle this way; SOLAQUA (the only public log with a USBL) has no thruster forces.
+- Roll and pitch inertia aren't pinned down by 1 Hz fixes (they are by 10 Hz motion capture).
+- A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
+- A late position sensor isn't detected: its `delay_s:` has to be given (LIMITS).
+- Only three real vehicles: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public). Marinarium (MIT licence, another BlueROV2 with motion capture and its commands) is a candidate, not yet downloaded.
+
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): 104 rows: 99 pass, 5 fail (R-3, D-3, U-1, B-set-depth, S-solaqua: each above, in LIMITS, and kept as failures).
+
+**Tests:** `tests/test_measurements.py`, `test_sensor_calibration.py`, `test_sensor_fuzz.py` (80 random sensor mixes
+and 10 kinds of damage: each ingests and calibrates or stops with a sentence), `test_simfit_sensors.py`,
+`test_no_velocity_assumption.py`, `test_ingest_sensors.py`, and the coverage gate (39 variables found in the code,
+each with a row).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

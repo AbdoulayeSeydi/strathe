@@ -417,19 +417,9 @@ def _sensor_mounts(loaded_spec) -> Optional[dict]:
     return sensor_mounts(loaded_spec.raw) or None
 
 
-def sensor_noise_from_ingest(data_dir: str) -> dict:
-    """{sensor name: reading std} from the ingest report's own measurement, for sensors whose readings weren't smoothed
-    by the logging system (a smoothed sensor's measured noise is too low to trust: state_smoother's defaults)."""
-    path = Path(data_dir) / "ingest_report.json"
-    if not path.exists():
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            sens = (json.load(f).get("sensors") or {}).get("sensors") or {}
-    except (OSError, ValueError):
-        return {}
-    return {name: float(max(ch["noise_std"])) for name, ch in sens.items()
-            if ch.get("noise_std") and not ch.get("filtered")}
+def smoother_noise_of(info: dict) -> dict:
+    """The reading noise a fit's smoother used, from its sensor_suite record (before 2 Nov 2026: noise_from_ingest)."""
+    return dict(info.get("noise", info.get("noise_from_ingest")) or {})
 
 
 def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs: list, default_params, vehicle,
@@ -457,7 +447,11 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
         cc.fixed_params = {**(cc.fixed_params or {}), **held}
     for line in ms.seen_words(seen):
         logger.info("Sensor suite: %s", line)
-    noise = sensor_noise_from_ingest(config.data_dir)
+    noise, noise_source = ms.smoother_noise(config.data_dir, ms.sensor_mounts(loaded_spec.raw),
+                                            train_runs + heldout_runs)
+    for name, src in sorted(noise_source.items()):
+        logger.info("Sensor suite: %s's reading noise: %s (%s)", name,
+                    f"{noise[name]:.3g}" if name in noise else "the smoother's default", src)
     if config.smoother_accel_sigma is not None:
         sigma, scores = float(config.smoother_accel_sigma), None
     else:
@@ -479,7 +473,8 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
         r.sensor_scales = scales
     return {"sensors_asked": list(config.sensors), "use_accelerometer": bool(config.use_accelerometer),
             "channels": labels, "horizon_s": H / config.sampling_rate_hz, "axes_seen_by": seen,
-            "plain": ms.seen_words(seen), "held_unobserved": held, "noise_from_ingest": noise,
+            "plain": ms.seen_words(seen), "held_unobserved": held, "noise": noise,
+            "noise_source": noise_source,
             "smoother": {"accel_sigma_mps2": sigma, "loglik_by_sigma": scores, **smoothing},
             "scales": scales, "only_in_heldout": sorted(only_heldout), "rounds": []}
 
@@ -503,7 +498,7 @@ def sensor_runs_from_metrics(runs: list, metrics: dict, params, vehicle) -> Opti
     for r in runs:
         r.sensor_scales = scales
     sigma = float((ss.get("smoother") or {}).get("accel_sigma_mps2") or 0.1)
-    return sm.set_anchors(runs, params, vehicle, sigma, ss.get("noise_from_ingest") or {})
+    return sm.set_anchors(runs, params, vehicle, sigma, smoother_noise_of(ss))
 
 
 def sensor_anchor_rounds(config: "PipelineConfig", loaded_spec, train_runs: list, heldout_runs: list, cal_result,
@@ -518,7 +513,7 @@ def sensor_anchor_rounds(config: "PipelineConfig", loaded_spec, train_runs: list
     sigma = info["smoother"]["accel_sigma_mps2"]
     for rnd in range(2, max(1, config.anchor_rounds) + 1):
         prev = cal_result.parameters
-        sm_info = sm.set_anchors(train_runs + heldout_runs, prev, vehicle, sigma, info["noise_from_ingest"])
+        sm_info = sm.set_anchors(train_runs + heldout_runs, prev, vehicle, sigma, smoother_noise_of(info))
         cc = _replace(config.calibration_config, x0_override=prev.to_vector(), n_restarts=1)
         cal_result = calibrate(loaded_spec, train_runs, cc)
         moved = float(np.max(np.abs(cal_result.parameters.to_vector() - prev.to_vector()) / width))

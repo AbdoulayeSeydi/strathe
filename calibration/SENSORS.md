@@ -160,3 +160,30 @@ Real data so far:
 solution) says so, since its noise can't be measured from the log. `strathe fit-noise` measures the position
 and depth channels too. For a sensor the vehicle doesn't have (no DVL), it writes the `typical` preset's value
 and says it wasn't measured: the simulators model a DVL and a depth sensor on every vehicle.
+
+### The noise the calibration assumes
+
+Where a window has no DVL reading, its starting velocity comes from a state smoother that weighs each sensor by
+its reading noise. Strathe takes that noise, in order, from:
+
+1. `noise:` in your vehicle description's `sensors:` section: one reading's standard deviation (m, or m/s for a
+   DVL);
+2. what ingestion measured on your logs, when the readings weren't smoothed;
+3. `grade:`, a datasheet preset from `calibration/sensor_grades.yaml`: `nucleus1000` (DVL, 0.5 cm/s), `bar30`
+   (2 mm), `bar02` (0.16 mm), `rtk_f9p` (RTK GNSS, 0.01 m CEP), `gnss_f9p` (standalone, 1.5 m CEP), `ugps_g2`
+   (Water Linked Underwater GPS G2, 0.2% of range: give `range_m:` too);
+4. otherwise, a default for the sensor's kind.
+
+```yaml
+sensors:
+  bar30: {grade: bar30, position_m: [-0.2, 0.0, 0.1]}
+  usbl:  {grade: ugps_g2, range_m: 40}
+  dvl:   {noise: 0.008}              # your own number wins
+```
+
+The report lists the noise used for each sensor and where it came from. A datasheet number is a best case,
+which is why your logs' own measurement comes first. On a test vehicle with 5 cm fixes
+(`tests/test_measurements.py`), assuming 8.5 mm made the physics-aided starts 6× worse (5.2 against 0.84 cm/s),
+and assuming 1.27 m made the physics-free ones 2.6× worse (21 against 8 cm/s). Grades exist only for sensors whose
+datasheet states a per-reading noise. The Water Linked A50 publishes only its long-term accuracy (±1.01%), which
+is a scale error, not noise, so give its `noise:` yourself.
