@@ -75,8 +75,14 @@ def main():
     print("=" * 70)
     print(f"{'DOF':<6}{'std':>10}{'min':>10}{'max':>10}")
     component_stds = {}
+    unmeasured = [label for i, label in enumerate(DOF_LABELS) if not np.isfinite(all_nu[:, i]).any()]
     for i, label in enumerate(DOF_LABELS):
         col = all_nu[:, i]
+        col = col[np.isfinite(col)]   # a DVL with gaps reads only where it locked (#96)
+        if not len(col):
+            component_stds[label] = float("nan")
+            print(f"{label:<6}{'not measured (no DVL)':>30}")
+            continue
         component_stds[label] = float(np.std(col))
         print(f"{label:<6}{np.std(col):>10.4f}{np.min(col):>10.4f}{np.max(col):>10.4f}")
 
@@ -88,12 +94,22 @@ def main():
     product_stds = {}
     for label, i, j in PRODUCT_DEFINITIONS:
         a, b = all_nu[:, i], all_nu[:, j]
+        ok = np.isfinite(a) & np.isfinite(b)
+        if ok.sum() < 3:
+            product_stds[label] = float("nan")
+            print(f"{label:<32}{'not measured (no DVL)':>30}")
+            continue
+        a, b = a[ok], b[ok]
         product = a * b
         product_std = float(np.std(product))
         product_stds[label] = product_std
         corr_ab = float(np.corrcoef(a, b)[0, 1])
         print(f"{label:<32}{product_std:>10.5f}{np.min(product):>10.5f}{np.max(product):>10.5f}{corr_ab:>12.3f}")
 
+    if unmeasured:
+        print(f"\n{', '.join(unmeasured)}: no DVL in these logs, so their excitation can't be measured from velocity. "
+              f"The sensor suite fits them to position fixes and depth instead, and says which axes those sensors "
+              f"see (SENSORS.md).")
     print()
     print("How to read this:")
     print("  - std column is the primary answer: the ACTUAL excitation of each Coriolis-relevant")

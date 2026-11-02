@@ -4,9 +4,11 @@ Strathe calibrates from what your vehicle actually measures. A DVL is one sensor
 requirement (PROJECT_STATUS.md #96). This page covers which sensors Strathe reads, which motion each one
 lets it calibrate, and how to log them.
 
-> **Status:** ingestion reads every sensor below, checks it, and records which axes your sensors see.
-> Calibrating *from* depth, position fixes and the accelerometer, instead of body velocity, is the next step
-> of #96. Until it lands, `strathe calibrate` on logs with no DVL stops and says so.
+`strathe calibrate` uses whatever your logs have:
+- **A DVL reading at every sample:** the original velocity fit, unchanged.
+- **Anything else:** the sensor suite. No DVL, a DVL with gaps, depth, position fixes, GPS.
+
+`--sensors` chooses explicitly.
 
 ## What each sensor tells calibration
 
@@ -18,12 +20,79 @@ lets it calibrate, and how to log them.
 | Depth sensor (pressure) | depth | heave |
 | USBL, LBL, motion capture | world position, with a vertical | surge, sway, heave |
 | GPS (at the surface) | world position, horizontal only | surge, sway (while surfaced) |
-| Accelerometer | specific force (acceleration plus gravity's reaction) | read and checked; how much it adds is being measured (#96) |
+| Accelerometer | specific force (acceleration plus gravity's reaction) | read and checked; used only with `--use-accelerometer` (experimental: #96 measures what it adds) |
 
 No software can calibrate an axis that no sensor sees. With only a depth sensor and an IMU, Strathe has
 nothing that shows how fast the vehicle moves forward or sideways. Ingestion says so ("no sensor sees surge,
 sway motion"), and calibration keeps your vehicle description's values for those axes rather than inventing
 them.
+
+## How calibration uses them
+
+Each recording is replayed in short windows: 10 s by default, `--prediction-horizon-s` to change.
+
+**Where each window starts:**
+- the gyro's rates;
+- a body velocity: the DVL's reading where it has one. Otherwise it comes from a *state smoother*: a Kalman filter
+  and smoother running Strathe's own physics with every sensor's readings, before and after that moment.
+
+**What's compared:** each sensor's actual readings with what it would have read on the simulated motion:
+- **Gyro:** the simulated body rates.
+- **DVL:** the simulated body velocity, where it read.
+- **Position fix:** the simulated velocity turned by the logged orientation and summed into a path. Where the
+  window started isn't known to the fix's accuracy, so that start is removed exactly: each window's residuals are
+  taken about their own mean.
+- **Depth:** the same as a position fix's vertical.
+- **Accelerometer (opt-in):** the simulated acceleration plus gravity's reaction, its own bias removed per window.
+
+**Scaling.** Each sensor axis is scaled by what predicting no motion gets wrong on it, and by its number of
+readings. So a 1 Hz GPS at the surface counts as much as a 50 Hz gyro, and neither swamps the other.
+
+**Not fitted against itself.** The smoother only chooses where windows start. The fit is always scored against the
+real readings, never against the smoother's estimate.
+
+**Refitting with better starts.** After the fit, the smoother runs again with the fitted values and the fit is
+repeated (`--anchor-rounds`, 2 by default). Better physics gives better starting velocities.
+
+**Where each sensor sits.** The vehicle description's optional `sensors:` section
+(`templates/vehicle_spec_template.yaml`) gives each sensor's mount, by its ingest name, in body FRD metres from the
+torques' reference point.
+- A DVL there reads v + ω×r.
+- A USBL transponder's or GPS antenna's fix is of its own point.
+- A pressure port reads its own depth.
+- `track: water` marks a DVL that measures velocity through the water rather than over the seabed: calibration adds
+  the water current back.
+
+Calibration models all of these. Leaving a mount out means the sensor is at the reference point.
+
+**Axes no sensor sees.** An axis with no sensor (surge and sway with no DVL and no horizontal fixes) has its
+parameters held at your vehicle description's values. Calibration says so in the log, `metrics.json`,
+`calibrated_parameters.yaml` and the report ("Surge: not calibrated. Your logs have no DVL or horizontal position
+fixes for it").
+
+**The report.** It gains a section, "What your sensors could calibrate". It gives each sensor's own held-out skill
+(1 = perfect, 0 = no better than assuming the vehicle didn't move), and judges each motion by the sensors that
+measured it.
+
+**Validation.** Position drift is measured against your vehicle's own position fixes (or depth): an independent
+measurement, not its velocity.
+
+**Your own simulator.** `fit-sim` and `export-sim` work from the sensors too: Stonefish, Gazebo, MuJoCo,
+HoloOcean and external simulators.
+- Your simulator runs free over each window, as with a DVL.
+- It starts from the estimated velocity.
+- It's scored against what each sensor read: its path, under its own attitude, against the fixes and depth; its rates
+  against the gyro; and its velocity against the DVL where the DVL read.
+- Drift is measured against the position fixes.
+
+Starting velocities come from a physics-free smoother, since your simulator may model any vehicle. Give a Strathe
+calibration (`--from-strathe`; `export-sim` always has one) and they come from its physics instead, which was about
+4x closer to the truth in our tests (2 against 8 cm/s from 1 Hz fixes).
+
+**Everything else works the same with sensors:**
+- `--restarts`, the automatic retry of a failed fit, `--finish`;
+- `--estimate-current`, `--drag prior`, `--free-decay`, `--exclude-axes`;
+- the one-session split and the web page.
 
 ## Logging them: the ingest spec
 

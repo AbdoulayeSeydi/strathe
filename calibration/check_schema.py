@@ -53,6 +53,14 @@ def main():
             continue
 
         missing = [c for c in REQUIRED_COLUMNS if c not in header]
+        if set(missing) == {"Bu", "Bv", "Bw"}:
+            # no DVL (PROJECT_STATUS.md #96): calibrated from the vehicle's other sensors instead
+            sensors = sorted({c.rsplit("_", 1)[0] if c.startswith("pos_") else c for c in header
+                              if c.startswith(("pos_", "depth_", "acc_"))})
+            print(f"  note: {filepath.name}: no body velocity (no DVL); calibrated from "
+                  + (", ".join(sensors) + " and the gyro" if sensors else "the gyro alone (rotation only)")
+                  + " (SENSORS.md).")
+            missing = []
         if missing:
             any_failed = True
             print(f"  ERROR: {filepath.name}: missing required column(s): {missing}. "

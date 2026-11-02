@@ -32,6 +32,15 @@ from pathlib import Path
 MIN_USABLE_ROWS = 10  # a file with fewer real data rows than this isn't
 # usable for calibration at all, regardless of what's in it
 
+# A vehicle's sensors (PROJECT_STATUS.md #96, SENSORS.md): a position fix, a depth reading, an accelerometer, or a DVL
+# whose dropouts were kept read only at some samples, and an empty cell (or NaN) is "no reading here", not damage.
+SENSOR_PREFIXES = ("pos_", "depth_", "acc_")
+GAP_COLUMNS = ("Bu", "Bv", "Bw")
+
+
+def is_sensor_column(name: str) -> bool:
+    return name.startswith(SENSOR_PREFIXES) or name in GAP_COLUMNS
+
 
 def check_file(filepath: Path) -> list:
     """Returns a list of (severity, message) tuples for this one file -
@@ -66,11 +75,15 @@ def check_file(filepath: Path) -> list:
     malformed_row_numbers = []
     non_numeric_cells = []
     nan_inf_cells = []
+    sensor = [is_sensor_column(h) for h in header]
+    readings = [0] * n_columns
     for row_idx, row in enumerate(rows, start=2):  # start=2: row 1 is the header
         if len(row) != n_columns:
             malformed_row_numbers.append(row_idx)
             continue  # can't meaningfully check cell contents of a malformed row
         for col_idx, cell in enumerate(row):
+            if sensor[col_idx] and cell.strip() in ("", "nan", "NaN"):
+                continue   # a sensor with no reading at this sample
             try:
                 value = float(cell)
             except ValueError:
@@ -78,6 +91,12 @@ def check_file(filepath: Path) -> list:
                 continue
             if math.isnan(value) or math.isinf(value):
                 nan_inf_cells.append((row_idx, header[col_idx] if col_idx < len(header) else f"col{col_idx}", value))
+            elif sensor[col_idx]:
+                readings[col_idx] += 1
+    silent = [h for h, s_, n in zip(header, sensor, readings) if s_ and n == 0]
+    if silent:
+        issues.append(("WARNING", f"{filepath.name}: {', '.join(silent)} never read in this recording (every cell "
+                                   f"empty): that sensor tells the calibration nothing here."))
 
     if malformed_row_numbers:
         shown = malformed_row_numbers[:5]

@@ -183,3 +183,10 @@ optimization:
 validation:
   primary_metric: "mean per-run RMSE across all 6 velocity DOFs (Bu,Bv,Bw,Bp,Bq,Br)"
   identifiability_note: "See the calibration report's identifiability section for what these logs can and can't separate."
+
+# sensors:                        # optional (PROJECT_STATUS.md #96, SENSORS.md): where each sensor sits, by its name
+#                                 # in the ingest spec (dvl, a position or depth sensor's name, acc)
+#   dvl:  {position_m: [-0.20, 0.0, 0.15], track: bottom}   # body FRD m from the torques' reference point;
+#                                                            # track: water for a DVL locked on the water
+#   usbl: {position_m: [0.10, 0.0, -0.20]}                   # the transponder: its fixes are of this point
+#   main: {position_m: [0.0, 0.0, 0.05]}                     # the pressure sensor's port

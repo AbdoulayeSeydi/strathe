@@ -23,6 +23,7 @@ forcing). This adds what that score can't show:
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 import json
 import math
 import os
@@ -68,11 +69,19 @@ def _lagged(run, params):
     return hit[1]
 
 
+def start_velocity(run, a: int) -> np.ndarray:
+    """The real state a replay starts from: the logged velocity, or with the sensor suite (#96) the window start the
+    calibration uses (the DVL where it read, the state smoother's estimate elsewhere) and the gyro."""
+    if run.channels is None:
+        return run.real_nu[a].copy()
+    return np.r_[run.anchor_lin[a], run.real_nu[a, 3:6]]
+
+
 def window_replay(params, vehicle, run, a: int, b: int):
     """Velocity over samples a..b-1, from the real velocity at a, the way the calibration replays it (logged
     orientation fed in), with the model's thruster lag. None if the simulation diverges."""
     run = _lagged(run, params)
-    traj = TrajectoryInputs(nu0=run.real_nu[a].copy(), forces_torques=run.forces_torques[a:b],
+    traj = TrajectoryInputs(nu0=start_velocity(run, a), forces_torques=run.forces_torques[a:b],
                             roll_pitch_series=run.roll_pitch[a:b],
                             current_body_series=None if run.current_body is None else run.current_body[a:b])
     try:
@@ -100,7 +109,7 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
     cfg = SimulationConfig(dt=run.dt) if step_s is None else SimulationConfig(dt=run.dt, physics_dt=step_s)
     sub, h = cfg.n_substeps, cfg.sub_dt
     qx, qy, qz, qw = (float(x) for x in run.orientation_quat[a])
-    v = [float(x) for x in run.real_nu[a]]
+    v = [float(x) for x in start_velocity(run, a)]
     out = np.empty((n, 4))
     for k in range(n):
         out[k] = (qx, qy, qz, qw)
@@ -149,30 +158,76 @@ def _summary(x) -> dict:
 
 # ------------------------------------------------------------------ the four checks
 
+FIX_TOLERANCE_S = 0.5   # a position fix counts for a window's start or end within this much of it
+
+
+def drift_reference(run):
+    """What a window's real displacement is measured with: the logged velocity integrated (the original check), or
+    with the sensor suite (#96) the vehicle's own position fixes, independent of the model and of any velocity (a
+    horizontal fix, else depth). (label, columns of the channel, its readings (N, k) or None)."""
+    if run.channels is None:
+        return "the logged velocity, integrated", (0, 1, 2), None
+    for ch in run.channels:
+        if ch.kind == "position" and "n" in ch.axes:
+            return f"the position fixes ({ch.name})", tuple("ned".index(a) for a in ch.axes), ch.values
+    for ch in run.channels:
+        if ch.kind == "depth":
+            return f"depth ({ch.name})", (2,), ch.values
+    return None, (), None
+
+
+def _nearest_fix(vals, i, lo, hi, tol):
+    """The valid reading nearest sample i within [lo, hi) and tol samples, or None."""
+    best = None
+    for k in range(max(lo, i - tol), min(hi, i + tol + 1)):
+        if np.all(np.isfinite(vals[k])) and (best is None or abs(k - i) < abs(best - i)):
+            best = k
+    return best
+
+
 def trajectory_drift(models: dict, runs: list, vehicle, horizons_s=DRIFT_HORIZONS_S) -> dict:
     """Position error at the end of non-overlapping windows of each horizon, per model, plus the no-motion
-    baseline (distance actually travelled)."""
+    baseline (distance actually travelled). With the sensor suite, against the position fixes (or depth): the
+    displacement between the fixes nearest the window's start and end, against the simulated displacement between
+    the same samples."""
     out = {"horizons_s": list(horizons_s), "no_motion": [], **{m: [] for m in models}, "diverged": {m: [] for m in models}}
+    against = None
     for H in horizons_s:
         ends = {m: [] for m in models}
         travelled, div = [], {m: 0 for m in models}
         for run in runs:
+            label, axes, fixes = drift_reference(run)
+            if label is None:
+                continue
+            against = against or label
             n = int(round(H * run.sample_rate_hz))
+            tol = int(round(FIX_TOLERANCE_S * run.sample_rate_hz))
             for a in range(0, run.n_samples - n, n):
                 b = a + n + 1
-                real = path_from_velocity(run.real_nu[a:b, :3], run.orientation_quat[a:b], run.dt)
-                travelled.append(float(np.linalg.norm(real[-1])))
+                if fixes is None:
+                    ia, ib = 0, n
+                    real = path_from_velocity(run.real_nu[a:b, :3], run.orientation_quat[a:b], run.dt)
+                    disp = real[-1]
+                else:
+                    ka, kb = _nearest_fix(fixes, a, a, b, tol), _nearest_fix(fixes, b - 1, a, b, tol)
+                    if ka is None or kb is None or kb <= ka:
+                        continue
+                    ia, ib = ka - a, kb - a
+                    disp = fixes[kb] - fixes[ka]
+                travelled.append(float(np.linalg.norm(disp)))
                 for m, p in models.items():
                     nu = window_replay(p, vehicle, run, a, b)
                     if nu is None:
                         div[m] += 1
                         continue
                     pred = path_from_velocity(nu[:, :3], run.orientation_quat[a:b], run.dt)
-                    ends[m].append(float(np.linalg.norm(pred[-1] - real[-1])))
+                    d_pred = (pred[ib] - pred[ia])[list(axes)] if fixes is not None else pred[-1]
+                    ends[m].append(float(np.linalg.norm(d_pred - disp)))
         out["no_motion"].append(_summary(travelled))
         for m in models:
             out[m].append(_summary(ends[m]))
             out["diverged"][m].append(div[m])
+    out["against"] = against
     return out
 
 
@@ -215,7 +270,7 @@ def response_error(models: dict, runs: list, vehicle, horizon_s=RESPONSE_S) -> d
     for run in runs:
         n = int(round(horizon_s * run.sample_rate_hz))
         for a in range(0, run.n_samples - n, n):
-            real_change = run.real_nu[a + n] - run.real_nu[a]
+            real_change = run.real_nu[a + n] - run.real_nu[a]   # NaN on u, v, w where no DVL read (#96)
             base.append(real_change ** 2)
             for m, p in models.items():
                 nu = window_replay(p, vehicle, run, a, a + n + 1)
@@ -223,12 +278,21 @@ def response_error(models: dict, runs: list, vehicle, horizon_s=RESPONSE_S) -> d
                     div[m] += 1
                     continue
                 sq[m].append((nu[-1] - run.real_nu[a + n]) ** 2)
-    persistence = np.sqrt(np.mean(base, axis=0)) if base else np.full(6, np.nan)
+
+    def rms(rows):
+        if not rows:
+            return np.full(6, np.nan)
+        a = np.array(rows)
+        with np.errstate(invalid="ignore"):
+            return np.array([np.sqrt(np.nanmean(a[:, j])) if np.isfinite(a[:, j]).any() else np.nan
+                             for j in range(6)])
+    persistence = rms(base)
     out = {"horizon_s": horizon_s, "windows": len(base), "diverged": div,
            "same_velocity_rmse": persistence.tolist()}
     for m in models:
-        rm = np.sqrt(np.mean(sq[m], axis=0)) if sq[m] else np.full(6, np.nan)
-        out[m] = {"rmse": rm.tolist(), "skill_vs_same_velocity": (1 - rm / persistence).tolist()}
+        rm = rms(sq[m])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out[m] = {"rmse": rm.tolist(), "skill_vs_same_velocity": (1 - rm / persistence).tolist()}
     return out
 
 
@@ -265,15 +329,20 @@ def step_responses(models: dict, runs: list, vehicle) -> dict:
         rec = {"steps": 0, "real_rise_s": [], "examples": []}
         for m in models:
             rec[f"{m}_rise_s"], rec[f"{m}_size_ratio"] = [], []
-        if span < 1e-6:
+        if span < 1e-6 or not any(np.isfinite(r.real_nu[:, j]).any() for r in runs):   # no DVL: not measured (#96)
             out[ax] = rec
             continue
         for run in runs:
             rate = run.sample_rate_hz
             post, tail = int(round(STEP_POST_S * rate)), max(1, int(round(0.5 * rate)))
-            noise = float(np.std(np.diff(run.real_nu[:, j])))
+            d_ = np.diff(run.real_nu[:, j])
+            if not np.isfinite(d_).any():
+                continue
+            noise = float(np.nanstd(d_))
             for k in find_steps(run.forces_torques[:, j], rate, 0.3 * span):
                 dv_real = run.real_nu[k:k + post + 1, j] - run.real_nu[k, j]
+                if not np.all(np.isfinite(dv_real)):   # a DVL gap across the step
+                    continue
                 final_real = float(dv_real[-tail:].mean())
                 d = float(np.median(run.forces_torques[k:k + post, j]) - np.median(run.forces_torques[k - post // 3:k, j]))
                 if abs(final_real) < 3 * noise or np.sign(final_real) != np.sign(d):
@@ -328,8 +397,10 @@ def pick_runs(models: dict, runs: list, vehicle, zero_rmse: np.ndarray) -> dict:
         if nu is None:
             scored.append((-np.inf, run))
             continue
-        rmse = np.sqrt(np.mean((nu - run.real_nu) ** 2, axis=0))
-        scored.append((float(np.mean(1 - rmse / zero_rmse)), run))
+        with np.errstate(invalid="ignore"):
+            rmse = np.sqrt(np.nanmean((nu - run.real_nu) ** 2, axis=0))   # u, v, w NaN with no DVL (#96)
+            sk = 1 - rmse / zero_rmse
+        scored.append((float(np.nanmean(sk)) if np.isfinite(sk).any() else -np.inf, run))
     scored.sort(key=lambda t: t[0])
     return {"worst": scored[0][1], "typical": scored[len(scored) // 2][1], "best": scored[-1][1]}
 
@@ -356,16 +427,32 @@ def plot_velocity(plt, models, run, vehicle, path, title):
 
 def plot_trajectory(plt, models, run, vehicle, path, title):
     t = np.arange(run.n_samples) * run.dt
-    real = path_from_velocity(run.real_nu[:, :3], run.orientation_quat, run.dt)
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 5.2))
-    lab = "real vehicle (its logged velocity, integrated)"
-    a1.plot(real[:, 0], real[:, 1], color=COLORS["real"], lw=1.5, label=lab)
-    a2.plot(t, real[:, 2], color=COLORS["real"], lw=1.5, label=lab)
+    label, axes, fixes = drift_reference(run)
+    if fixes is None:
+        real = path_from_velocity(run.real_nu[:, :3], run.orientation_quat, run.dt)
+        lab = "real vehicle (its logged velocity, integrated)"
+        a1.plot(real[:, 0], real[:, 1], color=COLORS["real"], lw=1.5, label=lab)
+        a2.plot(t, real[:, 2], color=COLORS["real"], lw=1.5, label=lab)
+        origin = np.zeros(3)
+    else:   # the sensor suite (#96): the vehicle's own fixes, the simulated path started at the first one
+        ok = np.all(np.isfinite(fixes), axis=1)
+        k0 = int(np.flatnonzero(ok)[0]) if ok.any() else 0
+        lab = f"real vehicle ({label})"
+        full = np.full((run.n_samples, 3), np.nan)
+        full[:, list(axes)] = fixes
+        if 0 in axes:
+            a1.plot(full[ok, 0] - full[k0, 0], full[ok, 1] - full[k0, 1], ".", color=COLORS["real"], ms=3, label=lab)
+        if 2 in axes:
+            a2.plot(t[ok], full[ok, 2] - full[k0, 2], ".", color=COLORS["real"], ms=3, label=lab)
+        origin = k0
     for m, p in models.items():
         nu = window_replay(p, vehicle, run, 0, run.n_samples)
         if nu is None:
             continue
         pp = path_from_velocity(nu[:, :3], run.orientation_quat, run.dt)
+        if fixes is not None:
+            pp = pp - pp[origin]
         a1.plot(pp[:, 0], pp[:, 1], color=COLORS[m], lw=1.1, label=f"{m} simulation")
         a2.plot(t, pp[:, 2], color=COLORS[m], lw=1.1, label=f"{m} simulation")
     a1.plot([0], [0], "o", color="k", ms=4)
@@ -466,7 +553,16 @@ def dataset_config_from_metrics(metrics: dict, rate_override=None) -> DatasetCon
     cur = obj.get("current_world_mps")
     by_file = obj.get("current_by_file")
     return DatasetConfig(float(rate), offset, None if not cur or not any(cur) else tuple(cur),
-                         None if not by_file else tuple((f, tuple(c)) for f, c in by_file))
+                         None if not by_file else tuple((f, tuple(c)) for f, c in by_file),
+                         sensors=tuple(obj.get("sensors") or ("auto",)),
+                         use_accelerometer=bool(obj.get("use_accelerometer", False)))
+
+
+def sensor_anchors(metrics: dict, runs: list, params, vehicle) -> Optional[dict]:
+    """The sensor suite (#96): each held-out window's starting velocity, as the calibration set them (the smoother
+    with the calibrated values and the noise it chose)."""
+    from run_calibration import sensor_runs_from_metrics
+    return sensor_runs_from_metrics(runs, metrics, params, vehicle)
 
 
 def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: bool = True) -> dict:
@@ -478,9 +574,13 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     spec = load_vehicle_spec(spec_path)
     vehicle = spec.vehicle
     dc = dataset_config_from_metrics(metrics, rate)
+    from dataclasses import replace as _replace
+    from run_calibration import _sensor_mounts
+    dc = _replace(dc, lever_arms=_sensor_mounts(spec))   # the sensors' mounts (#96)
     held_dates = (metrics.get("dataset") or {}).get("heldout_dates")
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=held_dates)
     runs = [load_run(f, dc) for f in split.heldout_files]
+    anchoring = sensor_anchors(metrics, runs, params, vehicle)
     models = {"calibrated": params, "default": initial_parameters(spec)}
     out_dir = os.path.join(result_dir, "validation")
     os.makedirs(out_dir, exist_ok=True)
@@ -489,19 +589,27 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
            "trajectory": trajectory_drift(models, runs, vehicle),
            "orientation": orientation_error(models, runs, vehicle),
            "response": response_error(models, runs, vehicle),
-           "notes": ["Position drift integrates predicted and logged velocity with the logged orientation, so it is "
-                     "the drift velocity error alone causes, measured against the logs' own velocity.",
+           "notes": [("Position drift integrates predicted and logged velocity with the logged orientation, so it is "
+                      "the drift velocity error alone causes, measured against the logs' own velocity.")
+                     if anchoring is None else
+                     ("Position drift is measured against the vehicle's own position fixes (or depth): the simulated "
+                      "displacement between the fixes nearest each window's start and end against theirs, so it "
+                      "checks the model against an independent measurement, not against a velocity. Each window "
+                      "starts from the calibration's estimate of the real velocity (SENSORS.md)."),
                      "Orientation comes from a free-running replay: the model turns and tilts on its own, from the "
                      "real state every 10 s. The calibration itself is scored with the logged orientation fed in."],
            "plots": []}
     steps = step_responses(models, runs, vehicle)
     res["steps"] = steps["summary"]
+    if anchoring is not None:
+        res["sensor_suite"] = {"anchoring": anchoring, "drift_against": res["trajectory"].get("against")}
     plt = _plt() if plots else None
     if plt is None and plots:
         res["notes"].append("No plots: matplotlib isn't installed (pip install matplotlib).")
     if plt is not None:
-        zero = np.sqrt(np.mean(np.concatenate([r.real_nu for r in runs]) ** 2, axis=0))
-        zero[zero < 1e-9] = 1e-9
+        with np.errstate(invalid="ignore"):
+            zero = np.sqrt(np.nanmean(np.concatenate([r.real_nu for r in runs]) ** 2, axis=0))
+        zero[~(zero >= 1e-9)] = 1e-9
         picks = pick_runs(models, runs, vehicle, zero)
         for which, run in picks.items():
             name = os.path.splitext(os.path.basename(run.filepath))[0]

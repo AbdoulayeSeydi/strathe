@@ -34,8 +34,17 @@ def windows(run, length_s: float, stride_s: float) -> list:
     return [(a, n) for a in range(0, len(run.real_nu) - n + 1, max(1, int(round(stride_s / run.dt))))]
 
 
+def _nu(run):
+    """The velocity a replay starts from: logged, or with the sensor suite the estimated start (simfit/sensors.py)."""
+    if getattr(run, "channels", None) is not None:
+        from simfit.sensors import start_nu
+        return start_nu(run)
+    return run.real_nu
+
+
 def window_rows(run, wins) -> list:
-    return [np.hstack([run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
+    nu = _nu(run)
+    return [np.hstack([nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
             for a, n in wins]
 
 
@@ -45,7 +54,11 @@ def path(V, Q, dt):
 
 
 def score(runs_wins: list, preds: list, horizons=HORIZONS_S) -> dict:
-    """Median drift, velocity RMSE per axis and attitude error per horizon, over all windows of all recordings."""
+    """Median drift, velocity RMSE per axis and attitude error per horizon, over all windows of all recordings. From
+    the sensors (no DVL, #96): drift against the position fixes, simfit/sensors.score."""
+    if runs_wins and getattr(runs_wins[0][0], "channels", None) is not None:
+        from simfit.sensors import score as sensor_score
+        return sensor_score(runs_wins, preds, horizons)
     vel = {h: [] for h in horizons}
     drift = {h: [] for h in horizons}
     att = {h: [] for h in horizons}
@@ -85,7 +98,7 @@ def strathe_free_run(params, vehicle, run, a: int, n: int):
     cfg = SimulationConfig(dt=run.dt)
     sub, h = cfg.n_substeps, cfg.sub_dt
     qx, qy, qz, qw = (float(x) for x in run.orientation_quat[a])
-    v = [float(x) for x in run.real_nu[a]]
+    v = [float(x) for x in _nu(run)[a]]
     V, Q = np.full((n, 6), np.nan), np.full((n, 4), np.nan)
     for k in range(n):
         V[k], Q[k] = v, (qx, qy, qz, qw)
@@ -114,7 +127,7 @@ def baselines(runs_wins: list) -> dict:
     zero, keep = [], []
     for run, wins in runs_wins:
         zero.append([(np.zeros((n, 6)), np.repeat(run.orientation_quat[a:a + 1], n, axis=0)) for a, n in wins])
-        keep.append([(np.repeat(run.real_nu[a:a + 1], n, axis=0), np.repeat(run.orientation_quat[a:a + 1], n, axis=0))
+        keep.append([(np.repeat(_nu(run)[a:a + 1], n, axis=0), np.repeat(run.orientation_quat[a:a + 1], n, axis=0))
                      for a, n in wins])
     return {"no motion": score(runs_wins, zero), "keeps its starting velocity": score(runs_wins, keep)}
 
@@ -157,9 +170,18 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
     if not any(w for _, w in runs_wins):
         raise SimFitError(f"the training recordings are shorter than one {FIT_WINDOW_S:g} s window")
     rows = [window_rows(run, w) for run, w in runs_wins]
-    scale = axis_scales(np.vstack([run.real_nu for run in train]), weighting)
-    real_paths = [[path(run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.dt) for a, n in w] for run, w in runs_wins]
-    d0 = max(float(np.median([np.linalg.norm(P[-1]) for ps in real_paths for P in ps])), 0.1)
+    sensor = getattr(train[0], "channels", None) is not None   # no DVL (#96): each sensor against what the simulator would have read
+    if sensor:
+        from simfit import sensors as SN
+        sens_scale, lay = SN.scales(runs_wins), SN.layout(runs_wins)
+        scale = np.array([LINEAR_FLOOR] * 3 + [ANGULAR_FLOOR] * 3)   # (unused; recorded for the checkpoint)
+        real_paths = [[None] * len(w) for _, w in runs_wins]
+        d0 = 1.0
+    else:
+        scale = axis_scales(np.vstack([run.real_nu for run in train]), weighting)
+        real_paths = [[path(run.real_nu[a:a + n], run.orientation_quat[a:a + n], run.dt) for a, n in w]
+                      for run, w in runs_wins]
+        d0 = max(float(np.median([np.linalg.norm(P[-1]) for ps in real_paths for P in ps])), 0.1)
     counter = {"n": 0}
 
     def residuals_at(x, tag):
@@ -167,6 +189,9 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
         out = []
         for i, ((run, wins), rw, rp) in enumerate(zip(runs_wins, rows, real_paths)):
             preds = simulate(x, i, run, rw, d)
+            if sensor:
+                out += SN.residuals(run, wins, preds, sens_scale, lay[i])
+                continue
             for (a, n), (V, Q), Pr in zip(wins, preds, rp):
                 if np.isnan(V).any():
                     out.append(np.full(6 * (n - 1) + 1, 10.0))
@@ -279,7 +304,20 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
     if os.path.exists(rp):
         rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
     cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
-    return [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files], split
+    train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
+    if len({getattr(r, "channels", None) is not None for r in train + held}) > 1:   # one objective for all, as calibrate does
+        from dataclasses import replace as _replace
+        cfg = _replace(cfg, sensors=("all",))
+        train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
+    if any(getattr(r, "channels", None) is not None for r in train + held):
+        # no DVL (#96): each window starts from the estimated velocity (a physics-free smoother: the simulator's
+        # model may be of any vehicle), and the simulator is scored against the sensors (simfit/sensors.py)
+        from simfit.sensors import set_starts
+        info = set_starts(train + held)
+        if info["fallbacks"]:
+            print("  note: the starting-velocity estimate fell back to the DVL (or rest) on "
+                  + "; ".join(info["fallbacks"]), flush=True)
+    return train, held, split
 
 
 def table(results: dict, horizons=HORIZONS_S) -> list:

@@ -125,7 +125,11 @@ _warnings = core.report_warnings  # moved to simfit.core (#90): fit-stonefish us
 
 
 def _compare_section(results) -> list:
-    return ["## How the models compare on unseen recordings\n",
+    against = next((r.get("drift_against") for r in results.values() if r.get("drift_against")), None)
+    note = ([f"No DVL in these logs (#96, SENSORS.md): each window starts from the vehicle's estimated velocity, and "
+             f"drift is measured against its own position fixes ({against}); velocity errors on u, v, w are nan where "
+             f"nothing measured them.\n"] if against else [])
+    return ["## How the models compare on unseen recordings\n", *note,
             f"Windows of {EVAL_WINDOW_S:g} s every {EVAL_STRIDE_S:g} s; each starts from the logged state and is driven "
             f"by the logged forces, the model turning and tilting on its own, in still water. Medians.\n",
             *core.table(results), "", "![Drift](drift.png)", "",
@@ -138,6 +142,16 @@ def _print_results(results) -> None:
     for name, r in results.items():
         hs = [f"{r[f'{h}s']['drift_median_m']:.2f}" for h in HORIZONS_S if f"{h}s" in r]
         print(f"  {name:36s} drift {' / '.join(hs)} m")
+
+
+def _physics_starts(runs, params, mass) -> None:
+    """No DVL (#96): with a Strathe calibration at hand, each window starts from the smoother run with its physics
+    (about 4x closer to the truth than physics-free in tests/test_simfit_sensors.py) instead of without."""
+    if mass and runs and getattr(runs[0], "channels", None) is not None:
+        from dynamics_model import VehicleConstants
+        from simfit.sensors import set_starts
+        set_starts(runs, params, VehicleConstants(float(mass)))
+        print("  Window starts from the smoother with your Strathe calibration's physics.", flush=True)
 
 
 def run_fit(adapter, a) -> int:
@@ -155,6 +169,7 @@ def run_fit(adapter, a) -> int:
         if a.from_strathe:
             from stonefish_export import load_calibration, training_density
             sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)
+            _physics_starts(train + held, sp, smass)
             info0 = adapter.info()
             rho = training_density(split.train_groups, densities, info0.get("water_density") or 1025.0)
             try:
@@ -377,6 +392,8 @@ def run_export(adapter, a) -> int:
     try:
         train, held, split = core.load_runs(data, heldout)
         adapter.dt = (train or held)[0].dt
+        _physics_starts(train + held, params, mass)   # no DVL (#96): starts from the smoother with the calibration
+        no_dvl = False
         densities = _densities(a)
         info = adapter.info()
         rho = training_density(split.train_groups, densities, info.get("water_density") or 1025.0)
@@ -397,6 +414,9 @@ def run_export(adapter, a) -> int:
             _strathe_own(results, runs_wins, pfile, mass)
             results.update(core.baselines(runs_wins))
             core.plot(results, os.path.join(out, "drift.png"), f"Unseen recordings: original vs exported {adapter.label} model")
+        elif no_dvl:
+            notes.append("Not scored: these logs have no DVL reading at every sample, and the export's score is "
+                         "against logged velocity (SENSORS.md).")
         else:
             notes.append("Not scored: no held-out recordings (give --heldout-dates).")
         summary = {"simulator": adapter.sim, "calibration": os.path.abspath(pfile), "model": adapter.model_path,

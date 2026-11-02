@@ -37,12 +37,32 @@ from run_calibration import (SKILL_EVAL_HORIZON_S, _get_git_commit, excluded_axi
 
 
 def _per_dof(params, runs, vehicle, horizon=None):
-    return np.mean([rmse_by_dof(params, r, vehicle, horizon_samples=horizon) for r in runs], axis=0)
+    from run_calibration import _average_rmse_by_dof
+    return _average_rmse_by_dof(params, runs, vehicle, horizon)
+
+
+def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz, horizon_samples, sensors,
+                  use_accelerometer, accel_sigma) -> tuple:
+    """The sensor suite (#96), as the fit had it: the same windows, axes held, smoother noise and scales; each
+    window's start from the smoother with the checkpoint's values. Returns (info, horizon_samples, held params)."""
+    import types
+    import state_smoother as sm
+    from optimizer import CalibrationConfig
+    from run_calibration import sensor_fit_summary, sensor_suite_setup
+    cc = CalibrationConfig(horizon_samples=horizon_samples)
+    cfg = types.SimpleNamespace(calibration_config=cc, sampling_rate_hz=sampling_rate_hz, data_dir=data_dir,
+                                smoother_accel_sigma=accel_sigma, sensors=tuple(sensors),
+                                use_accelerometer=use_accelerometer)
+    info = sensor_suite_setup(cfg, train, held, default, spec.vehicle, spec)
+    sm.set_anchors(train + held, params, spec.vehicle, info["smoother"]["accel_sigma_mps2"], info["noise_from_ingest"])
+    info["fit"] = sensor_fit_summary(default, params, train, held, spec.vehicle)
+    return info, cc.horizon_samples, cc.fixed_params or {}
 
 
 def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_dir: str, sampling_rate_hz: float,
              torque_offset=None, axis_scaling: str = "none", exclude_axes=(), horizon_samples=None,
-             reason: str = "", current_world=None, current_by_file=None, free_decay=None) -> dict:
+             reason: str = "", current_world=None, current_by_file=None, free_decay=None, sensors=("auto",),
+             use_accelerometer: bool = False, accel_sigma=None) -> dict:
     ck = read_checkpoint(checkpoint)
     params = CalibrationParameters(**ck["best_parameters_so_far"])
     spec = load_vehicle_spec(spec_path)
@@ -51,12 +71,24 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         from current import current_from_spec
         current_world = current_from_spec(spec)
     current_world = None if current_world is None or not np.any(current_world) else tuple(map(float, current_world))
-    dc = DatasetConfig(sampling_rate_hz, offset, current_world, current_by_file)
+    from run_calibration import _sensor_mounts
+    dc = DatasetConfig(sampling_rate_hz, offset, current_world, current_by_file, sensors=tuple(sensors),
+                       use_accelerometer=use_accelerometer, lever_arms=_sensor_mounts(spec))
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=heldout_dates)
     train = [load_run(f, dc) for f in split.train_files]
     held = [load_run(f, dc) for f in split.heldout_files]
+    if len({r.channels is not None for r in train + held}) > 1:   # as run_calibration does: one objective for all
+        from dataclasses import replace as _replace
+        dc = _replace(dc, sensors=("all",))
+        train = [load_run(f, dc) for f in split.train_files]
+        held = [load_run(f, dc) for f in split.heldout_files]
     default = initial_parameters(spec)
     v = spec.vehicle
+    sensor_info, sensor_held = None, {}
+    if train and train[0].channels is not None:
+        sensor_info, horizon_samples, sensor_held = _sensor_setup(train, held, params, default, spec, data_dir,
+                                                                  sampling_rate_hz, horizon_samples, sensors,
+                                                                  use_accelerometer, accel_sigma)
     zero = zero_baseline_rmse(held)
     cal_held, diverged_full = stable_rmse_by_dof(params, held, v)  # a blow-up is reported, not a crash
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * sampling_rate_hz)))
@@ -73,6 +105,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     free_decay_info = free_decay_setup(free_decay, spec, default) if free_decay else None
     if free_decay_info:  # the fit held these, so the checkpoint has them already; recorded for the report
         held_params = {**(held_params or {}), **free_decay_info["held"]}
+    if sensor_held:   # axes no sensor sees: held by the fit, recorded for the report (#96)
+        held_params = {**(held_params or {}), **sensor_held}
     rmse = {"default_train": mean_run_rmse(default, train, v), "default_heldout": mean_run_rmse(default, held, v),
             "calibrated_train": stable_mean_run_rmse(params, train, v)[0],
             "calibrated_heldout": stable_mean_run_rmse(params, held, v)[0]}
@@ -109,6 +143,12 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
                             "timestamp_utc": datetime.now(timezone.utc).isoformat()},
         "success": False,
     }
+    if sensor_info is not None:
+        from run_calibration import _jsonable
+        metrics["sensor_suite"] = _jsonable(sensor_info)
+        metrics["objective"]["sensors"] = sensor_info["sensors_asked"]
+        metrics["objective"]["use_accelerometer"] = sensor_info["use_accelerometer"]
+        metrics["skill_vs_zero"]["meaning"] += "; u, v, w are NaN where no DVL read: see sensor_suite.fit"
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "calibrated_parameters.yaml"), "w", encoding="utf-8") as f:
         yaml.dump({"generated_at_utc": metrics["reproducibility"]["timestamp_utc"],
@@ -116,7 +156,10 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
                    "git_commit": metrics["reproducibility"]["git_commit"],
                    "vehicle_mass_kg": float(spec.vehicle.mass_kg),
                    "note": metrics["optimizer"]["message"] + (f" ({n_evals} evaluations)" if n_evals else ""),
-                   "parameters": {n: float(getattr(params, n)) for n in params.param_names}}, f, sort_keys=False)
+                   "parameters": {n: float(getattr(params, n)) for n in params.param_names},
+                   **({"sensors": {"channels": sensor_info["channels"],
+                                   "held_unobserved": sensor_info["held_unobserved"]}} if sensor_info else {})},
+                  f, sort_keys=False)
     with open(os.path.join(out_dir, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     return metrics
@@ -135,27 +178,39 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--axis-scaling", choices=["none", "zero_rms"], default="none")
     ap.add_argument("--exclude-axes", nargs="+", choices=["p", "q"], default=[])
     ap.add_argument("--prediction-horizon-samples", type=int, default=None)
+    ap.add_argument("--prediction-horizon-s", type=float, default=None, help="the same, in seconds (as the fit's)")
     ap.add_argument("--current-world-mps", type=float, nargs=3, default=None)
     ap.add_argument("--currents-file", default=None, help="currents.csv: a current per recording")
     ap.add_argument("--free-decay", default=None, help="the free_decay.yaml the fit held (run_calibration.py)")
     ap.add_argument("--reason", default="")
+    ap.add_argument("--sensors", nargs="+", default=["auto"], help="as run_calibration.py --sensors (#96)")
+    ap.add_argument("--use-accelerometer", action="store_true")
+    ap.add_argument("--smoother-accel-sigma", type=float, default=None)
+    ap.add_argument("--anchor-rounds", type=int, default=None, help=argparse.SUPPRESS)  # accepted, not used here
     return ap
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     out = args.output_dir or os.path.dirname(os.path.abspath(args.checkpoint))
+    if args.prediction_horizon_samples is None and args.prediction_horizon_s is not None:
+        args.prediction_horizon_samples = max(2, int(round(args.prediction_horizon_s * args.sampling_rate_hz)))
     try:
         m = finalize(args.checkpoint, args.data_dir, args.spec, args.heldout_dates, out, args.sampling_rate_hz,
                      args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
                      args.prediction_horizon_samples, args.reason, args.current_world_mps,
-                     None if not args.currents_file else read_currents_file(args.currents_file), args.free_decay)
+                     None if not args.currents_file else read_currents_file(args.currents_file), args.free_decay,
+                     tuple(args.sensors), args.use_accelerometer, args.smoother_accel_sigma)
     except CheckpointError as e:
         print(f"❌ {e}")
         return 2
     sk = m["skill_vs_zero"]["calibrated_heldout_full_replay"]
     print(f"Wrote {out}/calibrated_parameters.yaml and metrics.json (NOT converged: {m['optimizer']['message']})")
     print("Held-out skill vs predicting no motion [u v w p q r]: " + " ".join(f"{x:+.2f}" for x in sk))
+    if m.get("sensor_suite"):
+        fit = m["sensor_suite"]["fit"]["skill_heldout"]
+        print("Held-out skill per sensor axis: " + ", ".join(f"{k} {'n/a' if x is None else f'{x:+.2f}'}"
+                                                             for k, x in fit.items()))
     dv = m["skill_vs_zero"]["diverged_heldout"]
     if dv["full_replay"] or dv["short_windows"]:
         print(f"⚠️  With these values the simulation diverges on {dv['full_replay']} of {dv['runs']} held-out "

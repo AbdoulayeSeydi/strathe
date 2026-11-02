@@ -177,6 +177,15 @@ class ValidationConfig(BaseModel):
     identifiability_note: str
 
 
+class SensorMount(BaseModel):
+    """Where a sensor sits on the vehicle (PROJECT_STATUS.md #96, SENSORS.md), keyed by its name in the ingest spec
+    (dvl, a position or depth sensor's name, acc). position_m: from the reference point the torques are about, body
+    FRD, metres. track (a DVL): bottom (velocity over ground, the usual) or water (velocity through the water)."""
+    position_m: list[float] = [0.0, 0.0, 0.0]
+    track: Optional[str] = None
+    note: Optional[str] = None
+
+
 class VehicleSpec(BaseModel):
     schema_version: str
     metadata: dict
@@ -189,6 +198,7 @@ class VehicleSpec(BaseModel):
     calibration_targets: CalibrationTargets
     optimization: OptimizationConfig
     validation: ValidationConfig
+    sensors: Optional[dict[str, SensorMount]] = None
 
 
 def load_and_validate(yaml_path: str) -> VehicleSpec:
