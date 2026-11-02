@@ -197,13 +197,14 @@ def reference_sources(dates=("12-01-2024",), limit: Optional[int] = None) -> lis
 
 
 def truth_skill(cal, spec_path: str, data_dir: str, truth_dir: str, files: list, horizon_s: float = 3.0,
-                rate_hz: float = 10.0, torque_offset=None) -> dict:
+                rate_hz: float = 10.0, torque_offset=None, current_world: Optional[tuple] = None) -> dict:
     """Held-out skill per axis against a hidden truth velocity that may have gaps (a real DVL's dropouts): windows of
     horizon_s start where the truth read (as a DVL would start them), the calibrated values' simulation against the
     truth wherever it read. Skill = 1 - RMSE / RMSE of predicting no motion, over the same samples. The truth file
-    has Bu..Br on the same grid as the data file (same name). The fit never saw it."""
+    has Bu..Br on the same grid as the data file (same name). The fit never saw it. current_world: the current the
+    truth vehicle moved in (truth_dataset's), so the prediction is in the same water as the truth."""
     from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
-    from objective import DatasetConfig, load_run, with_thruster_lag
+    from objective import DatasetConfig, load_run, run_with_current, with_thruster_lag
     from optimizer import load_vehicle_spec
     from run_calibration import spec_torque_reference_offset
     spec = load_vehicle_spec(spec_path)
@@ -213,6 +214,8 @@ def truth_skill(cal, spec_path: str, data_dir: str, truth_dir: str, files: list,
     sq, zq = [], []
     for f in files:
         run = with_thruster_lag(load_run(os.path.join(data_dir, f), dc), cal)
+        if current_world is not None:
+            run = run_with_current(run, current_world)
         truth = pd.read_csv(os.path.join(truth_dir, f))[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy(float)
         n = min(len(truth), run.n_samples)
         for a in range(0, n - H, H):
