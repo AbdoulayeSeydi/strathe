@@ -138,7 +138,7 @@ def test_random_sensor_mixes_calibrate_or_say_why(tmp_path, seed):
         return
     vec = rep.calibrated_parameters.to_vector()
     assert np.all(np.isfinite(vec))
-    m = json.load(open(tmp_path / "cal" / "metrics.json"))
+    m = json.load(open(tmp_path / "cal" / "metrics.json", encoding="utf-8"))
     if rep.sensor_suite is not None:
         held = set(rep.sensor_suite["held_unobserved"])
         blind = {a for a, by in rep.sensor_suite["axes_seen_by"].items() if not by}

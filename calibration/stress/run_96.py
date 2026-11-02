@@ -349,7 +349,7 @@ def e_steps() -> None:
              "E-fit-noise": ["fit-noise", "--data", data, "--out", os.path.join(WORK, "fits", "E-noise.yaml")],
              "E-fit-sim": ["fit-sim", "--sim", "mujoco", "--model", os.path.join(CAL, "simulators", "mujoco", "example",
                                                                                 "auv.xml"),
-                           "--reference-point", "0", "0", "0",
+                           "--reference-point", "0", "0", "0", "--fit", "drag", "--max-iterations", "4",
                            "--data", data, "--heldout-dates", *HELD, "--out", os.path.join(WORK, "fits", "E-fitsim")],
              }
     for row, args in cases.items():

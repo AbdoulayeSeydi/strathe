@@ -69,17 +69,17 @@ def test_a_vehicle_with_no_dvl_calibrates_from_position_and_depth(no_dvl):
     # at the truth, every sensor is predicted (all but) exactly on the held-out day
     sk = ss["fit"]["skill_heldout"]
     assert all(sk[k] > 0.95 for k in ("usbl.n", "usbl.e", "usbl.d", "main.d", "gyro.r")), sk
-    m = json.load(open(base / "out" / "metrics.json"))
+    m = json.load(open(base / "out" / "metrics.json", encoding="utf-8"))
     assert "sensor_suite" in m and m["objective"]["prediction_horizon_samples"] == 100
     assert np.isnan(np.array(m["per_dof"]["calibrated_heldout"][:3], dtype=float)).all()  # no DVL: not measured
-    p = yaml.safe_load(open(base / "out" / "calibrated_parameters.yaml"))
+    p = yaml.safe_load(open(base / "out" / "calibrated_parameters.yaml", encoding="utf-8"))
     assert p["sensors"]["held_unobserved"] == {}
 
 
 def test_the_report_says_what_the_sensors_calibrated(no_dvl):
     base, _ = no_dvl
     out = cr.build_report(str(base / "out"), "vehicle_spec.yaml")
-    text = open(out["report"]).read()
+    text = open(out["report"], encoding="utf-8").read()
     assert "## What your sensors could calibrate" in text
     assert "Surge: calibrated from position fixes." in text and "Heave: calibrated from depth and position fixes." \
         in text
@@ -96,12 +96,12 @@ def test_the_report_says_what_the_sensors_calibrated(no_dvl):
 def test_depth_only_holds_surge_and_sway_and_says_so(tmp_path):
     data = write_dataset(tmp_path / "data", n=400)
     rep = calibrate(data, tmp_path / "out", sensors=("main",), rounds=1)
-    m = json.load(open(tmp_path / "out" / "metrics.json"))
+    m = json.load(open(tmp_path / "out" / "metrics.json", encoding="utf-8"))
     ss = m["sensor_suite"]
     assert ss["axes_seen_by"] == {"u": [], "v": [], "w": ["depth"]}
     held = ss["held_unobserved"]
     assert {"Xu", "Xuu", "Xu_dot", "Yv", "Yvv", "Yv_dot"} <= set(held)
-    params = yaml.safe_load(open(tmp_path / "out" / "calibrated_parameters.yaml"))["parameters"]
+    params = yaml.safe_load(open(tmp_path / "out" / "calibrated_parameters.yaml", encoding="utf-8"))["parameters"]
     from optimizer import initial_parameters, load_vehicle_spec
     p0 = initial_parameters(load_vehicle_spec("vehicle_spec.yaml"))
     for k in held:   # held exactly at the description's values, not fitted
@@ -110,7 +110,7 @@ def test_depth_only_holds_surge_and_sway_and_says_so(tmp_path):
     v = {x["axis"]: x for x in out["verdicts"]}
     assert v["u"]["verdict"] == cr.BAD and "no sensor in your logs sees this motion" in v["u"]["why"]
     assert v["v"]["verdict"] == cr.BAD and v["w"]["unit"] == "m"
-    text = open(out["report"]).read()
+    text = open(out["report"], encoding="utf-8").read()
     assert "Surge: not calibrated." in text and "forward drag" in text
     del rep
 
@@ -122,21 +122,26 @@ def test_a_hidden_dvl_never_reaches_the_fit(tmp_path):
     calibrate(data, tmp_path / "a", sensors=("usbl", "main"), rounds=1)
     for f in data.glob("*.csv"):
         import pandas as pd
-        d = pd.read_csv(f)
+        d = pd.read_csv(f, float_precision="round_trip")   # every other column written back exactly as it was
         d[["Bu", "Bv", "Bw"]] = 99.0 * np.random.default_rng(0).normal(size=(len(d), 3))
         d.to_csv(f, index=False)
     calibrate(data, tmp_path / "b", sensors=("usbl", "main"), rounds=1)
-    pa = yaml.safe_load(open(tmp_path / "a" / "calibrated_parameters.yaml"))["parameters"]
-    pb = yaml.safe_load(open(tmp_path / "b" / "calibrated_parameters.yaml"))["parameters"]
-    assert pa == pb
-    ma = json.load(open(tmp_path / "a" / "metrics.json"))
-    mb = json.load(open(tmp_path / "b" / "metrics.json"))
-    assert ma["sensor_suite"]["fit"] == mb["sensor_suite"]["fit"] and "dvl.u" not in ma["sensor_suite"]["channels"]
+    pa = yaml.safe_load(open(tmp_path / "a" / "calibrated_parameters.yaml", encoding="utf-8"))["parameters"]
+    pb = yaml.safe_load(open(tmp_path / "b" / "calibrated_parameters.yaml", encoding="utf-8"))["parameters"]
+    # equal to float noise: a leak of 99 m/s noise would move them by far more than this (Windows CI differed at 1e-8)
+    assert pa == pytest.approx(pb, rel=1e-6, abs=1e-9)
+    ma = json.load(open(tmp_path / "a" / "metrics.json", encoding="utf-8"))
+    mb = json.load(open(tmp_path / "b" / "metrics.json", encoding="utf-8"))
+    fa, fb = ma["sensor_suite"]["fit"], mb["sensor_suite"]["fit"]
+    assert {k: set(v) for k, v in fa.items()} == {k: set(v) for k, v in fb.items()}
+    for k in fa:
+        assert fa[k] == pytest.approx(fb[k], rel=1e-6, abs=1e-9, nan_ok=True), k
+    assert "dvl.u" not in ma["sensor_suite"]["channels"]
 
 
 def test_a_dvl_at_every_sample_still_takes_the_original_fit(tmp_path):
     data = write_dataset(tmp_path / "data", dvl=True, n=300, runs_per_day=1)
     rep = calibrate(data, tmp_path / "out", rounds=1)
-    m = json.load(open(tmp_path / "out" / "metrics.json"))
+    m = json.load(open(tmp_path / "out" / "metrics.json", encoding="utf-8"))
     assert "sensor_suite" not in m and m["objective"]["prediction_horizon_samples"] is None
     del rep
