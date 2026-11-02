@@ -32,6 +32,7 @@ A run with channels (RunData.channels) takes this path everywhere objective.py e
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field, replace
 from typing import Optional, Sequence
 
@@ -70,10 +71,26 @@ class Plan:
 
 # ---------------------------------------------------------------------------- channels from a run's columns
 
+GRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensor_grades.yaml")
+NOISE_KINDS = ("dvl", "position", "depth")   # the sensors whose noise the state smoother uses
+
+
+def sensor_grades() -> dict:
+    """sensor_grades.yaml's presets: {grade: {kind, noise | noise_fraction_of_range, source}}."""
+    import yaml
+    with open(GRADES_FILE, encoding="utf-8") as f:
+        return yaml.safe_load(f)["grades"]
+
+
+def _positive(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and np.isfinite(x) and x > 0
+
+
 def sensor_mounts(raw_spec: dict) -> dict:
-    """The vehicle description's sensors: section -> {name: {"position_m": (3,), "track": "bottom"|"water"}}.
-    Refused, with what's wrong, if malformed."""
+    """The vehicle description's sensors: section -> {name: {"position_m": (3,), "track": "bottom"|"water", "grade",
+    "noise", "range_m"}}. Refused, with what's wrong, if malformed."""
     out = {}
+    grades = None
     for name, m in ((raw_spec or {}).get("sensors") or {}).items():
         m = m or {}
         pos = m.get("position_m", [0.0, 0.0, 0.0])
@@ -85,8 +102,72 @@ def sensor_mounts(raw_spec: dict) -> dict:
             raise ValueError(f"vehicle description sensors.{name}.track: bottom or water, got {track!r}")
         if track == "water" and name != "dvl":
             raise ValueError(f"vehicle description sensors.{name}.track: only a DVL has a track (bottom or water)")
-        out[name] = {"position_m": np.asarray(pos, dtype=float), "track": track}
+        noise, grade, rng = m.get("noise"), m.get("grade"), m.get("range_m")
+        if noise is not None and not _positive(noise):
+            raise ValueError(f"vehicle description sensors.{name}.noise: one reading's standard deviation, a positive "
+                             f"number (m for position and depth, m/s for a DVL), got {noise!r}")
+        if rng is not None and not _positive(rng):
+            raise ValueError(f"vehicle description sensors.{name}.range_m: the typical range to the positioning "
+                             f"system's transceiver, a positive number of metres, got {rng!r}")
+        if grade is not None:
+            grades = grades or sensor_grades()
+            if grade not in grades:
+                raise ValueError(f"vehicle description sensors.{name}.grade: {grade!r} isn't a sensor grade. Known: "
+                                 f"{', '.join(sorted(grades))} (calibration/sensor_grades.yaml). For another sensor, "
+                                 f"give its noise: (one reading's standard deviation) instead")
+            if "noise_fraction_of_range" in grades[grade] and rng is None and noise is None:
+                raise ValueError(f"vehicle description sensors.{name}: grade {grade}'s accuracy is a share of the "
+                                 f"range, so give range_m: (the typical distance to its transceiver, m)")
+        out[name] = {"position_m": np.asarray(pos, dtype=float), "track": track, "grade": grade, "noise": noise,
+                     "range_m": rng}
     return out
+
+
+def measured_noise(data_dir: Optional[str]) -> dict:
+    """{sensor name: reading std} from the ingest report's own measurement, for sensors whose readings weren't smoothed
+    by the logging system (a smoothed sensor's measured noise is too low to trust)."""
+    import json
+    path = os.path.join(data_dir or "", "ingest_report.json")
+    if not data_dir or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            sens = (json.load(f).get("sensors") or {}).get("sensors") or {}
+    except (OSError, ValueError):
+        return {}
+    return {name: float(max(ch["noise_std"])) for name, ch in sens.items()
+            if ch.get("noise_std") and not ch.get("filtered")}
+
+
+def smoother_noise(data_dir: Optional[str], mounts: Optional[dict], runs: Sequence) -> tuple:
+    """Each sensor's reading noise for the state smoother, and where it came from: the description's noise:, the
+    noise ingestion measured (unsmoothed readings), the description's grade: (sensor_grades.yaml), else the smoother's
+    default for its kind. Returns ({name: std}, {name: source}). A grade of the wrong kind is refused."""
+    kinds = {}
+    for r in runs:
+        for ch in (getattr(r, "channels", None) or []):
+            if ch.kind in NOISE_KINDS:
+                kinds.setdefault(ch.name, ch.kind)
+    noise, source = {}, {}
+    grades = None
+    for name, m in (mounts or {}).items():
+        if not isinstance(m, dict) or m.get("noise") is not None or not m.get("grade"):
+            continue
+        grades = grades or sensor_grades()
+        g = grades[m["grade"]]
+        if name in kinds and kinds[name] != g["kind"]:
+            raise ValueError(f"vehicle description sensors.{name}.grade: {m['grade']} is a {g['kind']} sensor, but "
+                             f"{name} in your logs is a {kinds[name]} sensor")
+        noise[name] = float(g["noise"]) if "noise" in g else float(g["noise_fraction_of_range"]) * float(m["range_m"])
+        source[name] = f"grade {m['grade']}"
+    for name, v in measured_noise(data_dir).items():
+        noise[name], source[name] = v, "measured from your logs"
+    for name, m in (mounts or {}).items():
+        if isinstance(m, dict) and m.get("noise") is not None:
+            noise[name], source[name] = float(m["noise"]), "your description"
+    for name in kinds:
+        source.setdefault(name, "default")
+    return noise, source
 
 
 def channels_from_frame(df, use: Sequence[str] = ("auto",), use_accelerometer: bool = False,

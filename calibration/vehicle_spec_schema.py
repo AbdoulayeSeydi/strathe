@@ -180,9 +180,13 @@ class ValidationConfig(BaseModel):
 class SensorMount(BaseModel):
     """Where a sensor sits on the vehicle (PROJECT_STATUS.md #96, SENSORS.md), keyed by its name in the ingest spec
     (dvl, a position or depth sensor's name, acc). position_m: from the reference point the torques are about, body
-    FRD, metres. track (a DVL): bottom (velocity over ground, the usual) or water (velocity through the water)."""
+    FRD, metres. track (a DVL): bottom (velocity over ground, the usual) or water (velocity through the water). grade,
+    noise, range_m: the reading noise the state smoother uses (measurements.smoother_noise)."""
     position_m: list[float] = [0.0, 0.0, 0.0]
     track: Optional[str] = None
+    grade: Optional[str] = None      # a preset in sensor_grades.yaml: its datasheet noise, when the logs can't measure it
+    noise: Optional[float] = None    # one reading's standard deviation (m, or m/s for a DVL): wins over everything
+    range_m: Optional[float] = None  # acoustic positioning: the typical range, for a grade given as a share of it
     note: Optional[str] = None
 
 

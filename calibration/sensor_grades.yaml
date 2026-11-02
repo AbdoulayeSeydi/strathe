@@ -1,0 +1,41 @@
+# Sensor grades (PROJECT_STATUS.md #96, SENSORS.md "Noise"): a sensor's noise from its datasheet, for when your logs
+# can't measure it (readings smoothed by the vehicle's own filter, or too few of them). Name one in your vehicle
+# description's sensors: section:
+#
+#   sensors:
+#     bar30: {grade: bar30, position_m: [-0.2, 0.0, 0.1]}
+#     usbl:  {grade: ugps_g2, range_m: 40}
+#
+# Strathe uses, in order: a noise: you give for the sensor, the noise ingestion measured from your logs (when they
+# weren't smoothed), the grade's, then a default per kind (state_smoother.DEFAULT_NOISE). Only a datasheet that
+# states a per-reading noise (or a resolution, where that is the limit) is here: a long-term accuracy (a DVL's ±1%) is
+# a scale error, not noise, so the Water Linked A50, which publishes only that, isn't. Give its noise: yourself.
+#
+# noise: one reading's standard deviation, m (position, depth) or m/s (DVL). noise_fraction_of_range: for acoustic
+# positioning, a share of the range, needing range_m: in the description. CEP (circular error probable, 2D) is
+# converted with sigma = CEP / 1.1774.
+grades:
+  nucleus1000:
+    kind: dvl
+    noise: 0.005
+    source: "Nortek Nucleus 1000 datasheet (nortekgroup.com, 2026): bottom tracking single ping standard deviation 0.5 cm/s"
+  bar30:
+    kind: depth
+    noise: 0.002
+    source: "Blue Robotics Bar30: depth resolution 2 mm in fresh water (bluerobotics.com). SOLAQUA's measured 2.4 mm (#60)"
+  bar02:
+    kind: depth
+    noise: 0.00016
+    source: "Blue Robotics Bar02: depth resolution 0.16 mm (bluerobotics.com); its range is 10 m"
+  rtk_f9p:
+    kind: position
+    noise: 0.0085
+    source: "u-blox ZED-F9P datasheet: RTK 0.01 m + 1 ppm CEP (the 1 ppm, per km of baseline, left out)"
+  gnss_f9p:
+    kind: position
+    noise: 1.27
+    source: "u-blox ZED-F9P-01B datasheet (R09, 2023): standalone 1.5 m CEP"
+  ugps_g2:
+    kind: position
+    noise_fraction_of_range: 0.002
+    source: "Water Linked Underwater GPS G2 (spec sheet via blueyerobotics.com): horizontal accuracy < 0.2% of range"

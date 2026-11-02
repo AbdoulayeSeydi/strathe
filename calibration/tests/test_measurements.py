@@ -290,7 +290,68 @@ def test_a_dvl_mounted_away_from_the_reference_point():
     ({"usbl": {"position_m": [1, 2]}}, "three numbers"),
     ({"dvl": {"track": "seabed"}}, "bottom or water"),
     ({"usbl": {"track": "water"}}, "only a DVL"),
+    ({"main": {"grade": "bar99"}}, "isn't a sensor grade. Known: bar02, bar30"),
+    ({"usbl": {"grade": "ugps_g2"}}, "give range_m"),
+    ({"main": {"noise": -1}}, "a positive number"),
+    ({"main": {"noise": "low"}}, "a positive number"),
+    ({"usbl": {"range_m": 0}}, "range_m"),
 ])
 def test_bad_sensor_mounts_are_refused(bad, message):
     with pytest.raises(ValueError, match=message):
         ms.sensor_mounts({"sensors": bad})
+
+
+def test_every_sensor_grade_is_a_noise_with_its_source():
+    """sensor_grades.yaml: each preset is a sensor whose noise the smoother uses, one reading's noise (or a share of
+    the range) that is plausible for its kind, and the datasheet it came from."""
+    plausible = {"dvl": (1e-4, 0.05), "depth": (1e-5, 0.1), "position": (1e-3, 10.0)}
+    for name, g in ms.sensor_grades().items():
+        assert g["kind"] in ms.NOISE_KINDS, name
+        assert ("noise" in g) != ("noise_fraction_of_range" in g), name
+        if "noise" in g:
+            lo, hi = plausible[g["kind"]]
+            assert lo <= g["noise"] <= hi, name
+        assert len(g["source"]) > 20, name
+
+
+def test_the_smoother_noise_comes_from_your_number_then_the_logs_then_the_grade(tmp_path):
+    import json
+    df, _, _ = truth_frame(n=200, dvl=True, pos_every=10)
+    run = as_run(df)
+    mounts = ms.sensor_mounts({"sensors": {"main": {"grade": "bar30"}, "usbl": {"grade": "ugps_g2", "range_m": 40},
+                                           "dvl": {"grade": "nucleus1000", "noise": 0.02}}})
+    noise, src = ms.smoother_noise(None, mounts, [run])
+    assert noise == pytest.approx({"main": 0.002, "usbl": 0.08, "dvl": 0.02})
+    assert src == {"main": "grade bar30", "usbl": "grade ugps_g2", "dvl": "your description"}
+    # what ingestion measured on unsmoothed readings wins over a grade; a smoothed sensor's measurement doesn't count
+    (tmp_path / "ingest_report.json").write_text(json.dumps({"sensors": {"sensors": {
+        "main": {"noise_std": [0.004]}, "usbl": {"noise_std": [0.3], "filtered": True}}}}), encoding="utf-8")
+    noise, src = ms.smoother_noise(str(tmp_path), mounts, [run])
+    assert noise["main"] == 0.004 and src["main"] == "measured from your logs"
+    assert noise["usbl"] == pytest.approx(0.08) and src["usbl"] == "grade ugps_g2"
+    # nothing given: the smoother's default for the kind, and said so
+    noise, src = ms.smoother_noise(None, {}, [run])
+    assert noise == {} and src == {"dvl": "default", "usbl": "default", "main": "default"}
+
+
+def test_a_grade_of_the_wrong_kind_is_refused():
+    df, _, _ = truth_frame(n=200, dvl=False, pos_every=10)
+    with pytest.raises(ValueError, match="bar30 is a depth sensor, but usbl in your logs is a position sensor"):
+        ms.smoother_noise(None, ms.sensor_mounts({"sensors": {"usbl": {"grade": "bar30"}}}), [as_run(df)])
+
+
+def test_the_noise_the_smoother_assumes_matters_both_ways():
+    """Fixes with 5 cm noise. Without physics the fixes are all there is, so discounting them (a 1.27 m GNSS grade)
+    costs most; with Strathe's physics, trusting them too much (an 8.5 mm RTK datasheet) costs most. Why measured
+    noise comes before a datasheet grade (SENSORS.md, "Noise")."""
+    df, nu, _ = truth_frame(n=1500, dvl=False, pos_every=10, pos_noise=0.05)
+
+    def err(physics, fix_noise):
+        run = as_run(df, sensors=("usbl", "main"))
+        noise = {"usbl": fix_noise, "main": 0.002}
+        veh = SPEC.vehicle if physics else None
+        sigma, _ = sm.choose_accel_sigma([run], TRUTH if physics else None, veh, noise)
+        sm.set_anchors([run], TRUTH if physics else None, veh, sigma, noise)
+        return np.sqrt(np.mean((run.anchor_lin[50:-50] - nu[50:-50, :3]) ** 2))
+    assert err(False, 1.27) > 2 * err(False, 0.05)     # measured: 0.21 against 0.080 m/s
+    assert err(True, 0.0085) > 3 * err(True, 0.05)     # measured: 0.052 against 0.0084 m/s

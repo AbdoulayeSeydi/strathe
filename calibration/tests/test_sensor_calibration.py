@@ -112,6 +112,7 @@ def test_depth_only_holds_surge_and_sway_and_says_so(tmp_path):
     assert v["v"]["verdict"] == cr.BAD and v["w"]["unit"] == "m"
     text = open(out["report"], encoding="utf-8").read()
     assert "Surge: not calibrated." in text and "forward drag" in text
+    assert "yaw predicts less well" in text   # the measured cost of no horizontal sensor (#96, R-3)
     del rep
 
 

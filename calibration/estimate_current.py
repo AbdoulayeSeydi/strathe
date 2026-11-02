@@ -108,8 +108,8 @@ def _estimate_run(job) -> dict:
         # by its own still RMS. A position fix or a bottom-lock DVL measures motion over ground: the current shows
         import measurements as ms
         import state_smoother as sm
-        sigma, _ = sm.choose_accel_sigma([run], params, vehicle)
-        sm.set_anchors([run], params, vehicle, sigma)
+        sigma, _ = sm.choose_accel_sigma([run], params, vehicle, dc.sensor_noise)
+        sm.set_anchors([run], params, vehicle, sigma, dc.sensor_noise)
         run.sensor_scales = ms.still_scales([run], max(horizon, int(round(10.0 * run.sample_rate_hz))))
         horizon = max(horizon, int(round(10.0 * run.sample_rate_hz)))   # position needs time to move
     scales = compute_zero_baseline_scales([run])
@@ -232,8 +232,11 @@ def main(argv=None) -> int:
     params = load_calibrated_parameters(args.params) if args.params else initial_parameters(spec)
     label = (f"the calibration `{os.path.basename(os.path.dirname(os.path.abspath(args.params)))}`" if args.params
              else "the vehicle description's default (uncalibrated) values")
+    import measurements as ms
     from run_calibration import _sensor_mounts
-    dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors), lever_arms=_sensor_mounts(spec))
+    noise, _ = ms.smoother_noise(args.data_dir, ms.sensor_mounts(spec.raw), [])   # as calibrate's smoother has it
+    dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors), lever_arms=_sensor_mounts(spec),
+                       sensor_noise=noise)
     print(f"Estimating the current in {len(files)} recording(s) at {rate:g} Hz with {label}...", flush=True)
     rows = estimate_currents(files, params, spec.vehicle, dc, args.workers)
     for r in rows:

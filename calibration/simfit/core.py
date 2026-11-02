@@ -312,8 +312,9 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
     if any(getattr(r, "channels", None) is not None for r in train + held):
         # no DVL (#96): each window starts from the estimated velocity (a physics-free smoother: the simulator's
         # model may be of any vehicle), and the simulator is scored against the sensors (simfit/sensors.py)
+        from measurements import measured_noise
         from simfit.sensors import set_starts
-        info = set_starts(train + held)
+        info = set_starts(train + held, noise=measured_noise(data_dir))
         if info["fallbacks"]:
             print("  note: the starting-velocity estimate fell back to the DVL (or rest) on "
                   + "; ".join(info["fallbacks"]), flush=True)

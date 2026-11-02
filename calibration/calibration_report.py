@@ -579,7 +579,14 @@ def sensors_section(metrics: Optional[dict]) -> list:
     if held:
         L.append("\nHeld at your vehicle description's values, because no sensor sees their motion: "
                  + ", ".join(f"{PLAIN.get(k, k)} (`{k}`)" for k in held) + ".")
-    fit = (ss.get("fit") or {}).get("skill_heldout") or {}
+    blind = {a for a, by in (ss.get("axes_seen_by") or {}).items() if not by}
+    if {"u", "v"} <= blind:   # measured on the reference tank, the truth hidden (PROJECT_STATUS.md #96, R-3)
+        L.append("\n> ⚠️ With no horizontal sensor, a turn's coupling to surge and sway can't be seen either, so yaw "
+                 "predicts less well than it would with position fixes (on a BlueROV2 tank: held-out yaw skill 0.29 "
+                 "with depth and the gyro, 0.58 with fixes or velocity). Surge and sway are only as good as your "
+                 "description's values, and with the other axes calibrated they can predict worse than the "
+                 "uncalibrated description did. Log a horizontal position to calibrate them (SENSORS.md).")
+    fit =(ss.get("fit") or {}).get("skill_heldout") or {}
     if fit:
         L.append("\nEach sensor's own held-out skill (1 - error / error of predicting no motion; 1 = perfect, 0 = no "
                  "better than assuming the vehicle didn't move):\n")
@@ -589,6 +596,12 @@ def sensors_section(metrics: Optional[dict]) -> list:
         for lab, v in fit.items():
             d = dflt.get(lab)
             L.append(f"| {lab} | {'n/a' if v is None else f'{v:+.2f}'} | {'n/a' if d is None else f'{d:+.2f}'} |")
+    src = ss.get("noise_source") or {}
+    if src:   # what the window-start estimate assumed about each sensor (measurements.smoother_noise)
+        noise = ss.get("noise") or {}
+        L.append("\nReading noise assumed when estimating each window's starting velocity: " + "; ".join(
+            f"{n} {noise[n]:.3g} ({s})" if n in noise else f"{n}: the default for its kind" for n, s in sorted(src.items()))
+            + ". Set it with `noise:` or `grade:` in your description's `sensors:` (SENSORS.md, \"Noise\").")
     sm_ = ss.get("smoother") or {}
     if sm_.get("fallbacks"):
         L.append("\n> ⚠️ The starting-velocity estimate fell back to the DVL (or rest) on: "

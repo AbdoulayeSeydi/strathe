@@ -189,4 +189,6 @@ validation:
 #   dvl:  {position_m: [-0.20, 0.0, 0.15], track: bottom}   # body FRD m from the torques' reference point;
 #                                                            # track: water for a DVL locked on the water
 #   usbl: {position_m: [0.10, 0.0, -0.20]}                   # the transponder: its fixes are of this point
-#   main: {position_m: [0.0, 0.0, 0.05]}                     # the pressure sensor's port
+#   main: {position_m: [0.0, 0.0, 0.05], grade: bar30}       # the pressure sensor's port; grade: its datasheet
+#                                                            # noise (calibration/sensor_grades.yaml), used when
+#                                                            # your logs can't measure it; or noise: 0.003 (m)

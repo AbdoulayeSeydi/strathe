@@ -48,13 +48,14 @@ def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz
     import types
     import state_smoother as sm
     from optimizer import CalibrationConfig
-    from run_calibration import sensor_fit_summary, sensor_suite_setup
+    from run_calibration import sensor_fit_summary, sensor_suite_setup, smoother_noise_of
     cc = CalibrationConfig(horizon_samples=horizon_samples)
     cfg = types.SimpleNamespace(calibration_config=cc, sampling_rate_hz=sampling_rate_hz, data_dir=data_dir,
                                 smoother_accel_sigma=accel_sigma, sensors=tuple(sensors),
                                 use_accelerometer=use_accelerometer)
     info = sensor_suite_setup(cfg, train, held, default, spec.vehicle, spec)
-    sm.set_anchors(train + held, params, spec.vehicle, info["smoother"]["accel_sigma_mps2"], info["noise_from_ingest"])
+    sm.set_anchors(train + held, params, spec.vehicle, info["smoother"]["accel_sigma_mps2"],
+                   smoother_noise_of(info))
     info["fit"] = sensor_fit_summary(default, params, train, held, spec.vehicle)
     return info, cc.horizon_samples, cc.fixed_params or {}
 
