@@ -126,7 +126,7 @@ vehicle's commands in `strathe arena`, `strathe fleet` and `strathe train-fleet`
   logged: the rates come from the orientation, with a warning). Each sensor's readings are placed at the
   samples where they happened and never interpolated, its noise is measured at its own rate, and
   `drop_when:` drops readings by another column (GPS has no fix underwater), `delay_s:` takes a sensor's
-  latency off its times.
+  latency off its times (left out, calibration takes off a delay the fixes clearly show; SENSORS.md).
 
 ## What it refuses, and what it warns about
 

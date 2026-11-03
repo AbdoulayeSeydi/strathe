@@ -332,7 +332,9 @@ class PositionSpec(BaseModel):
     source: Literal["usbl", "gps", "lbl", "mocap", "odometry", "other"] = "other"
     name: Optional[str] = Field(default=None, pattern=SENSOR_NAME)
     drop_when: list[ExcludeRule] = []   # e.g. GPS has no fix underwater: {column: <depth>, above: 0.5}
-    delay_s: float = 0.0                # the sensor reports this long after the vehicle was there (USBL latency)
+    # the sensor reports this long after the vehicle was there (USBL latency). Given (0 included), calibration takes
+    # it as said; left out, calibration looks for a delay and takes off one the fixes clearly show (SENSORS.md)
+    delay_s: Optional[float] = None
     max_speed_mps: float = Field(default=5.0, gt=0)   # fixes the vehicle couldn't reach at this speed are dropped
     # how far apart two honest fixes can be from noise alone, per axis (m); default by source
     # (sensor_ingest.FIX_NOISE_M). It sets the outlier check's tolerance, not the calibration's weighting
@@ -351,7 +353,7 @@ class PositionSpec(BaseModel):
             raise ValueError("position source: odometry can't be used to calibrate: a filtered navigation solution "
                              "usually fuses the DVL and the vehicle's own model, so it isn't an independent sensor. Use "
                              "the raw fixes (USBL, GPS, LBL), or keep it for use: check")
-        if not np.isfinite(self.delay_s):
+        if self.delay_s is not None and not np.isfinite(self.delay_s):
             raise ValueError("position.delay_s must be a number of seconds")
         if self.name is None:
             self.name = self.source if self.source != "other" else "pos"
@@ -690,6 +692,7 @@ def _sensor_channel(spec: IngestSpec, b, t_n, v, path, report) -> dict:
         columns = ["acc_x", "acc_y", "acc_z"]
     if b.delay_s:
         t_n = t_n - b.delay_s
+    if b.delay_s is not None and (b.delay_s or kind == "position"):   # a position sensor's 0 is said too: on time
         info["delay_s"] = b.delay_s
     if kind == "position" and len(t_n) > 2:
         # the tolerance comes from what the sensor type can do, not from these fixes: bad fixes would inflate it
@@ -1252,6 +1255,8 @@ def sensors_summary(reports: list, frames: list) -> dict:
                 agg["filtered"] = True
             if "source" in ch:
                 agg["source"] = ch["source"]
+            if "delay_s" in ch:   # said in the ingest spec: calibration takes it as given (measurements.given_delays)
+                agg["delay_s"] = ch["delay_s"]
     for agg in sensors.values():
         agg["rate_hz"] = round(float(np.median(agg.pop("rates_hz"))), 3) if agg["rates_hz"] else None
         ns = agg.pop("noise_std")

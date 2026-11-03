@@ -52,6 +52,7 @@ class Channel:
     values: np.ndarray
     lever_arm_m: Optional[np.ndarray] = None   # the sensor's position in the body, FRD, from the reference point
     track: str = "bottom"                      # a DVL: bottom (over ground) or water (through the water)
+    shifted_s: float = 0.0                     # a late position sensor's delay already taken off (state_smoother)
 
     @property
     def labels(self) -> list:
@@ -118,8 +119,37 @@ def sensor_mounts(raw_spec: dict) -> dict:
             if "noise_fraction_of_range" in grades[grade] and rng is None and noise is None:
                 raise ValueError(f"vehicle description sensors.{name}: grade {grade}'s accuracy is a share of the "
                                  f"range, so give range_m: (the typical distance to its transceiver, m)")
+        delay = m.get("delay_s")
+        if delay is not None and not (isinstance(delay, (int, float)) and not isinstance(delay, bool)
+                                      and np.isfinite(delay) and delay >= 0):
+            raise ValueError(f"vehicle description sensors.{name}.delay_s: how long after the vehicle was there the "
+                             f"sensor reports, a number of seconds (0 or more), got {delay!r}")
         out[name] = {"position_m": np.asarray(pos, dtype=float), "track": track, "grade": grade, "noise": noise,
-                     "range_m": rng}
+                     "range_m": rng, "delay_s": None if delay is None else float(delay)}
+    return out
+
+
+def given_delays(data_dir: Optional[str], mounts: Optional[dict]) -> dict:
+    """{position sensor: (delay in s, where it was said)}: the delays the lab gave, which calibration takes as said
+    instead of looking for one. The vehicle description's sensors.<name>.delay_s is taken off the fixes here; the
+    ingest spec's position.delay_s was taken off at ingest, so it counts as 0 more."""
+    import json
+    out = {}
+    path = os.path.join(data_dir or "", "ingest_report.json")
+    if data_dir and os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                sens = (json.load(f).get("sensors") or {}).get("sensors") or {}
+        except (OSError, ValueError):
+            sens = {}
+        out.update({name: (0.0, f"the ingest spec's delay_s ({ch['delay_s']:g} s, already taken off)")
+                    for name, ch in sens.items() if ch.get("kind") == "position" and "delay_s" in ch})
+    for name, m in (mounts or {}).items():
+        if m.get("delay_s") is not None:
+            if name in out:
+                raise ValueError(f"{name}'s delay_s is given in both the ingest spec and the vehicle description: "
+                                 f"give it once (the ingest spec's is already taken off the fixes)")
+            out[name] = (m["delay_s"], f"the vehicle description's sensors.{name}.delay_s")
     return out
 
 

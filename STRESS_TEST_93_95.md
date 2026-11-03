@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-02 19:56. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-03 00:15. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -876,7 +876,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #96. Calibrate from what the vehicle measures: no DVL needed
 
-**215 of 224 rows pass** (42 variables found in the code, each with a row).
+**223 of 232 rows pass** (42 variables found in the code, each with a row).
 
 ### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
 
@@ -1027,6 +1027,14 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | B-grade-bar02 | sensor noise = grade bar02 | a Bar02 depth sensor (0.16 mm), its noise from the grade | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 3990.4, "skill": [0.9957, 0.9861, 0.9896, 0.9931, 0.993, 0.9975], "mean_skill": 0.9925, "median_param_error_of_range": 0.0014, "worst_par... | 67 min |
 | B-latency-fresh-1 | position latency = 1 s, fresh recordings | fixes 1 s late on other recordings and noise (the delay check's threshold wasn't chosen on these) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 3133.0, "skill": [0.9439, 0.8511, 0.9193, 0.9046, 0.9051, 0.9643], "mean_skill": 0.9147, "median_param_error_of_range": 0.0, "worst_param... | 52 min |
 | B-latency-fresh-2 | position latency = 2 s, fresh recordings | fixes 2 s late on other recordings and noise (the delay check's threshold wasn't chosen on these) | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1266.9, "skill": [0.9204, 0.7822, 0.8853, 0.8609, 0.8626, 0.937], "mean_skill": 0.8747, "median_param_error_of_range": 0.0, "worst_params... | 21 min |
+| B-applied-1 | position latency = 1 s late, found and taken off | 1 s late, found and taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1347.6, "skill": [0.9889, 0.9617, 0.9852, 0.9801, 0.983, 0.9909], "mean_skill": 0.9816, "median_param_error_of_range": 0.0001, "worst_par... | 22 min |
+| B-applied-fresh-2 | position latency = 2 s late, fresh recordings, found and taken off | 2 s late, fresh recordings, found and taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1398.3, "skill": [0.9902, 0.9879, 0.9981, 0.9963, 0.9962, 0.9983], "mean_skill": 0.9945, "median_param_error_of_range": 0.0004, "worst_pa... | 23 min |
+| B-applied-fresh-0 | position latency = on time, fresh recordings: nothing taken off | on time, fresh recordings: nothing taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1539.0, "skill": [0.9954, 0.9882, 0.9909, 0.9931, 0.9916, 0.9978], "mean_skill": 0.9928, "median_param_error_of_range": 0.0023, "worst_pa... | 26 min |
+| B-applied-fresh-1 | position latency = 1 s late, fresh recordings, found and taken off | 1 s late, fresh recordings, found and taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1608.1, "skill": [0.9829, 0.9516, 0.976, 0.972, 0.9736, 0.9926], "mean_skill": 0.9748, "median_param_error_of_range": 0.0015, "worst_para... | 27 min |
+| B-applied-0.3 | position latency = 0.3 s late: too little to take off | 0.3 s late: too little to take off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 2952.4, "skill": [0.9749, 0.9061, 0.9667, 0.9515, 0.9621, 0.983], "mean_skill": 0.9574, "median_param_error_of_range": 0.0003, "worst_par... | 49 min |
+| B-applied-nominal | position latency = on time: nothing taken off | on time: nothing taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 3154.5, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_par... | 53 min |
+| B-given-0 | position latency = 1 s late, delay_s: 0 in the description: taken as said | 1 s late, delay_s: 0 in the description: taken as said | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 2093.3, "skill": [0.9338, 0.7118, 0.9146, 0.8622, 0.8951, 0.9382], "mean_skill": 0.876, "median_param_error_of_range": 0.0004, "worst_par... | 35 min |
+| B-given-1 | position latency = 1 s late, delay_s: 1 in the description | 1 s late, delay_s: 1 in the description | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 2291.8, "skill": [0.9893, 0.9902, 0.992, 0.993, 0.992, 0.9988], "mean_skill": 0.9925, "median_param_error_of_range": 0.0001, "worst_param... | 38 min |
 
 ### Every sensor combination on the BlueROV2 (what is calibrated, what is held)
 

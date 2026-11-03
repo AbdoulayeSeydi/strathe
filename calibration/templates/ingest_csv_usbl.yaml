@@ -33,6 +33,7 @@ position:
   x: usbl_x                    # metres, in the world frame above (north, east, down here)
   y: usbl_y
   z: usbl_z                    # leave out if your system gives only a horizontal fix
-  delay_s: 0.0                 # the fix's latency in seconds: Strathe doesn't detect it (LIMITS.md)
+  # delay_s: 0.3               # the fix's latency in seconds, if you know it (0: on time). Left out, calibration
+                               # looks for one and takes off a delay the fixes clearly show (SENSORS.md)
 # The noise each sensor has, if your logs can't measure it: the description's sensors: section
 # (templates/vehicle_spec_template.yaml; calibration/sensor_grades.yaml lists datasheet grades).

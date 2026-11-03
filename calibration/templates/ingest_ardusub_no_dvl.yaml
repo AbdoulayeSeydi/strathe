@@ -37,7 +37,8 @@ accelerometer:                 # optional: the raw IMU's specific force (m/s^2, 
 #   latlon: {lat: GPS.Lat, lon: GPS.Lng}
 #   drop_when:
 #     - {column: GPS.Status, below: 3}   # 3: a 3-D fix
-#   delay_s: 0.0               # a USBL fix arrives late: its latency in seconds, if you know it
+#   delay_s: 0.3               # a USBL fix arrives late: its latency in seconds, if you know it (0: on time).
+#                              # Left out, calibration takes off a delay the fixes clearly show
 wrench:
   thrusters:
     pwm_columns: [RCOU.C1, RCOU.C2, RCOU.C3, RCOU.C4, RCOU.C5, RCOU.C6, RCOU.C7, RCOU.C8]

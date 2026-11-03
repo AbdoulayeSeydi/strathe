@@ -91,6 +91,8 @@ SWEEP = {
                             f"{100 * x:g}% of fixes lost") for x in (0.0, 0.3)},
     "B-dropout-surface": ("position dropout", "surface only", _with(position={"surface_only_below_m": 0.5}), [],
                           "limit", "fixes only within 0.5 m of the shallowest point (GPS at the surface)"),
+    # ran when a late sensor's delay was only said (before 2026-11-03): run again, calibrate now takes a clear one off
+    # (B-applied-* measure that on these recordings)
     **{f"B-latency-{x:g}": ("position latency", x, _with(position={"delay_s": x}), [], "seen" if x <= 0.3 else "limit",
                             f"fixes {x:g} s late, uncorrected") for x in (0.3, 1.0)},
     **{f"B-depthnoise-{x:g}": ("depth noise", x, _with(depth={"noise": x}), [], "seen", f"depth noise {100 * x:g} cm")
@@ -134,6 +136,18 @@ SWEEP = {
     **{f"B-latency-fresh-{x:g}": ("position latency", f"{x:g} s, fresh recordings", _with(position={"delay_s": x}), [],
                                   "fresh_delay", f"fixes {x:g} s late on other recordings and noise (the delay check's "
                                   f"threshold wasn't chosen on these)") for x in (0.0, 1.0, 2.0)},
+    # a late position sensor's delay taken off (2026-11-03, after the rows above ran with it only said): the same
+    # recordings as the row named, so the gain is the correction's alone. Bars fixed before running (_judge, "applied")
+    **{row: ("position latency", what, None, [], "applied", what) for row, (_, what) in {
+        "B-applied-1": ("B-latency-1", "1 s late, found and taken off"),
+        "B-applied-fresh-1": ("B-latency-fresh-1", "1 s late, fresh recordings, found and taken off"),
+        "B-applied-fresh-2": ("B-latency-fresh-2", "2 s late, fresh recordings, found and taken off"),
+        "B-applied-fresh-0": ("B-latency-fresh-0", "on time, fresh recordings: nothing taken off"),
+        "B-applied-0.3": ("B-latency-0.3", "0.3 s late: too little to take off"),
+        "B-applied-nominal": ("B-set-nominal", "on time: nothing taken off"),
+        "B-given-1": ("B-latency-1", "1 s late, delay_s: 1 in the description"),
+        "B-given-0": ("B-latency-1", "1 s late, delay_s: 0 in the description: taken as said"),
+    }.items()},
     "B-current-estimated": ("current", "0.15 m/s estimated", NOMINAL, ["--estimate-current"], "seen",
                             "the same 0.16 m/s current, not told: --estimate-current"),
     **{f"B-sigma-{x:g}": ("smoother accel sigma", x, NOMINAL, ["--smoother-accel-sigma", str(x)], "seen",
@@ -167,7 +181,14 @@ SWEEP.update({
     "B-noise-overconfident": ("sensor noise", "given, 30x too small", NOMINAL, [], "limit",
                               "the USBL's noise given as 5 mm: the smoother trusts the fixes far too much"),
 })
+# the delay rows' recordings: the earlier row's, unchanged, and the recordings with the fixes on time
+SAME_DATA = {"B-applied-1": "B-latency-1", "B-applied-fresh-1": "B-latency-fresh-1",
+             "B-applied-fresh-2": "B-latency-fresh-2", "B-applied-fresh-0": "B-latency-fresh-0",
+             "B-applied-0.3": "B-latency-0.3", "B-applied-nominal": "B-set-nominal", "B-given-1": "B-latency-1",
+             "B-given-0": "B-latency-1"}
+ON_TIME = {r: "B-latency-fresh-0" if "fresh" in r else "B-set-nominal" for r in SAME_DATA}
 SPEC_SENSORS = {"B-lever-known": {"usbl": {"position_m": ARM}}, "B-dvl-water": {"dvl": {"track": "water"}},
+                "B-given-1": {"usbl": {"delay_s": 1.0}}, "B-given-0": {"usbl": {"delay_s": 0.0}},
                 "B-grade-rtk": {"usbl": {"grade": "rtk_f9p"}}, "B-grade-gnss": {"usbl": {"grade": "gnss_f9p"}},
                 "B-grade-nucleus": {"dvl": {"grade": "nucleus1000"}}, "B-grade-bar02": {"main": {"grade": "bar02"}},
                 "B-grade-usbl": {"usbl": {"grade": "ugps_g2", "range_m": 85}},
@@ -191,6 +212,8 @@ def _spec_for(row: str) -> str:
 
 
 def _dataset(row: str, sensors: dict) -> str:
+    if row in SAME_DATA:
+        row, sensors = SAME_DATA[row], SWEEP[SAME_DATA[row]][2]
     root = os.path.join(WORK, "synthetic", row)
     if not os.path.exists(os.path.join(root, "data", HELD_FILE)):
         shutil.rmtree(root, ignore_errors=True)
@@ -287,6 +310,8 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
         ok = finite and held_ok and set(blind) == {"u", "v"} and sk[2] >= SEEN_SKILL and min(sk[3:]) >= -1.0
         return ok, (f"surge and sway reported unseen and their values held; heave skill >= {SEEN_SKILL}; nothing "
                     f"claimed for surge and sway")
+    if kind == "applied":
+        return _judge_applied(row, nums, finite and held_ok)
     if kind == "fresh_delay":
         said = any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
         late = float(row.rsplit("-", 1)[1]) >= 1.0
@@ -310,6 +335,38 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
         said = any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
         ok, expect = ok and said, expect + "; and the report says the fixes are late (the plan's bar)"
     return ok, expect
+
+
+APPLIED_OF_GAP = 0.5      # a delay taken off wins back at least half of what it cost (to the fixes on time)
+UNCHANGED_SKILL = 0.005   # nothing taken off: the same skill as the same recordings before
+GIVEN_OF_ON_TIME = 0.01   # the true delay given: within this of the fixes on time
+
+
+def _judge_applied(row: str, nums: dict, sound: bool) -> tuple:
+    """A late sensor's delay taken off (calibrate's default since 2026-11-03), judged against the same recordings'
+    earlier row (the delay only said) and the recordings with the fixes on time."""
+    before = _reference(SAME_DATA[row]).get("mean_skill")
+    on_time = _reference(ON_TIME[row]).get("mean_skill")
+    d = (nums.get("fix_delays") or {}).get("usbl") or {}
+    took, frm, m = d.get("applied_s"), d.get("applied_from"), nums["mean_skill"]
+    if None in (before, on_time, took, m):
+        return False, "the earlier rows' skill and the delay taken off are recorded"
+    if row == "B-given-1":
+        ok = took == 1.0 and "description" in str(frm) and m >= on_time - GIVEN_OF_ON_TIME
+        return sound and ok, (f"the given 1 s taken off; mean skill >= {on_time - GIVEN_OF_ON_TIME:.4f} (the fixes on "
+                              f"time {on_time} - {GIVEN_OF_ON_TIME})")
+    if row == "B-given-0":
+        ok = (took == 0.0 and "description" in str(frm) and abs(m - before) <= UNCHANGED_SKILL and d.get("late")
+              and d["delay_s"] >= 0.5)
+        return sound and ok, (f"nothing taken off, as said; mean skill within {UNCHANGED_SKILL} of {SAME_DATA[row]}'s "
+                              f"({before}); the fixes still found clearly late, so the report says to check the value")
+    if SAME_DATA[row] in ("B-latency-1", "B-latency-fresh-1", "B-latency-fresh-2"):
+        bar = before + APPLIED_OF_GAP * (on_time - before)
+        ok = frm == "found in the fixes" and 0.5 <= took <= 2.0 and m >= bar
+        return sound and ok, (f"the delay found and taken off; mean skill >= {bar:.4f} (half of the "
+                              f"{on_time - before:.4f} the delay cost, from {before} towards {on_time})")
+    ok = took == 0.0 and abs(m - before) <= UNCHANGED_SKILL
+    return sound and ok, f"nothing taken off; mean skill within {UNCHANGED_SKILL} of {SAME_DATA[row]}'s ({before})"
 
 
 # --- the sensor matrix: every mix of sensors, on a short budget -------------------------------------------------------

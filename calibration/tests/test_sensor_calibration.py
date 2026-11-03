@@ -12,23 +12,26 @@ import calibration_report as cr
 from optimizer import CalibrationConfig
 from run_calibration import PipelineConfig, run_pipeline
 
-from test_measurements import TRUTH, truth_frame
+from test_measurements import SPEC, TRUTH, truth_frame
 
 DATES = ("01-10-2026", "02-10-2026")
 
 
-def write_dataset(d, dvl=False, n=700, runs_per_day=2, **kw):
+def write_dataset(d, dvl=False, n=700, runs_per_day=2, late_samples=0, **kw):
     d.mkdir(parents=True, exist_ok=True)
     k = 0
     for date in DATES:
         for r in range(runs_per_day):
             df, _, _ = truth_frame(n=n, seed=10 * k + 1, dvl=dvl, **kw)
+            if late_samples:   # each fix logged this many samples after the vehicle was there
+                cols = [c for c in df.columns if c.startswith("pos_")]
+                df[cols] = df[cols].shift(late_samples)
             df.to_csv(d / f"synth-{date}-run{r + 1}.csv", index=False)
             k += 1
     return d
 
 
-def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, fixed=None):
+def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, fixed=None, spec="vehicle_spec.yaml"):
     # starts at the truth (vehicle_spec.yaml's initial guess is the truth these recordings were made with): the
     # plumbing is what's tested here; recovering the truth from elsewhere is stress/run_96.py's
     # x0_override: an explicit start, which the failed-fit retry (#93) leaves alone. From the truth a first fit can't
@@ -37,7 +40,7 @@ def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, f
                            x0_override=TRUTH.to_vector(),
                            horizon_samples=None if horizon_s is None else int(horizon_s * 10),
                            fixed_params=fixed)
-    cfg = PipelineConfig(data_dir=str(data), spec_path="vehicle_spec.yaml", output_dir=str(out),
+    cfg = PipelineConfig(data_dir=str(data), spec_path=str(spec), output_dir=str(out),
                          sampling_rate_hz=10.0, heldout_dates=[DATES[1]], heldout_fraction=0.5,
                          calibration_config=cc, workers=1, sensors=tuple(sensors), anchor_rounds=rounds,
                          # these recordings' torques are the truth's own (vehicle_spec.yaml's data convention shifts
@@ -166,3 +169,38 @@ def test_the_stress_scorer_predicts_in_the_water_the_truth_moved_in(tmp_path):
     still = S.truth_skill(*args)
     assert min(same["skill"]) > 0.999
     assert min(still["skill"]) < 0.99
+
+
+def test_late_fixes_are_taken_off_unless_the_lab_says_otherwise(tmp_path):
+    """A USBL reporting 1 s late (#96): calibration finds the delay, takes it off before the fit, says so, and the
+    validation's reloaded recordings get the same delay off. With delay_s: 0 in the description, the fixes are taken
+    as logged and the report says they still look late."""
+    from objective import DatasetConfig, load_run
+    from run_calibration import sensor_runs_from_metrics
+    data = write_dataset(tmp_path / "data", n=400, pos_every=10, depth_every=2, late_samples=10)
+    rep = calibrate(data, tmp_path / "found", nfev=5, rounds=1)
+    d = rep.sensor_suite["fix_delays"]["usbl"]
+    assert d["late"] and d["applied_from"] == "found in the fixes" and 0.8 <= d["applied_s"] <= 1.2, d
+    text = open(cr.build_report(str(tmp_path / "found"), "vehicle_spec.yaml")["report"], encoding="utf-8").read()
+    assert f"so {d['applied_s']:.1f} s was taken off them before the fit" in text
+    m = json.load(open(tmp_path / "found" / "metrics.json", encoding="utf-8"))
+    run = load_run(str(sorted(data.glob("*.csv"))[-1]), DatasetConfig(10.0, (0.0, 0.0, 0.0), sensors=("auto",)))
+    sensor_runs_from_metrics([run], m, TRUTH, SPEC.vehicle)
+    assert next(c for c in run.channels if c.name == "usbl").shifted_s == d["applied_s"]
+
+    raw = yaml.safe_load(open("vehicle_spec.yaml", encoding="utf-8"))
+    raw["sensors"] = {"usbl": {"delay_s": 0}}
+    spec = tmp_path / "on_time.yaml"
+    spec.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    # fixes left 1 s late make the truth a worse fit than it is, so a 5-evaluation budget can't settle them all:
+    # what's tested here is what's taken off and said, so all but one are held
+    names, x = list(TRUTH.param_names), TRUTH.to_vector()
+    held = {n: float(v) for n, v in zip(names[1:], x[1:])}
+    said = calibrate(data, tmp_path / "said", nfev=5, rounds=1, spec=spec, fixed=held)
+    g = said.sensor_suite["fix_delays"]["usbl"]
+    assert g["applied_s"] == 0.0 and g["applied_from"] == "the vehicle description's sensors.usbl.delay_s", g
+    text = open(cr.build_report(str(tmp_path / "said"), str(spec))["report"], encoding="utf-8").read()
+    assert "0 s of delay taken off, as the vehicle description's sensors.usbl.delay_s says." in text
+    assert "check the value you gave" in text
+    # the fixes taken off their delay are predicted better on the held-out day than the same fixes as logged
+    assert rep.sensor_suite["fit"]["skill_heldout"]["usbl.n"] > said.sensor_suite["fit"]["skill_heldout"]["usbl.n"]

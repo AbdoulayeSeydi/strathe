@@ -188,7 +188,9 @@ validation:
 #                                 # in the ingest spec (dvl, a position or depth sensor's name, acc)
 #   dvl:  {position_m: [-0.20, 0.0, 0.15], track: bottom}   # body FRD m from the torques' reference point;
 #                                                            # track: water for a DVL locked on the water
-#   usbl: {position_m: [0.10, 0.0, -0.20]}                   # the transponder: its fixes are of this point
+#   usbl: {position_m: [0.10, 0.0, -0.20]}                   # the transponder: its fixes are of this point;
+#                                                            # delay_s: 0.3 its latency if you know it (0: on
+#                                                            # time; left out, a clear delay is found and taken off)
 #   main: {position_m: [0.0, 0.0, 0.05], grade: bar30}       # the pressure sensor's port; grade: its datasheet
 #                                                            # noise (calibration/sensor_grades.yaml), used when
 #                                                            # your logs can't measure it; or noise: 0.003 (m)
