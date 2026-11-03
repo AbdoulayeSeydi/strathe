@@ -148,6 +148,21 @@ SWEEP = {
         "B-given-1": ("B-latency-1", "1 s late, delay_s: 1 in the description"),
         "B-given-0": ("B-latency-1", "1 s late, delay_s: 0 in the description: taken as said"),
     }.items()},
+    # a late depth sensor (2026-11-03): its bar chosen from the scan alone on the reference recordings and real depth
+    # (state_smoother.DELAY_GAIN_PER_S_DEPTH), tested here; bars fixed before running (_judge_depth_delay)
+    **{row: ("depth latency", f"{true:g} s, {what}", sens, [], "depth_delay", f"depth {true:g} s late, {what}")
+       for row, (true, what, sens) in {
+        "B-depthlag-given0-1": (1.0, "delay_s: 0 in the description", _with(depth={"delay_s": 1.0})),
+        "B-depthlag-1": (1.0, "found and taken off", _with(depth={"delay_s": 1.0})),
+        "B-depthlag-given-1": (1.0, "delay_s: 1 in the description", _with(depth={"delay_s": 1.0})),
+        **{f"B-depthlag-fresh-ne-{x:g}": (x, "fresh recordings, horizontal fixes: depth the only vertical sensor",
+                                          _with(depth={"delay_s": x}, position={"axes": "ne"})) for x in (0, 0.5, 1, 2)},
+        **{f"B-depthlag-fresh-only-{x:g}": (x, "fresh recordings, depth and the gyro only",
+                                            _with(depth={"delay_s": x}, position=None)) for x in (0, 1)},
+        **{f"B-depthlag-fresh-1hz-{x:g}": (x, "fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes",
+                                           _with(depth={"delay_s": x, "rate_hz": 1.0}, position={"axes": "ne"}))
+           for x in (0, 1)},
+    }.items()},
     "B-current-estimated": ("current", "0.15 m/s estimated", NOMINAL, ["--estimate-current"], "seen",
                             "the same 0.16 m/s current, not told: --estimate-current"),
     **{f"B-sigma-{x:g}": ("smoother accel sigma", x, NOMINAL, ["--smoother-accel-sigma", str(x)], "seen",
@@ -189,6 +204,7 @@ SAME_DATA = {"B-applied-1": "B-latency-1", "B-applied-fresh-1": "B-latency-fresh
 ON_TIME = {r: "B-latency-fresh-0" if "fresh" in r else "B-set-nominal" for r in SAME_DATA}
 SPEC_SENSORS = {"B-lever-known": {"usbl": {"position_m": ARM}}, "B-dvl-water": {"dvl": {"track": "water"}},
                 "B-given-1": {"usbl": {"delay_s": 1.0}}, "B-given-0": {"usbl": {"delay_s": 0.0}},
+                "B-depthlag-given-1": {"main": {"delay_s": 1.0}}, "B-depthlag-given0-1": {"main": {"delay_s": 0.0}},
                 "B-grade-rtk": {"usbl": {"grade": "rtk_f9p"}}, "B-grade-gnss": {"usbl": {"grade": "gnss_f9p"}},
                 "B-grade-nucleus": {"dvl": {"grade": "nucleus1000"}}, "B-grade-bar02": {"main": {"grade": "bar02"}},
                 "B-grade-usbl": {"usbl": {"grade": "ugps_g2", "range_m": 85}},
@@ -218,9 +234,9 @@ def _dataset(row: str, sensors: dict) -> str:
     if not os.path.exists(os.path.join(root, "data", HELD_FILE)):
         shutil.rmtree(root, ignore_errors=True)
         src = S.reference_sources(TRAIN, 2) + S.reference_sources(HELD, 1)
-        if row.startswith("B-latency-fresh"):   # other training recordings, other noise
+        if "fresh" in row:   # other training recordings, other noise
             src = S.reference_sources(TRAIN)[2:4] + S.reference_sources(HELD, 1)
-        S.truth_dataset(root, src, sensors=sensors, seed=961 if row.startswith("B-latency-fresh") else 96,
+        S.truth_dataset(root, src, sensors=sensors, seed=961 if "fresh" in row else 96,
                         current_world=CURRENT_ROWS.get(row))
     return root
 
@@ -312,6 +328,8 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
                     f"claimed for surge and sway")
     if kind == "applied":
         return _judge_applied(row, nums, finite and held_ok)
+    if kind == "depth_delay":
+        return _judge_depth_delay(row, nums, finite and held_ok)
     if kind == "fresh_delay":
         said = any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
         late = float(row.rsplit("-", 1)[1]) >= 1.0
@@ -367,6 +385,45 @@ def _judge_applied(row: str, nums: dict, sound: bool) -> tuple:
                               f"{on_time - before:.4f} the delay cost, from {before} towards {on_time})")
     ok = took == 0.0 and abs(m - before) <= UNCHANGED_SKILL
     return sound and ok, f"nothing taken off; mean skill within {UNCHANGED_SKILL} of {SAME_DATA[row]}'s ({before})"
+
+
+DEPTH_FOUND_S = 0.3     # a late depth sensor's delay found within this of the truth (2 s: at least 1.8, the scan's edge)
+DEPTH_OF_ON_TIME = 0.02  # taken off, the skill within this of the same sensors on time
+
+
+def _judge_depth_delay(row: str, nums: dict, sound: bool) -> tuple:
+    """A late depth sensor (B-depthlag-*): the delay given is taken as said; left out, a late one is found and taken
+    off, and an on-time one isn't."""
+    true = float(row.rsplit("-", 1)[1])
+    d = (nums.get("fix_delays") or {}).get("main") or {}
+    took, frm, m = d.get("applied_s"), d.get("applied_from"), nums["mean_skill"]
+    others = [x.get("applied_s") for k, x in (nums.get("fix_delays") or {}).items() if k != "main"]
+    if took is None or m is None:
+        return False, "the depth sensor's delay is scanned and recorded"
+    sound = sound and not any(others)   # nothing taken off the fixes, which are on time
+    if "-fresh-" in row:
+        on_time = _reference(row.rsplit("-", 1)[0] + "-0").get("mean_skill") if true else None
+    else:
+        on_time = _reference("B-set-nominal").get("mean_skill")
+    if row == "B-depthlag-given0-1":
+        ok = took == 0.0 and "description" in str(frm) and bool(d.get("late"))
+        return sound and ok, "nothing taken off, as said; the readings still found clearly late (the report says so)"
+    if row == "B-depthlag-given-1":
+        ok = took == 1.0 and "description" in str(frm) and on_time is not None and m >= on_time - DEPTH_OF_ON_TIME
+        return sound and ok, f"the given 1 s taken off; mean skill >= the on-time sensors' ({on_time}) - {DEPTH_OF_ON_TIME}"
+    if not true:
+        return sound and took == 0.0, "nothing taken off (the depth is on time), nor off the fixes"
+    found = frm == "found in the fixes" and (took >= 2.0 - DEPTH_FOUND_S if true >= 2.0
+                                            else abs(took - true) <= DEPTH_FOUND_S)
+    ok = found and on_time is not None and m >= on_time - DEPTH_OF_ON_TIME
+    expect = (f"the delay found within {DEPTH_FOUND_S} s and taken off; mean skill >= the same sensors on time "
+              f"({on_time}) - {DEPTH_OF_ON_TIME}")
+    if row == "B-depthlag-1":
+        before = _reference("B-depthlag-given0-1").get("mean_skill")
+        bar = None if before is None or on_time is None else before + APPLIED_OF_GAP * (on_time - before)
+        ok = ok and bar is not None and m >= bar
+        expect += f"; and at least half of what the delay cost back (>= {bar}, from the uncorrected {before})"
+    return sound and ok, expect
 
 
 # --- the sensor matrix: every mix of sensors, on a short budget -------------------------------------------------------

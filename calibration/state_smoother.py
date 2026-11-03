@@ -258,6 +258,13 @@ DELAY_SAID_S = 0.5            # said from this delay
 # and only when it explains each fix this much better (log-likelihood) than no delay. First 2.0, which B-latency-1
 # failed (1.21); 0.5 was then chosen from the numbers above and tested on fresh recordings (B-latency-fresh-*)
 DELAY_GAIN_PER_FIX = 0.5
+# a late depth sensor, the same way (2026-11-03). Depth is logged at 1 to 10 Hz, so its bar is per second of the
+# window, not per reading. Chosen from the scan alone on the reference recordings, depth late by 0 / 0.3 / 0.5 / 1 /
+# 2 s with full, horizontal or no fixes: on time 0.0 per second every time; 0.5 s late 0.67-0.97; and from real depth
+# that's on time: the tank and DFKI's Bar30 0.0 s, URI's 1 Hz depth 0.5 s at 0.003 per second. Half the weakest late
+# case, tested on fresh recordings (B-depthlag-*)
+DELAY_GAIN_PER_S_DEPTH = 0.3
+DELAY_KINDS = ("position", "depth")
 
 
 def shifted_values(values: np.ndarray, k: int) -> np.ndarray:
@@ -273,14 +280,14 @@ def shifted_values(values: np.ndarray, k: int) -> np.ndarray:
 
 
 def shift_fixes(runs: Sequence, name: str, delay_s: float) -> None:
-    """Take delay_s off position sensor `name`'s times in every run (in place). The shift so far is kept on the
-    channel, so shifting a run again to the same delay (a reloaded calibration) changes nothing."""
+    """Take delay_s off position or depth sensor `name`'s times in every run (in place). The shift so far is kept on
+    the channel, so shifting a run again to the same delay (a reloaded calibration) changes nothing."""
     from dataclasses import replace
     for r in runs:
         if not r.channels:
             continue
         for i, c in enumerate(r.channels):
-            if c.name != name or c.kind != "position":
+            if c.name != name or c.kind not in DELAY_KINDS:
                 continue
             k = int(round((delay_s - c.shifted_s) * r.sample_rate_hz))
             if k:
@@ -289,13 +296,15 @@ def shift_fixes(runs: Sequence, name: str, delay_s: float) -> None:
 
 
 def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optional[dict] = None) -> dict:
-    """{position sensor: {delay_s, gain_per_fix, fixes, late}}: how late each position sensor's fixes look, from the
-    DELAY_WINDOW_S of a training run with the most of its fixes. late: said in the report (delay_s: to correct it)."""
+    """{position or depth sensor: {kind, delay_s, gain_per_fix, gain_per_s, fixes, late}}: how late each sensor's
+    readings look, from the DELAY_WINDOW_S of a training run with the most of them (fixes and gain_per_fix count
+    readings, a depth sensor's too). late: clear enough to take off (DELAY_GAIN_PER_FIX for a position sensor,
+    DELAY_GAIN_PER_S_DEPTH for depth)."""
     from dataclasses import replace
     from measurements import slice_run
     out = {}
-    names = sorted({ch.name for r in runs for ch in (r.channels or []) if ch.kind == "position"})
-    for name in names:
+    kinds = {ch.name: ch.kind for r in runs for ch in (r.channels or []) if ch.kind in DELAY_KINDS}
+    for name in sorted(kinds):
         best_run, best_a, best_n = None, 0, 0
         for r in runs:
             ch = next((c for c in r.channels if c.name == name), None)
@@ -308,7 +317,7 @@ def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optio
             if counts[a] > best_n:
                 best_run, best_a, best_n = r, a, int(counts[a])
         if best_run is None or best_n < 10:
-            out[name] = {"note": "too few fixes to tell a delay"}
+            out[name] = {"kind": kinds[name], "note": "too few readings to tell a delay"}
             continue
         r = best_run
         L = min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz)))
@@ -326,9 +335,12 @@ def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optio
                 ll[round(d, 3)] = loglik(d)
         best = max(ll, key=ll.get)
         gain = (ll[best] - ll[0.0]) / best_n if np.isfinite(ll[0.0]) and np.isfinite(ll[best]) else float("nan")
-        out[name] = {"delay_s": round(float(best), 2), "gain_per_fix": round(float(gain), 3), "fixes": best_n,
+        per_s = gain * best_n / (L / r.sample_rate_hz) if np.isfinite(gain) else float("nan")
+        clear = gain >= DELAY_GAIN_PER_FIX if kinds[name] == "position" else per_s >= DELAY_GAIN_PER_S_DEPTH
+        out[name] = {"kind": kinds[name], "delay_s": round(float(best), 2), "gain_per_fix": round(float(gain), 3),
+                     "gain_per_s": round(float(per_s), 3), "fixes": best_n,
                      "at_the_scan_edge": bool(best >= max(DELAY_SCAN_S)),
-                     "late": bool(best >= DELAY_SAID_S and np.isfinite(gain) and gain >= DELAY_GAIN_PER_FIX)}
+                     "late": bool(best >= DELAY_SAID_S and np.isfinite(gain) and clear)}
     return out
 
 

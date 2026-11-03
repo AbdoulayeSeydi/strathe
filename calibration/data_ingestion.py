@@ -381,13 +381,13 @@ class DepthSpec(BaseModel):
     pressure: Optional[PressureSpec] = None
     name: str = Field(default="main", pattern=SENSOR_NAME)   # its column: depth_<name>
     drop_when: list[ExcludeRule] = []
-    delay_s: float = 0.0
+    delay_s: Optional[float] = None   # as position.delay_s: given (0 included), taken as said; left out, looked for
 
     @model_validator(mode="after")
     def _one(self):
         if (self.column is None) == (self.pressure is None):
             raise ValueError("depth needs exactly one of: column (a depth reading) or pressure: {column, unit}")
-        if not np.isfinite(self.delay_s):
+        if self.delay_s is not None and not np.isfinite(self.delay_s):
             raise ValueError("depth.delay_s must be a number of seconds")
         return self
 
@@ -692,7 +692,7 @@ def _sensor_channel(spec: IngestSpec, b, t_n, v, path, report) -> dict:
         columns = ["acc_x", "acc_y", "acc_z"]
     if b.delay_s:
         t_n = t_n - b.delay_s
-    if b.delay_s is not None and (b.delay_s or kind == "position"):   # a position sensor's 0 is said too: on time
+    if b.delay_s is not None and (b.delay_s or kind in ("position", "depth")):   # their 0 is said too: on time
         info["delay_s"] = b.delay_s
     if kind == "position" and len(t_n) > 2:
         # the tolerance comes from what the sensor type can do, not from these fixes: bad fixes would inflate it

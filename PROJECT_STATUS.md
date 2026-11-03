@@ -3534,7 +3534,7 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - No lab has yet calibrated its own vehicle this way; SOLAQUA (the only public log with a USBL) has no thruster forces.
 - Roll and pitch inertia aren't pinned down by 1 Hz fixes (they are by 10 Hz motion capture).
 - A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
-- A late position sensor is corrected only when its fixes show it clearly (0.3 s late isn't); a gyro that lags the orientation is said, not shifted; depth isn't checked for a delay (LIMITS).
+- A late position or depth sensor is corrected only when its readings show it clearly (0.3 s late isn't); a gyro that lags the orientation is said, not shifted (LIMITS).
 - fit-sim from GPS at the surface lost surge on URI, cause not found (LIMITS).
 - Only three real vehicles: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public). Marinarium (MIT licence, another BlueROV2 with motion capture and its commands) is a candidate, not yet downloaded.
 
@@ -3613,10 +3613,20 @@ now built and tested, or said here as not possible:
   - on time, twice, and 0.3 s late (too little to tell): nothing taken off, skill unchanged;
   - `delay_s: 1` given: 0.9925; `delay_s: 0` given: taken as said (0.876), and the report says the fixes look late;
   - real data: nothing taken off on URI (its GPS isn't clearly late), the tank or DFKI (0.0 s).
-  - Not shifted: a gyro that lags the orientation (either could be late, so it's said at ingest); depth isn't
-    checked for a delay.
+  - Not shifted: a gyro that lags the orientation (either could be late, so it's said at ingest).
+- **A late depth sensor, the same way (2026-11-03).** Depth is logged at 1 to 10 Hz, so its bar is per second of
+  readings: 0.3, chosen from the scan alone on the reference recordings (depth late by 0 to 2 s, with full,
+  horizontal or no fixes: on time read 0.0 every time, 0.5 s late 0.67 to 0.97 per second) and on real depth on
+  time (the tank and DFKI's Bar30 0.0 s; URI's 1 Hz depth 0.5 s at 0.003 per second). Tested with bars fixed before
+  running (B-depthlag-*, all 11 pass):
+  - 1 s late: found 1.0 s and taken off, held-out skill 0.948 → 0.9925 (on time 0.9926); `delay_s: 1` given 0.9925;
+    `delay_s: 0` given, taken as said and the report says so;
+  - fresh recordings, depth the only vertical sensor: 0, 0.5, 1 and 2 s found at 0.0, 0.5, 1.0 and 2.0 s; depth and
+    the gyro only, 1 s found at 1.0 s; 1 Hz depth, 1 s found at 0.8 s; on time, nothing taken off each time.
+  - One row (fresh, depth and the gyro only, 1 s) first read FAIL because it finished before its on-time
+    reference; scored again once the reference was in, as set up before the run, it passes on the same fit.
 
-**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **223 of 232 rows
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **234 of 243 rows
 pass.** The 9 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, U-1, U-1b, B-set-depth,
 S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
 

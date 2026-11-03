@@ -130,9 +130,9 @@ def sensor_mounts(raw_spec: dict) -> dict:
 
 
 def given_delays(data_dir: Optional[str], mounts: Optional[dict]) -> dict:
-    """{position sensor: (delay in s, where it was said)}: the delays the lab gave, which calibration takes as said
-    instead of looking for one. The vehicle description's sensors.<name>.delay_s is taken off the fixes here; the
-    ingest spec's position.delay_s was taken off at ingest, so it counts as 0 more."""
+    """{position or depth sensor: (delay in s, where it was said)}: the delays the lab gave, which calibration takes as
+    said instead of looking for one. The vehicle description's sensors.<name>.delay_s is taken off the readings here;
+    the ingest spec's delay_s was taken off at ingest, so it counts as 0 more."""
     import json
     out = {}
     path = os.path.join(data_dir or "", "ingest_report.json")
@@ -143,7 +143,7 @@ def given_delays(data_dir: Optional[str], mounts: Optional[dict]) -> dict:
         except (OSError, ValueError):
             sens = {}
         out.update({name: (0.0, f"the ingest spec's delay_s ({ch['delay_s']:g} s, already taken off)")
-                    for name, ch in sens.items() if ch.get("kind") == "position" and "delay_s" in ch})
+                    for name, ch in sens.items() if ch.get("kind") in ("position", "depth") and "delay_s" in ch})
     for name, m in (mounts or {}).items():
         if m.get("delay_s") is not None:
             if name in out:

@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-03 00:15. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-03 12:15. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -876,7 +876,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #96. Calibrate from what the vehicle measures: no DVL needed
 
-**223 of 232 rows pass** (42 variables found in the code, each with a row).
+**234 of 243 rows pass** (42 variables found in the code, each with a row).
 
 ### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
 
@@ -1035,6 +1035,17 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | B-applied-nominal | position latency = on time: nothing taken off | on time: nothing taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 3154.5, "skill": [0.9956, 0.9865, 0.9897, 0.9933, 0.993, 0.9975], "mean_skill": 0.9926, "median_param_error_of_range": 0.0014, "worst_par... | 53 min |
 | B-given-0 | position latency = 1 s late, delay_s: 0 in the description: taken as said | 1 s late, delay_s: 0 in the description: taken as said | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 2093.3, "skill": [0.9338, 0.7118, 0.9146, 0.8622, 0.8951, 0.9382], "mean_skill": 0.876, "median_param_error_of_range": 0.0004, "worst_par... | 35 min |
 | B-given-1 | position latency = 1 s late, delay_s: 1 in the description | 1 s late, delay_s: 1 in the description | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 2291.8, "skill": [0.9893, 0.9902, 0.992, 0.993, 0.992, 0.9988], "mean_skill": 0.9925, "median_param_error_of_range": 0.0001, "worst_param... | 38 min |
+| B-depthlag-given0-1 | depth latency = 1 s, delay_s: 0 in the description | depth 1 s late, delay_s: 0 in the description | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1072.3, "skill": [0.963, 0.91, 0.9462, 0.9383, 0.938, 0.9917], "mean_skill": 0.9479, "median_param_error_of_range": 0.0, "worst_params": ... | 18 min |
+| B-depthlag-given-1 | depth latency = 1 s, delay_s: 1 in the description | depth 1 s late, delay_s: 1 in the description | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1262.6, "skill": [0.9955, 0.9862, 0.9898, 0.9931, 0.9929, 0.9975], "mean_skill": 0.9925, "median_param_error_of_range": 0.0015, "worst_pa... | 21 min |
+| B-depthlag-1 | depth latency = 1 s, found and taken off | depth 1 s late, found and taken off | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1265.8, "skill": [0.9955, 0.9862, 0.9898, 0.9931, 0.9929, 0.9975], "mean_skill": 0.9925, "median_param_error_of_range": 0.0015, "worst_pa... | 21 min |
+| B-depthlag-fresh-ne-0 | depth latency = 0 s, fresh recordings, horizontal fixes: depth the only vertical sensor | depth 0 s late, fresh recordings, horizontal fixes: depth the only vertical sensor | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1168.4, "skill": [0.9973, 0.9901, 0.9987, 0.9971, 0.9974, 0.9982], "mean_skill": 0.9965, "median_param_error_of_range": 0.001, "worst_par... | 19 min |
+| B-depthlag-fresh-ne-1 | depth latency = 1 s, fresh recordings, horizontal fixes: depth the only vertical sensor | depth 1 s late, fresh recordings, horizontal fixes: depth the only vertical sensor | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1199.1, "skill": [0.9973, 0.9899, 0.9984, 0.997, 0.9973, 0.9982], "mean_skill": 0.9964, "median_param_error_of_range": 0.0006, "worst_par... | 20 min |
+| B-depthlag-fresh-ne-2 | depth latency = 2 s, fresh recordings, horizontal fixes: depth the only vertical sensor | depth 2 s late, fresh recordings, horizontal fixes: depth the only vertical sensor | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1243.1, "skill": [0.9974, 0.9899, 0.9985, 0.9969, 0.9972, 0.9983], "mean_skill": 0.9964, "median_param_error_of_range": 0.0008, "worst_pa... | 21 min |
+| B-depthlag-fresh-ne-0.5 | depth latency = 0.5 s, fresh recordings, horizontal fixes: depth the only vertical sensor | depth 0.5 s late, fresh recordings, horizontal fixes: depth the only vertical sensor | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1036.2, "skill": [0.9973, 0.9901, 0.9987, 0.9971, 0.9975, 0.9983], "mean_skill": 0.9965, "median_param_error_of_range": 0.0006, "worst_pa... | 17 min |
+| B-depthlag-fresh-1hz-0 | depth latency = 0 s, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | depth 0 s late, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1017.4, "skill": [0.9973, 0.9899, 0.9981, 0.997, 0.9976, 0.9982], "mean_skill": 0.9964, "median_param_error_of_range": 0.0007, "worst_par... | 17 min |
+| B-depthlag-fresh-only-1 | depth latency = 1 s, fresh recordings, depth and the gyro only | depth 1 s late, fresh recordings, depth and the gyro only | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1213.5, "skill": [-0.4975, -0.8425, 0.8517, 0.4555, 0.436, 0.1693], "mean_skill": 0.0954, "median_param_error_of_range": 0.1062, "worst_p... | 20 min |
+| B-depthlag-fresh-only-0 | depth latency = 0 s, fresh recordings, depth and the gyro only | depth 0 s late, fresh recordings, depth and the gyro only | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1081.0, "skill": [-0.4972, -0.8439, 0.8517, 0.456, 0.436, 0.1691], "mean_skill": 0.0953, "median_param_error_of_range": 0.1062, "worst_pa... | 18 min |
+| B-depthlag-fresh-1hz-1 | depth latency = 1 s, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | depth 1 s late, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1050.9, "skill": [0.9929, 0.9809, 0.9893, 0.9885, 0.9897, 0.9983], "mean_skill": 0.9899, "median_param_error_of_range": 0.0003, "worst_pa... | 18 min |
 
 ### Every sensor combination on the BlueROV2 (what is calibrated, what is held)
 
