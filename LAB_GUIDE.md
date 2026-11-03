@@ -19,7 +19,9 @@ python strathe.py check
 - **Logs from two or more days, if you can.** Strathe checks itself on whole days it never saw during calibration.
   **One day works too**: it then holds out recordings within the day (or the last part of one long recording), and
   the report says that check is easier than a new day ([calibration/ONE_SESSION.md](calibration/ONE_SESSION.md)).
-- **Velocity:** from a DVL, an EKF that fuses one, or a positioning system.
+- **How the vehicle moved:** a DVL (gaps are fine), an EKF that fuses one, or **no DVL at all**: position fixes
+  (USBL, LBL, GPS at the surface, motion capture) and depth. Without a DVL, Strathe calibrates what those sensors
+  can see, holds the rest at your description's values and says which ([calibration/SENSORS.md](calibration/SENSORS.md)).
 - **Orientation**, and the **body rates** from the IMU.
 - **What each thruster was told:** ESC PWM in µs, normalized commands (with your command-to-thrust table), or logged forces.
 - **Varied driving:** manoeuvres on every axis you care about, at several speeds.
@@ -64,7 +66,15 @@ column or topic names, units and frame. Each template's comments say what every 
 | PX4 `.ulg` | `ingest_px4_ulog.yaml` |
 | MOOS-IvP `.alog` | `ingest_moos_alog.yaml` |
 | LCM logs, with your `.lcm` types | `ingest_lcm.yaml` (`pip install lcm`) |
+| **No DVL**, CSV: thrust, gyro, attitude, depth, and USBL / LBL / motion-capture fixes | `ingest_csv_usbl.yaml` |
+| **No DVL**, ArduSub `.bin`: its IMU, depth sensor and (if any) a USBL / UGPS fix | `ingest_ardusub_no_dvl.yaml` |
+| ROS bags with the vehicle's own sensors: IMU, pressure, GPS, USBL, a DVL with gaps | `ingest_rosbag_sensors.yaml` |
 | Free-decay tank tests on ArduSub | `ingest_free_decay_ardupilot.yaml` |
+
+**A sensor that reports late** (a USBL fix after acoustic travel and processing, depth through a slow link): give
+its latency as `delay_s:` in its `position:` or `depth:` block, 0 if it's on time. Left out, Strathe looks for a
+delay and takes off one the readings clearly show, and the report says so; a delay under about 0.5 s is only
+corrected if you give it ([calibration/SENSORS.md](calibration/SENSORS.md)).
 
 **Other formats:**
 - **PX4, MOOS-IvP and LCM** are read directly: how to name what to read, and what happens to a damaged log, is in

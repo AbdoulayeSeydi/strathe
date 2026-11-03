@@ -27,6 +27,7 @@ depth:
   name: bar30
   # BARO[1] is the external (water) pressure sensor on ArduSub; BARO[0] is the one inside the enclosure
   pressure: {column: "BARO[1].Press", unit: Pa, water: fresh, surface: auto}   # water: salt at sea
+  # delay_s: 0.2              # its latency in seconds, if you know it (0: on time); left out, a clear one is taken off
 accelerometer:                 # optional: the raw IMU's specific force (m/s^2, gravity included)
   x: IMU[0].AccX
   y: IMU[0].AccY
