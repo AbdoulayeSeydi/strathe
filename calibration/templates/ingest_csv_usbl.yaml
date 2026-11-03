@@ -26,6 +26,7 @@ depth:
   column: depth_m
   positive: down               # down: deeper is larger (most depth sensors) | up
   # or a pressure: pressure: {column: pressure_pa, unit: Pa, water: salt, surface: auto}
+  # delay_s: 0.2              # its latency in seconds, if you know it (0: on time); left out, a clear one is taken off
 position:
   use: calibrate               # fit to it (check: only check the heading against it, as before)
   source: usbl                 # usbl | lbl | mocap | gps (sets the outlier check's tolerance; noise_m: to set it)

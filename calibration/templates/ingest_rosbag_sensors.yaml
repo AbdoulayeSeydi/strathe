@@ -30,6 +30,7 @@ depth:
   name: baro
   pressure: {column: /pressure.fluid_pressure, unit: Pa, water: salt, surface: auto}
   # or a depth reading: column: /depth.data, positive: down
+  # delay_s: 0.2              # its latency in seconds, if you know it (0: on time); left out, a clear one is taken off
 position:
   - use: calibrate
     source: gps                # a fix only at the surface
