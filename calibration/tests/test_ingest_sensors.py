@@ -365,6 +365,25 @@ def test_planted_sensor_errors_are_refused(raw, tmp_path, planted, kw, message):
         run(tmp_path, spec_dict(raw))
 
 
+def test_depth_alone_is_checked_against_the_thrust(raw, tmp_path):
+    """No position fix to compare with (the BlueROV2 lab with only a Bar30): a flipped depth sign is still refused,
+    from the vertical thrust, and the right sign passes."""
+    veh = synth_vehicle()
+    write_csv(raw / "r.csv", veh, depth_scale=-1.0)
+    with pytest.raises(IngestError, match="depth falls when the thrusters push down"):
+        run(tmp_path, spec_dict(raw, position=None), name="flipped")
+    write_csv(raw / "r.csv", veh)
+    s, _ = run(tmp_path, spec_dict(raw, position=None), name="right")
+    chk = s["files"][0]["sensor_checks"]["depth_vs_thrust"]["depth_main"]
+    assert chk["correlation"] > 0.5 and "problem" not in chk
+
+
+def test_the_depth_thrust_check_says_nothing_without_vertical_thrust():
+    veh = synth_vehicle()
+    still = np.zeros_like(veh["wrench"][:, :3])
+    assert "note" in si.depth_vs_thrust(veh["t"], veh["pos"][:, 2], veh["R"], still)
+
+
 def test_a_check_can_be_skipped_and_says_so(raw, tmp_path):
     write_csv(raw / "r.csv", synth_vehicle(), acc_scale=1 / si.G)
     s, _ = run(tmp_path, spec_dict(raw, skip_checks=["accelerometer"]))
@@ -443,7 +462,7 @@ def test_old_specs_still_mean_what_they_meant(raw, tmp_path):
 
 # ------------------------------------------------------------------ end to end, a ROS bag with real message types
 
-def _bag_with_sensors(path, veh, gps_until_s=60.0):
+def _bag_with_sensors(path, veh, gps_until_s=60.0, imu_topic="/imu", fix_topic="/fix", rho=997.0, usbl_topic=None):
     from rosbags.rosbag1 import Writer
     from rosbags.typesys import Stores, get_typestore
     ts = get_typestore(Stores.ROS1_NOETIC)
@@ -466,14 +485,15 @@ def _bag_with_sensors(path, veh, gps_until_s=60.0):
                                        angular_velocity_covariance=np.zeros(9),
                                        linear_acceleration=V3(x=a[0], y=a[1], z=a[2]),
                                        linear_acceleration_covariance=np.zeros(9))
-        msgs.append((T0 + t, "/imu", "sensor_msgs/msg/Imu", imu))
+        msgs.append((T0 + t, imu_topic, "sensor_msgs/msg/Imu", imu))
         F = veh["wrench"][k] * np.r_[flip, flip]
         wr = g["geometry_msgs/msg/WrenchStamped"](header=header(T0 + t), wrench=g["geometry_msgs/msg/Wrench"](
             force=V3(x=F[0], y=F[1], z=F[2]), torque=V3(x=F[3], y=F[4], z=F[5])))
         msgs.append((T0 + t, "/wrench", "geometry_msgs/msg/WrenchStamped", wr))
         if k % 4 == 0:   # a pressure sensor at 2.5 Hz, Pa
             p = g["sensor_msgs/msg/FluidPressure"](header=header(T0 + t + 0.013),
-                                                   fluid_pressure=101325.0 + 997 * si.G * veh["pos"][k, 2], variance=0.0)
+                                                   fluid_pressure=101325.0 + rho * si.G * veh["pos"][k, 2],
+                                                   variance=0.0)
             msgs.append((T0 + t + 0.013, "/pressure", "sensor_msgs/msg/FluidPressure", p))
         if k % 10 == 3:  # GPS at 1 Hz, with a fix only while surfaced (the first minute)
             n_, e_ = veh["pos"][k, 0], veh["pos"][k, 1]
@@ -483,7 +503,12 @@ def _bag_with_sensors(path, veh, gps_until_s=60.0):
                                                  longitude=-71.0 + np.degrees(e_ / (6378137.0 * np.cos(np.radians(41)))),
                                                  altitude=0.0, position_covariance=np.zeros(9),
                                                  position_covariance_type=0)
-            msgs.append((T0 + t, "/fix", "sensor_msgs/msg/NavSatFix", fix))
+            msgs.append((T0 + t, fix_topic, "sensor_msgs/msg/NavSatFix", fix))
+        if usbl_topic and k % 20 == 7:   # a USBL at 0.5 Hz, its fix in the world frame (ENU: east, north, up)
+            n_, e_, d_ = veh["pos"][k]
+            pose = g["geometry_msgs/msg/PoseStamped"](header=header(T0 + t), pose=g["geometry_msgs/msg/Pose"](
+                position=g["geometry_msgs/msg/Point"](x=e_, y=n_, z=-d_), orientation=Q(x=0.0, y=0.0, z=0.0, w=1.0)))
+            msgs.append((T0 + t, usbl_topic, "geometry_msgs/msg/PoseStamped", pose))
     msgs.sort(key=lambda m: m[0])
     with Writer(path) as wtr:
         conns = {}
@@ -523,3 +548,65 @@ def test_a_ros_bag_with_imu_pressure_and_gps(raw, tmp_path):
     assert s["sensors"]["axes_not_seen"] == []
     json.dumps(s)   # nothing un-serialisable leaked into the report
     assert os.path.isfile(tmp_path / "out_s" / "ingest_report.json")
+
+
+def test_the_ros_sensors_template_reads_a_bag_with_imu_pressure_gps_and_usbl(raw, tmp_path):
+    """templates/ingest_rosbag_sensors.yaml as shipped (#96), on a bag with its topics: only the files and the wrench
+    (a WrenchStamped here, not MAVROS PWM) changed."""
+    veh = synth_vehicle()
+    _bag_with_sensors(str(raw / "dive.bag"), veh, imu_topic="/imu/data", fix_topic="/gps/fix", rho=1025.0,
+                      usbl_topic="/usbl/pose")
+    spec = yaml.safe_load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates",
+                                            "ingest_rosbag_sensors.yaml"), encoding="utf-8"))
+    spec["source"]["files"] = str(raw / "*.bag")
+    spec["wrench"] = {"columns": {"Fx": "/wrench.wrench.force.x", "Fy": "/wrench.wrench.force.y",
+                                  "Fz": "/wrench.wrench.force.z", "Tx": "/wrench.wrench.torque.x",
+                                  "Ty": "/wrench.wrench.torque.y", "Tz": "/wrench.wrench.torque.z"}}
+    s, (out,) = run(tmp_path, spec, name="template")
+    assert 55 <= out["pos_gps_n"].notna().sum() <= 60
+    k = np.flatnonzero(out["pos_usbl_n"].notna())
+    assert 55 <= len(k) <= 61
+    np.testing.assert_allclose(out.loc[k, ["pos_usbl_n", "pos_usbl_e", "pos_usbl_d"]].values, veh["pos"][k], atol=1e-6)
+    dep = out["depth_baro"].notna().to_numpy()
+    z = out["depth_baro"].to_numpy()[dep]
+    truth = veh["pos"][np.flatnonzero(dep), 2]
+    np.testing.assert_allclose(z - z.min(), truth - truth.min(), atol=0.02)   # surface: auto
+    assert np.allclose(out["acc_z"], veh["acc"][: len(out), 2], atol=1e-6)
+    assert s["sensors"]["axes_not_seen"] == []
+
+
+def test_the_csv_usbl_template_reads_a_log_with_empty_cells_between_fixes(raw, tmp_path):
+    """templates/ingest_csv_usbl.yaml as shipped (#96): only its files changed."""
+    veh = synth_vehicle()
+    df = write_csv(raw / "dive-2026-11-01.csv", veh)
+    names = {"time": "timestamp", "Fx": "force_x", "Fy": "force_y", "Fz": "force_z", "Tx": "torque_x",
+             "Ty": "torque_y", "Tz": "torque_z", "gp": "rate_x", "gq": "rate_y", "gr": "rate_z", "px": "usbl_x",
+             "py": "usbl_y", "pz": "usbl_z", "depth": "depth_m"}
+    df.rename(columns=names).to_csv(raw / "dive-2026-11-01.csv", index=False)
+    spec = yaml.safe_load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates",
+                                            "ingest_csv_usbl.yaml"), encoding="utf-8"))
+    spec["source"]["files"] = str(raw / "*.csv")
+    s, (out,) = run(tmp_path, spec, name="csv_template")
+    k = np.flatnonzero(out["pos_usbl_n"].notna())
+    assert len(k) == 120
+    np.testing.assert_allclose(out.loc[k, ["pos_usbl_n", "pos_usbl_e", "pos_usbl_d"]].values, veh["pos"][k], atol=1e-6)
+    assert out["depth_main"].notna().sum() == 600 and "Bu" not in out.columns
+    assert s["sensors"]["axes_not_seen"] == [] and s["files"][0]["session_date"] == "01-11-2026"
+
+
+def test_gps_in_radians_declared_as_degrees_is_refused(raw, tmp_path):
+    df = write_csv(raw / "r.csv", synth_vehicle(), gps_latlon=True)
+    df["lat"] = df["lat"] * 1000.0    # not a latitude at all (a projected coordinate, or the wrong column)
+    df.to_csv(raw / "r.csv", index=False)
+    pos = {"use": "calibrate", "source": "gps", "latlon": {"lat": "lat", "lon": "lon"}}
+    with pytest.raises(IngestError, match="latitudes/longitudes out of range"):
+        run(tmp_path, spec_dict(raw, position=pos))
+
+
+@pytest.mark.parametrize("block", ["position", "depth", "accelerometer"])
+def test_a_sensor_delay_must_be_a_number(raw, tmp_path, block):
+    write_csv(raw / "r.csv", synth_vehicle())
+    spec = spec_dict(raw)
+    spec[block] = {**spec[block], "delay_s": float("nan")}
+    with pytest.raises(Exception, match=f"{block}.delay_s must be a number of seconds"):
+        run(tmp_path, spec)

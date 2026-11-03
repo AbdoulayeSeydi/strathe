@@ -461,6 +461,12 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     smoothing = sm.set_anchors(train_runs + heldout_runs, default_params, vehicle, sigma, noise)
     for f in smoothing["fallbacks"]:
         logger.warning("Sensor suite: smoother fell back to the DVL (or rest) on %s", f)
+    delays = sm.fix_delays(train_runs, default_params, vehicle, sigma, noise)
+    for name, d in sorted(delays.items()):
+        if d.get("late"):
+            logger.warning("Sensor suite: %s's fixes match the motion best %s%.1f s late: if your system reports "
+                           "late, give delay_s: in its position: block (SENSORS.md)", name,
+                           "at least " if d["at_the_scan_edge"] else "", d["delay_s"])
     scales = ms.still_scales(train_runs, H)
     only_heldout = {}
     for r in heldout_runs:
@@ -476,7 +482,7 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
             "plain": ms.seen_words(seen), "held_unobserved": held, "noise": noise,
             "noise_source": noise_source,
             "smoother": {"accel_sigma_mps2": sigma, "loglik_by_sigma": scores, **smoothing},
-            "scales": scales, "only_in_heldout": sorted(only_heldout), "rounds": []}
+            "fix_delays": delays, "scales": scales, "only_in_heldout": sorted(only_heldout), "rounds": []}
 
 
 def sensor_runs_from_metrics(runs: list, metrics: dict, params, vehicle) -> Optional[dict]:

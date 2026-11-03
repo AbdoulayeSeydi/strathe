@@ -64,6 +64,9 @@ def add_fit_arguments(ap) -> None:
                     help="one value for sway and heave (a torpedo-shaped vehicle)")
     ap.add_argument("--from-strathe", metavar="CALIBRATION",
                     help="start from your Strathe calibration's values put into the model (as export-sim), then fit")
+    ap.add_argument("--starts-from", metavar="CALIBRATION",
+                    help="no DVL: start each window from the state smoother with your Strathe calibration's physics, "
+                         "without putting its values into the model (any simulator; --from-strathe does both)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
     ap.add_argument("--finish", action="store_true",
                     help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
@@ -179,6 +182,17 @@ def run_fit(adapter, a) -> int:
         densities = _densities(a)
         notes = list(getattr(adapter, "notes", []))
         exported = None
+        if a.from_strathe and getattr(a, "starts_from", None):
+            raise SimFitError("give --from-strathe or --starts-from, not both: --from-strathe already starts each window "
+                              "from its calibration's physics")
+        if getattr(a, "starts_from", None):   # #96: the physics-aided starts alone, for a model Strathe's can't go into
+            from stonefish_export import load_calibration
+            sp, smass, pfile = load_calibration(a.starts_from, a.compare_mass)
+            if getattr(train[0], "channels", None) is None:
+                print("  note: --starts-from changes nothing here: these logs have a DVL, and windows start from it",
+                      flush=True)
+            _physics_starts(train + held, sp, smass, _calibration_noise(pfile, a.data))
+            a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
         if a.from_strathe:
             from stonefish_export import load_calibration, training_density
             sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)

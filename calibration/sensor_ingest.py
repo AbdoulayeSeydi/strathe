@@ -51,6 +51,13 @@ MIN_ROTATION_RADPS = 0.05         # rates below this don't say much about scale
 ACCEL_G_TOLERANCE = 0.25          # quasi-static |f| within 25% of 9.81
 STATIC_GYRO_RADPS = 0.05
 STATIC_ACCEL_SPREAD = 0.5
+# depth rate against the vertical thrust (no vertical fix to compare with): on 23 real recordings (three vehicles) the
+# best correlation within 2 s was +0.15 to +0.85 but one, -0.13; a flipped sign reads about -0.3 to -0.85
+# (two 10-13 s DFKI pieces with 0.4 m of depth change read -0.6 and -0.7: too little to judge, so it needs this much)
+DEPTH_THRUST_FLIPPED = -0.4
+DEPTH_THRUST_DOUBT = -0.2
+DEPTH_THRUST_MIN_S = 60.0
+DEPTH_THRUST_MIN_RANGE_M = 0.5
 
 
 class SensorError(ValueError):
@@ -289,6 +296,40 @@ def depth_vs_position(depth: np.ndarray, pz: np.ndarray) -> dict:
                           "flipped (depth positive: down|up, or the position frame)" % slope)
     elif not (0.5 < slope < 2.0):
         out["problem"] = f"depth changes {slope:.2f} times as much as the position fix's down axis: check the units"
+    return out
+
+
+def depth_vs_thrust(t: np.ndarray, depth: np.ndarray, R: np.ndarray, force_body: np.ndarray) -> dict:
+    """With no vertical position to compare against, a depth sensor's sign checked against the thrust: pushing down
+    (world +z, NED) makes depth grow. Depth rate (1 s smoothing) against the vertical thrust turned to the world, its
+    best correlation within a 2 s lag (the vehicle takes time to answer)."""
+    ok = np.isfinite(depth)
+    rate = 1.0 / float(np.median(np.diff(t))) if len(t) > 1 else 0.0
+    if ok.sum() < 50 or rate <= 0:
+        return {"note": "too few depth readings to check against the thrust"}
+    if t[-1] - t[0] < DEPTH_THRUST_MIN_S or np.ptp(depth[ok]) < DEPTH_THRUST_MIN_RANGE_M:
+        return {"note": f"under {DEPTH_THRUST_MIN_S:g} s or {DEPTH_THRUST_MIN_RANGE_M:g} m of depth change: too little "
+                        f"to check the depth's sign against the thrust"}
+    k = max(1, int(round(rate)))
+    smooth = lambda x: np.convolve(x, np.ones(k) / k, mode="same")
+    w = np.gradient(smooth(np.interp(t, t[ok], depth[ok])), t)
+    fz = np.einsum("nij,nj->ni", R, np.nan_to_num(force_body))[:, 2]
+    f = smooth(fz - np.mean(fz))
+    if np.std(f) < 1e-6 or np.std(w) < 1e-4:
+        return {"note": "too little vertical thrust or motion to check the depth's sign"}
+    best = 0.0
+    for lag in range(0, int(round(2 * rate)) + 1):
+        a, b = f[:len(f) - lag], w[lag:]
+        if np.std(a) > 0 and np.std(b) > 0:
+            c = float(np.corrcoef(a, b)[0, 1])
+            best = c if abs(c) > abs(best) else best
+    out = {"correlation": round(best, 3)}
+    if best <= DEPTH_THRUST_FLIPPED:
+        out["problem"] = (f"depth falls when the thrusters push down (correlation {best:+.2f}): its sign is likely "
+                          f"flipped (depth positive: down|up)")
+    elif best <= DEPTH_THRUST_DOUBT:
+        out["warning"] = (f"depth tends to fall when the thrusters push down (correlation {best:+.2f}): check depth "
+                          f"positive: down|up")
     return out
 
 

@@ -3534,15 +3534,84 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - No lab has yet calibrated its own vehicle this way; SOLAQUA (the only public log with a USBL) has no thruster forces.
 - Roll and pitch inertia aren't pinned down by 1 Hz fixes (they are by 10 Hz motion capture).
 - A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
-- A late position sensor isn't detected: its `delay_s:` has to be given (LIMITS).
+- A late position sensor is found only when its fixes show it clearly, and the delay isn't applied: `delay_s:` corrects it (LIMITS).
+- fit-sim from GPS at the surface lost surge on URI, cause not found (LIMITS).
 - Only three real vehicles: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public). Marinarium (MIT licence, another BlueROV2 with motion capture and its commands) is a candidate, not yet downloaded.
 
-**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): 104 rows: 99 pass, 5 fail (R-3, D-3, U-1, B-set-depth, S-solaqua: each above, in LIMITS, and kept as failures).
+**Closing the plan (2026-11-02).** After #51 merged, an audit against the approved plan found parts not done. Each is
+now built and tested, or said here as not possible:
+
+- **A flipped depth sign with depth as the only vertical sensor wasn't caught** (the D-3 lab's case: the check
+  needed a position fix's vertical).
+  - `depth_vs_thrust` now checks it against the vertical thrust: depth should grow when the thrusters push down.
+  - On 23 real recordings the correlation was +0.15 to +0.85, with one at −0.13.
+  - Two 10–13 s DFKI pieces with 0.4 m of depth change read −0.6 and −0.7. That's too little to judge, so the check
+    needs 60 s and 0.5 m.
+  - On every real recording long enough to judge, none was refused as logged. With the sign flipped, all 9 tank and
+    all 5 DFKI ones were refused; on URI one was refused and the other got a warning.
+- **A late position sensor.** Calibration now scans 0–2 s of shift with the state smoother and the description's
+  physics.
+  - With the first threshold (2 per fix), the plan's bar failed: 1 s late was found at 0.8 s but at only 1.21 per
+    fix, so nothing was said. **B-latency-1 is kept as a failure.**
+  - 0.5 was chosen from those numbers, then tested on recordings and noise it wasn't chosen on: 0 s quiet, 1 s and
+    2 s warned (B-latency-fresh-*).
+  - Real fixes with no delay (the tank's, DFKI's) read 0.0 s. URI's real GPS read at least 2 s, at 0.125 per fix,
+    unconfirmed by its DVL; it's said as information, not warned.
+- **The smoother against the closed form:** with no physics and a fixed orientation, its forward filter and RTS pass
+  equal the batch least-squares answer over every state, to 3·10⁻¹³ on velocities up to 0.38 m/s.
+- **Every sensor refusal reached by a test.** `tests/test_sensor_messages.py` reads the 39 refusals from the code; a
+  planted untested one failed it. Two refusals had no test and now do (a non-numeric `delay_s`, latitudes out of
+  range).
+- **The sensor templates, end to end.**
+  - `ingest_ardusub_no_dvl.yaml`: a `.bin` with BARO[1] and the IMU's accelerometer.
+  - `ingest_rosbag_sensors.yaml`: a bag on its own topics, with a USBL.
+  - New: `ingest_csv_usbl.yaml`.
+  - The first two had been loaded by a test but never run on logs.
+- **URI both ways** (U-Vb, U-1b), the bay day held out. Every axis beat default physics against the hidden DVL. Mean
+  0.188, above the DVL fit's 0.081 on the same split. **U-1b fails**: with GPS only at the surface, no 60 s window
+  had fixes at both ends on that day.
+- **fit-sim on real data, the truth hidden (the plan's Phase-2 bar).** Mean held-out skill of 10 s free runs, fit-sim
+  (MuJoCo) against Strathe's calibration from the same sensors, scored the same way.
+  - **DFKI, D-3's sensors:** 0.067 against −0.107. Passes.
+  - **URI, U-1's sensors:** 0.033 against 0.101. **Fails.** fit-sim fitted surge to 0.15, where the model began at
+    0.82.
+    - The DVL control: fit-sim from URI's DVL, 0.123 against 0.173, surge kept at 0.81.
+    - New `fit-sim --starts-from CALIBRATION` gives any simulator the calibration's physics-aided window starts
+      (MuJoCo couldn't take `--from-strathe`). It didn't change URI (0.032) or DFKI (0.061), so the starts aren't the
+      cause. Not yet explained (LIMITS).
+- **export-sim from the sensors** had never been run. Through Gazebo (Docker), Gazebo with Strathe's values drifted
+  5.38 m at 10 s against Strathe's own model's 5.39 m. MuJoCo refuses it by design and says why (E-export-sim).
+- **The sweep's missing values**, each passing its bar, fixed before it ran:
+  - a DVL reading 30% of the time (0.993);
+  - accelerometer biases of 0.05 and 0.2 m/s² (0.996 both: the bias is removed per window);
+  - 4 smoother rounds;
+  - a fibre-optic gyro;
+  - grades: RTK (0.9995), standalone GNSS (0.965), Nucleus DVL, Bar02;
+  - a 1 cm/s DVL;
+  - two depth sensors;
+  - a USBL with a GPS;
+  - a current estimated with `--estimate-current` (0.995).
+  - **Finding:** a USBL and a 1.27 m GPS both left at the 0.2 m default noise scored 0.960 against the USBL alone's
+    0.993. The GPS was trusted 6× too much; give each sensor's noise or grade (SENSORS.md).
+- **The matrix at full size:** 64 mixes (each subset of DVL, horizontal fixes, vertical, accelerometer; heading from a
+  compass or the gyro; the gyro logged or derived from the orientation) on two vehicles, the BlueROV2 and URI's ALPHA
+  RISE with its DVL fit as the truth. **All 128 pass:** each calibrated, or stopped with a sentence, and calibrated
+  exactly the axes its sensors see, holding the rest.
+- **Not possible as the plan listed:**
+  - "window start source" and "channel weighting" aren't options the product has;
+  - 16 Hz depth can't run on 10 Hz recordings (1 Hz is tested);
+  - the search for more public vehicles with thrust and other sensors found none released with both. Marinarium (MIT,
+    another BlueROV2) awaits a yes to download.
+
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **215 of 224 rows
+pass.** The 9 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, U-1, U-1b, B-set-depth,
+S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
 
 **Tests:** `tests/test_measurements.py`, `test_sensor_calibration.py`, `test_sensor_fuzz.py` (80 random sensor mixes
 and 10 kinds of damage: each ingests and calibrates or stops with a sentence), `test_simfit_sensors.py`,
-`test_no_velocity_assumption.py`, `test_ingest_sensors.py`, and the coverage gate (39 variables found in the code,
-each with a row).
+`test_no_velocity_assumption.py`, `test_ingest_sensors.py`, `test_sensor_messages.py` (every sensor refusal reached by
+a test), `test_simfit_mujoco.py` (`--starts-from`), `test_ingest_ardupilot.py` (the no-DVL template on a `.bin`), and
+the coverage gate (42 variables found in the code, each with a row).
 
 ## Honest open items
 

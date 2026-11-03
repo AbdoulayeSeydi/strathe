@@ -4,6 +4,8 @@ stress/run_96.py -- stress test of the sensor suite (PROJECT_STATUS.md #96): cal
     python stress/run_96.py fast        # the sensor matrix (64 mixes), and every product step without a DVL (an hour)
     python stress/run_96.py sweep [ROW] # synthetic truth recovery, one variable at a time (hours)
     python stress/run_96.py rescore [ROW]  # the same rows scored again from their finished fits (no refit)
+    python stress/run_96.py matrix [ROW]   # the sensor matrix alone (128 rows: 64 mixes on two vehicles)
+    python stress/run_96.py fs-real        # fit-sim from real sensors against the calibration, truth hidden
     python stress/run_96.py real DIR    # the real-data rows, scored from finished fits in DIR (see real_fits())
     python stress/run_96.py list
 
@@ -101,6 +103,39 @@ SWEEP = {
                             "limit", f"{h:g} s prediction windows") for h in (3.0, 5.0, 20.0, 60.0)},
     **{f"B-rounds-{k}": ("anchor rounds", k, NOMINAL, ["--anchor-rounds", str(k)], "seen", f"{k} anchor round(s)")
        for k in (1, 3)},
+    # added 2026-11-02 (the plan's sweep values not yet run), bars fixed before running them
+    "B-set-dvlgaps-0.7": ("sensor set", "DVL 70% dropouts + fixes", _with(dvl={"dropout": 0.7}), ["--sensors", "all"],
+                          "seen", "a DVL that reads only 30% of the time, with the fixes"),
+    **{f"B-accelbias-{x:g}": ("accelerometer bias", x, _with(accelerometer={"noise": 0.02, "bias": x}),
+                              ["--use-accelerometer"], "seen", f"the accelerometer with a {x:g} m/s^2 bias")
+       for x in (0.05, 0.2)},
+    "B-rounds-4": ("anchor rounds", 4, NOMINAL, ["--anchor-rounds", "4"], "seen", "4 anchor rounds"),
+    "B-gyronoise-0.00017": ("gyro noise", 0.00017, _with(gyro={"noise": 0.00017}), [], "seen",
+                            "gyro noise 0.01 deg/s (a fibre-optic gyro)"),
+    "B-grade-rtk": ("sensor noise", "grade rtk_f9p", _with(position={"name": "usbl", "noise": 0.0085}), [], "seen",
+                    "RTK fixes (0.85 cm) at 1 Hz, their noise from the grade rtk_f9p in the description"),
+    "B-grade-gnss": ("sensor noise", "grade gnss_f9p", _with(position={"name": "usbl", "noise": 1.27}), [], "limit",
+                     "standalone GNSS fixes (1.27 m) at 1 Hz, their noise from the grade gnss_f9p"),
+    "B-redundant-depth": ("redundant sensors", "two depth sensors",
+                          _with(depth=[{"name": "main", "noise": 0.0024}, {"name": "aux", "noise": 0.02}]), [], "seen",
+                          "two pressure sensors (0.24 cm and 2 cm), each its own channel"),
+    "B-redundant-position": ("redundant sensors", "USBL + GPS",
+                             _with(position=[{"name": "usbl", "rate_hz": 1.0, "noise": 0.17, "dropout": 0.065},
+                                             {"name": "gps", "rate_hz": 1.0, "noise": 1.27, "offset": 3}]), [], "seen",
+                             "a USBL (0.17 m) and a GPS (1.27 m) at once, each its own channel"),
+    "B-dvlnoise-0.01": ("DVL noise", 0.01, _with(dvl={"dropout": 0.3, "noise": 0.01}), ["--sensors", "all"], "seen",
+                        "a DVL with 1 cm/s noise (A50-class) losing lock 30% of the time, with the fixes"),
+    "B-grade-nucleus": ("sensor noise", "grade nucleus1000", _with(dvl={"dropout": 0.3, "noise": 0.005}),
+                        ["--sensors", "all"], "seen", "a Nucleus 1000-class DVL (0.5 cm/s), its noise from the grade"),
+    "B-grade-bar02": ("sensor noise", "grade bar02", _with(depth={"noise": 0.00016}), [], "seen",
+                      "a Bar02 depth sensor (0.16 mm), its noise from the grade"),
+    # the delay check's second threshold (0.5 per fix), chosen after B-latency-1 failed the first (2.0), tested here on
+    # recordings and noise it wasn't chosen on; bar fixed before running: said at 1 s and 2 s, not at 0 s
+    **{f"B-latency-fresh-{x:g}": ("position latency", f"{x:g} s, fresh recordings", _with(position={"delay_s": x}), [],
+                                  "fresh_delay", f"fixes {x:g} s late on other recordings and noise (the delay check's "
+                                  f"threshold wasn't chosen on these)") for x in (0.0, 1.0, 2.0)},
+    "B-current-estimated": ("current", "0.15 m/s estimated", NOMINAL, ["--estimate-current"], "seen",
+                            "the same 0.16 m/s current, not told: --estimate-current"),
     **{f"B-sigma-{x:g}": ("smoother accel sigma", x, NOMINAL, ["--smoother-accel-sigma", str(x)], "seen",
                           f"the smoother's process noise forced to {x:g} m/s^2") for x in (0.01, 1.0)},
     "B-restarts-3": ("restarts", 3, NOMINAL, ["--restarts", "3"], "seen", "three starting points"),
@@ -133,10 +168,13 @@ SWEEP.update({
                               "the USBL's noise given as 5 mm: the smoother trusts the fixes far too much"),
 })
 SPEC_SENSORS = {"B-lever-known": {"usbl": {"position_m": ARM}}, "B-dvl-water": {"dvl": {"track": "water"}},
+                "B-grade-rtk": {"usbl": {"grade": "rtk_f9p"}}, "B-grade-gnss": {"usbl": {"grade": "gnss_f9p"}},
+                "B-grade-nucleus": {"dvl": {"grade": "nucleus1000"}}, "B-grade-bar02": {"main": {"grade": "bar02"}},
                 "B-grade-usbl": {"usbl": {"grade": "ugps_g2", "range_m": 85}},
                 "B-noise-given": {"usbl": {"noise": 0.17}, "main": {"noise": 0.0024}},
                 "B-noise-overconfident": {"usbl": {"noise": 0.005}}}
 CURRENT_ROWS = {"B-current-known": (0.15, -0.05, 0.0), "B-current-ignored": (0.15, -0.05, 0.0),
+                "B-current-estimated": (0.15, -0.05, 0.0),
                 "B-dvl-water": (0.15, -0.05, 0.0), "B-dvl-water-ignored": (0.15, -0.05, 0.0)}
 
 
@@ -157,11 +195,14 @@ def _dataset(row: str, sensors: dict) -> str:
     if not os.path.exists(os.path.join(root, "data", HELD_FILE)):
         shutil.rmtree(root, ignore_errors=True)
         src = S.reference_sources(TRAIN, 2) + S.reference_sources(HELD, 1)
-        S.truth_dataset(root, src, sensors=sensors, seed=96, current_world=CURRENT_ROWS.get(row))
+        if row.startswith("B-latency-fresh"):   # other training recordings, other noise
+            src = S.reference_sources(TRAIN)[2:4] + S.reference_sources(HELD, 1)
+        S.truth_dataset(root, src, sensors=sensors, seed=961 if row.startswith("B-latency-fresh") else 96,
+                        current_world=CURRENT_ROWS.get(row))
     return root
 
 
-def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.SPEC_BLUEROV2) -> dict:
+def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.SPEC_BLUEROV2, held=HELD) -> dict:
     t0 = time.time()
     log = out + ".log"
     shutil.rmtree(out, ignore_errors=True)
@@ -169,7 +210,7 @@ def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.S
     with open(log, "w", encoding="utf-8") as f:
         rc = subprocess.run([PY, "strathe_cli.py", "calibrate", "--data", data, "--spec", spec, "--out", out,
                              "--name", os.path.basename(out), "--max-nfev", str(nfev), "--seed", "7", "--workers", "3",
-                             "--heldout-dates", *HELD, "--skip-identifiability", *flags],
+                             "--heldout-dates", *held, "--skip-identifiability", *flags],
                             cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
     return {"exit": rc, "seconds": round(time.time() - t0, 1), "log": log}
 
@@ -186,6 +227,7 @@ def _score(out: str, root: str, current=None) -> dict:
             "median_param_error_of_range": round(float(np.median(list(err.values()))), 4),
             "worst_params": sorted(((k, round(v, 3)) for k, v in err.items()), key=lambda x: -x[1])[:3],
             "axes_seen_by": ss.get("axes_seen_by"), "held_unobserved": sorted(ss.get("held_unobserved") or {}),
+            "fix_delays": ss.get("fix_delays"),
             "converged": (m.get("optimizer") or {}).get("converged"), "params": p}
 
 
@@ -245,30 +287,68 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
         ok = finite and held_ok and set(blind) == {"u", "v"} and sk[2] >= SEEN_SKILL and min(sk[3:]) >= -1.0
         return ok, (f"surge and sway reported unseen and their values held; heave skill >= {SEEN_SKILL}; nothing "
                     f"claimed for surge and sway")
+    if kind == "fresh_delay":
+        said = any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
+        late = float(row.rsplit("-", 1)[1]) >= 1.0
+        return (finite and held_ok and said == late,
+                "the report says the fixes are late" if late else "no late-fix warning")
     if kind == "seen":
         idx = [i for i, a in enumerate("uvwpqr") if a in "pqr" or a not in blind]
         ok = finite and held_ok and min(sk[i] for i in idx) >= SEEN_SKILL
         expect = f"every axis its sensors see >= {SEEN_SKILL} held-out truth skill; unseen axes held"
+        if row == "B-set-nominal":   # fixes on time: no late-fix warning (added with the delay check, before its run)
+            ok = ok and not any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
+            expect += "; no late-fix warning"
         if row == "B-dropout-0":   # SOLAQUA's 6.5% dropouts cost little
             nom = _reference("B-set-nominal").get("mean_skill")
             ok = ok and nom is not None and nom >= nums["mean_skill"] - DROPOUT_COST
             expect += f"; the nominal 6.5% dropouts within {DROPOUT_COST} of none"
         return ok, expect
     # a limit: documents where the method stops, passes if it completes, holds what it can't see, and is finite
-    return finite and held_ok, "completes with finite values and the unseen axes held (documents the limit)"
+    ok, expect = finite and held_ok, "completes with finite values and the unseen axes held (documents the limit)"
+    if row == "B-latency-1":   # the plan's bar (smooth-pondering-wand.md, B-sweep): an uncorrected 1 s latency is said
+        said = any(d.get("late") for d in (nums.get("fix_delays") or {}).values())
+        ok, expect = ok and said, expect + "; and the report says the fixes are late (the plan's bar)"
+    return ok, expect
 
 
 # --- the sensor matrix: every mix of sensors, on a short budget -------------------------------------------------------
 MIX = ("dvl", "horizontal", "vertical", "accelerometer")
+# the matrix's two vehicles: (row prefix, description, truth, training and held-out recordings, held-out dates)
+URI_SPEC = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec.yaml")
+URI_TRUTH = os.path.join(WORK, "real", "fit_uV", "calibrated_parameters.yaml")   # URI's own DVL fit (U-V)
+URI_V = os.path.join(WORK, "real", "uri_v")
 
 
-def mix_name(bits: tuple, heading_from_gyro: bool) -> str:
-    """M-<d h v a, the sensors present>, gyro alone when none; -gyroheading with no compass."""
-    return "M-" + ("".join(k[0] for k, b in zip(MIX, bits) if b) or "gyroonly") + \
-        ("-gyroheading" if heading_from_gyro else "")
+def matrix_vehicles() -> dict:
+    return {"M-": (S.SPEC_BLUEROV2, S.TRUTH_BLUEROV2, S.reference_sources(TRAIN, 1) + S.reference_sources(HELD, 1),
+                   HELD),
+            "MA-": (URI_SPEC, URI_TRUTH, _first_minutes([os.path.join(URI_V, "alpha_rise-05-12-2025-run1.csv"),
+                                                         os.path.join(URI_V, "alpha_rise-27-03-2026-run1.csv")]),
+                    ("27-03-2026",))}
 
 
-def mix_sensors(bits: tuple, heading_from_gyro: bool) -> tuple:
+def _first_minutes(files: list, minutes: float = 5.0) -> list:
+    """The first minutes of each recording (10 Hz): the matrix is about what's seen and held, and URI's missions are
+    10 and 18 minutes long."""
+    out = []
+    for f in files:
+        dst = os.path.join(WORK, "matrix_sources", os.path.basename(f))
+        if not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            pd.read_csv(f).iloc[:int(minutes * 600)].to_csv(dst, index=False)
+        out.append(dst)
+    return out
+
+
+def mix_name(bits: tuple, heading_from_gyro: bool, gyro_derived: bool = False, prefix: str = "M-") -> str:
+    """M-<d h v a, the sensors present>, gyro alone when none; -gyroheading with no compass; -gyroderived with no
+    gyro logged (the rates from the orientation). MA-: the same on URI's ALPHA RISE."""
+    return prefix + ("".join(k[0] for k, b in zip(MIX, bits) if b) or "gyroonly") + \
+        ("-gyroheading" if heading_from_gyro else "") + ("-gyroderived" if gyro_derived else "")
+
+
+def mix_sensors(bits: tuple, heading_from_gyro: bool, gyro_derived: bool = False) -> tuple:
     dvl, hor, ver, acc = bits
     sensors, flags = {}, []
     if dvl:
@@ -284,50 +364,62 @@ def mix_sensors(bits: tuple, heading_from_gyro: bool) -> tuple:
         flags += ["--sensors", "all"]
     if heading_from_gyro:
         sensors["heading_drift_deg_per_min"] = 0.5
+    if gyro_derived:
+        sensors["gyro"] = {"derived": True}
     return sensors, flags
 
 
-def m_matrix() -> None:
-    """Every mix of {DVL with gaps, horizontal fixes, vertical (depth), accelerometer} x heading {compass, from the
-    gyro, drifting}: it calibrates (or stops with a message), the axes it calibrates are exactly the ones its sensors
-    see, and the rest are held. A short budget: this is about what's seen and held, the sweep about accuracy."""
+def matrix_rows() -> list:
     import itertools
+    return [(prefix, bits, drift, derived) for prefix in matrix_vehicles()
+            for bits in itertools.product((0, 1), repeat=4) for drift in (False, True) for derived in (False, True)]
+
+
+def m_matrix(only=None) -> None:
+    """Every mix of {DVL with gaps, horizontal fixes, vertical (depth), accelerometer} x heading {compass, from the
+    gyro, drifting} x gyro {logged, derived from the orientation}, on two vehicles (the BlueROV2, URI's ALPHA RISE):
+    it calibrates (or stops with a message), the axes it calibrates are exactly the ones its sensors see, and the
+    rest are held. A short budget: this is about what's seen and held, the sweep about accuracy."""
     from optimizer import initial_parameters, load_vehicle_spec
-    default = initial_parameters(load_vehicle_spec(S.SPEC_BLUEROV2))
-    for bits in itertools.product((0, 1), repeat=4):
-        for drift in (False, True):
-            name = mix_name(bits, drift)
-            sensors, flags = mix_sensors(bits, drift)
-            root = os.path.join(WORK, "matrix", name)
-            if not os.path.exists(os.path.join(root, "data", HELD_FILE)):
-                shutil.rmtree(root, ignore_errors=True)
-                S.truth_dataset(root, S.reference_sources(TRAIN, 1) + S.reference_sources(HELD, 1),
-                                sensors=sensors, seed=7)
-            out = os.path.join(WORK, "fits", name)
-            run = _calibrate(os.path.join(root, "data"), out, flags, nfev=3)
-            nums = {"exit": run["exit"], "seconds": run["seconds"], "sensors": sorted(k for k in sensors)}
-            mp = os.path.join(out, "metrics.json")
-            dvl, hor, ver, _ = bits
-            expect_blind = sorted(({"u", "v"} if not (dvl or hor) else set()) | ({"w"} if not (dvl or ver) else set()))
-            ok = False
-            if os.path.exists(mp):
-                m = json.load(open(mp))
-                ss = m.get("sensor_suite") or {}
-                seen = ss.get("axes_seen_by") or {}
-                blind = sorted(a for a, by in seen.items() if not by)
-                held = set(ss.get("held_unobserved") or {})
-                p = yaml.safe_load(open(os.path.join(out, "calibrated_parameters.yaml")))["parameters"]
-                finite = all(np.isfinite(v) for v in p.values())
-                held_exact = all(p[k] == getattr(default, k) for k in held)
-                need = set().union(*[{"u": {"Xu", "Xuu", "Xu_dot"}, "v": {"Yv", "Yvv", "Yv_dot"},
-                                      "w": {"Zw", "Zww", "Zw_dot"}}[a] for a in blind]) if blind else set()
-                nums.update({"blind": blind, "expected_blind": expect_blind, "held": sorted(held), "finite": finite})
-                ok = (bool(ss) and blind == expect_blind and need <= held and held_exact and finite
-                      and (blind or not held))
-            record(F, name, "sensor mix", "+".join(nums["sensors"]) or "gyro only",
-                   "this sensor mix, heading " + ("from the gyro, drifting 0.5 deg/min" if drift else "from a compass"),
-                   "synthetic BlueROV2", nums, "the axes it calibrates are exactly the ones its sensors see; the rest "
-                   "held at the description's values; finite", ok, run["seconds"])
+    vehicles = matrix_vehicles()
+    for prefix, bits, drift, derived in matrix_rows():
+        name = mix_name(bits, drift, derived, prefix)
+        if only and name not in only and not any(o.endswith("*") and name.startswith(o[:-1]) for o in only):
+            continue   # exact names (MA-d isn't MA-dh); a trailing * for a prefix
+        spec, truth, sources, held = vehicles[prefix]
+        default = initial_parameters(load_vehicle_spec(spec))
+        sensors, flags = mix_sensors(bits, drift, derived)
+        root = os.path.join(WORK, "matrix", name)
+        if not os.path.exists(os.path.join(root, "data", os.path.basename(sources[-1]))):
+            shutil.rmtree(root, ignore_errors=True)
+            S.truth_dataset(root, sources, truth_path=truth, spec_path=spec, sensors=sensors, seed=7)
+        out = os.path.join(WORK, "fits", name)
+        run = _calibrate(os.path.join(root, "data"), out, flags, nfev=3, spec=spec, held=held)
+        nums = {"exit": run["exit"], "seconds": run["seconds"], "sensors": sorted(k for k in sensors)}
+        mp = os.path.join(out, "metrics.json")
+        dvl, hor, ver, _ = bits
+        expect_blind = sorted(({"u", "v"} if not (dvl or hor) else set()) | ({"w"} if not (dvl or ver) else set()))
+        ok = False
+        if os.path.exists(mp):
+            m = json.load(open(mp))
+            ss = m.get("sensor_suite") or {}
+            seen = ss.get("axes_seen_by") or {}
+            blind = sorted(a for a, by in seen.items() if not by)
+            held_p = set(ss.get("held_unobserved") or {})
+            p = yaml.safe_load(open(os.path.join(out, "calibrated_parameters.yaml")))["parameters"]
+            finite = all(np.isfinite(v) for v in p.values())
+            held_exact = all(p[k] == getattr(default, k) for k in held_p)
+            need = set().union(*[{"u": {"Xu", "Xuu", "Xu_dot"}, "v": {"Yv", "Yvv", "Yv_dot"},
+                                  "w": {"Zw", "Zww", "Zw_dot"}}[a] for a in blind]) if blind else set()
+            nums.update({"blind": blind, "expected_blind": expect_blind, "held": sorted(held_p), "finite": finite})
+            ok = (bool(ss) and blind == expect_blind and need <= held_p and held_exact and finite
+                  and (blind or not held_p))
+        what = ("this sensor mix, heading " + ("from the gyro, drifting 0.5 deg/min" if drift else "from a compass")
+                + (", no gyro logged (rates from the orientation)" if derived else ""))
+        record(F, name, "sensor mix", "+".join(nums["sensors"]) or "gyro only", what,
+               "synthetic BlueROV2" if prefix == "M-" else "synthetic ALPHA RISE (URI's DVL fit as the truth)", nums,
+               "the axes it calibrates are exactly the ones its sensors see; the rest held at the description's "
+               "values; finite", ok, run["seconds"])
 
 
 # --- every product step, without a DVL ----------------------------------------------------------------------------------
@@ -373,14 +465,23 @@ def e_steps() -> None:
                                                                                 "auv.xml"),
                            "--reference-point", "0", "0", "0", "--fit", "drag", "--max-iterations", "4",
                            "--data", data, "--heldout-dates", *HELD, "--out", os.path.join(WORK, "fits", "E-fitsim")],
+             # MuJoCo can't take Strathe's model (export-sim says so); Gazebo can, through Docker
+             "E-export-sim": ["export-sim", "--sim", "gazebo", "--world", os.path.join(CAL, "simulators", "gazebo",
+                                                                                     "example_bluerov2_gz", "world.sdf"),
+                              "--model-file", f"{GZ}/bluerov2_gz/models/bluerov2_heavy/model.sdf", "--resource-path",
+                              f"{GZ}/bluerov2_gz/models", "--replay-tool", "docker", "--calibration", out,
+                              "--reference-point", "0", "0", "0", "--data", data, "--heldout-dates", *HELD,
+                              "--workers", "3", "--out", os.path.join(WORK, "fits", "E-exportsim")],
              }
     for row, args in cases.items():
         t0 = time.time()
         p = subprocess.run([PY, "strathe_cli.py", *args], cwd=CAL, capture_output=True, text=True)
         txt = (p.stdout + p.stderr)
-        if row == "E-fit-sim":   # part 3: from the sensors, its report saying so
-            rep = os.path.join(WORK, "fits", "E-fitsim", "mujoco_fit_report.md")
-            ok = p.returncode == 0 and os.path.exists(rep) and "No DVL in these logs" in open(rep, encoding="utf-8").read()
+        if row in ("E-fit-sim", "E-export-sim"):   # part 3: from the sensors, its report saying so
+            d = os.path.join(WORK, "fits", "E-fitsim" if row == "E-fit-sim" else "E-exportsim")
+            reps = [os.path.join(d, f) for f in os.listdir(d) if f.endswith("_report.md")] if os.path.isdir(d) else []
+            ok = (p.returncode == 0 and bool(reps) and "Traceback" not in txt
+                  and "No DVL in these logs" in open(reps[0], encoding="utf-8").read())
             expect = "runs from the sensors; its report says drift is against the position fixes"
         else:
             ok = p.returncode == 0 and "Traceback" not in txt
@@ -516,11 +617,135 @@ def f_simulators() -> None:
                 else ""}, "runs from the sensors and writes its report", ok, time.time() - t0)
 
 
+# fit-sim from the real sensors (the plan's Phase-2 bar): (MJCF, extra fit-sim args, sensors folder, truth folder,
+# Strathe's own fit from the same sensors, description, held-out dates)
+MJ_ALPHA = os.path.expanduser("~/strathe_uri_lab_v3/models/alpha_mujoco/vehicle.xml")
+FS_REAL = {
+    "FS-real-D3": (MJCF, [], os.path.join(WORK, "dfki", "d3"), os.path.join(WORK, "dfki", "truth"),
+                   os.path.join(WORK, "dfki", "fit_d3"), S.SPEC_BLUEROV2),
+    "FS-real-U1": (MJ_ALPHA, ["--density-by-date", "27-03-2026=1000", "05-12-2025=1023"], URI_NODVL,
+                   os.path.join(WORK, "uri_truth"), os.path.join(WORK, "real", "fit_u1"), URI_SPEC),
+    # after FS-real-U1 failed: fit-sim --starts-from (its window starts from the calibration's physics, which MuJoCo
+    # couldn't have before), same bar, fixed before running
+    "FS-real-U1-starts": (MJ_ALPHA, ["--density-by-date", "27-03-2026=1000", "05-12-2025=1023", "--starts-from",
+                                     os.path.join(WORK, "real", "fit_u1")], URI_NODVL, os.path.join(WORK, "uri_truth"),
+                          os.path.join(WORK, "real", "fit_u1"), URI_SPEC),
+    "FS-real-D3-starts": (MJCF, ["--starts-from", os.path.join(WORK, "dfki", "fit_d3")], os.path.join(WORK, "dfki", "d3"),
+                          os.path.join(WORK, "dfki", "truth"), os.path.join(WORK, "dfki", "fit_d3"), S.SPEC_BLUEROV2),
+    # a control, added after FS-real-U1 failed: the same fit-sim from URI's DVL, against Strathe's DVL fit (U-V)
+    "FS-real-U1-dvl": (MJ_ALPHA, ["--density-by-date", "27-03-2026=1000", "05-12-2025=1023"], URI_V,
+                       os.path.join(WORK, "uri_truth"), os.path.join(WORK, "real", "fit_uV"), URI_SPEC),
+}
+FS_REAL_OF = 0.05   # fit-sim's mean held-out skill within this of Strathe's own fit from the same sensors
+
+
+def _free_run_skill(predict, runs: list, truths: list, length_s: float = 10.0) -> dict:
+    """Skill per axis of free runs (the model turning on its own) against the hidden truth: windows of length_s every
+    length_s starting where the truth read, from the truth's velocity; 1 - RMSE / RMSE of predicting no motion.
+    predict(run, windows) -> each window's velocity (n, 6)."""
+    sq, zq, diverged = [], [], 0
+    for run, truth in zip(runs, truths):
+        n = int(round(length_s / run.dt)) + 1
+        wins = [(a, n) for a in range(0, run.n_samples - n + 1, n - 1) if np.all(np.isfinite(truth[a]))]
+        if not wins:
+            continue
+        for (a, _), V in zip(wins, predict(run, wins)):
+            if V is None or not np.all(np.isfinite(V[:n])):
+                diverged += 1   # counted, not scored: said beside the skill
+                continue
+            t = truth[a + 1:a + n]
+            sq.append((V[1:n] - t) ** 2)
+            zq.append(t ** 2)
+    if not sq:
+        return {"skill": None, "mean_skill": None, "windows": 0, "diverged": diverged}
+    with np.errstate(invalid="ignore"):
+        sk = 1 - np.sqrt(np.nanmean(np.vstack(sq), 0)) / np.sqrt(np.nanmean(np.vstack(zq), 0))
+    return {"skill": [round(float(x), 4) for x in sk], "mean_skill": round(float(np.nanmean(sk)), 4),
+            "windows": len(sq), "diverged": diverged}
+
+
+def fs_real(only=None) -> None:
+    """fit-sim (MuJoCo) from the same real sensors as a Strathe calibration, both scored the same way against the
+    hidden truth on the held-out recordings: 10 s free runs from the truth's velocity, each model turning on its own
+    (a simulator integrates its own attitude, so the calibration is scored that way too)."""
+    from dataclasses import replace
+    from dynamics_model import CalibrationParameters, VehicleConstants
+    from objective import DatasetConfig, load_run
+    from optimizer import load_vehicle_spec
+    from simfit import cli as scli, core
+    for row, (xml, extra, data, truth_dir, cal, spec) in FS_REAL.items():
+        if only and row not in only:
+            continue
+        t0 = time.time()
+        m = json.load(open(os.path.join(cal, "metrics.json")))
+        held = list(m["dataset"]["heldout_dates"])
+        out = os.path.join(WORK, "fits", row)
+        shutil.rmtree(out, ignore_errors=True)
+        p = subprocess.run([PY, "strathe_cli.py", "fit-sim", "--sim", "mujoco", "--model", xml, "--reference-point",
+                            "0", "0", "0", "--data", data, "--heldout-dates", *held, "--out", out, "--fit", "drag",
+                            "--max-iterations", "8", "--workers", "3", *extra], cwd=CAL, capture_output=True, text=True)
+        fitted = next((os.path.join(out, f) for f in os.listdir(out) if f.endswith("_calibrated.xml")), None) \
+            if os.path.isdir(out) else None
+        files = [f for f in sorted(os.listdir(data)) if f.endswith(".csv") and any(h in f for h in held)]
+        truths = [pd.read_csv(os.path.join(truth_dir, f))[["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy(float)
+                  for f in files]
+        off = tuple((m.get("objective") or {}).get("torque_reference_offset_m") or (0.0, 0.0, 0.0))
+
+        def runs_with(offset):
+            dc = DatasetConfig(sampling_rate_hz=10.0, torque_reference_offset_m=offset, sensors=("none",))
+            rs = []
+            for f, tr in zip(files, truths):
+                r = load_run(os.path.join(data, f), dc)
+                k = min(r.n_samples, len(tr))
+                rs.append(replace(r, real_nu=np.vstack([tr[:k], np.full((r.n_samples - k, 6), np.nan)])))
+            return rs
+        cal_p = CalibrationParameters(**yaml.safe_load(open(os.path.join(cal, "calibrated_parameters.yaml")))
+                                      ["parameters"])
+        veh = load_vehicle_spec(spec).vehicle
+        strathe = _free_run_skill(lambda r, wins: [core.strathe_free_run(cal_p, veh, r, a, n)[0] for a, n in wins],
+                                  runs_with(off), truths)
+        nums = {"exit": p.returncode, "fit_sim_seconds": round(time.time() - t0, 1), "held_out": held,
+                "strathe_from_the_same_sensors": strathe}
+        for tag, model in (("fit_sim", fitted), ("original_model", xml)):
+            if model is None:
+                continue
+            a = scli.build_parser("fit", "mujoco").parse_args(["--model", model, "--reference-point", "0", "0", "0",
+                                                                "--data", data, "--heldout-dates", *held, "--out",
+                                                                os.path.join(out, "score_" + tag)])
+            adapter = scli._module("mujoco").adapter_from_args(a)
+            adapter.dt = 0.1
+            dens = dict(x.split("=") for x in extra if "=" in x and x[:2].isdigit())   # --density-by-date's
+            work = os.path.join(out, "score_" + tag)
+            os.makedirs(work, exist_ok=True)
+
+            def predict(r, wins, adapter=adapter, work=work, dens=dens):
+                d = os.path.join(work, os.path.basename(r.filepath))
+                runnable = adapter.write_runnable(None, d, float(dens[r.date]) if r.date in dens else None)
+                return [V for V, _ in adapter.replay(runnable, core.window_rows(r, wins), d)]
+            nums[tag] = _free_run_skill(predict, runs_with((0.0, 0.0, 0.0)), truths)
+        fs, st = (nums.get("fit_sim") or {}).get("mean_skill"), strathe.get("mean_skill")
+        if row.endswith("-dvl"):   # the control: reported beside the row it explains
+            ok, expect = p.returncode == 0 and fs is not None, "a control: completes, reported against FS-real-U1"
+            what = "the same fit-sim from URI's DVL, against Strathe's DVL fit: does the gap come from the sensors?"
+        else:
+            ok = p.returncode == 0 and fs is not None and st is not None and fs >= st - FS_REAL_OF
+            expect = f"fit-sim's mean held-out skill (10 s free runs) within {FS_REAL_OF} of the calibration's"
+            what = (f"fit-sim from {os.path.basename(data)}'s sensors (no DVL) against Strathe's calibration from the "
+                    "same sensors, both against the hidden truth"
+                    + (", fit-sim starting its windows from the calibration's physics (--starts-from)"
+                       if "--starts-from" in extra else ""))
+        record(F, row, "fit-sim", "mujoco, real sensors", what, "DFKI BlueROV2" if "D3" in row else "URI ALPHA RISE",
+               nums, expect, ok, time.time() - t0)
+
+
 # --- the real data ----------------------------------------------------------------------------------------------------
 REAL = {   # row: (fit folder name, data folder, truth folder, spec, held-out files glob, what, bar)
     "U-V": ("uV", "uri_v", "uri_truth", "uri", "today's DVL fit on URI's ALPHA RISE (raw DVL, interpolated)", "ref"),
     "U-1": ("u1", "uri_nodvl", "uri_truth", "uri", "URI with no DVL: RTK GPS (surface), depth, IMU", "u1"),
     "U-2": ("u2", "uri_nodvl", "uri_truth", "uri", "U-1 plus the accelerometer (exploratory)", "explore"),
+    # the plan: URI both ways. The rows above hold out the pond day (27-03-2026); these the bay day (05-12-2025)
+    "U-Vb": ("uVb", "uri_v", "uri_truth", "uri", "today's DVL fit on URI, the bay day held out", "ref"),
+    "U-1b": ("u1b", "uri_nodvl", "uri_truth", "uri", "U-1 with the bay day held out (trained on the pond day)", "u1"),
     "R-V": ("rV", "rV", "r_truth", "blue", "today's velocity fit on the reference tank recordings", "ref"),
     "R-1": ("r1", "r1", "r_truth", "blue", "no velocity: motion-capture positions and depth", "r1"),
     "R-2": ("r2", "r2", "r_truth", "blue", "no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth", "r2"),
@@ -568,7 +793,7 @@ def real(fits_dir: str) -> int:
                        "held_unobserved": sorted(ss.get("held_unobserved") or {}), **val}
     for row, nums in scores.items():
         fit, data, truth, sp, what, bar = REAL[row]
-        V = scores.get({"U": "U-V", "R": "R-V", "D": "D-V"}[row[0]]) or {}
+        V = scores.get({"U": "U-V", "R": "R-V", "D": "D-V"}[row[0]] + ("b" if row.endswith("b") else "")) or {}
         ok, expect = _judge_real(bar, nums, V)
         record(F, row, "real data", REAL[row][0], what, {"U": "URI ALPHA RISE", "R": "oceansystemslab BlueROV2 tank",
                                                           "D": "DFKI BlueROV2 basin"}[row[0]], nums, expect, ok, 0.0)
@@ -617,15 +842,13 @@ def fast() -> int:
 
 
 def all_rows() -> set:
-    import itertools
     rows = set(SWEEP) | set(REAL)
     rows |= {f"E-{s}" for s in ("preflight", "fit_or_finish", "identifiability", "validation", "report",
-                                "estimate-current", "fit-noise", "fit-sim")}
+                                "estimate-current", "fit-noise", "fit-sim", "export-sim")}
+    rows |= set(FS_REAL)
     rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer", "FS-mujoco", "FS-gazebo", "FS-stonefish",
              "S-solaqua"}   # stress/solaqua_96.py
-    for bits in itertools.product((0, 1), repeat=4):
-        for drift in (False, True):
-            rows.add(mix_name(bits, drift))
+    rows |= {mix_name(bits, drift, derived, prefix) for prefix, bits, drift, derived in matrix_rows()}
     return rows
 
 
@@ -640,6 +863,12 @@ if __name__ == "__main__":
         sys.exit(sweep(sys.argv[2:] or None, rescore=True))
     if cmd == "real":
         sys.exit(real(sys.argv[2]))
+    if cmd == "matrix":
+        m_matrix(sys.argv[2:] or None)
+        sys.exit(0)
+    if cmd == "fs-real":
+        fs_real(sys.argv[2:] or None)
+        sys.exit(0)
     if cmd == "sim":
         f_simulators()
         sys.exit(0)

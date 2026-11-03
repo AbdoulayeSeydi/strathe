@@ -28,6 +28,7 @@ can pin down, and writes a plain-language report. To only convert:
 | ROS 1 / ROS 2 bags with an EKF (`nav_msgs/Odometry`) or DVL and **normalized** thruster commands (array topic, one topic per thruster, or a custom message) | `ingest_rosbag_normalized_thrusters.yaml` with `thrust_curve_normalized_template.csv` |
 | **No DVL**: an ArduSub vehicle's IMU, depth sensor and (if it has one) a USBL/UGPS fix, from `.bin` logs | `ingest_ardusub_no_dvl.yaml` (`../SENSORS.md`) |
 | A ROS vehicle's own sensors: IMU, pressure, GPS at the surface, a USBL, a DVL with its gaps kept | `ingest_rosbag_sensors.yaml` (`../SENSORS.md`) |
+| **No DVL**, CSV logs: thrust, gyro, attitude, depth and a USBL / LBL / motion-capture fix in a local frame, empty cells between fixes | `ingest_csv_usbl.yaml` (`../SENSORS.md`) |
 | Your modems' message logs, to calibrate the acoustic/optical link (`strathe fit-link`) | `link_log_template.csv` |
 
 Any other format (DUNE/IMC, vendor binaries): export to CSV and start from a CSV template. See `LIMITS.md`.

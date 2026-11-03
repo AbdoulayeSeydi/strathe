@@ -605,6 +605,19 @@ def sensors_section(metrics: Optional[dict]) -> list:
                 for n, s in sorted(src.items())]
         L.append("\nReading noise assumed when estimating each window's starting velocity: " + "; ".join(each)
                  + ". Set it with `noise:` or `grade:` in your description's `sensors:` (SENSORS.md, \"Noise\").")
+    for name, d in sorted((ss.get("fix_delays") or {}).items()):   # state_smoother.fix_delays
+        if d.get("late"):
+            least = "at least " if d.get("at_the_scan_edge") else ""
+            L.append(f"\n> ⚠️ {name}'s fixes match the vehicle's motion best {least}{d['delay_s']:.1f} s late "
+                     f"(each fix explained {d['gain_per_fix']:.1f} better in log-likelihood "
+                     f"than with no delay, over {d['fixes']} fixes). A USBL or GPS that reports late shifts every fix; "
+                     f"if yours does, give `delay_s:` in its `position:` block and calibrate again (SENSORS.md). On a "
+                     f"known truth, fixes 1 s late cost 0.12 of held-out skill.")
+        elif d.get("delay_s", 0) >= 0.5 and d.get("gain_per_fix") is not None:   # seen, not clearly enough to warn
+            least = "at least " if d.get("at_the_scan_edge") else ""
+            L.append(f"\n{name}'s fixes match the motion best {least}{d['delay_s']:.1f} s late, but not clearly "
+                     f"({d['gain_per_fix']:.2f} better per fix than no delay; a warning takes 0.5): if you know your "
+                     f"system's latency, give it as `delay_s:` (SENSORS.md).")
     sm_ = ss.get("smoother") or {}
     if sm_.get("fallbacks"):
         L.append("\n> ⚠️ The starting-velocity estimate fell back to the DVL (or rest) on: "

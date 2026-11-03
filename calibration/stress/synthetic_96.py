@@ -13,7 +13,7 @@ Sensors, as a dict:
     {"dvl": {"rate_hz": 10, "noise": 0.0, "dropout": 0.0},
      "position": {"name": "usbl", "rate_hz": 1.0, "noise": 0.17, "dropout": 0.065, "delay_s": 0.0, "axes": "ned"},
      "depth": {"name": "main", "rate_hz": 16, "noise": 0.0024},
-     "gyro": {"noise": 0.0, "bias": 0.0}}
+     "gyro": {"noise": 0.0, "bias": 0.0}}          (or "derived": True: no gyro, the rates from the orientation)
 Leaving a sensor out leaves it out of the vehicle.
 """
 from __future__ import annotations
@@ -96,6 +96,10 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
             q_log = (_R.from_rotvec(np.outer(yaw_err, [0.0, 0.0, 1.0])) * _R.from_quat(run.orientation_quat)).as_quat()
         for k, c in enumerate(("qx", "qy", "qz", "qw")):
             df[c] = q_log[:, k]
+        if g.get("derived"):   # no gyro logged: the rates ingestion derives from the orientation, as it does
+            import sensor_ingest as si
+            ang = si.rates_from_orientation(np.arange(n) * run.dt, Rotation.from_quat(q_log).as_matrix())
+            df["Bp"], df["Bq"], df["Br"] = ang[:, 0], ang[:, 1], ang[:, 2]
         if "dvl" in sensors:
             d = sensors["dvl"]
             m = _sample_mask(n, every(d.get("rate_hz", rate_hz)), d.get("dropout", 0.0), rng)

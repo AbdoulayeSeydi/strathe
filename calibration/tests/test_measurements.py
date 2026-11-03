@@ -355,3 +355,68 @@ def test_the_noise_the_smoother_assumes_matters_both_ways():
         return np.sqrt(np.mean((run.anchor_lin[50:-50] - nu[50:-50, :3]) ** 2))
     assert err(False, 1.27) > 2 * err(False, 0.05)     # measured: 0.21 against 0.080 m/s
     assert err(True, 0.0085) > 3 * err(True, 0.05)     # measured: 0.052 against 0.0084 m/s
+
+
+def test_the_smoother_is_the_exact_least_squares_answer_on_a_linear_system():
+    """With no physics and a fixed orientation, the model is linear and Gaussian: the forward filter and the
+    Rauch-Tung-Striebel pass must give exactly the batch least-squares answer over every state at once (prior, each
+    step's process noise and each reading, each weighted by its own variance)."""
+    n, dt, every, sig_v, noise = 120, 1.0 / RATE, 5, 0.05, 0.03
+    rng = np.random.default_rng(7)
+    v = np.cumsum(rng.normal(0, sig_v * np.sqrt(dt), (n, 3)), 0)
+    p = np.vstack([np.zeros(3), np.cumsum(v[:-1] * dt, 0)]) + np.array([1.0, 2.0, 3.0])
+    fixes = np.full((n, 3), np.nan)
+    fixes[::every] = p[::every] + noise * rng.normal(size=(len(p[::every]), 3))
+    df = pd.DataFrame(np.zeros((n, 6)), columns=["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"])
+    df[["Bp", "Bq", "Br"]] = 0.0
+    df[["qx", "qy", "qz", "qw"]] = [0.0, 0.0, 0.0, 1.0]
+    df["pos_usbl_n"], df["pos_usbl_e"], df["pos_usbl_d"] = fixes[:, 0], fixes[:, 1], fixes[:, 2]
+    res = sm.smooth(as_run(df, sensors=("usbl",)), None, None, accel_sigma=sig_v, noise={"usbl": noise})
+    assert res.fallback is None
+
+    # the batch answer: unknowns x_k = [v_k, p_k] for every k, each equation divided by its standard deviation
+    d = 6
+    F = np.eye(d)
+    F[3:, :3] = dt * np.eye(3)
+    q = np.r_[[sig_v ** 2 * dt] * 3, [sm.POSITION_PROCESS_STD ** 2] * 3]
+    p0 = np.r_[[sm.INITIAL_VELOCITY_STD ** 2] * 3, [sm.UNKNOWN_POSITION_VAR] * 3]
+    s_fix = max(noise, sm.NOISE_FLOOR["position"])
+    rows, rhs = [], []
+
+    def eq(coefs, value, std):
+        r = np.zeros(n * d)
+        for k, c in coefs:
+            r[k * d:(k + 1) * d] += c
+        rows.append(r / std)
+        rhs.append(value / std)
+    for j in range(d):                                   # the prior on the first state (zero, as the filter starts)
+        e = np.zeros(d)
+        e[j] = 1.0
+        eq([(0, e)], 0.0, np.sqrt(p0[j]))
+    for k in range(n - 1):                               # x_{k+1} - F x_k = process noise
+        for j in range(d):
+            e = np.zeros(d)
+            e[j] = 1.0
+            eq([(k + 1, e), (k, -F[j])], 0.0, np.sqrt(q[j]))
+    for k in np.flatnonzero(np.isfinite(fixes[:, 0])):   # each fix reads the position
+        for j in range(3):
+            e = np.zeros(d)
+            e[3 + j] = 1.0
+            eq([(k, e)], fixes[k, j], s_fix)
+    x = np.linalg.lstsq(np.array(rows), np.array(rhs), rcond=None)[0].reshape(n, d)
+    assert np.max(np.abs(res.velocity - x[:, :3])) < 1e-6
+
+
+def test_late_fixes_are_found_and_on_time_ones_are_not():
+    """state_smoother.fix_delays (#96): fixes reported 1 s after the vehicle was there are found late, and said;
+    the same fixes on time aren't."""
+    df, _, _ = truth_frame(n=900, dvl=False, pos_every=10, pos_noise=0.05)
+    late = df.copy()
+    cols = ["pos_usbl_n", "pos_usbl_e", "pos_usbl_d"]
+    late[cols] = df[cols].shift(10)      # each fix logged 10 samples (1 s) after the vehicle was there
+    found = {}
+    for tag, frame in (("on time", df), ("late", late)):
+        run = as_run(frame, sensors=("usbl", "main"))
+        found[tag] = sm.fix_delays([run], TRUTH, SPEC.vehicle, 0.03, {"usbl": 0.05, "main": 0.002})["usbl"]
+    assert not found["on time"]["late"] and found["on time"]["delay_s"] <= 0.2
+    assert found["late"]["late"] and 0.8 <= found["late"]["delay_s"] <= 1.2

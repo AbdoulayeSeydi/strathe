@@ -246,6 +246,70 @@ def _fallback(run, accel_sigma, why) -> SmoothResult:
                         accel_sigma=accel_sigma, fallback=why)
 
 
+# a late position sensor (#96): the fixes shifted earlier in time until the smoother, with the description's physics
+# driven by the logged thrust, explains them best. Measured through calibrate: fixes 1 s late on a known truth were
+# found 0.8 s late but gained only 1.2 per fix (B-latency-1), under the warning's bar, so the report says it without
+# warning; real fixes with no delay (the tank's and DFKI's, from motion capture) were found 0.0 s late; URI's real GPS
+# read 2 s, gaining 0.05 and 0.9 per fix, not confirmed by its DVL
+DELAY_SCAN_S = (0.0, 0.5, 1.0, 1.5, 2.0)
+DELAY_REFINE_S = 0.2
+DELAY_WINDOW_S = 60.0
+DELAY_SAID_S = 0.5            # said from this delay
+# and only when it explains each fix this much better (log-likelihood) than no delay. First 2.0, which B-latency-1
+# failed (1.21); 0.5 was then chosen from the numbers above and tested on fresh recordings (B-latency-fresh-*)
+DELAY_GAIN_PER_FIX = 0.5
+
+
+def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optional[dict] = None) -> dict:
+    """{position sensor: {delay_s, gain_per_fix, fixes, late}}: how late each position sensor's fixes look, from the
+    DELAY_WINDOW_S of a training run with the most of its fixes. late: said in the report (delay_s: to correct it)."""
+    from dataclasses import replace
+    from measurements import slice_run
+    out = {}
+    names = sorted({ch.name for r in runs for ch in (r.channels or []) if ch.kind == "position"})
+    for name in names:
+        best_run, best_a, best_n = None, 0, 0
+        for r in runs:
+            ch = next((c for c in r.channels if c.name == name), None)
+            if ch is None:
+                continue
+            L = min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz)))
+            has = np.isfinite(ch.values[:, 0]).astype(float)
+            counts = np.convolve(has, np.ones(L), "valid")
+            a = int(np.argmax(counts))
+            if counts[a] > best_n:
+                best_run, best_a, best_n = r, a, int(counts[a])
+        if best_run is None or best_n < 10:
+            out[name] = {"note": "too few fixes to tell a delay"}
+            continue
+        r = best_run
+        L = min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz)))
+
+        def loglik(delay):
+            k = int(round(delay * r.sample_rate_hz))
+            chans = []
+            for c in r.channels:
+                v = c.values
+                if c.name == name and k:
+                    v = np.full_like(c.values, np.nan)
+                    v[:-k] = c.values[k:]          # a fix logged at sample i+k is where the vehicle was at i
+                chans.append(replace(c, values=v))
+            res = smooth(slice_run(replace(r, channels=chans), best_a, best_a + L), params, vehicle, accel_sigma,
+                         noise)
+            return res.loglik if res.fallback is None else float("-inf")
+        ll = {d: loglik(d) for d in DELAY_SCAN_S}
+        d0 = max(ll, key=ll.get)
+        for d in (d0 - DELAY_REFINE_S, d0 + DELAY_REFINE_S):
+            if 0.0 <= d <= max(DELAY_SCAN_S) and d not in ll:
+                ll[round(d, 3)] = loglik(d)
+        best = max(ll, key=ll.get)
+        gain = (ll[best] - ll[0.0]) / best_n if np.isfinite(ll[0.0]) and np.isfinite(ll[best]) else float("nan")
+        out[name] = {"delay_s": round(float(best), 2), "gain_per_fix": round(float(gain), 3), "fixes": best_n,
+                     "at_the_scan_edge": bool(best >= max(DELAY_SCAN_S)),
+                     "late": bool(best >= DELAY_SAID_S and np.isfinite(gain) and gain >= DELAY_GAIN_PER_FIX)}
+    return out
+
+
 def choose_accel_sigma(runs: Sequence, params, vehicle, noise: Optional[dict] = None,
                        grid: Sequence[float] = ACCEL_SIGMA_GRID) -> tuple:
     """The grid value whose innovations are most likely over the runs (summed log-likelihood). Returns
