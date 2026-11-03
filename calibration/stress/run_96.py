@@ -318,6 +318,7 @@ MIX = ("dvl", "horizontal", "vertical", "accelerometer")
 URI_SPEC = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec.yaml")
 URI_TRUTH = os.path.join(WORK, "real", "fit_uV", "calibrated_parameters.yaml")   # URI's own DVL fit (U-V)
 URI_V = os.path.join(WORK, "real", "uri_v")
+MATRIX_PREFIXES = ("M-", "MA-")   # listing the rows mustn't need the vehicles' recordings (CI has none)
 
 
 def matrix_vehicles() -> dict:
@@ -371,7 +372,7 @@ def mix_sensors(bits: tuple, heading_from_gyro: bool, gyro_derived: bool = False
 
 def matrix_rows() -> list:
     import itertools
-    return [(prefix, bits, drift, derived) for prefix in matrix_vehicles()
+    return [(prefix, bits, drift, derived) for prefix in MATRIX_PREFIXES
             for bits in itertools.product((0, 1), repeat=4) for drift in (False, True) for derived in (False, True)]
 
 
@@ -382,6 +383,7 @@ def m_matrix(only=None) -> None:
     rest are held. A short budget: this is about what's seen and held, the sweep about accuracy."""
     from optimizer import initial_parameters, load_vehicle_spec
     vehicles = matrix_vehicles()
+    assert tuple(vehicles) == MATRIX_PREFIXES
     for prefix, bits, drift, derived in matrix_rows():
         name = mix_name(bits, drift, derived, prefix)
         if only and name not in only and not any(o.endswith("*") and name.startswith(o[:-1]) for o in only):
