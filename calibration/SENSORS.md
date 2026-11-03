@@ -139,17 +139,20 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
   empty for GPS, but the recording keeps its full length.
 - **`drop_when:`** drops readings by another column, e.g. GPS whose fix status is below 0, or below 0.5 m of
   depth.
-- **`delay_s:`** is a sensor's latency (a USBL fix arrives after the vehicle was there). Given in the ingest
-  spec's `position:` block, it's taken off the readings' times at ingest. Given as `delay_s:` on the sensor in the
+- **`delay_s:`** is a sensor's latency (a USBL fix arrives after the vehicle was there; depth read through a slow
+  link or filter). Given in the ingest spec's `position:` or `depth:` block, it's taken off the readings' times at
+  ingest. Given as `delay_s:` on the sensor in the
   vehicle description's `sensors:`, calibration takes it off. Either way it's taken as said, 0 included (0: the
   fixes are on time). Give it in one place: both is refused.
-- **Left out, calibration looks for a delay** in each position sensor's fixes. It shifts them earlier, 0 to 2 s,
-  over the minute with the most fixes, and asks the state smoother (the description's physics driven by the logged
-  thrust) which shift explains them best. A shift of 0.5 s or more that explains each fix at least 0.5 better in
-  log-likelihood than no shift is **taken off before the fit**, and the report warns that it was. A weaker shift
-  of 0.5 s or more is only said. Reloading the calibration (validation, identifiability, `estimate-current`,
-  fit-sim and export-sim given it) takes off the same delay. Only position fixes are checked: a gyro that lags the orientation is said at ingest,
-  not shifted, since either one could be the late one. Measured through calibration (PROJECT_STATUS.md #96):
+- **Left out, calibration looks for a delay** in each position and depth sensor's readings. It shifts them
+  earlier, 0 to 2 s, over the minute with the most readings, and asks the state smoother (the description's physics
+  driven by the logged thrust) which shift explains them best. A shift of 0.5 s or more that explains the readings
+  clearly better than no shift is **taken off before the fit**, and the report warns that it was: for a position
+  sensor, at least 0.5 better in log-likelihood per fix; for depth, logged at 1 to 10 Hz, at least 0.3 per second
+  of readings. A weaker shift of 0.5 s or more is only said. Reloading the calibration (validation,
+  identifiability, `estimate-current`, fit-sim and export-sim given it) takes off the same delay. A gyro that lags
+  the orientation is said at ingest, not shifted, since either one could be the late one. Measured through
+  calibration (PROJECT_STATUS.md #96), position fixes:
   - **Fixes with no delay** (the tank's and DFKI's, made from motion capture, and DFKI's motion capture itself):
     0.0 s, no gain, nothing taken off.
   - **URI's real GPS:** at least 2 s, but 0.125 per fix over 26 fixes: said, not taken off. URI's DVL couldn't
@@ -164,6 +167,18 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
     0.5 was then chosen from these numbers and tested on recordings and noise it wasn't chosen on
     (B-latency-fresh-*): 0 s quiet (0.0 per fix), 1 s warned (0.8 s, 2.39 per fix), 2 s warned ("at least
     2.0 s", 7.23 per fix). Those rows ran when a delay was only said.
+  Depth (B-depthlag-*; the bar, 0.3 per second, was chosen from the scan alone on the reference recordings and on
+  real depth, then tested on fresh recordings):
+  - **Real depth on time:** the tank's and DFKI's Bar30 0.0 s; URI's 1 Hz depth 0.5 s, but at 0.003 per second:
+    nothing taken off.
+  - **1 s late, nothing given:** found 1.0 s (2.26 per second) and taken off: held-out skill 0.9925, the same as
+    on time (0.9926). Given `delay_s: 0`, it's taken as said: 0.948, and the report says the readings look late.
+    Given `delay_s: 1`: 0.9925.
+  - **Fresh recordings, depth the only vertical sensor:** 0, 0.5, 1 and 2 s late found at 0.0, 0.5, 1.0 and 2.0 s
+    (0.53 to 0.90 per second when late) and taken off; on time, nothing taken off.
+  - **Depth and the gyro only:** 1 s late found at 1.0 s and taken off; on time, nothing.
+  - **1 Hz depth** (as URI logs it): 1 s late found at 0.8 s (0.67 per second) and taken off; on time, nothing.
+  - **0.3 s late** read 0.2 to 0.3 s at 0.30 to 0.43 per second, under the 0.5 s it takes: not taken off.
 - **Canonical columns** in the ingested CSVs:
   - `pos_<name>_n`, `_e`, `_d`: world NED, m;
   - `depth_<name>`: m, positive down;

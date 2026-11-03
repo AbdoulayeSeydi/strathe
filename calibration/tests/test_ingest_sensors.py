@@ -341,6 +341,9 @@ def test_a_delayed_sensor_is_put_back_in_time(raw, tmp_path):
     assert s["sensors"]["sensors"]["usbl"]["delay_s"] == 0
     s, _ = run(tmp_path, spec_dict(raw, position={k: v for k, v in pos.items() if k != "delay_s"}), name="unsaid")
     assert "delay_s" not in s["sensors"]["sensors"]["usbl"]
+    s, _ = run(tmp_path, spec_dict(raw, depth={"column": "depth", "delay_s": 0}), name="depth_on_time")
+    assert s["sensors"]["sensors"]["main"]["delay_s"] == 0          # a depth sensor's too
+    assert "delay_s" not in s["sensors"]["sensors"]["usbl"]
 
 
 def test_held_fixes_in_a_csv_are_one_reading_each(raw, tmp_path):

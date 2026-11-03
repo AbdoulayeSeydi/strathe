@@ -466,16 +466,16 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
             d["applied_s"], d["applied_from"] = given[name]
         elif d.get("late"):
             d["applied_s"], d["applied_from"] = d["delay_s"], "found in the fixes"
-            logger.warning("Sensor suite: %s's fixes match the motion best %s%.1f s late: taken off (give delay_s: "
-                           "in its position: block to set it yourself, 0 if it's on time; SENSORS.md)", name,
-                           "at least " if d["at_the_scan_edge"] else "", d["delay_s"])
+            logger.warning("Sensor suite: %s's readings match the motion best %s%.1f s late: taken off (give "
+                           "delay_s: in its %s: block to set it yourself, 0 if it's on time; SENSORS.md)", name,
+                           "at least " if d["at_the_scan_edge"] else "", d["delay_s"], d.get("kind", "position"))
         else:
             d["applied_s"] = 0.0
         if d["applied_s"]:
             sm.shift_fixes(train_runs + heldout_runs, name, d["applied_s"])
     for name in sorted(set(given) - set(delays)):
-        logger.warning("Sensor suite: %s's delay_s (%s) isn't used: no position sensor %s in these recordings", name,
-                       given[name][1], name)
+        logger.warning("Sensor suite: %s's delay_s (%s) isn't used: no position or depth sensor %s in these "
+                       "recordings", name, given[name][1], name)
     if any(d["applied_s"] for d in delays.values()):
         sigma, scores = pick_sigma()   # late fixes look like unexplained acceleration
     logger.info("Sensor suite: state smoother's unexplained acceleration %.3g m/s^2%s", sigma,

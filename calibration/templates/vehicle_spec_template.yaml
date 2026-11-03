@@ -193,4 +193,5 @@ validation:
 #                                                            # time; left out, a clear delay is found and taken off)
 #   main: {position_m: [0.0, 0.0, 0.05], grade: bar30}       # the pressure sensor's port; grade: its datasheet
 #                                                            # noise (calibration/sensor_grades.yaml), used when
-#                                                            # your logs can't measure it; or noise: 0.003 (m)
+#                                                            # your logs can't measure it; or noise: 0.003 (m);
+#                                                            # delay_s: as for the USBL (a slow depth link)

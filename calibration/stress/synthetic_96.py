@@ -128,7 +128,8 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
         dep = sensors.get("depth")
         for d in ([dep] if isinstance(dep, dict) else dep or []):
             m = _sample_mask(n, every(d.get("rate_hz", rate_hz)), d.get("dropout", 0.0), rng)
-            vals = path[:, 2] + d.get("noise", 0.0) * rng.normal(size=n)
+            lag = int(round(d.get("delay_s", 0.0) * rate_hz))   # reported this long after the vehicle was there
+            vals = path[np.clip(np.arange(n) - lag, 0, n - 1), 2] + d.get("noise", 0.0) * rng.normal(size=n)
             vals[~m] = np.nan
             df[f"depth_{d.get('name', 'main')}"] = vals
         if "accelerometer" in sensors:

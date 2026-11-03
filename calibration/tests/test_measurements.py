@@ -438,9 +438,12 @@ def test_a_delay_taken_off_once_stays_taken_off():
     assert np.isnan(after[-10:]).all()
     sm.shift_fixes([run], "usbl", 1.0)
     np.testing.assert_array_equal(next(c for c in run.channels if c.name == "usbl").values, after)
-    sm.shift_fixes([run], "main", 1.0)   # a depth sensor isn't shifted: only position fixes are scanned
-    np.testing.assert_array_equal(next(c for c in run.channels if c.name == "main").values[:, 0],
-                                  df["depth_main"].to_numpy())
+    sm.shift_fixes([run], "main", 0.5)   # a depth sensor the same way
+    depth = next(c for c in run.channels if c.name == "main").values[:, 0]
+    np.testing.assert_array_equal(depth[:-5], df["depth_main"].to_numpy()[5:])
+    sm.shift_fixes([run], "gyro", 1.0)   # the gyro never: either it or the orientation could be the late one
+    np.testing.assert_array_equal(next(c for c in run.channels if c.name == "gyro").values,
+                                  df[["Bp", "Bq", "Br"]].to_numpy())
     # and a calibration's delay, carried by the dataset config, gives the same fixes from the file
     again = convert_run_dataframe(df, "synthetic-01-11-2026-run1.csv",
                                   DatasetConfig(sampling_rate_hz=RATE, sensors=("usbl", "main"),
@@ -448,11 +451,28 @@ def test_a_delay_taken_off_once_stays_taken_off():
     np.testing.assert_array_equal(next(c for c in again.channels if c.name == "usbl").values, after)
 
 
+def test_a_late_depth_sensor_is_found_and_an_on_time_one_is_not():
+    """state_smoother.fix_delays on depth (#96): depth reported 1 s after the vehicle was there is found late and clear
+    enough to take off; on time, it isn't."""
+    df, _, _ = truth_frame(n=900, dvl=False, pos_every=10, pos_noise=0.05)
+    df["depth_main"] += 0.002 * np.random.default_rng(5).normal(size=len(df))   # a Bar30's noise
+    late = df.copy()
+    late["depth_main"] = df["depth_main"].shift(10)
+    found = {}
+    for tag, frame in (("on time", df), ("late", late)):
+        run = as_run(frame, sensors=("usbl", "main"))
+        found[tag] = sm.fix_delays([run], TRUTH, SPEC.vehicle, 0.03, {"usbl": 0.05, "main": 0.002})["main"]
+    assert found["on time"]["kind"] == "depth" and not found["on time"]["late"] and found["on time"]["delay_s"] <= 0.2
+    assert found["late"]["late"] and 0.8 <= found["late"]["delay_s"] <= 1.2
+
+
 def test_a_delay_given_in_both_places_is_refused(tmp_path):
     import json
     (tmp_path / "ingest_report.json").write_text(json.dumps(
-        {"sensors": {"sensors": {"usbl": {"kind": "position", "delay_s": 0.3}, "main": {"kind": "depth"}}}}))
-    assert ms.given_delays(str(tmp_path), {}) == {"usbl": (0.0, "the ingest spec's delay_s (0.3 s, already taken off)")}
+        {"sensors": {"sensors": {"usbl": {"kind": "position", "delay_s": 0.3}, "main": {"kind": "depth"},
+                                 "bar30": {"kind": "depth", "delay_s": 0}}}}))
+    assert ms.given_delays(str(tmp_path), {}) == {"usbl": (0.0, "the ingest spec's delay_s (0.3 s, already taken off)"),
+                                                  "bar30": (0.0, "the ingest spec's delay_s (0 s, already taken off)")}
     assert ms.given_delays(None, {"usbl": {"delay_s": 0.0}})["usbl"][0] == 0.0
     with pytest.raises(ValueError, match="given in both the ingest spec and the vehicle description: give it once"):
         ms.given_delays(str(tmp_path), {"usbl": {"delay_s": 0.3}})
