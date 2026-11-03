@@ -831,6 +831,13 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         pwm = np.stack([_col(df, c, path) for c in th.pwm_columns], 1)
         lo_hi = cfg.command_range
         what = "PWM" if lo_hi is None else "normalized commands"
+        if spec.source.format != "csv" and not np.all(np.isfinite(pwm)):
+            # a log message's command that isn't a number: PX4's actuator_motors sends NaN for a stopped motor (and
+            # while disarmed), so those samples are taken as stopped, as PWM 0 is below
+            nan = ~np.isfinite(pwm)
+            report["warnings"].append(f"{int(nan.any(axis=1).sum())} sample(s) have a thruster command that isn't a "
+                                      f"number (PX4 actuator_motors: NaN is a stopped motor), taken as stopped")
+            pwm = np.where(nan, cfg.command_neutral, pwm)
         if lo_hi is None and np.any(pwm == 0):
             # PWM 0 is no signal: an autopilot writes it for an output it doesn't drive or while disarmed (PX4 does
             # both). An ESC with no signal stops its thruster, so those samples are taken as stopped (#94)
