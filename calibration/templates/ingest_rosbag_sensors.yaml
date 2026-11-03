@@ -42,7 +42,8 @@ position:
     x: /usbl/pose.pose.position.x   # in the world frame (ENU here, frame: flu)
     y: /usbl/pose.pose.position.y
     z: /usbl/pose.pose.position.z
-    delay_s: 0.0               # the fix's latency, if you know it
+    # delay_s: 0.3             # the fix's latency, if you know it (0: on time). Left out, calibration looks
+                               # for one and takes off a delay the fixes clearly show (SENSORS.md)
 accelerometer:
   x: /imu/data.linear_acceleration.x   # ROS IMUs report +9.81 on z at rest: that's right, keep it
   y: /imu/data.linear_acceleration.y

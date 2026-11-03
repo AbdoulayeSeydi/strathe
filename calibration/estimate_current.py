@@ -235,8 +235,14 @@ def main(argv=None) -> int:
     import measurements as ms
     from run_calibration import _sensor_mounts
     noise, _ = ms.smoother_noise(args.data_dir, ms.sensor_mounts(spec.raw), [])   # as calibrate's smoother has it
+    late = {k: v[0] for k, v in ms.given_delays(args.data_dir, ms.sensor_mounts(spec.raw)).items()}
+    mp = os.path.join(os.path.dirname(os.path.abspath(args.params)), "metrics.json") if args.params else ""
+    if os.path.exists(mp):   # the delay the calibration took off a late sensor's fixes
+        with open(mp, encoding="utf-8") as f:
+            late = {k: d["applied_s"] for k, d in ((json.load(f).get("sensor_suite") or {}).get("fix_delays")
+                                                    or {}).items() if "applied_s" in d}
     dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors), lever_arms=_sensor_mounts(spec),
-                       sensor_noise=noise)
+                       sensor_noise=noise, fix_delays=tuple((k, v) for k, v in sorted(late.items()) if v) or None)
     print(f"Estimating the current in {len(files)} recording(s) at {rate:g} Hz with {label}...", flush=True)
     rows = estimate_currents(files, params, spec.vehicle, dc, args.workers)
     for r in rows:

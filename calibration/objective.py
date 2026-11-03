@@ -161,6 +161,7 @@ class DatasetConfig:
     use_accelerometer: bool = False     # the accelerometer as a channel (opt-in: #96 measures whether it helps)
     lever_arms: Optional[dict] = None   # {sensor name: (x, y, z) m in the body, FRD} for the measurement model
     sensor_noise: Optional[dict] = None  # {sensor name: reading std} for the state smoother (measurements.smoother_noise)
+    fix_delays: Optional[tuple] = None   # ((position sensor, s), ...): a calibration's delay off a late sensor's fixes
 
     def current_for(self, filepath: str) -> Optional[tuple]:
         if self.current_by_file:
@@ -298,6 +299,13 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         from measurements import channels_from_frame
         channels = channels_from_frame(df, dataset_config.sensors, dataset_config.use_accelerometer,
                                        dataset_config.lever_arms)
+        if dataset_config.fix_delays:
+            from state_smoother import shifted_values
+            late = dict(dataset_config.fix_delays)
+            hz = dataset_config.sampling_rate_hz
+            channels = [replace(ch, values=shifted_values(ch.values, int(round(late[ch.name] * hz))),
+                                shifted_s=float(late[ch.name])) if ch.kind == "position" and ch.name in late else ch
+                        for ch in channels]
         dvl = next((ch for ch in channels if ch.kind == "dvl"), None)
         # u, v, w are the DVL's readings and nothing else: a velocity column the calibration was told not to use
         # (hidden truth, a stress test's DVL) never reaches the run

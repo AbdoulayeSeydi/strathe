@@ -3534,7 +3534,7 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - No lab has yet calibrated its own vehicle this way; SOLAQUA (the only public log with a USBL) has no thruster forces.
 - Roll and pitch inertia aren't pinned down by 1 Hz fixes (they are by 10 Hz motion capture).
 - A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
-- A late position sensor is found only when its fixes show it clearly, and the delay isn't applied: `delay_s:` corrects it (LIMITS).
+- A late position sensor is corrected only when its fixes show it clearly (0.3 s late isn't); a gyro that lags the orientation is said, not shifted; depth isn't checked for a delay (LIMITS).
 - fit-sim from GPS at the surface lost surge on URI, cause not found (LIMITS).
 - Only three real vehicles: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public). Marinarium (MIT licence, another BlueROV2 with motion capture and its commands) is a candidate, not yet downloaded.
 
@@ -3602,8 +3602,21 @@ now built and tested, or said here as not possible:
   - 16 Hz depth can't run on 10 Hz recordings (1 Hz is tested);
   - the search for more public vehicles with thrust and other sensors found none released with both. Marinarium (MIT,
     another BlueROV2) awaits a yes to download.
+- **A late sensor's delay taken off (2026-11-03).** The plan had each sensor's clock offset "reported and applied,
+  with an override"; #52 only reported it. Now a position sensor's delay is taken off before the fit: the one you give
+  as `delay_s:` (in the ingest spec, or on the sensor in the vehicle description; 0 included), or, left out, one the
+  fixes clearly show. Reloads (validation, identifiability, `estimate-current`, and fit-sim or export-sim given the
+  calibration) take off the same delay. Bars fixed
+  before the rows ran, on the same recordings as the rows that only said it (B-applied-*, B-given-*, all 8 pass):
+  - 1 s late: found 0.8 s and taken off, held-out skill 0.876 → 0.982 (on time 0.993); on other recordings 1 s late
+    0.915 → 0.975 and 2 s late 0.875 → 0.995;
+  - on time, twice, and 0.3 s late (too little to tell): nothing taken off, skill unchanged;
+  - `delay_s: 1` given: 0.9925; `delay_s: 0` given: taken as said (0.876), and the report says the fixes look late;
+  - real data: nothing taken off on URI (its GPS isn't clearly late), the tank or DFKI (0.0 s).
+  - Not shifted: a gyro that lags the orientation (either could be late, so it's said at ingest); depth isn't
+    checked for a delay.
 
-**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **215 of 224 rows
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **223 of 232 rows
 pass.** The 9 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, U-1, U-1b, B-set-depth,
 S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
 

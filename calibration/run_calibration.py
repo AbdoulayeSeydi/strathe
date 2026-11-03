@@ -452,21 +452,37 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     for name, src in sorted(noise_source.items()):
         logger.info("Sensor suite: %s's reading noise: %s (%s)", name,
                     f"{noise[name]:.3g}" if name in noise else "the smoother's default", src)
-    if config.smoother_accel_sigma is not None:
-        sigma, scores = float(config.smoother_accel_sigma), None
-    else:
-        sigma, scores = sm.choose_accel_sigma(train_runs, default_params, vehicle, noise)
+    def pick_sigma():
+        if config.smoother_accel_sigma is not None:
+            return float(config.smoother_accel_sigma), None
+        return sm.choose_accel_sigma(train_runs, default_params, vehicle, noise)
+    sigma, scores = pick_sigma()
+    # a late position sensor: the delay the lab gave, else one the fixes clearly show, taken off before the window
+    # starts and the fit (state_smoother.fix_delays)
+    delays = sm.fix_delays(train_runs, default_params, vehicle, sigma, noise)
+    given = ms.given_delays(config.data_dir, ms.sensor_mounts(loaded_spec.raw))
+    for name, d in sorted(delays.items()):
+        if name in given:
+            d["applied_s"], d["applied_from"] = given[name]
+        elif d.get("late"):
+            d["applied_s"], d["applied_from"] = d["delay_s"], "found in the fixes"
+            logger.warning("Sensor suite: %s's fixes match the motion best %s%.1f s late: taken off (give delay_s: "
+                           "in its position: block to set it yourself, 0 if it's on time; SENSORS.md)", name,
+                           "at least " if d["at_the_scan_edge"] else "", d["delay_s"])
+        else:
+            d["applied_s"] = 0.0
+        if d["applied_s"]:
+            sm.shift_fixes(train_runs + heldout_runs, name, d["applied_s"])
+    for name in sorted(set(given) - set(delays)):
+        logger.warning("Sensor suite: %s's delay_s (%s) isn't used: no position sensor %s in these recordings", name,
+                       given[name][1], name)
+    if any(d["applied_s"] for d in delays.values()):
+        sigma, scores = pick_sigma()   # late fixes look like unexplained acceleration
     logger.info("Sensor suite: state smoother's unexplained acceleration %.3g m/s^2%s", sigma,
                 "" if scores is None else " (the most likely of %s)" % sorted(scores))
     smoothing = sm.set_anchors(train_runs + heldout_runs, default_params, vehicle, sigma, noise)
     for f in smoothing["fallbacks"]:
         logger.warning("Sensor suite: smoother fell back to the DVL (or rest) on %s", f)
-    delays = sm.fix_delays(train_runs, default_params, vehicle, sigma, noise)
-    for name, d in sorted(delays.items()):
-        if d.get("late"):
-            logger.warning("Sensor suite: %s's fixes match the motion best %s%.1f s late: if your system reports "
-                           "late, give delay_s: in its position: block (SENSORS.md)", name,
-                           "at least " if d["at_the_scan_edge"] else "", d["delay_s"])
     scales = ms.still_scales(train_runs, H)
     only_heldout = {}
     for r in heldout_runs:
@@ -497,6 +513,9 @@ def sensor_runs_from_metrics(runs: list, metrics: dict, params, vehicle) -> Opti
     H = (metrics.get("objective") or {}).get("prediction_horizon_samples")
     for r in runs:
         r._horizon = H
+    for name, d in (ss.get("fix_delays") or {}).items():   # the delay the fit took off a late sensor's fixes
+        if d.get("applied_s"):
+            sm.shift_fixes(runs, name, d["applied_s"])
     scales = dict(ss.get("scales") or {})
     missing = [lab for r in runs for lab in ms.channel_labels(r.channels) if lab not in scales]
     if missing:   # a sensor the fit never scaled (only in these recordings): its own still RMS

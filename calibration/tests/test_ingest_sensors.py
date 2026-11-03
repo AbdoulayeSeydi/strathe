@@ -332,9 +332,15 @@ def test_a_delayed_sensor_is_put_back_in_time(raw, tmp_path):
     veh = synth_vehicle()
     write_csv(raw / "r.csv", veh, delay_rows=3)               # the USBL reports 0.3 s late
     pos = {"use": "calibrate", "source": "usbl", "x": "px", "y": "py", "z": "pz", "delay_s": 0.3}
-    _, (out,) = run(tmp_path, spec_dict(raw, position=pos))
+    s, (out,) = run(tmp_path, spec_dict(raw, position=pos))
     fixes = np.flatnonzero(out["pos_usbl_n"].notna())
     assert np.allclose(out.loc[fixes, ["pos_usbl_n", "pos_usbl_e"]].values, veh["pos"][fixes, :2], atol=1e-9)
+    # said in the report, so calibration takes it as given (measurements.given_delays); 0 is said too, left out isn't
+    assert s["sensors"]["sensors"]["usbl"]["delay_s"] == 0.3
+    s, _ = run(tmp_path, spec_dict(raw, position={**pos, "delay_s": 0}), name="on_time")
+    assert s["sensors"]["sensors"]["usbl"]["delay_s"] == 0
+    s, _ = run(tmp_path, spec_dict(raw, position={k: v for k, v in pos.items() if k != "delay_s"}), name="unsaid")
+    assert "delay_s" not in s["sensors"]["sensors"]["usbl"]
 
 
 def test_held_fixes_in_a_csv_are_one_reading_each(raw, tmp_path):

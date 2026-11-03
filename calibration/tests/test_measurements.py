@@ -295,6 +295,8 @@ def test_a_dvl_mounted_away_from_the_reference_point():
     ({"main": {"noise": -1}}, "a positive number"),
     ({"main": {"noise": "low"}}, "a positive number"),
     ({"usbl": {"range_m": 0}}, "range_m"),
+    ({"usbl": {"delay_s": -0.5}}, "a number of seconds \\(0 or more\\)"),
+    ({"usbl": {"delay_s": "late"}}, "sensors.usbl.delay_s: how long after"),
 ])
 def test_bad_sensor_mounts_are_refused(bad, message):
     with pytest.raises(ValueError, match=message):
@@ -420,3 +422,37 @@ def test_late_fixes_are_found_and_on_time_ones_are_not():
         found[tag] = sm.fix_delays([run], TRUTH, SPEC.vehicle, 0.03, {"usbl": 0.05, "main": 0.002})["usbl"]
     assert not found["on time"]["late"] and found["on time"]["delay_s"] <= 0.2
     assert found["late"]["late"] and 0.8 <= found["late"]["delay_s"] <= 1.2
+
+
+def test_a_delay_taken_off_once_stays_taken_off():
+    """state_smoother.shift_fixes (#96): the fixes move earlier by the delay, the windows are rebuilt from them, and
+    shifting the same runs to the same delay again (a calibration reloaded) changes nothing."""
+    df, _, _ = truth_frame(n=300, dvl=False, pos_every=10, pos_noise=0.0)
+    run = as_run(df, sensors=("usbl", "main"))
+    before = next(c for c in run.channels if c.name == "usbl").values.copy()
+    ms.plan_for(run, 50)
+    sm.shift_fixes([run], "usbl", 1.0)
+    after = next(c for c in run.channels if c.name == "usbl").values
+    assert "_plans" not in run.__dict__
+    np.testing.assert_array_equal(after[:-10], before[10:])
+    assert np.isnan(after[-10:]).all()
+    sm.shift_fixes([run], "usbl", 1.0)
+    np.testing.assert_array_equal(next(c for c in run.channels if c.name == "usbl").values, after)
+    sm.shift_fixes([run], "main", 1.0)   # a depth sensor isn't shifted: only position fixes are scanned
+    np.testing.assert_array_equal(next(c for c in run.channels if c.name == "main").values[:, 0],
+                                  df["depth_main"].to_numpy())
+    # and a calibration's delay, carried by the dataset config, gives the same fixes from the file
+    again = convert_run_dataframe(df, "synthetic-01-11-2026-run1.csv",
+                                  DatasetConfig(sampling_rate_hz=RATE, sensors=("usbl", "main"),
+                                                fix_delays=(("usbl", 1.0),)))
+    np.testing.assert_array_equal(next(c for c in again.channels if c.name == "usbl").values, after)
+
+
+def test_a_delay_given_in_both_places_is_refused(tmp_path):
+    import json
+    (tmp_path / "ingest_report.json").write_text(json.dumps(
+        {"sensors": {"sensors": {"usbl": {"kind": "position", "delay_s": 0.3}, "main": {"kind": "depth"}}}}))
+    assert ms.given_delays(str(tmp_path), {}) == {"usbl": (0.0, "the ingest spec's delay_s (0.3 s, already taken off)")}
+    assert ms.given_delays(None, {"usbl": {"delay_s": 0.0}})["usbl"][0] == 0.0
+    with pytest.raises(ValueError, match="given in both the ingest spec and the vehicle description: give it once"):
+        ms.given_delays(str(tmp_path), {"usbl": {"delay_s": 0.3}})

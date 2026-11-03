@@ -160,6 +160,19 @@ def _calibration_noise(pfile: str, data: str) -> dict:
     return measured_noise(data)
 
 
+def _calibration_delays(pfile: str, runs) -> None:
+    """The delay the Strathe calibration took off a late position sensor's fixes (metrics.json), taken off these runs'
+    fixes too, so the simulator is fitted to the same fixes (#96)."""
+    mp = os.path.join(os.path.dirname(os.path.abspath(pfile)), "metrics.json")
+    if not runs or getattr(runs[0], "channels", None) is None or not os.path.exists(mp):
+        return
+    from state_smoother import shift_fixes
+    for name, d in ((json.load(open(mp, encoding="utf-8")).get("sensor_suite") or {}).get("fix_delays") or {}).items():
+        if d.get("applied_s"):
+            shift_fixes(runs, name, d["applied_s"])
+            print(f"  {name}'s fixes: {d['applied_s']:g} s of delay taken off, as the calibration did.", flush=True)
+
+
 def _physics_starts(runs, params, mass, noise=None) -> None:
     """No DVL (#96): with a Strathe calibration at hand, each window starts from the smoother run with its physics
     (about 4x closer to the truth than physics-free in tests/test_simfit_sensors.py) instead of without."""
@@ -191,11 +204,13 @@ def run_fit(adapter, a) -> int:
             if getattr(train[0], "channels", None) is None:
                 print("  note: --starts-from changes nothing here: these logs have a DVL, and windows start from it",
                       flush=True)
+            _calibration_delays(pfile, train + held)
             _physics_starts(train + held, sp, smass, _calibration_noise(pfile, a.data))
             a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
         if a.from_strathe:
             from stonefish_export import load_calibration, training_density
             sp, smass, pfile = load_calibration(a.from_strathe, a.compare_mass)
+            _calibration_delays(pfile, train + held)
             _physics_starts(train + held, sp, smass, _calibration_noise(pfile, a.data))
             info0 = adapter.info()
             rho = training_density(split.train_groups, densities, info0.get("water_density") or 1025.0)
@@ -419,6 +434,7 @@ def run_export(adapter, a) -> int:
     try:
         train, held, split = core.load_runs(data, heldout)
         adapter.dt = (train or held)[0].dt
+        _calibration_delays(pfile, train + held)
         _physics_starts(train + held, params, mass, _calibration_noise(pfile, data))   # no DVL (#96): physics starts
         no_dvl = False
         densities = _densities(a)

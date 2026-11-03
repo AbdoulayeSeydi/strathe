@@ -1,5 +1,6 @@
 """`strathe fit-sim --sim mujoco` (PROJECT_STATUS.md #83): a lab's own MJCF, calibrated through MuJoCo's fluid model.
 MuJoCo is a pip package, so these run everywhere, CI included."""
+import json
 import os
 import tempfile
 
@@ -192,6 +193,17 @@ def test_starts_from_gives_mujoco_the_physics_aided_starts_alone(tmp_path, capsy
     out = capsys.readouterr().out
     assert rc == 0 and "Window starts from the smoother with your Strathe calibration's physics" in out
     assert "Starting from" not in out     # the model's own values, not Strathe's
+
+
+def test_fit_sim_takes_off_the_delay_the_calibration_took_off(tmp_path, capsys):
+    """A late USBL (#96): the simulator is fitted to the fixes the Strathe calibration was fitted to."""
+    data, cal = _sensor_logs(tmp_path), _calibration(tmp_path)
+    (cal / "metrics.json").write_text(json.dumps({"sensor_suite": {"fix_delays": {"usbl": {
+        "delay_s": 1.0, "late": True, "applied_s": 1.0, "applied_from": "found in the fixes"}}}}))
+    rc = cli.main(["fit", "--sim", "mujoco", "--model", MODEL, "--data", str(data), "--reference-point", "0", "0", "0",
+                   "--heldout-dates", "02-01-2030", "--starts-from", str(cal), "--fit", "drag", "--max-iterations", "1",
+                   "--out", str(tmp_path / "o")])
+    assert rc == 0 and "usbl's fixes: 1 s of delay taken off, as the calibration did." in capsys.readouterr().out
 
 
 def test_starts_from_and_from_strathe_together_is_refused(tmp_path, capsys):

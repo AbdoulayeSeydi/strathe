@@ -92,6 +92,10 @@ calibration and they come from its physics instead, which was about 4x closer to
   A simulator that can't take Strathe's model (MuJoCo) refuses it.
 - `--starts-from CALIBRATION` gives only the starts, for any simulator.
 
+With either, or with `export-sim`, a delay the calibration took off a late position sensor's fixes is taken off
+here too, so the simulator is fitted to the same fixes. fit-sim doesn't look for a delay itself: without a
+calibration, give it as `delay_s:` in the ingest spec.
+
 On real data, with the hidden truth (#96, FS-real-*), held-out mean skill over 10 s free runs:
 
 | | fit-sim | `--starts-from` | Strathe's calibration, same sensors | the model before fitting |
@@ -135,21 +139,31 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
   empty for GPS, but the recording keeps its full length.
 - **`drop_when:`** drops readings by another column, e.g. GPS whose fix status is below 0, or below 0.5 m of
   depth.
-- **`delay_s:`** is a sensor's latency (a USBL fix arrives after the vehicle was there). It's taken off the
-  readings' times. If you don't give it, calibration checks each position sensor for one. It shifts the fixes
-  earlier, 0 to 2 s, over the minute with the most fixes, and asks the state smoother (the description's physics
-  driven by the logged thrust) which shift explains them best. The report warns when the best shift is 0.5 s or
-  more and explains each fix at least 0.5 better in log-likelihood than no shift. It says a weaker shift of 0.5 s
-  or more as plain information. The delay isn't applied for you: give `delay_s:` and calibrate again. Measured
-  through calibration:
+- **`delay_s:`** is a sensor's latency (a USBL fix arrives after the vehicle was there). Given in the ingest
+  spec's `position:` block, it's taken off the readings' times at ingest. Given as `delay_s:` on the sensor in the
+  vehicle description's `sensors:`, calibration takes it off. Either way it's taken as said, 0 included (0: the
+  fixes are on time). Give it in one place: both is refused.
+- **Left out, calibration looks for a delay** in each position sensor's fixes. It shifts them earlier, 0 to 2 s,
+  over the minute with the most fixes, and asks the state smoother (the description's physics driven by the logged
+  thrust) which shift explains them best. A shift of 0.5 s or more that explains each fix at least 0.5 better in
+  log-likelihood than no shift is **taken off before the fit**, and the report warns that it was. A weaker shift
+  of 0.5 s or more is only said. Reloading the calibration (validation, identifiability, `estimate-current`,
+  fit-sim and export-sim given it) takes off the same delay. Only position fixes are checked: a gyro that lags the orientation is said at ingest,
+  not shifted, since either one could be the late one. Measured through calibration (PROJECT_STATUS.md #96):
   - **Fixes with no delay** (the tank's and DFKI's, made from motion capture, and DFKI's motion capture itself):
-    0.0 s, no gain.
-  - **URI's real GPS:** at least 2 s, but 0.125 per fix over 26 fixes: said as information, not warned. URI's
-    DVL couldn't confirm a delay either way: a vehicle at the surface barely accelerates.
-  - **Fixes 1 s late, on a known truth:** found 0.8 s late, at 1.21 per fix. The first threshold, 2 per fix, missed
-    this (B-latency-1 failed). 0.5 was then chosen from these numbers and tested on recordings and noise it wasn't
-    chosen on (B-latency-fresh-*, PROJECT_STATUS.md #96): 0 s quiet (0.0 per fix), 1 s warned (0.8 s, 2.39 per
-    fix), 2 s warned ("at least 2.0 s", 7.23 per fix).
+    0.0 s, no gain, nothing taken off.
+  - **URI's real GPS:** at least 2 s, but 0.125 per fix over 26 fixes: said, not taken off. URI's DVL couldn't
+    confirm a delay either way: a vehicle at the surface barely accelerates.
+  - **Fixes late, on a known truth** (B-applied-*): 1 s late was found at 0.8 s and taken off, and held-out skill
+    went from 0.876 to 0.982 (0.993 with the fixes on time). On other recordings, 1 s late: 0.915 to 0.975; 2 s
+    late, found "at least 2.0 s": 0.875 to 0.995. Fixes on time: nothing taken off, skill unchanged. 0.3 s late is
+    too little to tell (0.2 s, 0.035 per fix): nothing taken off, and it still costs 0.035 of skill.
+  - **A delay given** (B-given-*): `delay_s: 1` on the same 1 s late fixes reached 0.9925. `delay_s: 0` was taken
+    as said (0.876), and the report says the fixes still look 0.8 s late.
+  - **The thresholds' history:** the first, 2 per fix, missed the 1 s case (1.21 per fix; B-latency-1 failed).
+    0.5 was then chosen from these numbers and tested on recordings and noise it wasn't chosen on
+    (B-latency-fresh-*): 0 s quiet (0.0 per fix), 1 s warned (0.8 s, 2.39 per fix), 2 s warned ("at least
+    2.0 s", 7.23 per fix). Those rows ran when a delay was only said.
 - **Canonical columns** in the ingested CSVs:
   - `pos_<name>_n`, `_e`, `_d`: world NED, m;
   - `depth_<name>`: m, positive down;

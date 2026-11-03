@@ -260,6 +260,34 @@ DELAY_SAID_S = 0.5            # said from this delay
 DELAY_GAIN_PER_FIX = 0.5
 
 
+def shifted_values(values: np.ndarray, k: int) -> np.ndarray:
+    """Readings k samples earlier: a fix logged at sample i+k is where the vehicle was at i (k < 0: later)."""
+    if not k:
+        return values
+    v = np.full_like(values, np.nan)
+    if k > 0:
+        v[:-k] = values[k:]
+    else:
+        v[-k:] = values[:k]
+    return v
+
+
+def shift_fixes(runs: Sequence, name: str, delay_s: float) -> None:
+    """Take delay_s off position sensor `name`'s times in every run (in place). The shift so far is kept on the
+    channel, so shifting a run again to the same delay (a reloaded calibration) changes nothing."""
+    from dataclasses import replace
+    for r in runs:
+        if not r.channels:
+            continue
+        for i, c in enumerate(r.channels):
+            if c.name != name or c.kind != "position":
+                continue
+            k = int(round((delay_s - c.shifted_s) * r.sample_rate_hz))
+            if k:
+                r.channels[i] = replace(c, values=shifted_values(c.values, k), shifted_s=float(delay_s))
+                r.__dict__.pop("_plans", None)   # measurements.plan_for's windows were built from the old fixes
+
+
 def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optional[dict] = None) -> dict:
     """{position sensor: {delay_s, gain_per_fix, fixes, late}}: how late each position sensor's fixes look, from the
     DELAY_WINDOW_S of a training run with the most of its fixes. late: said in the report (delay_s: to correct it)."""
@@ -287,13 +315,7 @@ def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optio
 
         def loglik(delay):
             k = int(round(delay * r.sample_rate_hz))
-            chans = []
-            for c in r.channels:
-                v = c.values
-                if c.name == name and k:
-                    v = np.full_like(c.values, np.nan)
-                    v[:-k] = c.values[k:]          # a fix logged at sample i+k is where the vehicle was at i
-                chans.append(replace(c, values=v))
+            chans = [replace(c, values=shifted_values(c.values, k)) if c.name == name else c for c in r.channels]
             res = smooth(slice_run(replace(r, channels=chans), best_a, best_a + L), params, vehicle, accel_sigma,
                          noise)
             return res.loglik if res.fallback is None else float("-inf")
