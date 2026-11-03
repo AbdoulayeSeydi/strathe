@@ -186,6 +186,38 @@ def test_pwm_0_is_no_signal(R94, tmp_path):
     assert "every thruster command is 0 throughout" in res["error"]
 
 
+def test_a_nan_command_is_a_stopped_motor_not_a_dropped_message(R94, tmp_path):
+    """PX4's actuator_motors sends NaN for a stopped motor (found on KTH's Marinarium BlueROV2). The message was
+    dropped for it and the last command held, so a stopped thruster kept pushing: now it's taken as stopped, the same
+    as a CSV that logs it as 0."""
+    import yaml
+    r = _Rec()
+    v = {**R94.BASE, "actuation": "norm_t200", "checks": "skip_force"}
+    vals = R94.values(r, v)
+    stopped = np.zeros(r.n, bool)
+    stopped[200:260] = True                   # every motor stopped for 6 s
+    one = np.zeros(r.n, bool)
+    one[500:530] = True                       # one motor stopped while the others run
+    log_vals, csv_vals = dict(vals), dict(vals)
+    for i in range(8):
+        m = stopped | (one if i == 2 else False)
+        log_vals[f"m{i}"] = np.where(m, np.nan, vals[f"m{i}"])
+        csv_vals[f"m{i}"] = np.where(m, 0.0, vals[f"m{i}"])
+    outs = {}
+    for route, vv in (("px4", log_vals), ("csv", csv_vals)):
+        folder = os.path.join(tmp_path, route, "logs")
+        (R94.write_format("px4", r, vv, folder, v) if route == "px4" else R94.write_csv(r, vv, folder))
+        spec = R94.spec_for(route, v, os.path.join(folder, "*.ulg" if route == "px4" else "*.csv"), None, folder)
+        sp = os.path.join(tmp_path, f"{route}.yaml")
+        yaml.safe_dump(spec, open(sp, "w"), sort_keys=False)
+        outs[route] = (os.path.join(tmp_path, route, "out"), di.ingest(di.load_ingest_spec(sp), os.path.join(tmp_path, route, "out")))
+    res = R94.compare(outs["px4"][0], outs["csv"][0], v)
+    assert R94._ok(res), res
+    warned = " ".join(w for f in outs["px4"][1]["files"] for w in f.get("warnings", []))
+    assert "isn't a number (PX4 actuator_motors: NaN is a stopped motor), taken as stopped" in warned
+    assert "message(s) with NaN/inf values" not in warned     # no message dropped for it
+
+
 def test_a_damaged_timestamp_far_from_the_log_is_dropped_not_stretched_over():
     """A flipped byte can put a message 10^13 s away: the grid stretched over that span asked for 760 TiB (found by
     the random-damage rows, #94). Stray messages are dropped with a warning; a log spanning months is refused."""

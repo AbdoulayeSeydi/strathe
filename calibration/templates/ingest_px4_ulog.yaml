@@ -35,7 +35,8 @@ orientation:
 wrench:
   thrusters:
     # PWM sent to the ESCs (µs); on PX4 1.14+ you can use the normalized actuator_motors.control[i] instead, with
-    # command: normalized and command_range: [-1, 1] (see ingest_csv_normalized_thrusters.yaml)
+    # command: normalized and command_range: [-1, 1] (see ingest_csv_normalized_thrusters.yaml). Its NaN, a stopped
+    # motor, is taken as stopped (LOG_FORMATS.md)
     pwm_columns:
       - "actuator_outputs[0].output[0]"
       - "actuator_outputs[0].output[1]"

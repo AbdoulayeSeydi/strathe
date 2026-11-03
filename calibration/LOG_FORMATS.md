@@ -78,10 +78,11 @@ The same holds for ROS bags and ArduPilot logs.
 |---|---|
 | Cut off at power-down, or damaged in the middle | Read up to the damage. The ingest report says so, and the recording is shorter |
 | Gaps (a sensor dropped out) | Interpolated across, and counted in the ingest report |
-| NaN, repeated or out-of-order messages | Sorted, dropped and counted |
+| NaN, repeated or out-of-order messages | Sorted, dropped and counted (a NaN thruster command isn't dropped: see below) |
 | A few messages stamped far from the rest (a damaged timestamp can read as years away) | Dropped and counted, when they're cut off from the rest by over a minute and are under 1% of the topic; a real pause mid-log is kept. A log that still spans months is refused: check its clock |
 | A string where a number should be (MOOS: `DVL_U = no_lock`) | Skipped and counted |
 | A thruster command of 0 (PX4 writes it for an output it doesn't drive, and while disarmed) | No signal, so taken as a stopped thruster. An output that's 0 throughout is named, so you can check `pwm_columns` |
+| A thruster command that isn't a number (PX4's `actuator_motors` sends NaN for a stopped motor, and while disarmed) | Taken as stopped, and counted in a warning. Before 2026-11-03 the message was dropped and the motor's last command held, so a stopped thruster kept pushing (found on KTH's Marinarium BlueROV2, up to 14.5 N off in the test) |
 | A name that isn't in the log | Refused, listing the names the log has |
 | A topic logged for several instances, with no `[i]` | Refused, listing the instances |
 | LCM: no type file matches a channel's messages | Refused, naming the channel |

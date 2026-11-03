@@ -256,9 +256,17 @@ def series_to_grid(path: str, series: dict, resample_hz: float, hold_columns, qu
                                        "timestamps": timestamps.get(topic, ""), "gaps": None,
                                        "sensor_readings": True}
             continue
-        bad = {ref: int(np.sum(~np.isfinite(v))) for ref, v in cols.items() if not np.all(np.isfinite(v))}
+        # a command that isn't a number is a value, not damage: PX4's actuator_motors sends NaN for a stopped motor.
+        # It's kept (ingest takes it as stopped), so the message isn't dropped for it and the motor's last command
+        # isn't held over the stop
+        stopped = {ref: int(np.sum(~np.isfinite(v))) for ref, v in cols.items()
+                   if ref in hold_columns and not np.all(np.isfinite(v))}
+        if stopped:
+            report.setdefault("non_numeric_commands", {}).update(stopped)
+        bad = {ref: int(np.sum(~np.isfinite(v))) for ref, v in cols.items()
+               if ref not in hold_columns and not np.all(np.isfinite(v))}
         if bad:
-            ok = np.all([np.isfinite(v) for v in cols.values()], axis=0)
+            ok = np.all([np.isfinite(v) for ref, v in cols.items() if ref not in hold_columns], axis=0)
             report["warnings"].append(f"{topic}: dropped {int((~ok).sum())} message(s) with NaN/inf values")
             t, cols = t[ok], {ref: v[ok] for ref, v in cols.items()}
             if len(t) < 2:
