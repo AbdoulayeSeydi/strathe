@@ -159,3 +159,44 @@ def test_a_coefficient_the_model_has_at_zero_still_gets_tuned(tmp_path):
     assert next(s for n, s in specs.items() if n.endswith("slender_drag")).if_zero is None
     k = Knobs([blunt])
     assert k.values(k.x0())[blunt.name] == 0.5
+
+
+def _sensor_logs(tmp_path):
+    """Two days of a vehicle with no DVL: thrust, gyro, attitude, 1 Hz position fixes and depth (#96)."""
+    from test_measurements import truth_frame
+    data = tmp_path / "logs"
+    data.mkdir()
+    for k, date in enumerate(("01-01-2030", "02-01-2030")):
+        df, _, _ = truth_frame(n=700, seed=k, dvl=False, pos_every=10, pos_noise=0.05)
+        df.to_csv(data / f"auv-{date}-run1.csv", index=False)
+    return data
+
+
+def _calibration(tmp_path):
+    from optimizer import initial_parameters, load_vehicle_spec
+    p = initial_parameters(load_vehicle_spec(os.path.join(HERE, "..", "vehicle_spec.yaml")))
+    cal = tmp_path / "cal"
+    cal.mkdir()
+    (cal / "calibrated_parameters.yaml").write_text(yaml.safe_dump(
+        {"parameters": {k: float(getattr(p, k)) for k in p.param_names}, "vehicle_mass_kg": 11.2}))
+    return cal
+
+
+def test_starts_from_gives_mujoco_the_physics_aided_starts_alone(tmp_path, capsys):
+    """--starts-from (#96): with no DVL, each window starts from the smoother with a Strathe calibration's physics,
+    which --from-strathe can't give MuJoCo (its values don't go into a MuJoCo model); the lab's own model is fitted."""
+    data, cal = _sensor_logs(tmp_path), _calibration(tmp_path)
+    rc = cli.main(["fit", "--sim", "mujoco", "--model", MODEL, "--data", str(data), "--reference-point", "0", "0", "0",
+                   "--heldout-dates", "02-01-2030", "--starts-from", str(cal), "--fit", "drag", "--max-iterations", "1",
+                   "--out", str(tmp_path / "o")])
+    out = capsys.readouterr().out
+    assert rc == 0 and "Window starts from the smoother with your Strathe calibration's physics" in out
+    assert "Starting from" not in out     # the model's own values, not Strathe's
+
+
+def test_starts_from_and_from_strathe_together_is_refused(tmp_path, capsys):
+    data, cal = _sensor_logs(tmp_path), _calibration(tmp_path)
+    rc = cli.main(["fit", "--sim", "mujoco", "--model", MODEL, "--data", str(data), "--reference-point", "0", "0", "0",
+                   "--heldout-dates", "02-01-2030", "--starts-from", str(cal), "--from-strathe", str(cal),
+                   "--out", str(tmp_path / "o")])
+    assert rc == 2 and "not both" in capsys.readouterr().out

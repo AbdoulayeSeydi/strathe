@@ -191,3 +191,31 @@ def test_ardupilot_spec_rules(tmp_path):
         (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec))
         with pytest.raises(IngestError, match=match):
             load_ingest_spec(str(tmp_path / "s.yaml"))
+
+
+@needs_data
+def test_the_no_dvl_template_reads_an_ardusub_log_with_only_its_own_sensors(tmp_path):
+    """templates/ingest_ardusub_no_dvl.yaml (#96) on a .bin with no velocity: the gyro, the attitude, the external
+    pressure sensor (BARO[1], not the enclosure's BARO[0]) as depth, and the raw IMU's accelerometer."""
+    d = reference_run_in_frd(pd.read_csv(REAL[0])).iloc[:600].reset_index(drop=True)
+    R = Rotation.from_quat(d[["qx", "qy", "qz", "qw"]].values).as_matrix()
+    v, w = d[["Bu", "Bv", "Bw"]].values, d[["Bp", "Bq", "Br"]].values
+    down = np.einsum("nij,nj->ni", R, v)[:, 2]
+    d["depth"] = 1.5 + np.concatenate([[0.0], np.cumsum(down[:-1] * 0.1)])
+    acc = np.gradient(v, 0.1, axis=0) + np.cross(w, v) + np.einsum("nji,j->ni", R, np.array([0.0, 0.0, -9.80665]))
+    d[["acc_x", "acc_y", "acc_z"]] = acc
+    (tmp_path / "logs").mkdir()
+    write_bin(tmp_path / "logs" / "2024-02-03_dive1.bin", d, sensors=True)
+    s = ingest(load_ingest_spec(_template(tmp_path, "ingest_ardusub_no_dvl.yaml")), str(tmp_path / "out"))
+    rep = s["files"][0]
+    got = pd.read_csv(tmp_path / "out" / rep["output"])
+    n = min(len(got), len(d)) - 5
+    assert "Bu" not in got.columns
+    np.testing.assert_allclose(got[["Bp", "Bq", "Br"]].values[:n], w[:n], atol=1e-5)
+    # depth from the pressure, relative to the surface (auto: the lowest pressure, as nothing here is at the surface)
+    z = got["depth_bar30"].values[:n]
+    ok = np.isfinite(z)
+    np.testing.assert_allclose(z[ok] - z[ok].min(), d["depth"].values[:n][ok] - d["depth"].values[:n][ok].min(),
+                               atol=2e-3)
+    np.testing.assert_allclose(got[["acc_x", "acc_y", "acc_z"]].values[:n], acc[:n], atol=1e-4)
+    assert "accelerometer" in rep["sensor_checks"] and "problem" not in rep["sensor_checks"]["accelerometer"]

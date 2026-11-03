@@ -86,8 +86,22 @@ HoloOcean and external simulators.
 - Drift is measured against the position fixes.
 
 Starting velocities come from a physics-free smoother, since your simulator may model any vehicle. Give a Strathe
-calibration (`--from-strathe`; `export-sim` always has one) and they come from its physics instead, which was about
-4x closer to the truth in our tests (2 against 8 cm/s from 1 Hz fixes).
+calibration and they come from its physics instead, which was about 4x closer to the truth in our tests (2 against
+8 cm/s from 1 Hz fixes):
+- `--from-strathe CALIBRATION` also puts the calibration's values into your model, and `export-sim` always has one.
+  A simulator that can't take Strathe's model (MuJoCo) refuses it.
+- `--starts-from CALIBRATION` gives only the starts, for any simulator.
+
+On real data, with the hidden truth (#96, FS-real-*), held-out mean skill over 10 s free runs:
+
+| | fit-sim | `--starts-from` | Strathe's calibration, same sensors | the model before fitting |
+|---|---|---|---|---|
+| DFKI BlueROV2: depth, gyro, attitude | 0.067 | 0.061 | −0.107 | −1.53 |
+| URI ALPHA RISE: GPS at the surface, depth, IMU | 0.033 | 0.032 | 0.101 | −0.36 |
+| URI ALPHA RISE with its DVL (a control) | 0.123 | | 0.173 | −0.36 |
+
+The physics-aided starts made no measurable difference on either. On URI with no DVL, fit-sim fitted surge to 0.15,
+where the model already had 0.82. With the DVL it kept 0.81. The cause isn't found (LIMITS.md).
 
 **Everything else works the same with sensors:**
 - `--restarts`, the automatic retry of a failed fit, `--finish`;
@@ -98,7 +112,8 @@ calibration (`--from-strathe`; `export-sim` always has one) and they come from i
 
 Start from a template:
 - `templates/ingest_ardusub_no_dvl.yaml`: an ArduSub vehicle with no DVL (`.bin` logs);
-- `templates/ingest_rosbag_sensors.yaml`: a ROS vehicle's IMU, pressure, GPS, USBL and DVL.
+- `templates/ingest_rosbag_sensors.yaml`: a ROS vehicle's IMU, pressure, GPS, USBL and DVL;
+- `templates/ingest_csv_usbl.yaml`: CSV logs with a USBL, LBL or motion-capture fix and a depth sensor.
 
 ```yaml
 body_velocity:            # leave out u, v, w with no DVL; leave out p, q, r if no gyro is logged
@@ -121,7 +136,20 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
 - **`drop_when:`** drops readings by another column, e.g. GPS whose fix status is below 0, or below 0.5 m of
   depth.
 - **`delay_s:`** is a sensor's latency (a USBL fix arrives after the vehicle was there). It's taken off the
-  readings' times.
+  readings' times. If you don't give it, calibration checks each position sensor for one. It shifts the fixes
+  earlier, 0 to 2 s, over the minute with the most fixes, and asks the state smoother (the description's physics
+  driven by the logged thrust) which shift explains them best. The report warns when the best shift is 0.5 s or
+  more and explains each fix at least 0.5 better in log-likelihood than no shift. It says a weaker shift of 0.5 s
+  or more as plain information. The delay isn't applied for you: give `delay_s:` and calibrate again. Measured
+  through calibration:
+  - **Fixes with no delay** (the tank's and DFKI's, made from motion capture, and DFKI's motion capture itself):
+    0.0 s, no gain.
+  - **URI's real GPS:** at least 2 s, but 0.125 per fix over 26 fixes: said as information, not warned. URI's
+    DVL couldn't confirm a delay either way: a vehicle at the surface barely accelerates.
+  - **Fixes 1 s late, on a known truth:** found 0.8 s late, at 1.21 per fix. The first threshold, 2 per fix, missed
+    this (B-latency-1 failed). 0.5 was then chosen from these numbers and tested on recordings and noise it wasn't
+    chosen on (B-latency-fresh-*, PROJECT_STATUS.md #96): 0 s quiet (0.0 per fix), 1 s warned (0.8 s, 2.39 per
+    fix), 2 s warned ("at least 2.0 s", 7.23 per fix).
 - **Canonical columns** in the ingested CSVs:
   - `pos_<name>_n`, `_e`, `_d`: world NED, m;
   - `depth_<name>`: m, positive down;
@@ -141,6 +169,7 @@ what to fix; `skip_checks:` turns it into a warning for logs you know are right.
 | `gyro_vs_orientation` | deg/s declared as rad/s (slope 57), a flipped axis (slope −1), the gyro and the orientation on different clocks (their lag is named). Only judged where the two clearly follow each other |
 | `accelerometer` | g declared as m/s² (reads 1 at rest), a frame or mount error (gravity not along the orientation's down; a ROS IMU reads +9.81 on z at rest, which is right) |
 | `depth_vs_position` | a depth sign flipped against a position fix's vertical, or the wrong unit |
+| `depth_vs_thrust` | with depth as the only vertical sensor: a flipped sign, from depth falling when the thrusters push down (correlation −0.4 or lower refuses, −0.2 to −0.4 warns). It needs 60 s and 0.5 m of depth change to judge |
 | depth rate | depth changing faster than 5 m/s: a wrong unit, or not a depth |
 | position outliers | fixes the vehicle couldn't reach at `max_speed_mps` from the last good one are dropped. Over 20% dropped is refused (two systems mixed, or the wrong unit). The tolerance comes from the kind of fix (`noise_m:` to set it) |
 | `heading_vs_position` | with no DVL: a mirrored or offset heading, from the fixes against the thrust |
@@ -148,6 +177,9 @@ what to fix; `skip_checks:` turns it into a warning for logs you know are right.
 
 Real data so far:
 - **DFKI's and URI's gyros:** match their orientation with slope 1.00–1.04 and R² ≥ 0.99.
+- **Depth against the thrust:** on the tank's 9 recordings, URI's 2 and DFKI's 5 long enough to judge, none was
+  refused. With the sign flipped, all 9 tank recordings and all 5 DFKI ones were refused; on URI one was refused, and
+  the other (correlation +0.26 as logged) got a warning.
 - **URI's raw IMU:** reads 9.80–9.82 m/s² along gravity at rest.
 - **URI's RTK GPS track:** matches the thrust direction within 13–22°.
 - **DFKI's heading:** mirrored on purpose in a test, it is now refused by the gyro check. Before #96 it was
@@ -187,3 +219,8 @@ which is why your logs' own measurement comes first. On a test vehicle with 5 cm
 and assuming 1.27 m made the physics-free ones 2.6× worse (21 against 8 cm/s). Grades exist only for sensors whose
 datasheet states a per-reading noise. The Water Linked A50 publishes only its long-term accuracy (±1.01%), which
 is a scale error, not noise, so give its `noise:` yourself.
+
+**Two sensors of the same kind, of different quality** (a USBL and a GPS, two pressure sensors) are each their own
+channel, weighed by their own noise, so say each one's. With a 0.17 m USBL and a 1.27 m GPS both left at the
+0.2 m default, the GPS was trusted 6× too much, and adding it lowered held-out skill from 0.993 to 0.960
+(B-redundant-position, known truth). Give the GPS `grade: gnss_f9p` or its `noise:`.

@@ -1,0 +1,38 @@
+# Ingest spec: CSV logs from a vehicle with NO DVL: thrust, the gyro and attitude, a depth sensor, and a USBL (or LBL,
+# or motion capture) fix in a local frame. One CSV per recording, every sensor on one time column; a sensor that has
+# no reading on a row leaves its cell empty (a 1 Hz USBL fills one row in ten at 10 Hz). Empty cells stay empty: a
+# fix is placed where it was read and never interpolated. Then:
+#     python strathe.py calibrate --ingest-spec this_file.yaml --name my_rov
+# Which axes these sensors can calibrate, and which they can't: calibration/SENSORS.md.
+
+vehicle: my_rov
+source:
+  files: "raw_logs/*.csv"
+  delimiter: ","
+time: {column: timestamp, unit: s}
+resample_hz: 10
+session_date: {from: filename, pattern: "(\\d{4}-\\d{2}-\\d{2})", format: "%Y-%m-%d"}
+frame: frd                     # FRD body, NED world (x north, y east, z down). ROS-style logs: flu
+body_velocity:                 # no u, v, w: there's no DVL. The gyro only:
+  columns: {p: rate_x, q: rate_y, r: rate_z}
+  angular_unit: rad/s          # rad/s | deg/s
+orientation:
+  quaternion: {x: qx, y: qy, z: qz, w: qw}
+  # or: euler: {roll: roll, pitch: pitch, yaw: yaw, unit: deg}
+wrench:
+  columns: {Fx: force_x, Fy: force_y, Fz: force_z, Tx: torque_x, Ty: torque_y, Tz: torque_z}
+depth:
+  name: main
+  column: depth_m
+  positive: down               # down: deeper is larger (most depth sensors) | up
+  # or a pressure: pressure: {column: pressure_pa, unit: Pa, water: salt, surface: auto}
+position:
+  use: calibrate               # fit to it (check: only check the heading against it, as before)
+  source: usbl                 # usbl | lbl | mocap | gps (sets the outlier check's tolerance; noise_m: to set it)
+  name: usbl
+  x: usbl_x                    # metres, in the world frame above (north, east, down here)
+  y: usbl_y
+  z: usbl_z                    # leave out if your system gives only a horizontal fix
+  delay_s: 0.0                 # the fix's latency in seconds: Strathe doesn't detect it (LIMITS.md)
+# The noise each sensor has, if your logs can't measure it: the description's sensors: section
+# (templates/vehicle_spec_template.yaml; calibration/sensor_grades.yaml lists datasheet grades).

@@ -35,7 +35,9 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
           "96": {"R": "Real: the reference BlueROV2 tank, motion-capture velocity hidden",
                  "D": "Real: DFKI's BlueROV2, its own Bar30, IMU and attitude, motion-capture velocity hidden",
                  "U": "Real: URI's ALPHA RISE at sea, the raw DVL hidden",
-                 "B": "Known truth, one variable at a time", "M": "Every sensor combination (what is calibrated, what is held)",
+                 "B": "Known truth, one variable at a time",
+                 "M": "Every sensor combination on the BlueROV2 (what is calibrated, what is held)",
+                 "MA": "Every sensor combination on URI's ALPHA RISE (its DVL fit as the truth)",
                  "S": "Real: SOLAQUA's USBL against its DVL (the smoother alone)",
                  "E": "End to end through strathe, no DVL", "W": "The web form", "FS": "fit-sim in each simulator"}}
 

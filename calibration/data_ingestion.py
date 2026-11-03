@@ -1057,6 +1057,9 @@ def _sensor_checks(spec: IngestSpec, out: pd.DataFrame, t, R, gyro_logged: bool,
         for pc in down_cols:
             checks.setdefault("depth_vs_position", {})[f"{dc} vs {pc}"] = si.depth_vs_position(
                 out[dc].to_numpy(), out[pc].to_numpy())
+        if not down_cols:   # nothing vertical to compare with: the thrust says which way is down
+            checks.setdefault("depth_vs_thrust", {})[dc] = si.depth_vs_thrust(
+                t, out[dc].to_numpy(), R, out[["Fx", "Fy", "Fz"]].to_numpy())
     for p in spec.positions():
         if p.use != "calibrate":
             continue
@@ -1072,6 +1075,8 @@ def _sensor_checks(spec: IngestSpec, out: pd.DataFrame, t, R, gyro_logged: bool,
         report.setdefault("sensor_checks", {})[name] = res
         if "warning" in res:
             report["warnings"].append(f"{name}: {res['warning']}")
+        report["warnings"] += [f"{name}: {k}: {r['warning']}" for k, r in res.items()
+                               if isinstance(r, dict) and "warning" in r]
         problems = [res["problem"]] if "problem" in res else \
             [f"{k}: {r['problem']}" for k, r in res.items() if isinstance(r, dict) and "problem" in r]
         if problems and name not in spec.skip_checks:

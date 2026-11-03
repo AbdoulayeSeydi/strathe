@@ -6,7 +6,9 @@ stress test. Not part of the product.
 .bin: FMT-described binary records (0xA3 0x95 <id> <payload>), with
   RCOU (servo PWM), ATT (roll/pitch in centidegrees, yaw 0-36000),
   IMU[0] and IMU[1] (body rates, rad/s), XKF1[0] (NED velocity), and
-  optionally GPS week/ms so the log carries real clock time.
+  optionally GPS week/ms so the log carries real clock time. sensors=True: what a vehicle with no DVL logs
+  (#96): IMU also has AccX..AccZ (the run's acc_x..acc_z, m/s^2) and BARO[0] (inside the enclosure) and BARO[1]
+  (the external Bar30, Pa: the run's depth column in fresh water under a 101325 Pa surface).
 .tlog: 8-byte big-endian microsecond timestamp + raw MAVLink packet, with
   SERVO_OUTPUT_RAW, ATTITUDE (rad) and LOCAL_POSITION_NED (NED velocity).
 """
@@ -42,7 +44,8 @@ def ned_velocity(d):
     return R.apply(d[["Bu", "Bv", "Bw"]].values)
 
 
-def write_bin(path, d, t0_unix=None, dt=0.1, offsets=None, corrupt_tail=False, garbage_every=0, drop_type=None):
+def write_bin(path, d, t0_unix=None, dt=0.1, offsets=None, corrupt_tail=False, garbage_every=0, drop_type=None,
+              sensors=False):
     """d: canonical run with pwm1..pwm8. t0_unix: give the log GPS time (else boot time only).
     offsets: per-type time offsets in seconds. garbage_every: insert junk bytes every N records."""
     offsets = offsets or {}
@@ -54,7 +57,12 @@ def write_bin(path, d, t0_unix=None, dt=0.1, offsets=None, corrupt_tail=False, g
     out += _fmt_record(128, "FMT", "BBnNZ", "Type,Length,Name,Format,Columns")
     out += _fmt_record(60, "RCOU", "QHHHHHHHH", "TimeUS,C1,C2,C3,C4,C5,C6,C7,C8")
     out += _fmt_record(61, "ATT", "QccccCC", "TimeUS,DesRoll,Roll,DesPitch,Pitch,DesYaw,Yaw")
-    out += _fmt_record(62, "IMU", "QBfff", "TimeUS,I,GyrX,GyrY,GyrZ")
+    imu = "QBffffff" if sensors else "QBfff"
+    out += _fmt_record(62, "IMU", imu, "TimeUS,I,GyrX,GyrY,GyrZ" + (",AccX,AccY,AccZ" if sensors else ""))
+    if sensors:
+        out += _fmt_record(65, "BARO", "QBf", "TimeUS,I,Press")
+        acc = d[["acc_x", "acc_y", "acc_z"]].values
+        press = 101325.0 + 997.0 * 9.80665 * d["depth"].values    # fresh water at 25 C (sensor_ingest)
     out += _fmt_record(63, "XKF1", "QBfff", "TimeUS,C,VN,VE,VD")
     out += _fmt_record(64, "GPS", "QBIH", "TimeUS,Status,GMS,GWk")
     boot_us = 5_000_000
@@ -72,8 +80,12 @@ def write_bin(path, d, t0_unix=None, dt=0.1, offsets=None, corrupt_tail=False, g
         yaw = eul[k, 2] % 360.0
         recs.append(_rec(61, "QccccCC", us["ATT"], 0, int(round(eul[k, 0] * 100)), 0, int(round(eul[k, 1] * 100)),
                          0, int(round(yaw * 100)) % 36000))
-        recs.append(_rec(62, "QBfff", us["IMU"], 0, *gyro[k]))
-        recs.append(_rec(62, "QBfff", us["IMU"] + 700, 1, *(gyro[k] + 0.3)))  # a second, biased IMU
+        extra0, extra1 = (tuple(acc[k]), tuple(acc[k] + 0.2)) if sensors else ((), ())
+        recs.append(_rec(62, imu, us["IMU"], 0, *gyro[k], *extra0))
+        recs.append(_rec(62, imu, us["IMU"] + 700, 1, *(gyro[k] + 0.3), *extra1))  # a second, biased IMU
+        if sensors:
+            recs.append(_rec(65, "QBf", us["IMU"] + 300, 0, 101000.0 + 50.0 * np.sin(k / 40.0)))  # inside
+            recs.append(_rec(65, "QBf", us["IMU"] + 400, 1, press[k]))                         # the Bar30
         recs.append(_rec(63, "QBfff", us["XKF1"], 0, *vel[k]))
         for r in recs:
             out += r
