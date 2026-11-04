@@ -514,6 +514,18 @@ def axes_seen(runs: Sequence, horizon_samples: Optional[int]) -> dict:
     return seen
 
 
+# below this RMS yaw rate surge and sway barely move what's measured, and the fit runs them to their limits: URI's
+# ALPHA RISE turned at 0.06 rad/s and inferring took sway to -3.0 skill, where the BlueROV2s at 0.43-0.76 reached DVL-like
+# skill (#96, U-3i). Chosen from those four vehicles; B-infer-turn-* tests it on a known truth
+MIN_TURNING_RAD_S = 0.15
+
+
+def turning_rms(runs: Sequence) -> float:
+    """RMS yaw rate over the runs (the gyro's), rad/s."""
+    r = np.concatenate([run.real_nu[:, 5] for run in runs])
+    return float(np.sqrt(np.nanmean(r ** 2)))
+
+
 def inferred_axes(seen: dict) -> set:
     """Surge and sway when no sensor measures them but depth holds heave: their values still move yaw and depth (the
     Coriolis and Munk terms), so the fit can infer them from the gyro and depth (#96, R-3i). With heave unseen too,

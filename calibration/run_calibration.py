@@ -443,6 +443,12 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     lb, ub = parameter_bounds(loaded_spec)
     already = set((cc.fixed_params or {}))
     inferred = ms.inferred_axes(seen) if config.unseen == "infer" else set()
+    turning = ms.turning_rms(train_runs)
+    too_little_turning = bool(inferred) and turning < ms.MIN_TURNING_RAD_S
+    if too_little_turning:
+        inferred = set()
+        logger.warning("Sensor suite: the vehicle turned too little (%.2f rad/s RMS, under %.2f) to infer surge and "
+                       "sway: held at the description's values (SENSORS.md)", turning, ms.MIN_TURNING_RAD_S)
     held = {k: v for k, v in ms.unobservable_holds(seen, default_params, inferred).items()
             if k in names and k not in already and lb[names.index(k)] < ub[names.index(k)]}
     if held:
@@ -498,6 +504,7 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     return {"sensors_asked": list(config.sensors), "use_accelerometer": bool(config.use_accelerometer),
             "channels": labels, "horizon_s": H / config.sampling_rate_hz, "axes_seen_by": seen,
             "plain": ms.seen_words(seen, inferred), "held_unobserved": held, "inferred_axes": sorted(inferred),
+            "turning_rms_rad_s": turning, "too_little_turning": too_little_turning,
             "noise": noise,
             "noise_source": noise_source,
             "smoother": {"accel_sigma_mps2": sigma, "loglik_by_sigma": scores, **smoothing},

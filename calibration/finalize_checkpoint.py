@@ -42,7 +42,7 @@ def _per_dof(params, runs, vehicle, horizon=None):
 
 
 def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz, horizon_samples, sensors,
-                  use_accelerometer, accel_sigma) -> tuple:
+                  use_accelerometer, accel_sigma, unseen="infer") -> tuple:
     """The sensor suite (#96), as the fit had it: the same windows, axes held, smoother noise and scales; each
     window's start from the smoother with the checkpoint's values. Returns (info, horizon_samples, held params)."""
     import types
@@ -52,7 +52,7 @@ def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz
     cc = CalibrationConfig(horizon_samples=horizon_samples)
     cfg = types.SimpleNamespace(calibration_config=cc, sampling_rate_hz=sampling_rate_hz, data_dir=data_dir,
                                 smoother_accel_sigma=accel_sigma, sensors=tuple(sensors),
-                                use_accelerometer=use_accelerometer)
+                                use_accelerometer=use_accelerometer, unseen=unseen)
     info = sensor_suite_setup(cfg, train, held, default, spec.vehicle, spec)
     sm.set_anchors(train + held, params, spec.vehicle, info["smoother"]["accel_sigma_mps2"],
                    smoother_noise_of(info))
@@ -63,7 +63,7 @@ def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz
 def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_dir: str, sampling_rate_hz: float,
              torque_offset=None, axis_scaling: str = "none", exclude_axes=(), horizon_samples=None,
              reason: str = "", current_world=None, current_by_file=None, free_decay=None, sensors=("auto",),
-             use_accelerometer: bool = False, accel_sigma=None) -> dict:
+             use_accelerometer: bool = False, accel_sigma=None, unseen: str = "infer") -> dict:
     ck = read_checkpoint(checkpoint)
     params = CalibrationParameters(**ck["best_parameters_so_far"])
     spec = load_vehicle_spec(spec_path)
@@ -89,7 +89,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if train and train[0].channels is not None:
         sensor_info, horizon_samples, sensor_held = _sensor_setup(train, held, params, default, spec, data_dir,
                                                                   sampling_rate_hz, horizon_samples, sensors,
-                                                                  use_accelerometer, accel_sigma)
+                                                                  use_accelerometer, accel_sigma, unseen)
     zero = zero_baseline_rmse(held)
     cal_held, diverged_full = stable_rmse_by_dof(params, held, v)  # a blow-up is reported, not a crash
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * sampling_rate_hz)))
@@ -186,6 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reason", default="")
     ap.add_argument("--sensors", nargs="+", default=["auto"], help="as run_calibration.py --sensors (#96)")
     ap.add_argument("--use-accelerometer", action="store_true")
+    ap.add_argument("--unseen", choices=("infer", "hold"), default="infer", help="as run_calibration.py --unseen (#96)")
     ap.add_argument("--smoother-accel-sigma", type=float, default=None)
     ap.add_argument("--anchor-rounds", type=int, default=None, help=argparse.SUPPRESS)  # accepted, not used here
     return ap
@@ -201,7 +202,7 @@ def main(argv=None) -> int:
                      args.torque_reference_offset_m, args.axis_scaling, tuple(args.exclude_axes),
                      args.prediction_horizon_samples, args.reason, args.current_world_mps,
                      None if not args.currents_file else read_currents_file(args.currents_file), args.free_decay,
-                     tuple(args.sensors), args.use_accelerometer, args.smoother_accel_sigma)
+                     tuple(args.sensors), args.use_accelerometer, args.smoother_accel_sigma, args.unseen)
     except CheckpointError as e:
         print(f"❌ {e}")
         return 2

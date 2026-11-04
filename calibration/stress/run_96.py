@@ -83,6 +83,11 @@ SWEEP = {
         ("B-infer-depth", "depth only, surge and sway inferred", "depth and the gyro only: surge and sway inferred"),
         ("B-infer-fresh", "depth only, surge and sway inferred, fresh recordings",
          "depth and the gyro only, on other recordings and noise: surge and sway inferred"))},
+    # after U-3i (2026-11-04): MIN_TURNING_RAD_S on a known truth, the yaw torque scaled. 0.5 and 0.25 turn at 0.35 and
+    # 0.20 rad/s: inferred, B-infer-depth's bar. 0.1 turns at 0.09: held and said. Fixed before these ran
+    **{f"B-infer-turn-{x:g}": ("turning", x, _with(position=None, turn_scale=x), ["--unseen", "infer"], k,
+                               f"depth and the gyro only, the yaw torque x{x:g}")
+       for x, k in ((0.5, "depth_infer"), (0.25, "depth_infer"), (0.1, "turn_guard"))},
     "B-set-depth": ("sensor set", "depth only", _with(position=None), [], "depth_only",
                     "depth and the gyro only: surge and sway can't be seen and must be held"),
     "B-set-dvlgaps": ("sensor set", "DVL 30% dropouts + fixes", _with(dvl={"dropout": 0.3}), ["--sensors", "all"],
@@ -272,7 +277,8 @@ def _score(out: str, root: str, current=None) -> dict:
             "median_param_error_of_range": round(float(np.median(list(err.values()))), 4),
             "worst_params": sorted(((k, round(v, 3)) for k, v in err.items()), key=lambda x: -x[1])[:3],
             "axes_seen_by": ss.get("axes_seen_by"), "held_unobserved": sorted(ss.get("held_unobserved") or {}),
-            "inferred_axes": ss.get("inferred_axes") or [],
+            "inferred_axes": ss.get("inferred_axes") or [], "too_little_turning": ss.get("too_little_turning"),
+            "turning_rms_rad_s": ss.get("turning_rms_rad_s"),
             "fix_delays": ss.get("fix_delays"),
             "converged": (m.get("optimizer") or {}).get("converged"), "params": p}
 
@@ -338,6 +344,9 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
               and sk[2] >= SEEN_SKILL and min(sk[3:]) >= -1.0)
         return ok, (f"surge and sway reported unseen and inferred, nothing held; heave skill >= {SEEN_SKILL}; roll, pitch "
                     f"and yaw >= -1")
+    if kind == "turn_guard":
+        ok = finite and held_ok and bool(nums.get("too_little_turning")) and not nums.get("inferred_axes")
+        return ok, "too little turning: surge and sway held, and the report says why"
     if kind == "applied":
         return _judge_applied(row, nums, finite and held_ok)
     if kind == "depth_delay":
@@ -940,6 +949,10 @@ REAL = {   # row: (fit folder name, data folder, truth folder, spec, held-out fi
     "U-3": ("u3", "uri_u3", "uri_truth", "uri", "URI with depth, gyro and attitude only, surge and sway held", "r3"),
     "U-3i": ("u3i", "uri_u3", "uri_truth", "uri", "URI with depth, gyro and attitude only, surge and sway inferred",
              "r3i"),
+    # after U-3i met its bar with sway at -3.0: the default on the same data, which now holds them. U-3i, run again,
+    # fails its bar on purpose: nothing is inferred any more
+    "U-3g": ("u3g", "uri_u3", "uri_truth", "uri", "URI with depth, gyro and attitude only: too little turning to infer",
+             "guard"),
     # DFKI's BlueROV2 (stress/prepare_dfki_96.py): its own Bar30, IMU and attitude; the motion capture's velocity hidden
     "D-V": ("dV", "v", "truth", "blue", "today's velocity fit on DFKI's BlueROV2 (motion-capture velocity)", "ref"),
     "D-1": ("d1", "d1", "truth", "blue", "no velocity: motion-capture positions and the Bar30", "r1"),
@@ -989,7 +1002,9 @@ def real(fits_dir: str) -> int:
         scores[row] = {"skill": sk["skill"], "mean_skill": sk["mean_skill"], "default_skill": d["skill"],
                        "windows": sk["windows"], "axes_seen_by": ss.get("axes_seen_by"),
                        "held_unobserved": sorted(ss.get("held_unobserved") or {}),
-                       "inferred_axes": ss.get("inferred_axes") or [], **val}
+                       "inferred_axes": ss.get("inferred_axes") or [],
+                       "too_little_turning": ss.get("too_little_turning"),
+                       "turning_rms_rad_s": ss.get("turning_rms_rad_s"), **val}
     for row, nums in scores.items():
         fit, data, truth, sp, what, bar = REAL[row]
         V = scores.get(row[0] + "-V" + ("b" if row.endswith("b") else "")) or {}
@@ -1018,6 +1033,10 @@ def _judge_real(bar: str, n: dict, V: dict) -> tuple:
     if bar == "r3":
         return (set(blind) == {"u", "v"} and sk[2] >= v[2] - 0.05 and sk[5] >= v[5] - 0.05,
                 "surge and sway reported unseen and held; heave and yaw within 0.05 of V")
+    if bar == "guard":
+        return (bool(n.get("too_little_turning")) and not n.get("inferred_axes")
+                and {"Xu", "Yv"} <= set(n.get("held_unobserved") or []),
+                "too little turning: surge and sway held, and the report says why")
     if bar == "r3i":
         return (set(blind) == {"u", "v"} and n.get("inferred_axes") == ["u", "v"] and sk[2] >= v[2] - 0.05
                 and sk[5] >= v[5] - 0.05, "surge and sway reported unseen and inferred; heave and yaw within 0.05 of V")

@@ -78,13 +78,16 @@ def truth_dataset(out: str, sources: list, truth_path: str = TRUTH_BLUEROV2, spe
         if current_world is not None:
             run = run_with_current(run, current_world)
         n = run.n_samples
-        traj = TrajectoryInputs(nu0=run.nu0, forces_torques=run.forces_torques, roll_pitch_series=run.roll_pitch,
+        ft = run.forces_torques.copy()
+        ft[:, 5] *= sensors.get("turn_scale", 1.0)   # a vehicle that turns less (the yaw torque scaled)
+        traj = TrajectoryInputs(nu0=run.nu0, forces_torques=ft, roll_pitch_series=run.roll_pitch,
                                 current_body_series=run.current_body)
         nu = simulate_trajectory(truth, spec.vehicle, SimulationConfig(dt=run.dt), traj).nu
         R = Rotation.from_quat(run.orientation_quat).as_matrix()
         vw = np.einsum("nij,nj->ni", R, nu[:, :3])
         path = np.vstack([np.zeros(3), np.cumsum(vw[:-1] * run.dt, axis=0)]) + np.array([2.0, -1.0, 3.0])
         df = pd.DataFrame({c: raw[c].to_numpy(dtype=float) for c in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")})
+        df["Tz"] *= sensors.get("turn_scale", 1.0)
         g = sensors.get("gyro", {})
         ang = nu[:, 3:6] + g.get("bias", 0.0) + g.get("noise", 0.0) * rng.normal(size=(n, 3))
         df["Bp"], df["Bq"], df["Br"] = ang[:, 0], ang[:, 1], ang[:, 2]

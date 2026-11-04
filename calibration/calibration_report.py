@@ -583,6 +583,9 @@ def sensors_section(metrics: Optional[dict]) -> list:
         L.append("\nHeld at your vehicle description's values, because no sensor sees their motion: "
                  + ", ".join(f"{PLAIN.get(k, k)} (`{k}`)" for k in held) + ".")
     blind = {a for a, by in (ss.get("axes_seen_by") or {}).items() if not by}
+    if ss.get("too_little_turning"):
+        L.append(f"\nSurge and sway weren't inferred: the vehicle turned too little ({ss['turning_rms_rad_s']:.2f} rad/s "
+                 "RMS) for the turning rate to show them, so inferring would have run them to their limits (SENSORS.md).")
     if ss.get("inferred_axes"):   # measured with the truth hidden (PROJECT_STATUS.md #96, R-3i, D-3i, K-3i)
         L.append("\n> ⚠️ Surge and sway are inferred, not measured: no sensor reads them, and the fit found their values "
                  "from how they move the turning rate and depth. Treat them as estimates, and check them against a "
