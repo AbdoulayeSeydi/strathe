@@ -142,7 +142,7 @@ def test_random_sensor_mixes_calibrate_or_say_why(tmp_path, seed):
     if rep.sensor_suite is not None:
         held = set(rep.sensor_suite["held_unobserved"])
         blind = {a for a, by in rep.sensor_suite["axes_seen_by"].items() if not by}
-        if "u" in blind:
+        if "u" in blind and "u" not in rep.sensor_suite["inferred_axes"]:
             assert "Xu" in held
         if "w" in blind:
             assert "Zw" in held

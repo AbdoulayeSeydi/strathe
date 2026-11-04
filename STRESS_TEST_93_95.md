@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-03 23:51. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-04 15:27. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -881,7 +881,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #96. Calibrate from what the vehicle measures: no DVL needed
 
-**240 of 248 rows pass** (42 variables found in the code, each with a row).
+**266 of 275 rows pass** (43 variables found in the code, each with a row).
 
 ### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
 
@@ -893,6 +893,7 @@ Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion)
 | R-1 | no velocity: motion-capture positions and depth | +0.69 | +0.49 | +0.57 | -0.02 | -0.04 | +0.60 | **+0.383** | 1.90 m (9.40) | none | ✅ |
 | R-2 | no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth | +0.69 | +0.49 | +0.57 | -0.02 | -0.04 | +0.60 | **+0.383** | 2.06 m (9.46) | none | ✅ |
 | R-3 | no velocity: depth and the gyro only | -0.27 | -0.63 | +0.56 | -0.14 | -0.10 | +0.29 | **-0.047** | 3.89 m (8.44) | u, v | ❌ |
+| R-3i | no velocity: depth and the gyro only, surge and sway inferred | +0.69 | +0.24 | +0.57 | -0.02 | -0.05 | +0.60 | **+0.340** | 0.98 m (8.57) | u, v | ✅ |
 | R-4 | a DVL with 30% dropouts plus R-2's fixes | +0.69 | +0.51 | +0.58 | -0.02 | -0.04 | +0.60 | **+0.388** | 1.93 m (9.49) | none | ✅ |
 | default | the description's physics, nothing fitted | +0.40 | -0.57 | -1.19 | -4.33 | -7.47 | +0.15 | -2.166 | | | |
 
@@ -906,6 +907,7 @@ Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion)
 | D-1 | no velocity: motion-capture positions and the Bar30 | +0.87 | +0.65 | +0.44 | -0.16 | +0.03 | +0.58 | **+0.402** | 1.31 m (5.96) | none | ✅ |
 | D-2 | no velocity: USBL-like fixes and the Bar30 | +0.87 | +0.64 | +0.44 | -0.16 | +0.03 | +0.58 | **+0.401** | 1.50 m (5.73) | none | ✅ |
 | D-3 | the BlueROV2 lab with no DVL: Bar30, gyro and attitude only | +0.30 | -0.94 | +0.29 | -0.13 | +0.04 | +0.34 | **-0.018** | 2.37 m (4.56) | u, v | ❌ |
+| D-3i | Bar30, gyro and attitude only, surge and sway inferred | +0.72 | +0.64 | +0.41 | -0.16 | -0.01 | +0.58 | **+0.364** | 1.13 m (4.42) | u, v | ❌ |
 | D-4 | D-3 plus the raw IMU's accelerometer (exploratory) | +0.30 | -0.92 | +0.34 | -0.13 | +0.04 | +0.33 | **-0.007** | 2.90 m (4.56) | u, v | ✅ |
 | default | the description's physics, nothing fitted | +0.65 | -1.30 | -0.76 | -7.92 | -5.64 | -0.17 | -2.525 | | | |
 
@@ -919,6 +921,9 @@ Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion)
 | U-1 | URI with no DVL: RTK GPS (surface), depth, IMU | +0.80 | -0.04 | +0.39 | +0.01 | -0.14 | -0.16 | **+0.145** | 12.56 m (11.93) | none | ❌ |
 | U-1b | U-1 with the bay day held out (trained on the pond day) | +0.83 | +0.17 | +0.11 | +0.03 | -0.26 | +0.25 | **+0.188** |  | none | ❌ |
 | U-2 | U-1 plus the accelerometer (exploratory) | +0.84 | -0.10 | +0.39 | +0.01 | -0.14 | -0.16 | **+0.140** | 10.85 m (11.93) | none | ✅ |
+| U-3 | URI with depth, gyro and attitude only, surge and sway held | +0.70 | -0.58 | +0.37 | +0.00 | -0.13 | -0.13 | **+0.039** |  | u, v | ✅ |
+| U-3g | URI with depth, gyro and attitude only: too little turning to infer | +0.70 | -0.58 | +0.37 | +0.00 | -0.13 | -0.13 | **+0.039** |  | u, v | ✅ |
+| U-3i | URI with depth, gyro and attitude only, surge and sway inferred | +0.49 | -3.03 | +0.42 | -0.04 | -0.15 | -0.31 | **-0.438** |  | u, v | ✅ |
 | U-Vb | today's DVL fit on URI, the bay day held out | +0.87 | +0.21 | +0.06 | +0.02 | -0.37 | -0.29 | **+0.081** | 5.52 m (25.88) | none | ✅ |
 | default | the description's physics, nothing fitted | +0.74 | -1.91 | -2.03 | -6.51 | -5.07 | -4.38 | -3.192 | | | |
 
@@ -932,6 +937,7 @@ Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion)
 | K-1 | no velocity: motion-capture positions and depth | +0.61 | +0.00 | -0.09 | +0.08 | +0.15 | +0.56 | **+0.220** | 2.40 m (14.49) | none | ❌ |
 | K-2 | no velocity: USBL-like fixes and depth | +0.63 | +0.02 | -0.08 | +0.09 | +0.16 | +0.56 | **+0.231** | 2.37 m (14.28) | none | ✅ |
 | K-3 | the BlueROV2 lab with no DVL: depth, PX4's gyro and the attitude only | -0.86 | -1.57 | -0.11 | +0.01 | +0.13 | +0.16 | **-0.372** | 3.02 m (14.18) | u, v | ❌ |
+| K-3i | depth, PX4's gyro and the attitude only, surge and sway inferred | +0.65 | -0.13 | -0.07 | +0.09 | +0.16 | +0.56 | **+0.210** | 1.47 m (14.08) | u, v | ✅ |
 | K-4 | K-3 plus PX4's accelerometer (exploratory) | -0.85 | -1.64 | -0.10 | +0.01 | +0.14 | +0.15 | **-0.380** | 2.97 m (14.19) | u, v | ✅ |
 | default | the description's physics, nothing fitted | +0.15 | -1.36 | -6.49 | -0.98 | -2.31 | +0.32 | -1.776 | | | |
 
@@ -960,6 +966,7 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | R-2 | real data = r2 | no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6922, 0.4915, 0.5735, -0.0185, -0.0427, 0.6022], "mean_skill": 0.383, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "windo... | 0 min |
 | R-3 | real data = r3 | no velocity: depth and the gyro only | oceansystemslab BlueROV2 tank | ❌ | {"skill": [-0.2653, -0.6266, 0.5552, -0.1397, -0.098, 0.2921], "mean_skill": -0.0471, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "wi... | 0 min |
 | R-4 | real data = r4 | a DVL with 30% dropouts plus R-2's fixes | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6933, 0.5106, 0.5794, -0.0177, -0.0399, 0.6028], "mean_skill": 0.3881, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "wind... | 0 min |
+| R-3i | real data = r3i | no velocity: depth and the gyro only, surge and sway inferred | oceansystemslab BlueROV2 tank | ✅ | {"skill": [0.6926, 0.2442, 0.5675, -0.0172, -0.048, 0.6028], "mean_skill": 0.3403, "default_skill": [0.4012, -0.5668, -1.1883, -4.3299, -7.4669, 0.1533], "windo... | 0 min |
 
 ### Real: DFKI's BlueROV2, its own Bar30, IMU and attitude, motion-capture velocity hidden
 
@@ -970,6 +977,7 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | D-3 | real data = d3 | the BlueROV2 lab with no DVL: Bar30, gyro and attitude only | DFKI BlueROV2 basin | ❌ | {"skill": [0.2986, -0.9449, 0.2879, -0.1267, 0.0396, 0.3361], "mean_skill": -0.0182, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wi... | 0 min |
 | D-1 | real data = d1 | no velocity: motion-capture positions and the Bar30 | DFKI BlueROV2 basin | ✅ | {"skill": [0.8711, 0.6462, 0.4403, -0.1583, 0.0276, 0.5822], "mean_skill": 0.4015, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wind... | 0 min |
 | D-4 | real data = d4 | D-3 plus the raw IMU's accelerometer (exploratory) | DFKI BlueROV2 basin | ✅ | {"skill": [0.2965, -0.9199, 0.3375, -0.1286, 0.0398, 0.3338], "mean_skill": -0.0068, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "wi... | 0 min |
+| D-3i | real data = d3i | Bar30, gyro and attitude only, surge and sway inferred | DFKI BlueROV2 basin | ❌ | {"skill": [0.7237, 0.64, 0.4131, -0.1617, -0.0128, 0.5824], "mean_skill": 0.3641, "default_skill": [0.6471, -1.3045, -0.7581, -7.9159, -5.6432, -0.1745], "windo... | 0 min |
 
 ### Real: URI's ALPHA RISE at sea, the raw DVL hidden
 
@@ -980,6 +988,9 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | U-2 | real data = u2 | U-1 plus the accelerometer (exploratory) | URI ALPHA RISE | ✅ | {"skill": [0.8418, -0.1027, 0.3915, 0.0082, -0.141, -0.1567], "mean_skill": 0.1402, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "win... | 0 min |
 | U-Vb | real data = uVb | today's DVL fit on URI, the bay day held out | URI ALPHA RISE | ✅ | {"skill": [0.868, 0.211, 0.0555, 0.0159, -0.3732, -0.2921], "mean_skill": 0.0808, "default_skill": [0.798, -0.5014, -3.3031, -4.3679, -11.3543, -6.2883], "windo... | 0 min |
 | U-1b | real data = u1b | U-1 with the bay day held out (trained on the pond day) | URI ALPHA RISE | ❌ | {"skill": [0.8265, 0.1749, 0.1128, 0.0274, -0.2599, 0.249], "mean_skill": 0.1884, "default_skill": [0.798, -0.5014, -3.3031, -4.3679, -11.3543, -6.2883], "windo... | 0 min |
+| U-3i | real data = u3i | URI with depth, gyro and attitude only, surge and sway inferred | URI ALPHA RISE | ✅ | {"skill": [0.486, -3.0296, 0.4165, -0.0393, -0.1502, -0.3115], "mean_skill": -0.438, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "wi... | 0 min |
+| U-3 | real data = u3 | URI with depth, gyro and attitude only, surge and sway held | URI ALPHA RISE | ✅ | {"skill": [0.7045, -0.5762, 0.3713, 0.0001, -0.1333, -0.1348], "mean_skill": 0.0386, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "wi... | 0 min |
+| U-3g | real data = u3g | URI with depth, gyro and attitude only: too little turning to infer | URI ALPHA RISE | ✅ | {"skill": [0.7045, -0.5762, 0.3713, 0.0001, -0.1333, -0.1348], "mean_skill": 0.0386, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "wi... | 0 min |
 
 ### Real: KTH's Marinarium BlueROV2 on PX4, its own thrust commands and IMU, motion-capture velocity hidden
 
@@ -990,6 +1001,7 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | K-2 | real data = k2 | no velocity: USBL-like fixes and depth | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [0.6301, 0.0228, -0.0761, 0.0883, 0.1559, 0.5645], "mean_skill": 0.2309, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "windo... | 0 min |
 | K-3 | real data = k3 | the BlueROV2 lab with no DVL: depth, PX4's gyro and the attitude only | KTH Marinarium BlueROV2 (PX4) | ❌ | {"skill": [-0.8565, -1.5742, -0.1115, 0.0146, 0.1345, 0.1605], "mean_skill": -0.3721, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "wi... | 0 min |
 | K-4 | real data = k4 | K-3 plus PX4's accelerometer (exploratory) | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [-0.8472, -1.6416, -0.1002, 0.0133, 0.1413, 0.1535], "mean_skill": -0.3802, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "wi... | 0 min |
+| K-3i | real data = k3i | depth, PX4's gyro and the attitude only, surge and sway inferred | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [0.6461, -0.1288, -0.0691, 0.0887, 0.1606, 0.5623], "mean_skill": 0.2099, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "wind... | 0 min |
 
 ### Known truth, one variable at a time
 
@@ -1074,6 +1086,11 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | B-depthlag-fresh-only-1 | depth latency = 1 s, fresh recordings, depth and the gyro only | depth 1 s late, fresh recordings, depth and the gyro only | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1213.5, "skill": [-0.4975, -0.8425, 0.8517, 0.4555, 0.436, 0.1693], "mean_skill": 0.0954, "median_param_error_of_range": 0.1062, "worst_p... | 20 min |
 | B-depthlag-fresh-only-0 | depth latency = 0 s, fresh recordings, depth and the gyro only | depth 0 s late, fresh recordings, depth and the gyro only | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1081.0, "skill": [-0.4972, -0.8439, 0.8517, 0.456, 0.436, 0.1691], "mean_skill": 0.0953, "median_param_error_of_range": 0.1062, "worst_pa... | 18 min |
 | B-depthlag-fresh-1hz-1 | depth latency = 1 s, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | depth 1 s late, fresh recordings, 1 Hz depth (as URI logs it), horizontal fixes | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 1050.9, "skill": [0.9929, 0.9809, 0.9893, 0.9885, 0.9897, 0.9983], "mean_skill": 0.9899, "median_param_error_of_range": 0.0003, "worst_pa... | 18 min |
+| B-infer-depth | sensor set = depth only, surge and sway inferred | depth and the gyro only: surge and sway inferred | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 452.9, "skill": [0.9982, 0.9969, 0.9987, 0.9989, 0.9982, 0.9998], "mean_skill": 0.9985, "median_param_error_of_range": 0.0003, "worst_par... | 8 min |
+| B-infer-fresh | sensor set = depth only, surge and sway inferred, fresh recordings | depth and the gyro only, on other recordings and noise: surge and sway inferred | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 463.6, "skill": [0.9952, 0.9953, 0.9981, 0.9985, 0.9985, 0.9998], "mean_skill": 0.9976, "median_param_error_of_range": 0.001, "worst_para... | 8 min |
+| B-infer-turn-0.5 | turning = 0.5 | depth and the gyro only, the yaw torque x0.5 | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 437.7, "skill": [0.9985, 0.9975, 0.9989, 0.999, 0.9983, 0.9998], "mean_skill": 0.9987, "median_param_error_of_range": 0.0003, "worst_para... | 7 min |
+| B-infer-turn-0.25 | turning = 0.25 | depth and the gyro only, the yaw torque x0.25 | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 488.3, "skill": [0.9986, 0.9979, 0.999, 0.9991, 0.9984, 0.9999], "mean_skill": 0.9988, "median_param_error_of_range": 0.0003, "worst_para... | 8 min |
+| B-infer-turn-0.1 | turning = 0.1 | depth and the gyro only, the yaw torque x0.1 | synthetic BlueROV2 (reference recordings) | ✅ | {"exit": 0, "seconds": 568.6, "skill": [-0.4789, -0.8571, 0.6833, 0.543, 0.1652, -1.3537], "mean_skill": -0.2164, "median_param_error_of_range": 0.1267, "worst_... | 9 min |
 
 ### Every sensor combination on the BlueROV2 (what is calibrated, what is held)
 
@@ -1212,6 +1229,32 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | MA-dhva-gyroderived | sensor mix = accelerometer+depth+dvl+gyro+position | this sensor mix, heading from a compass, no gyro logged (rates from the orientation) | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 131.9, "sensors": ["accelerometer", "depth", "dvl", "gyro", "position"], "blind": [], "expected_blind": [], "held": [], "finite": true} | 2 min |
 | MA-dhva-gyroheading-gyroderived | sensor mix = accelerometer+depth+dvl+gyro+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min, no gyro logged (rates from the orientation) | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 130.5, "sensors": ["accelerometer", "depth", "dvl", "gyro", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], ... | 2 min |
 | MA-dhva-gyroheading | sensor mix = accelerometer+depth+dvl+heading_drift_deg_per_min+position | this sensor mix, heading from the gyro, drifting 0.5 deg/min | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 131.1, "sensors": ["accelerometer", "depth", "dvl", "heading_drift_deg_per_min", "position"], "blind": [], "expected_blind": [], "held": ... | 2 min |
+
+### Depth with nothing horizontal on the BlueROV2: surge and sway inferred
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| IM-v | sensor mix = depth | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 82.3, "sensors": ["depth"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-v-gyroderived | sensor mix = depth+gyro | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 84.8, "sensors": ["depth", "gyro"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-v-gyroheading | sensor mix = depth+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 86.2, "sensors": ["depth", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-v-gyroheading-gyroderived | sensor mix = depth+gyro+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 86.0, "sensors": ["depth", "gyro", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-va | sensor mix = accelerometer+depth | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 85.9, "sensors": ["accelerometer", "depth"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-va-gyroderived | sensor mix = accelerometer+depth+gyro | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 86.2, "sensors": ["accelerometer", "depth", "gyro"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-va-gyroheading | sensor mix = accelerometer+depth+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 87.3, "sensors": ["accelerometer", "depth", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+| IM-va-gyroheading-gyroderived | sensor mix = accelerometer+depth+gyro+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic BlueROV2 | ✅ | {"exit": 0, "seconds": 87.1, "sensors": ["accelerometer", "depth", "gyro", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 1 min |
+
+### Depth with nothing horizontal on URI's ALPHA RISE: surge and sway inferred
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| IMA-v | sensor mix = depth | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 105.5, "sensors": ["depth"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-v-gyroderived | sensor mix = depth+gyro | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 106.1, "sensors": ["depth", "gyro"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-v-gyroheading | sensor mix = depth+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 105.7, "sensors": ["depth", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-v-gyroheading-gyroderived | sensor mix = depth+gyro+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 105.1, "sensors": ["depth", "gyro", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-va | sensor mix = accelerometer+depth | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 106.0, "sensors": ["accelerometer", "depth"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-va-gyroderived | sensor mix = accelerometer+depth+gyro | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 105.9, "sensors": ["accelerometer", "depth", "gyro"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-va-gyroheading | sensor mix = accelerometer+depth+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 105.9, "sensors": ["accelerometer", "depth", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
+| IMA-va-gyroheading-gyroderived | sensor mix = accelerometer+depth+gyro+heading_drift_deg_per_min | this mix with surge and sway inferred | synthetic ALPHA RISE (URI's DVL fit as the truth) | ✅ | {"exit": 0, "seconds": 106.1, "sensors": ["accelerometer", "depth", "gyro", "heading_drift_deg_per_min"], "inferred": ["u", "v"], "held": [], "finite": true} | 2 min |
 
 ### Real: SOLAQUA's USBL against its DVL (the smoother alone)
 

@@ -65,10 +65,26 @@ torques' reference point.
 
 Calibration models all of these. Leaving a mount out means the sensor is at the reference point.
 
-**Axes no sensor sees.** An axis with no sensor (surge and sway with no DVL and no horizontal fixes) has its
-parameters held at your vehicle description's values. Calibration says so in the log, `metrics.json`,
-`calibrated_parameters.yaml` and the report ("Surge: not calibrated. Your logs have no DVL or horizontal position
-fixes for it").
+**Axes no sensor sees.** With depth but no DVL and no horizontal fixes, no sensor reads surge or sway. Their values
+still move the turning rate and depth, so calibration infers them from those. Calibration says so in the log,
+`metrics.json`, `calibrated_parameters.yaml` and the report ("Surge: inferred, not measured"), and the report doesn't
+call those axes trusted, since nothing in the logs can check them.
+
+Held-out skill with the velocity hidden (#96, R-3i, D-3i, K-3i):
+
+| Vehicle | Inferred | Held | With velocity |
+|---|---|---|---|
+| Tank BlueROV2 | 0.340 | −0.047 | 0.394 |
+| DFKI BlueROV2 | 0.364 | −0.018 | 0.401 |
+| KTH BlueROV2 | 0.210 | −0.372 | 0.271 |
+
+- **The vehicle has to turn.** Below 0.15 rad/s RMS of yaw rate, the turning rate barely shows surge and sway, so
+  they're held at your description's values and the report says why. URI's ALPHA RISE turned at about 0.05 rad/s:
+  inferring took its sway to −3.0 skill, and held it scored 0.04 against −0.44.
+- **`--unseen hold`** keeps your description's values whatever the vehicle did. Use it if you trust them, for
+  instance from a tow test.
+- **An axis with nothing near it stays held.** With no depth sensor either, surge, sway and heave all keep your
+  description's values ("Surge: not calibrated").
 
 **The report.** It gains a section, "What your sensors could calibrate". It gives each sensor's own held-out skill
 (1 = perfect, 0 = no better than assuming the vehicle didn't move), and judges each motion by the sensors that

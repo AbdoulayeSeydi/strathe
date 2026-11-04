@@ -205,7 +205,8 @@ def variables_96() -> list:
     cal = sub.choices["calibrate"]
     for act in cal._actions:
         if act.option_strings and act.option_strings[0] in ("--sensors", "--use-accelerometer", "--anchor-rounds",
-                                                            "--smoother-accel-sigma", "--prediction-horizon-s"):
+                                                            "--smoother-accel-sigma", "--prediction-horizon-s",
+                                                            "--unseen"):
             rows.append(("96", f"option:{act.option_strings[0]}", "calibrate option", "given / left out"))
     rows += [("96", f"option:--sensors={v}", "--sensors value", v) for v in ("auto", "velocity", "all", "names")]
     rows += [("96", f"channel:{k}", "sensor channel kind", k) for k in ("gyro", "dvl", "position", "depth",

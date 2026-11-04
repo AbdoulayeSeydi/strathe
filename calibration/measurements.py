@@ -514,9 +514,29 @@ def axes_seen(runs: Sequence, horizon_samples: Optional[int]) -> dict:
     return seen
 
 
-def unobservable_holds(seen: dict, default_params) -> dict:
-    """{parameter: held value} for the linear axes no sensor sees."""
+# below this RMS yaw rate surge and sway barely move what's measured, and the fit runs them to their limits: URI's
+# ALPHA RISE turned at 0.06 rad/s and inferring took sway to -3.0 skill, where the BlueROV2s at 0.43-0.76 reached DVL-like
+# skill (#96, U-3i). Chosen from those four vehicles; B-infer-turn-* tests it on a known truth
+MIN_TURNING_RAD_S = 0.15
+
+
+def turning_rms(runs: Sequence) -> float:
+    """RMS yaw rate over the runs (the gyro's), rad/s."""
+    r = np.concatenate([run.real_nu[:, 5] for run in runs])
+    return float(np.sqrt(np.nanmean(r ** 2)))
+
+
+def inferred_axes(seen: dict) -> set:
+    """Surge and sway when no sensor measures them but depth holds heave: their values still move yaw and depth (the
+    Coriolis and Munk terms), so the fit can infer them from the gyro and depth (#96, R-3i). With heave unseen too,
+    nothing has been measured: they stay held."""
     blind = {a for a, by in seen.items() if not by}
+    return blind & {"u", "v"} if "w" not in blind else set()
+
+
+def unobservable_holds(seen: dict, default_params, inferred=()) -> dict:
+    """{parameter: held value} for the linear axes no sensor sees, but for the inferred ones."""
+    blind = {a for a, by in seen.items() if not by} - set(inferred)
     held = {}
     for a in sorted(blind):
         for name in LINEAR_AXIS_PARAMS[a]:
@@ -534,12 +554,15 @@ AXIS_WORDS = {"u": "surge", "v": "sway", "w": "heave"}
 SENSOR_WORDS = {"dvl": "the DVL", "position": "position fixes", "depth": "depth"}
 
 
-def seen_words(seen: dict) -> list:
-    """Plain sentences: which linear axes were calibrated and from what, which weren't."""
+def seen_words(seen: dict, inferred=()) -> list:
+    """Plain sentences: which linear axes were calibrated and from what, which were inferred, which weren't."""
     out = []
     for a, by in seen.items():
         if by:
             out.append(f"{AXIS_WORDS[a].capitalize()}: calibrated from {' and '.join(SENSOR_WORDS[b] for b in by)}.")
+        elif a in inferred:
+            out.append(f"{AXIS_WORDS[a].capitalize()}: inferred, not measured. No sensor reads it: its values come from "
+                       f"how it moves the turning rate and depth.")
         else:
             out.append(f"{AXIS_WORDS[a].capitalize()}: not calibrated. Your logs have no "
                        f"{'DVL or horizontal position fixes' if a in 'uv' else 'DVL, depth sensor or vertical position'}"

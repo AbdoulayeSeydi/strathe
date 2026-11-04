@@ -111,6 +111,7 @@ class PipelineConfig:
     # values and refit, and the state smoother's process noise (None: chosen from the data)
     sensors: tuple = ("auto",)
     use_accelerometer: bool = False
+    unseen: str = "infer"   # surge and sway no sensor measures: infer them from the gyro and depth, or hold them (#96)
     anchor_rounds: int = 2
     smoother_accel_sigma: Optional[float] = None
 
@@ -425,8 +426,8 @@ def smoother_noise_of(info: dict) -> dict:
 def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs: list, default_params, vehicle,
                        loaded_spec) -> dict:
     """Everything the sensor suite needs before the fit (PROJECT_STATUS.md #96): the prediction window, which linear
-    axes the sensors see (the rest held at the description's values), the smoother's process noise, each window's
-    starting velocity, and each sensor axis's scale. Returns what to report."""
+    axes the sensors see (surge and sway inferred, the rest held at the description's values), the smoother's process
+    noise, each window's starting velocity, and each sensor axis's scale. Returns what to report."""
     import measurements as ms
     import state_smoother as sm
     cc = config.calibration_config
@@ -441,7 +442,14 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     names = list(default_params.param_names)
     lb, ub = parameter_bounds(loaded_spec)
     already = set((cc.fixed_params or {}))
-    held = {k: v for k, v in ms.unobservable_holds(seen, default_params).items()
+    inferred = ms.inferred_axes(seen) if config.unseen == "infer" else set()
+    turning = ms.turning_rms(train_runs)
+    too_little_turning = bool(inferred) and turning < ms.MIN_TURNING_RAD_S
+    if too_little_turning:
+        inferred = set()
+        logger.warning("Sensor suite: the vehicle turned too little (%.2f rad/s RMS, under %.2f) to infer surge and "
+                       "sway: held at the description's values (SENSORS.md)", turning, ms.MIN_TURNING_RAD_S)
+    held = {k: v for k, v in ms.unobservable_holds(seen, default_params, inferred).items()
             if k in names and k not in already and lb[names.index(k)] < ub[names.index(k)]}
     if held:
         cc.fixed_params = {**(cc.fixed_params or {}), **held}
@@ -495,7 +503,9 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
         r.sensor_scales = scales
     return {"sensors_asked": list(config.sensors), "use_accelerometer": bool(config.use_accelerometer),
             "channels": labels, "horizon_s": H / config.sampling_rate_hz, "axes_seen_by": seen,
-            "plain": ms.seen_words(seen), "held_unobserved": held, "noise": noise,
+            "plain": ms.seen_words(seen, inferred), "held_unobserved": held, "inferred_axes": sorted(inferred),
+            "turning_rms_rad_s": turning, "too_little_turning": too_little_turning,
+            "noise": noise,
             "noise_source": noise_source,
             "smoother": {"accel_sigma_mps2": sigma, "loglik_by_sigma": scores, **smoothing},
             "fix_delays": delays, "scales": scales, "only_in_heldout": sorted(only_heldout), "rounds": []}
@@ -665,7 +675,8 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "parameters": params_dict,
             # the sensors it was calibrated from, and what they couldn't see (#96); absent for a velocity fit
             **({"sensors": {"channels": report.sensor_suite["channels"],
-                            "held_unobserved": report.sensor_suite["held_unobserved"]}}
+                            "held_unobserved": report.sensor_suite["held_unobserved"],
+                            "inferred_axes": report.sensor_suite["inferred_axes"]}}
                if report.sensor_suite else {}),
         }, f, sort_keys=False)
 
@@ -1157,6 +1168,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                              "sensor in them (depth, position fixes, a DVL with gaps); velocity: the original fit "
                              "only; all: every sensor, the DVL among them; or names: dvl, a position or depth sensor's "
                              "name, acc. The gyro is always used")
+    parser.add_argument("--unseen", choices=("infer", "hold"), default="infer",
+                        help="surge and sway when no sensor measures them but depth holds heave. infer (default): fit "
+                             "them from how they move the turning rate and depth; hold: keep the vehicle "
+                             "description's values (SENSORS.md)")
     parser.add_argument("--use-accelerometer", action="store_true",
                         help="fit to the accelerometer too (sensor suite; experimental: #96 measures whether it helps)")
     parser.add_argument("--anchor-rounds", type=int, default=2,
@@ -1369,7 +1384,8 @@ def main() -> None:
         current_world_mps=None if args.current_world_mps is None else tuple(args.current_world_mps),
         current_by_file=None if not args.currents_file else read_currents_file(args.currents_file),
         checkpoint_path=None if args.parallel else checkpoint_path,
-        sensors=tuple(args.sensors), use_accelerometer=args.use_accelerometer, anchor_rounds=args.anchor_rounds,
+        sensors=tuple(args.sensors), use_accelerometer=args.use_accelerometer, unseen=args.unseen,
+        anchor_rounds=args.anchor_rounds,
         smoother_accel_sigma=args.smoother_accel_sigma,
     )
 

@@ -163,7 +163,7 @@ def sensor_axis_numbers(metrics: Optional[dict]) -> dict:
     for axis in ("u", "v", "w"):
         by = seen.get(axis) or []
         if not by:
-            out[axis] = {"held": True}
+            out[axis] = {"held": True, "inferred": axis in (ss.get("inferred_axes") or ())}
             continue
         if axis in "uv":
             labels = [f"{n}.{a}" for n, axs in kinds.items() if {"n", "e"} <= axs and n not in ("dvl", "gyro")
@@ -191,6 +191,9 @@ def axis_verdicts(default_rmse, calib_rmse, pinned_names, implausible_names, zer
         if via is not None and via.get("held"):
             v, why = BAD, ("not calibrated: no sensor in your logs sees this motion (no DVL, and no position fixes or "
                            "depth for it), so its values are your vehicle description's (SENSORS.md)")
+            if via.get("inferred"):
+                why = ("inferred, not measured: no sensor in your logs reads this motion, so its values come from how "
+                       "it moves the turning rate and depth, and nothing here can check them (SENSORS.md)")
             verdicts.append({"axis": k, "label": label, "improvement_pct": float("nan"), "skill": None, "verdict": v,
                              "why": why, "excluded": True, "measured": False, "default_rmse": float("nan"),
                              "calibrated_rmse": float("nan"), "zero_rmse": None, "unit": "-", "from": None})
@@ -580,7 +583,15 @@ def sensors_section(metrics: Optional[dict]) -> list:
         L.append("\nHeld at your vehicle description's values, because no sensor sees their motion: "
                  + ", ".join(f"{PLAIN.get(k, k)} (`{k}`)" for k in held) + ".")
     blind = {a for a, by in (ss.get("axes_seen_by") or {}).items() if not by}
-    if {"u", "v"} <= blind:   # measured on the reference tank, the truth hidden (PROJECT_STATUS.md #96, R-3)
+    if ss.get("too_little_turning"):
+        L.append(f"\nSurge and sway weren't inferred: the vehicle turned too little ({ss['turning_rms_rad_s']:.2f} rad/s "
+                 "RMS) for the turning rate to show them, so inferring would have run them to their limits (SENSORS.md).")
+    if ss.get("inferred_axes"):   # measured with the truth hidden (PROJECT_STATUS.md #96, R-3i, D-3i, K-3i)
+        L.append("\n> ⚠️ Surge and sway are inferred, not measured: no sensor reads them, and the fit found their values "
+                 "from how they move the turning rate and depth. Treat them as estimates, and check them against a "
+                 "DVL, position fixes or a timed run if you can. The vehicle has to turn while it moves for this to "
+                 "work. To keep your description's values instead, use `--unseen hold` (SENSORS.md).")
+    elif {"u", "v"} <= blind:   # measured on the reference tank, the truth hidden (PROJECT_STATUS.md #96, R-3)
         L.append("\n> ⚠️ With no horizontal sensor, how surge and sway couple into the other motions can't be seen "
                  "either, so yaw, and sometimes heave, predict less well than they would with position fixes. Measured "
                  "on two BlueROV2s with the velocity hidden: yaw 0.29 and 0.34 held-out skill with depth and the "

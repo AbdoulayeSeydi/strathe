@@ -20,8 +20,9 @@ python strathe.py check
   **One day works too**: it then holds out recordings within the day (or the last part of one long recording), and
   the report says that check is easier than a new day ([calibration/ONE_SESSION.md](calibration/ONE_SESSION.md)).
 - **How the vehicle moved:** a DVL (gaps are fine), an EKF that fuses one, or **no DVL at all**: position fixes
-  (USBL, LBL, GPS at the surface, motion capture) and depth. Without a DVL, Strathe calibrates what those sensors
-  can see, holds the rest at your description's values and says which ([calibration/SENSORS.md](calibration/SENSORS.md)).
+  (USBL, LBL, GPS at the surface, motion capture) and depth. With no fixes either, depth and the gyro can infer surge
+  and sway if the vehicle turns. Strathe says what it measured, what it inferred and what it held at your description's
+  values ([calibration/SENSORS.md](calibration/SENSORS.md)).
 - **Orientation**, and the **body rates** from the IMU.
 - **What each thruster was told:** ESC PWM in µs, normalized commands (with your command-to-thrust table), or logged forces.
 - **Varied driving:** manoeuvres on every axis you care about, at several speeds.

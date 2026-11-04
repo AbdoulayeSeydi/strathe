@@ -2,6 +2,7 @@ variable,rows,note
 option:--sensors,B-set-depth B-set-dvlgaps W-sensors,
 option:--use-accelerometer,B-set-accel W-accelerometer,
 option:--anchor-rounds,B-rounds-1 B-rounds-3,
+option:--unseen,B-set-depth B-infer-depth R-3 R-3i,
 option:--smoother-accel-sigma,B-sigma-0.01 B-sigma-1,
 option:--prediction-horizon-s,B-horizon-3 B-horizon-5 B-horizon-20 B-horizon-60,
 option:--sensors=auto,B-set-nominal R-2 U-1,
