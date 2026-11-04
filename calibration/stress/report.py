@@ -35,6 +35,8 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
           "96": {"R": "Real: the reference BlueROV2 tank, motion-capture velocity hidden",
                  "D": "Real: DFKI's BlueROV2, its own Bar30, IMU and attitude, motion-capture velocity hidden",
                  "U": "Real: URI's ALPHA RISE at sea, the raw DVL hidden",
+                 "K": ("Real: KTH's Marinarium BlueROV2 on PX4, its own thrust commands and IMU, motion-capture "
+                       "velocity hidden"),
                  "B": "Known truth, one variable at a time",
                  "M": "Every sensor combination on the BlueROV2 (what is calibrated, what is held)",
                  "MA": "Every sensor combination on URI's ALPHA RISE (its DVL fit as the truth)",
@@ -83,7 +85,8 @@ def optimism_93(rows: list) -> list:
 AXES = ("surge", "sway", "heave", "roll", "pitch", "yaw")
 DATASETS_96 = (("R", "The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)"),
                ("D", "DFKI's BlueROV2 basin (held-out recordings, against the hidden motion-capture velocity)"),
-               ("U", "URI's ALPHA RISE at sea (the held-out day, against the hidden raw DVL)"))
+               ("U", "URI's ALPHA RISE at sea (the held-out day, against the hidden raw DVL)"),
+               ("K", "KTH's Marinarium BlueROV2 on PX4 (the held-out day, against the hidden motion-capture velocity)"))
 
 
 def real_96(rows: list) -> list:

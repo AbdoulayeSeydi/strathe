@@ -213,6 +213,10 @@ Real data so far:
 - **URI's RTK GPS track:** matches the thrust direction within 13–22°.
 - **DFKI's heading:** mirrored on purpose in a test, it is now refused by the gyro check. Before #96 it was
   only warned about.
+- **KTH's Marinarium BlueROV2 (PX4):** its motion capture is in PX4's frames, gravity matching its accelerometer to
+  0.6 m/s². Its velocity matches its positions to 1 cm/s by the messages' own stamps, not by the bag's receive times.
+  Its gyro was too quiet on roll and pitch on one day to check against the attitude, and the report says so
+  (`examples/marinarium/`).
 
 ## Noise
 

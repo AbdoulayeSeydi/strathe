@@ -873,6 +873,15 @@ REAL = {   # row: (fit folder name, data folder, truth folder, spec, held-out fi
     "D-2": ("d2", "d2", "truth", "blue", "no velocity: USBL-like fixes and the Bar30", "r2"),
     "D-3": ("d3", "d3", "truth", "blue", "the BlueROV2 lab with no DVL: Bar30, gyro and attitude only", "r3"),
     "D-4": ("d4", "d4", "truth", "blue", "D-3 plus the raw IMU's accelerometer (exploratory)", "explore"),
+    # KTH's Marinarium BlueROV2 on PX4 (stress/prepare_marinarium_96.py, 2026-11-03): its own thrust commands, gyro and
+    # accelerometer from ROS 2 bags; depth is the motion capture's z (no pressure sensor was logged), as for the tank.
+    # The same bars as the tank's and DFKI's, fixed before the fits ran
+    "K-V": ("kV", "v", "truth", "blue", "today's velocity fit on KTH's Marinarium BlueROV2 (motion-capture velocity)",
+            "ref"),
+    "K-1": ("k1", "k1", "truth", "blue", "no velocity: motion-capture positions and depth", "r1"),
+    "K-2": ("k2", "k2", "truth", "blue", "no velocity: USBL-like fixes and depth", "r2"),
+    "K-3": ("k3", "k3", "truth", "blue", "the BlueROV2 lab with no DVL: depth, PX4's gyro and the attitude only", "r3"),
+    "K-4": ("k4", "k4", "truth", "blue", "K-3 plus PX4's accelerometer (exploratory)", "explore"),
 }
 
 
@@ -909,10 +918,12 @@ def real(fits_dir: str) -> int:
                        "held_unobserved": sorted(ss.get("held_unobserved") or {}), **val}
     for row, nums in scores.items():
         fit, data, truth, sp, what, bar = REAL[row]
-        V = scores.get({"U": "U-V", "R": "R-V", "D": "D-V"}[row[0]] + ("b" if row.endswith("b") else "")) or {}
+        V = scores.get(row[0] + "-V" + ("b" if row.endswith("b") else "")) or {}
         ok, expect = _judge_real(bar, nums, V)
         record(F, row, "real data", REAL[row][0], what, {"U": "URI ALPHA RISE", "R": "oceansystemslab BlueROV2 tank",
-                                                          "D": "DFKI BlueROV2 basin"}[row[0]], nums, expect, ok, 0.0)
+                                                          "D": "DFKI BlueROV2 basin",
+                                                          "K": "KTH Marinarium BlueROV2 (PX4)"}[row[0]], nums, expect, ok,
+               0.0)
     return 0
 
 

@@ -3465,6 +3465,31 @@ surfaced, depth and the IMU, never `/odometry/filtered`, which fuses the DVL):
 | U-2 | U-1 and the accelerometer | 0.84 | −0.10 | 0.39 | 0.01 | −0.14 | −0.16 | **0.140** | 10.9 m (11.9) | exploratory |
 | | default physics | 0.74 | −1.91 | −2.03 | −6.51 | −5.07 | −4.38 | −3.192 | | |
 
+KTH's Marinarium BlueROV2 on PX4, added 2026-11-03 (held-out day: 30 Oct; truth: the motion capture's velocity; its own
+ROS 2 bags through Strathe's reader, with PX4's motor commands, gyro and accelerometer; no pressure sensor was logged,
+so depth is the motion capture's z, as for the tank; `stress/prepare_marinarium_96.py`, `examples/marinarium/`). The
+bars are the tank's and DFKI's, fixed before the fits ran:
+
+| Row | What the fit had | Surge | Sway | Heave | Roll | Pitch | Yaw | Mean | 60 s drift (default) | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|
+| K-V | the velocity (today's fit) | 0.66 | 0.21 | −0.08 | 0.10 | 0.18 | 0.56 | **0.271** | 2.5 m (14.5) | reference |
+| K-1 | motion-capture positions and depth | 0.61 | 0.00 | −0.09 | 0.08 | 0.15 | 0.56 | **0.220** | 2.4 m (14.5) | ❌ mean under 0.241, sway 0.00 against 0.21 |
+| K-2 | USBL-like fixes and depth | 0.63 | 0.02 | −0.08 | 0.09 | 0.16 | 0.56 | **0.231** | 2.4 m (14.3) | ✅ every axis beats default, within 0.10 of V (sway lost as in K-1) |
+| K-3 | depth, PX4's gyro and the attitude | (−0.86) | (−1.57) | −0.11 | 0.01 | 0.13 | 0.16 | −0.372 | 3.0 m (14.2) | ❌ yaw 0.16 against 0.56 |
+| K-4 | K-3 and PX4's accelerometer | (−0.85) | (−1.64) | −0.10 | 0.01 | 0.14 | 0.15 | −0.380 | 3.0 m (14.2) | exploratory |
+| | default physics | 0.15 | −1.36 | −6.49 | −0.98 | −2.31 | 0.32 | −1.778 | | |
+
+- **What held:** every axis of K-1 and K-2 beats default physics, and 60 s drift is about a sixth of default's.
+- **What didn't:** sway. Without the velocity it's near 0, against 0.21 with it. Cause not established. The velocity fit
+  drives sway's quadratic drag to its limit (Yvv −100); K-1 and K-2 settle at −32 and −40. Other values at their limits
+  (Xuu, net buoyancy) suggest the assumed thrust or description doesn't fit this vehicle: its battery voltage couldn't be
+  decoded, so thrust is the T200 curve at about 15 V.
+- **Heave is negative even with velocity** (−0.08), so this vehicle's fit is weaker than the tank's or DFKI's whatever
+  the sensors.
+- **The accelerometer** didn't help (−0.380 against −0.372): it stays opt-in, on a third dataset.
+- **The delay scan** read 0.0 s on every real sensor here, and nothing was taken off.
+- **The motion capture's orientation jumps** by over 45° 22 times on the held-out day; those aren't removed.
+
 **Known truth: what each sensor set recovers** (a BlueROV2 with known parameters replaying the real logged thrust,
 its sensors simulated; skill against its true velocity on held-out data):
 
@@ -3536,7 +3561,8 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
 - A late position or depth sensor is corrected only when its readings show it clearly (0.3 s late isn't); a gyro that lags the orientation is said, not shifted (LIMITS).
 - fit-sim from GPS at the surface lost surge on URI, cause not found (LIMITS).
-- Only three real vehicles: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public). Marinarium (MIT licence, another BlueROV2 with motion capture and its commands) is a candidate, not yet downloaded.
+- Four real vehicles, three of them BlueROV2s: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public).
+- On KTH's Marinarium BlueROV2, fixes didn't recover sway (K-1, K-2), cause not established (LIMITS).
 
 **Closing the plan (2026-11-02).** After #51 merged, an audit against the approved plan found parts not done. Each is
 now built and tested, or said here as not possible:
@@ -3600,8 +3626,8 @@ now built and tested, or said here as not possible:
 - **Not possible as the plan listed:**
   - "window start source" and "channel weighting" aren't options the product has;
   - 16 Hz depth can't run on 10 Hz recordings (1 Hz is tested);
-  - the search for more public vehicles with thrust and other sensors found none released with both. Marinarium (MIT,
-    another BlueROV2) awaits a yes to download.
+  - the search for more public vehicles with thrust and other sensors found none released with both, apart from
+    Marinarium (another BlueROV2), added below.
 - **A late sensor's delay taken off (2026-11-03).** The plan had each sensor's clock offset "reported and applied,
   with an override"; #52 only reported it. Now a position sensor's delay is taken off before the fit: the one you give
   as `delay_s:` (in the ingest spec, or on the sensor in the vehicle description; 0 included), or, left out, one the
@@ -3614,6 +3640,11 @@ now built and tested, or said here as not possible:
   - `delay_s: 1` given: 0.9925; `delay_s: 0` given: taken as said (0.876), and the report says the fixes look late;
   - real data: nothing taken off on URI (its GPS isn't clearly late), the tank or DFKI (0.0 s).
   - Not shifted: a gyro that lags the orientation (either could be late, so it's said at ingest).
+- **A fourth real vehicle (2026-11-03): KTH's Marinarium BlueROV2 on PX4** (the K-* rows, in the table above; MIT
+  licence, `examples/marinarium/`). It's the first PX4 vehicle read from ROS 2 bags end to end. K-1 and K-3 fail
+  their bars and are kept as failures. Ingesting it found a bug: PX4's `actuator_motors` sends NaN for a stopped motor,
+  and every log reader dropped those messages and held the last command, so a stopped thruster kept pushing (#56,
+  LOG_FORMATS.md). The repository's CSVs weren't used: their body rates don't follow their own attitude.
 - **A late depth sensor, the same way (2026-11-03).** Depth is logged at 1 to 10 Hz, so its bar is per second of
   readings: 0.3, chosen from the scan alone on the reference recordings (depth late by 0 to 2 s, with full,
   horizontal or no fixes: on time read 0.0 every time, 0.5 s late 0.67 to 0.97 per second) and on real depth on
@@ -3626,9 +3657,9 @@ now built and tested, or said here as not possible:
   - One row (fresh, depth and the gyro only, 1 s) first read FAIL because it finished before its on-time
     reference; scored again once the reference was in, as set up before the run, it passes on the same fit.
 
-**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **234 of 243 rows
-pass.** The 9 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, U-1, U-1b, B-set-depth,
-S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **237 of 248 rows
+pass.** The 11 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, K-1, K-3, U-1, U-1b,
+B-set-depth, S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
 
 **Tests:** `tests/test_measurements.py`, `test_sensor_calibration.py`, `test_sensor_fuzz.py` (80 random sensor mixes
 and 10 kinds of damage: each ingests and calibrates or stops with a sentence), `test_simfit_sensors.py`,
