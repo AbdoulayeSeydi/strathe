@@ -637,6 +637,8 @@ def cmd_calibrate(args, runner=None) -> int:
             extra += ["--sensors", *sensors]
         if getattr(args, "use_accelerometer", False):
             extra += ["--use-accelerometer"]
+        if getattr(args, "unseen", "infer") != "infer":
+            extra += ["--unseen", args.unseen]
         if getattr(args, "smoother_accel_sigma", None) is not None:
             extra += ["--smoother-accel-sigma", str(args.smoother_accel_sigma)]
         if getattr(args, "anchor_rounds", None) is not None:
@@ -1511,6 +1513,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "it read at every sample, else every sensor in the logs (depth, position fixes, GPS, a DVL with "
                         "gaps); all: every sensor with the DVL; velocity: the DVL only; or names (dvl, a position or "
                         "depth sensor's name, acc)")
+    c.add_argument("--unseen", choices=("infer", "hold"), default="infer",
+                   help="surge and sway when no sensor measures them but depth holds heave: infer them from how they "
+                        "move the turning rate and depth (default), or hold the vehicle description's values")
     c.add_argument("--use-accelerometer", action="store_true",
                    help="also fit to the accelerometer (experimental, SENSORS.md)")
     c.add_argument("--anchor-rounds", type=int, default=None,

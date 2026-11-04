@@ -40,6 +40,8 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
                  "B": "Known truth, one variable at a time",
                  "M": "Every sensor combination on the BlueROV2 (what is calibrated, what is held)",
                  "MA": "Every sensor combination on URI's ALPHA RISE (its DVL fit as the truth)",
+                 "IM": "Depth with nothing horizontal on the BlueROV2: surge and sway inferred",
+                 "IMA": "Depth with nothing horizontal on URI's ALPHA RISE: surge and sway inferred",
                  "S": "Real: SOLAQUA's USBL against its DVL (the smoother alone)",
                  "E": "End to end through strathe, no DVL", "W": "The web form", "FS": "fit-sim in each simulator"}}
 

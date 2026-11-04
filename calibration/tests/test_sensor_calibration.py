@@ -31,7 +31,8 @@ def write_dataset(d, dvl=False, n=700, runs_per_day=2, late_samples=0, **kw):
     return d
 
 
-def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, fixed=None, spec="vehicle_spec.yaml"):
+def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, fixed=None, spec="vehicle_spec.yaml",
+              unseen="infer"):
     # starts at the truth (vehicle_spec.yaml's initial guess is the truth these recordings were made with): the
     # plumbing is what's tested here; recovering the truth from elsewhere is stress/run_96.py's
     # x0_override: an explicit start, which the failed-fit retry (#93) leaves alone. From the truth a first fit can't
@@ -42,7 +43,7 @@ def calibrate(data, out, sensors=("auto",), nfev=40, horizon_s=None, rounds=2, f
                            fixed_params=fixed)
     cfg = PipelineConfig(data_dir=str(data), spec_path=str(spec), output_dir=str(out),
                          sampling_rate_hz=10.0, heldout_dates=[DATES[1]], heldout_fraction=0.5,
-                         calibration_config=cc, workers=1, sensors=tuple(sensors), anchor_rounds=rounds,
+                         calibration_config=cc, workers=1, sensors=tuple(sensors), anchor_rounds=rounds, unseen=unseen,
                          # these recordings' torques are the truth's own (vehicle_spec.yaml's data convention shifts
                          # the reference dataset's by 8.5 cm, which would make them another vehicle's)
                          torque_reference_offset_m=(0.0, 0.0, 0.0))
@@ -96,9 +97,34 @@ def test_the_report_says_what_the_sensors_calibrated(no_dvl):
                                                                "q": "rad/s", "r": "rad/s"}
 
 
-def test_depth_only_holds_surge_and_sway_and_says_so(tmp_path):
+def test_depth_only_infers_surge_and_sway_and_says_so(tmp_path):
     data = write_dataset(tmp_path / "data", n=400)
-    rep = calibrate(data, tmp_path / "out", sensors=("main",), rounds=1)
+    calibrate(data, tmp_path / "out", sensors=("main",), rounds=1)
+    m = json.load(open(tmp_path / "out" / "metrics.json", encoding="utf-8"))
+    ss = m["sensor_suite"]
+    assert ss["axes_seen_by"] == {"u": [], "v": [], "w": ["depth"]}
+    assert ss["inferred_axes"] == ["u", "v"] and not {"Xu", "Xuu", "Yv", "Yvv"} & set(ss["held_unobserved"])
+    out = cr.build_report(str(tmp_path / "out"), "vehicle_spec.yaml")
+    v = {x["axis"]: x for x in out["verdicts"]}
+    assert v["u"]["verdict"] == cr.BAD and "inferred, not measured" in v["u"]["why"]   # nothing here can check them
+    text = open(out["report"], encoding="utf-8").read()
+    assert "Surge: inferred, not measured." in text and "`--unseen hold`" in text
+    assert "predict less well than they would with position fixes" not in text
+
+
+def test_with_heave_unseen_too_nothing_is_inferred(tmp_path):
+    import measurements as ms
+    seen = {"u": [], "v": [], "w": []}
+    assert ms.inferred_axes(seen) == set()
+    assert {"Xu", "Yv", "Zw"} <= set(ms.unobservable_holds(seen, TRUTH, ms.inferred_axes(seen)))
+    seen["w"] = ["depth"]
+    assert ms.inferred_axes(seen) == {"u", "v"}
+    assert not {"Xu", "Yv", "Zw"} & set(ms.unobservable_holds(seen, TRUTH, ms.inferred_axes(seen)))
+
+
+def test_depth_only_holds_surge_and_sway_when_asked_and_says_so(tmp_path):
+    data = write_dataset(tmp_path / "data", n=400)
+    rep = calibrate(data, tmp_path / "out", sensors=("main",), rounds=1, unseen="hold")
     m = json.load(open(tmp_path / "out" / "metrics.json", encoding="utf-8"))
     ss = m["sensor_suite"]
     assert ss["axes_seen_by"] == {"u": [], "v": [], "w": ["depth"]}

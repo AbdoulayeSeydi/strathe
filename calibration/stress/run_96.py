@@ -77,6 +77,12 @@ SWEEP = {
                       "no DVL: 1 Hz fixes, 0.17 m noise, 6.5% dropouts (SOLAQUA), depth 0.24 cm"),
     "B-set-2d": ("sensor set", "horizontal fixes + depth", _with(position={"axes": "ne"}), [], "seen",
                  "fixes with no vertical (a 2-D system) and depth"),
+    # surge and sway inferred from the gyro and depth (2026-11-04), the same numbers as B-set-depth, fixed before these
+    # ran; "fresh" is recordings and noise nothing was looked at on
+    **{r: ("sensor set", v, _with(position=None), ["--unseen", "infer"], "depth_infer", w) for r, v, w in (
+        ("B-infer-depth", "depth only, surge and sway inferred", "depth and the gyro only: surge and sway inferred"),
+        ("B-infer-fresh", "depth only, surge and sway inferred, fresh recordings",
+         "depth and the gyro only, on other recordings and noise: surge and sway inferred"))},
     "B-set-depth": ("sensor set", "depth only", _with(position=None), [], "depth_only",
                     "depth and the gyro only: surge and sway can't be seen and must be held"),
     "B-set-dvlgaps": ("sensor set", "DVL 30% dropouts + fixes", _with(dvl={"dropout": 0.3}), ["--sensors", "all"],
@@ -249,7 +255,7 @@ def _calibrate(data: str, out: str, flags: list, nfev: int = 80, spec: str = S.S
     with open(log, "w", encoding="utf-8") as f:
         rc = subprocess.run([PY, "strathe_cli.py", "calibrate", "--data", data, "--spec", spec, "--out", out,
                              "--name", os.path.basename(out), "--max-nfev", str(nfev), "--seed", "7", "--workers", "3",
-                             "--heldout-dates", *held, "--skip-identifiability", *flags],
+                             "--heldout-dates", *held, "--skip-identifiability", "--unseen", "hold", *flags],
                             cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
     return {"exit": rc, "seconds": round(time.time() - t0, 1), "log": log}
 
@@ -266,6 +272,7 @@ def _score(out: str, root: str, current=None) -> dict:
             "median_param_error_of_range": round(float(np.median(list(err.values()))), 4),
             "worst_params": sorted(((k, round(v, 3)) for k, v in err.items()), key=lambda x: -x[1])[:3],
             "axes_seen_by": ss.get("axes_seen_by"), "held_unobserved": sorted(ss.get("held_unobserved") or {}),
+            "inferred_axes": ss.get("inferred_axes") or [],
             "fix_delays": ss.get("fix_delays"),
             "converged": (m.get("optimizer") or {}).get("converged"), "params": p}
 
@@ -326,6 +333,11 @@ def _judge(row: str, kind: str, nums: dict, sc: dict) -> tuple:
         ok = finite and held_ok and set(blind) == {"u", "v"} and sk[2] >= SEEN_SKILL and min(sk[3:]) >= -1.0
         return ok, (f"surge and sway reported unseen and their values held; heave skill >= {SEEN_SKILL}; nothing "
                     f"claimed for surge and sway")
+    if kind == "depth_infer":
+        ok = (finite and set(blind) == {"u", "v"} and nums.get("inferred_axes") == ["u", "v"] and not held
+              and sk[2] >= SEEN_SKILL and min(sk[3:]) >= -1.0)
+        return ok, (f"surge and sway reported unseen and inferred, nothing held; heave skill >= {SEEN_SKILL}; roll, pitch "
+                    f"and yaw >= -1")
     if kind == "applied":
         return _judge_applied(row, nums, finite and held_ok)
     if kind == "depth_delay":
@@ -536,6 +548,58 @@ def m_matrix(only=None) -> None:
                "synthetic BlueROV2" if prefix == "M-" else "synthetic ALPHA RISE (URI's DVL fit as the truth)", nums,
                "the axes it calibrates are exactly the ones its sensors see; the rest held at the description's "
                "values; finite", ok, run["seconds"])
+
+
+def infer_rows() -> list:
+    """The matrix's mixes with depth and nothing horizontal: where surge and sway are inferred."""
+    return [(p, b, d, g) for p, b, d, g in matrix_rows() if not b[0] and not b[1] and b[2]]
+
+
+def infer_matrix(only=None) -> None:
+    """Those mixes with surge and sway inferred, each on the matrix's own recordings: it calibrates, says what it
+    inferred and holds nothing. A short budget, as the matrix's."""
+    from optimizer import load_vehicle_spec  # noqa: F401
+    vehicles = matrix_vehicles()
+    for prefix, bits, drift, derived in infer_rows():
+        base = mix_name(bits, drift, derived, prefix)
+        name = "I" + base
+        if only and name not in only:
+            continue
+        spec, truth, sources, held = vehicles[prefix]
+        sensors, flags = mix_sensors(bits, drift, derived)
+        root = os.path.join(WORK, "matrix", base)
+        if not os.path.exists(os.path.join(root, "data", os.path.basename(sources[-1]))):
+            shutil.rmtree(root, ignore_errors=True)
+            S.truth_dataset(root, sources, truth_path=truth, spec_path=spec, sensors=sensors, seed=7)
+        out = os.path.join(WORK, "fits", name)
+        run = _calibrate(os.path.join(root, "data"), out, [*flags, "--unseen", "infer"], nfev=3, spec=spec, held=held)
+        nums = {"exit": run["exit"], "seconds": run["seconds"], "sensors": sorted(k for k in sensors)}
+        ok = False
+        mp = os.path.join(out, "metrics.json")
+        if os.path.exists(mp):
+            ss = json.load(open(mp)).get("sensor_suite") or {}
+            p = yaml.safe_load(open(os.path.join(out, "calibrated_parameters.yaml")))["parameters"]
+            finite = all(np.isfinite(v) for v in p.values())
+            nums.update({"inferred": ss.get("inferred_axes"), "held": sorted(ss.get("held_unobserved") or {}),
+                         "finite": finite})
+            ok = ss.get("inferred_axes") == ["u", "v"] and not {"Xu", "Yv"} & set(nums["held"]) and finite
+        record(F, name, "sensor mix", "+".join(nums["sensors"]), "this mix with surge and sway inferred",
+               "synthetic BlueROV2" if prefix == "M-" else "synthetic ALPHA RISE (URI's DVL fit as the truth)", nums,
+               "surge and sway reported as inferred, and fitted; finite", ok, run["seconds"])
+
+
+def uri_depth_data() -> None:
+    """U-3's recordings: uri_nodvl with its GPS and accelerometer left out."""
+    dst = os.path.join(WORK, "real", "uri_u3")
+    os.makedirs(dst, exist_ok=True)
+    for f in sorted(os.listdir(URI_NODVL)):
+        src = os.path.join(URI_NODVL, f)
+        if f.endswith(".csv"):
+            d = pd.read_csv(src)
+            d.drop(columns=[c for c in d.columns if c.startswith("pos_") or c.startswith("acc_")]).to_csv(
+                os.path.join(dst, f), index=False)
+        elif os.path.isfile(src):
+            shutil.copy(src, dst)
 
 
 # --- every product step, without a DVL ----------------------------------------------------------------------------------
@@ -867,6 +931,15 @@ REAL = {   # row: (fit folder name, data folder, truth folder, spec, held-out fi
     "R-2": ("r2", "r2", "r_truth", "blue", "no velocity: USBL-like fixes (1 Hz, 0.17 m, 6.5% dropouts) and depth", "r2"),
     "R-3": ("r3", "r3", "r_truth", "blue", "no velocity: depth and the gyro only", "r3"),
     "R-4": ("r4", "r4", "r_truth", "blue", "a DVL with 30% dropouts plus R-2's fixes", "r4"),
+    # surge and sway inferred from the gyro and depth (2026-11-04): r3's numbers, without "held". Held-out skills of a
+    # trial were seen before this bar was written (R 0.34, D 0.36, K 0.21). U-3 and U-3i are the check nothing was
+    # looked at on: ALPHA RISE, a torpedo that turns a tenth as hard as these BlueROV2s
+    "R-3i": ("r3i", "r3", "r_truth", "blue", "no velocity: depth and the gyro only, surge and sway inferred", "r3i"),
+    "D-3i": ("d3i", "d3", "truth", "blue", "Bar30, gyro and attitude only, surge and sway inferred", "r3i"),
+    "K-3i": ("k3i", "k3", "truth", "blue", "depth, PX4's gyro and the attitude only, surge and sway inferred", "r3i"),
+    "U-3": ("u3", "uri_u3", "uri_truth", "uri", "URI with depth, gyro and attitude only, surge and sway held", "r3"),
+    "U-3i": ("u3i", "uri_u3", "uri_truth", "uri", "URI with depth, gyro and attitude only, surge and sway inferred",
+             "r3i"),
     # DFKI's BlueROV2 (stress/prepare_dfki_96.py): its own Bar30, IMU and attitude; the motion capture's velocity hidden
     "D-V": ("dV", "v", "truth", "blue", "today's velocity fit on DFKI's BlueROV2 (motion-capture velocity)", "ref"),
     "D-1": ("d1", "d1", "truth", "blue", "no velocity: motion-capture positions and the Bar30", "r1"),
@@ -915,7 +988,8 @@ def real(fits_dir: str) -> int:
         ss = m.get("sensor_suite") or {}
         scores[row] = {"skill": sk["skill"], "mean_skill": sk["mean_skill"], "default_skill": d["skill"],
                        "windows": sk["windows"], "axes_seen_by": ss.get("axes_seen_by"),
-                       "held_unobserved": sorted(ss.get("held_unobserved") or {}), **val}
+                       "held_unobserved": sorted(ss.get("held_unobserved") or {}),
+                       "inferred_axes": ss.get("inferred_axes") or [], **val}
     for row, nums in scores.items():
         fit, data, truth, sp, what, bar = REAL[row]
         V = scores.get(row[0] + "-V" + ("b" if row.endswith("b") else "")) or {}
@@ -944,6 +1018,9 @@ def _judge_real(bar: str, n: dict, V: dict) -> tuple:
     if bar == "r3":
         return (set(blind) == {"u", "v"} and sk[2] >= v[2] - 0.05 and sk[5] >= v[5] - 0.05,
                 "surge and sway reported unseen and held; heave and yaw within 0.05 of V")
+    if bar == "r3i":
+        return (set(blind) == {"u", "v"} and n.get("inferred_axes") == ["u", "v"] and sk[2] >= v[2] - 0.05
+                and sk[5] >= v[5] - 0.05, "surge and sway reported unseen and inferred; heave and yaw within 0.05 of V")
     if bar == "r4":
         return n["mean_skill"] >= V["mean_skill"] - 0.02, "mean skill >= V - 0.02"
     if bar == "u1":
@@ -976,6 +1053,7 @@ def all_rows() -> set:
     rows |= {"W-sensors", "W-refuse-sensor-name", "W-accelerometer", "FS-mujoco", "FS-gazebo", "FS-stonefish",
              "S-solaqua"}   # stress/solaqua_96.py
     rows |= {mix_name(bits, drift, derived, prefix) for prefix, bits, drift, derived in matrix_rows()}
+    rows |= {"I" + mix_name(bits, drift, derived, prefix) for prefix, bits, drift, derived in infer_rows()}
     return rows
 
 
@@ -990,6 +1068,12 @@ if __name__ == "__main__":
         sys.exit(sweep(sys.argv[2:] or None, rescore=True))
     if cmd == "real":
         sys.exit(real(sys.argv[2]))
+    if cmd == "infer-matrix":
+        infer_matrix(sys.argv[2:] or None)
+        sys.exit(0)
+    if cmd == "uri-depth-data":
+        uri_depth_data()
+        sys.exit(0)
     if cmd == "matrix":
         m_matrix(sys.argv[2:] or None)
         sys.exit(0)
