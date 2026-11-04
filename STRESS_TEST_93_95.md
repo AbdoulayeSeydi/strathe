@@ -1,10 +1,10 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-03 18:43. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-03 21:25. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
-**141 of 142 rows pass** (36 variables found in the code, each with a row).
+**142 of 142 rows pass** (36 variables found in the code, each with a row).
 
 ### How good a one-session check is (measured)
 
@@ -113,37 +113,37 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 | Row | Varied | What | Data | Result | Numbers | Time |
 |---|---|---|---|---|---|---|
-| E1-bluerov_12-01-2024 | dataset = bluerov 12-01-2024 | calibrate on one day (12-01-2024), recordings held out | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run12", "odom-12-01-2024-run13", "odom-12-01-2024-run14", "odom-12-01-2024-run15", "odom-12-01-2024-... | 19 min |
-| E2-bluerov_14-02-2024 | dataset = bluerov 14-02-2024 | calibrate on one day (14-02-2024), recordings held out | bluerov_14-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-14-02-2024-run7", "odom-14-02-2024-run8", "odom-14-02-2024-run9"], "converged": true, "within": {"skill": [0.67... | 66 min |
-| E3-bluerov_16-02-2024 | dataset = bluerov 16-02-2024 | calibrate on one day (16-02-2024), recordings held out | bluerov_16-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-16-02-2024-run7", "odom-16-02-2024-run8"], "converged": true, "within": {"skill": [0.747, 0.456, 0.56, 0.015, -... | 36 min |
-| E4-bluerov_19-02-2024 | dataset = bluerov 19-02-2024 | calibrate on one day (19-02-2024), recordings held out | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 25 min |
-| E5-dfki_one | dataset = dfki one session | calibrate DFKI's single session | dfki_one | ✅ | {"exit": 0, "mode": "recordings", "held": ["dfki_bluerov2-01-06-2025-run16", "dfki_bluerov2-01-06-2025-run17", "dfki_bluerov2-01-06-2025-run18", "dfki_bluerov2-... | 29 min |
-| E6-uri_bay | dataset = uri bay | calibrate URI's bay mission alone (time block) | uri_bay | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-05-12-2025-run1::last30%"], "converged": true, "within": {"skill": [0.871, 0.117, 0.032, 0.012, -0.33, 0.... | 37 min |
-| E7-uri_pond | dataset = uri pond | calibrate URI's pond mission alone (time block) | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last30%"], "converged": true, "within": {"skill": [0.757, 0.363, -0.399, 0.002, 0.008, 0... | 110 min |
-| E8-named | kind = recording | --heldout-recordings, two named | bluerov_12-01-2024 | ❌ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.308, -1.157, -1.05, -9.524... | 76 min |
-| E8b-retry | fit = failed start retried | E8 again, same seed: a failed single start is retried | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.638, 0.429, 0.477, -0.08, ... | 225 min |
+| E1-bluerov_12-01-2024 | dataset = bluerov 12-01-2024 | calibrate on one day (12-01-2024), recordings held out | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run12", "odom-12-01-2024-run13", "odom-12-01-2024-run14", "odom-12-01-2024-run15", "odom-12-01-2024-... | 20 min |
+| E2-bluerov_14-02-2024 | dataset = bluerov 14-02-2024 | calibrate on one day (14-02-2024), recordings held out | bluerov_14-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-14-02-2024-run7", "odom-14-02-2024-run8", "odom-14-02-2024-run9"], "converged": true, "within": {"skill": [0.67... | 20 min |
+| E3-bluerov_16-02-2024 | dataset = bluerov 16-02-2024 | calibrate on one day (16-02-2024), recordings held out | bluerov_16-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-16-02-2024-run7", "odom-16-02-2024-run8"], "converged": true, "within": {"skill": [0.747, 0.456, 0.56, 0.015, -... | 19 min |
+| E4-bluerov_19-02-2024 | dataset = bluerov 19-02-2024 | calibrate on one day (19-02-2024), recordings held out | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 54 min |
+| E5-dfki_one | dataset = dfki one session | calibrate DFKI's single session | dfki_one | ✅ | {"exit": 0, "mode": "recordings", "held": ["dfki_bluerov2-01-06-2025-run16", "dfki_bluerov2-01-06-2025-run17", "dfki_bluerov2-01-06-2025-run18", "dfki_bluerov2-... | 37 min |
+| E6-uri_bay | dataset = uri bay | calibrate URI's bay mission alone (time block) | uri_bay | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-05-12-2025-run1::last30%"], "converged": true, "within": {"skill": [0.871, 0.117, 0.032, 0.012, -0.33, 0.... | 38 min |
+| E7-uri_pond | dataset = uri pond | calibrate URI's pond mission alone (time block) | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last30%"], "converged": true, "within": {"skill": [0.757, 0.363, -0.399, 0.002, 0.008, 0... | 94 min |
+| E8-named | kind = recording | --heldout-recordings, two named | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.638, 0.429, 0.477, -0.08, ... | 433 min |
+| E8b-retry | fit = failed start retried | E8 again, same seed: a failed single start is retried | bluerov_12-01-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run3", "odom-12-01-2024-run9"], "converged": true, "within": {"skill": [0.638, 0.429, 0.477, -0.08, ... | 319 min |
 | E8b-retry-check | fit = auto restart | the failed start was noticed and retried | bluerov_12-01-2024 | ✅ | {"auto_restart": {"reason": "the first fit ended no better than the starting description on its training recordings", "why": "no_better", "first_cost": 1598.968... | 0 min |
 | E9-last20 | kind = last part | --heldout-recordings ...::last20% | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last20%"], "converged": false, "within": {"skill": [0.765, 0.337, -0.678, 0.017, 0.019, ... | 325 min |
 | E10-last50 | kind = last part | --heldout-recordings ...::last50% | uri_pond | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-27-03-2026-run1::last50%"], "converged": false, "within": {"skill": [0.827, 0.416, -0.201, 0.009, 0.004, ... | 94 min |
-| E11-2recs | recordings available = 2 | one day with 2 recordings | bluerov_12-01-2024_2recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run10"], "converged": true, "within": {"skill": [0.554, 0.352, 0.445, 0.004, -0.008, 0.648], "mean_s... | 4 min |
-| E12-3recs | recordings available = 3 | one day with 3 recordings | bluerov_12-01-2024_3recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run11"], "converged": true, "within": {"skill": [0.609, 0.568, 0.517, -0.163, -0.15, 0.479], "mean_s... | 10 min |
-| E13-5recs | recordings available = 5 | one day with 5 recordings | bluerov_12-01-2024_5recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run12", "odom-12-01-2024-run13"], "converged": true, "within": {"skill": [0.724, 0.462, 0.513, -0.15... | 10 min |
-| E14-restarts4 | fit = --restarts 4 | one day, 4 starting points | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 53 min |
-| E15-no_current | fit = no --estimate-current | URI bay alone, current not estimated | uri_bay | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-05-12-2025-run1::last30%"], "converged": true, "within": {"skill": [0.803, -0.097, -0.171, 0.009, -0.025,... | 7 min |
-| E16-finish | consumer = finalize_checkpoint.py | --finish on a one-session fit | bluerov_19-02-2024 | ✅ | {"exit": [0, 0], "dataset": {"train_dates": ["odom-19-02-2024-run1", "odom-19-02-2024-run2", "odom-19-02-2024-run3", "odom-19-02-2024-run4"], "heldout_dates": [... | 3 min |
-| E17-report_validate | consumer = calibration_report.py validation.py | strathe report and validate, standalone, on a one-session calibration | bluerov_19-02-2024 | ✅ | {"exit": [0, 0], "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"]} | 0 min |
-| E18-fit_sim_mujoco | consumer = simfit/runner.py simfit/core.py | fit-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  MuJoCo, calibrated by Strathe        drift 3.50 / 3.93 / 4.23 m", "  no motion                            drift 3.35 / 3... | 10 min |
-| E19-fit_sim_gazebo | consumer = simfit (gazebo, Docker) | fit-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  Gazebo, calibrated by Strathe        drift 4.06 / 10.85 / 20.00 m", "  no motion                            drift 3.35 /... | 8 min |
-| E20-fit_stonefish | consumer = stonefish_fit.py | fit-stonefish on one session | uri_bay | ✅ | {"exit": 0, "report": true, "tail": ["  Stonefish, calibrated by Strathe     drift 3.43 / 14.30 / 35.38 m", "  no motion                            drift 6.99 /... | 4 min |
-| E21-export_stonefish | consumer = stonefish_export.py | export-stonefish on one session | uri_pond | ✅ | {"exit": 0, "report": true, "tail": ["  With the patch's damping, Stonefish runs Strathe's own model, with the centre of gravity at the logs' reference point as... | 4 min |
-| E22-web | web = cal-heldout | web calibrate card, one session, a named recording | bluerov_16-02-2024 | ✅ | {"exit": 0, "tail": ["", "It is trustworthy for 2 of 6 motion axes: forward speed (surge), turning rate (yaw). On recordings the calibration never saw (from the... | 5 min |
-| E23-sound_untouched | fit = sound fit untouched | E4 again, same seed: probed, not retried | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 33 min |
-| E23-sound_untouched-check | fit = sound fit untouched | no retry, same cost to the last bit | bluerov_19-02-2024 | ✅ | {"cost": 7.102579181661516, "E4_cost": 7.102579181661516, "retried": false} | 0 min |
+| E11-2recs | recordings available = 2 | one day with 2 recordings | bluerov_12-01-2024_2recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run10"], "converged": true, "within": {"skill": [0.554, 0.352, 0.445, 0.004, -0.008, 0.648], "mean_s... | 11 min |
+| E12-3recs | recordings available = 3 | one day with 3 recordings | bluerov_12-01-2024_3recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run11"], "converged": false, "within": {"skill": [0.527, -0.578, 0.107, -9.558, -3.407, -1.318], "me... | 28 min |
+| E13-5recs | recordings available = 5 | one day with 5 recordings | bluerov_12-01-2024_5recs | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-12-01-2024-run12", "odom-12-01-2024-run13"], "converged": true, "within": {"skill": [0.724, 0.462, 0.513, -0.15... | 16 min |
+| E14-restarts4 | fit = --restarts 4 | one day, 4 starting points | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 771 min |
+| E15-no_current | fit = no --estimate-current | URI bay alone, current not estimated | uri_bay | ✅ | {"exit": 0, "mode": "time block", "held": ["alpha_rise-05-12-2025-run1::last30%"], "converged": true, "within": {"skill": [0.803, -0.097, -0.171, 0.009, -0.025,... | 40 min |
+| E16-finish | consumer = finalize_checkpoint.py | --finish on a one-session fit | bluerov_19-02-2024 | ✅ | {"exit": [0, 0], "dataset": {"train_dates": ["odom-19-02-2024-run1", "odom-19-02-2024-run2", "odom-19-02-2024-run3", "odom-19-02-2024-run4"], "heldout_dates": [... | 22 min |
+| E17-report_validate | consumer = calibration_report.py validation.py | strathe report and validate, standalone, on a one-session calibration | bluerov_19-02-2024 | ✅ | {"exit": [0, 0], "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"]} | 2 min |
+| E18-fit_sim_mujoco | consumer = simfit/runner.py simfit/core.py | fit-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  MuJoCo, calibrated by Strathe        drift 3.50 / 3.93 / 4.23 m", "  no motion                            drift 3.35 / 3... | 28 min |
+| E19-fit_sim_gazebo | consumer = simfit (gazebo, Docker) | fit-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  Gazebo, calibrated by Strathe        drift 4.06 / 10.85 / 20.00 m", "  no motion                            drift 3.35 /... | 618 min |
+| E20-fit_stonefish | consumer = stonefish_fit.py | fit-stonefish on one session | uri_bay | ✅ | {"exit": 0, "report": true, "tail": ["  Stonefish, calibrated by Strathe     drift 3.43 / 14.30 / 35.38 m", "  no motion                            drift 6.99 /... | 43 min |
+| E21-export_stonefish | consumer = stonefish_export.py | export-stonefish on one session | uri_pond | ✅ | {"exit": 0, "report": true, "tail": ["  With the patch's damping, Stonefish runs Strathe's own model, with the centre of gravity at the logs' reference point as... | 8 min |
+| E22-web | web = cal-heldout | web calibrate card, one session, a named recording | bluerov_16-02-2024 | ✅ | {"exit": 0, "tail": ["", "It is trustworthy for 0 of 6 motion axes. On recordings the calibration never saw (from the same session, not another day), it predict... | 14 min |
+| E23-sound_untouched | fit = sound fit untouched | E4 again, same seed: probed, not retried | bluerov_19-02-2024 | ✅ | {"exit": 0, "mode": "recordings", "held": ["odom-19-02-2024-run5", "odom-19-02-2024-run6"], "converged": true, "within": {"skill": [0.762, 0.602, 0.622, -0.079,... | 40 min |
+| E23-sound_untouched-check | fit = sound fit untouched | no retry, same cost to the last bit | bluerov_19-02-2024 | ✅ | {"cost": 7.102579181683405, "E4_cost": 7.102579181683405, "retried": false} | 0 min |
 | E24-wandering | fit = wandering fit retried | #94's CSV route, seed 94: a fit that wandered out of budget | ingested | ✅ | {"exit": 0, "mode": "dates", "held": ["16-02-2024", "19-02-2024"], "converged": true, "within": {"skill": [0.723, 0.508, 0.59, -0.026, -0.103, 0.581], "mean_ski... | 824 min |
 | E24-wandering-check | fit = wandering fit retried | caught as rough, retried, a better fit kept | ingested | ✅ | {"auto_restart": {"reason": "the first fit ended where the training cost is rough (a chaotic replay)", "why": "rough", "first_cost": 102.50482563582999, "first_... | 0 min |
 | E26-fit_noise | consumer = fit-noise | fit-noise on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "written": true} | 0 min |
 | E25-export_sim_mujoco | refusal = export-sim --sim mujoco | export-sim to MuJoCo on one session: a plain refusal | bluerov_19-02-2024 | ✅ | {"exit": 2} | 0 min |
-| E25b-export_sim_gazebo | consumer = simfit/runner.py (export) | export-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  note: Held out within one session: the unseen part shares the session's trim, battery and water, so this check can't sho... | 8 min |
+| E25b-export_sim_gazebo | consumer = simfit/runner.py (export) | export-sim on one session | bluerov_19-02-2024 | ✅ | {"exit": 0, "report": true, "tail": ["  note: Held out within one session: the unseen part shares the session's trim, battery and water, so this check can't sho... | 12 min |
 
 ### Other rows (P)
 
@@ -183,7 +183,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #94. PX4, MOOS-IvP and LCM logs, read directly
 
-**419 of 419 rows pass** (483 variables found in the code, each with a row).
+**424 of 424 rows pass** (483 variables found in the code, each with a row).
 
 
 ### Every real recording through each format, against the CSV route
@@ -560,7 +560,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | I-lcm | independent = lcm EventLog | lcm: values against lcm's own decode | odom-12-01-2024-run1.csv | ✅ | {"max_abs_diff": 0.0} | 0 min |
 | I-px4-real | independent = pyulog ulog2csv, real log | px4: a real BlueROV2 Heavy log (PX4 public archive) against pyulog's ulog2csv | bluerov2_heavy_2024-07-11.ulg | ✅ | {"max_abs_diff": 3.224869797702201e-06, "pwm_max_abs_diff": 0.0, "clock": "UTC (from the log's GPS)", "span_s": 328.5, "warnings": ["the logger dropped data 1 t... | 0 min |
 | I-px4-real-ingest | entry = strathe ingest, real log | px4: the real BlueROV2 log through ingestion | bluerov2_heavy_2024-07-11.ulg | ✅ | {"recordings": 1, "sessions": {"18-02-2021": 1}, "warnings": ["force and velocity barely move together on surge, sway, heave, yaw (surge -0.02, sway -0.01, heav... | 0 min |
-| I-lcm-logger | independent = lcm-logger | lcm: a log recorded by lcm-logger off the network, against lcm's own decode | 100 published DVL messages | ✅ | {"published": 100, "logged": 99, "grid_rows": 56, "max_abs_diff": 0.0} | 0 min |
+| I-lcm-logger | independent = lcm-logger | lcm: a log recorded by lcm-logger off the network, against lcm's own decode | 100 published DVL messages | ✅ | {"published": 100, "logged": 99, "grid_rows": 57, "max_abs_diff": 0.0} | 0 min |
 
 ### Entry points: ingest, calibrate --ingest-spec, the web card
 
@@ -594,18 +594,23 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 | Row | Varied | What | Data | Result | Numbers | Time |
 |---|---|---|---|---|---|---|
-| E-bluerov-px4-cal | calibration = px4 | calibrate bluerov from the px4 route | bluerov | ✅ | {"exit": 0} | 111 min |
-| E-bluerov-csv-cal | calibration = csv | calibrate bluerov from the csv route | bluerov | ✅ | {"exit": 0} | 189 min |
-| E-bluerov-moos-cal | calibration = moos | calibrate bluerov from the moos route | bluerov | ✅ | {"exit": 0} | 236 min |
-| E-bluerov-px4 | calibration = px4 | bluerov: the calibration problem from px4 vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 2 min |
-| E-bluerov-moos | calibration = moos | bluerov: the calibration problem from moos vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 4 min |
-| E-bluerov-lcm | calibration = lcm | bluerov: the calibration problem from lcm vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 6 min |
-| E-uri-px4 | calibration = px4 | uri: the calibration problem from px4 vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_px4": {"start": 367.69970365066933... | 1 min |
-| E-uri-moos | calibration = moos | uri: the calibration problem from moos vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_moos": {"start": 367.6997036506693... | 1 min |
-| E-uri-lcm | calibration = lcm | uri: the calibration problem from lcm vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735}, "cost_lcm": {"start": 367.69970365066933... | 1 min |
+| E-bluerov-px4-cal | calibration = px4 | calibrate bluerov from the px4 route | bluerov | ✅ | {"exit": 0} | 509 min |
+| E-bluerov-csv-cal | calibration = csv | calibrate bluerov from the csv route | bluerov | ✅ | {"exit": 0} | 728 min |
+| E-bluerov-moos-cal | calibration = moos | calibrate bluerov from the moos route | bluerov | ✅ | {"exit": 0} | 877 min |
+| E-bluerov-px4 | calibration = px4 | bluerov: the calibration problem from px4 vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 1 min |
+| E-bluerov-moos | calibration = moos | bluerov: the calibration problem from moos vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 2 min |
+| E-bluerov-lcm | calibration = lcm | bluerov: the calibration problem from lcm vs from the CSV route | bluerov | ✅ | {"train_recordings": [25, 25], "cost_csv": {"start": 3329.5684284318904, "perturbed start (seed 94)": 3013.271714074699, "calibrated (px4 route)": 77.6467986452... | 3 min |
+| E-uri-px4 | calibration = px4 | uri: the calibration problem from px4 vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735, "calibrated (px4 route)": 5.1913735245206... | 0 min |
+| E-uri-moos | calibration = moos | uri: the calibration problem from moos vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735, "calibrated (px4 route)": 5.1913735245206... | 0 min |
+| E-uri-lcm | calibration = lcm | uri: the calibration problem from lcm vs from the CSV route | uri | ✅ | {"train_recordings": [1, 1], "cost_csv": {"start": 367.6997036506698, "perturbed start (seed 94)": 473.17900130724735, "calibrated (px4 route)": 5.1913735245206... | 1 min |
 | E-mujoco-px4 | calibration = px4 | bluerov: fit-sim --sim mujoco from px4 vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "px4": {"hull_blunt_drag": 1.01... | 0 min |
 | E-mujoco-moos | calibration = moos | bluerov: fit-sim --sim mujoco from moos vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "moos": {"hull_blunt_drag": 1.0... | 0 min |
 | E-mujoco-lcm | calibration = lcm | bluerov: fit-sim --sim mujoco from lcm vs from the CSV route | bluerov | ✅ | {"csv": {"hull_blunt_drag": 1.018321132780642, "hull_slender_drag": 2.0388907728136347, "hull_angular_drag": 9.649108858066857}, "lcm": {"hull_blunt_drag": 1.01... | 0 min |
+| E-bluerov-lcm-cal | calibration = lcm | calibrate bluerov from the lcm route | bluerov | ✅ | {"exit": 0} | 161 min |
+| E-uri-px4-cal | calibration = px4 | calibrate uri from the px4 route | uri | ✅ | {"exit": 0} | 140 min |
+| E-uri-csv-cal | calibration = csv | calibrate uri from the csv route | uri | ✅ | {"exit": 0} | 49 min |
+| E-uri-moos-cal | calibration = moos | calibrate uri from the moos route | uri | ✅ | {"exit": 0} | 49 min |
+| E-uri-lcm-cal | calibration = lcm | calibrate uri from the lcm route | uri | ✅ | {"exit": 0} | 46 min |
 
 ### Other rows (SN)
 

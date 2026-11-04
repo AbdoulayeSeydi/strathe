@@ -19,7 +19,7 @@ from common import load_rows  # noqa: E402
 import report  # noqa: E402
 
 AXES = ("surge", "sway", "heave", "roll", "pitch", "yaw")
-# a row kept on record after a fix, and the row that shows the fix
+# a row kept on record after a fix until it is rerun, and the row that shows the fix
 SUPERSEDED = {"E8-named": "E8b-retry"}
 # describe-stonefish's reference spec was rewritten by today's command at this time (run_95 commit b667812)
 STONEFISH_SPEC_REWRITTEN = "2026-10-29 07"
@@ -90,7 +90,7 @@ def _status(r: dict | None, feature: str) -> tuple:
     if r is None:
         return "wait", "running or queued"
     n = _n(r)
-    if r["row"] in SUPERSEDED:
+    if r["row"] in SUPERSEDED and r["passed"] != "pass":
         return "old", f"before the fix: see {SUPERSEDED[r['row']]}"
     if r["row"].startswith("E-alpha-describe-stonefish") and r["when"] < STONEFISH_SPEC_REWRITTEN:
         return "old", "old reference spec: rerunning"

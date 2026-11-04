@@ -3132,8 +3132,8 @@ Three rows, each rerunning a real fit from before the fix with the same seed:
 - `--restarts N` left alone;
 - `end_roughness` on a smooth and a jumpy cost, and inside the bounds.
 
-**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **141 of 142 rows pass.** The one that fails is E8, the
-failed fit that led to the retry; E8b, its rerun, passes, as do E23 and E24. E25, E25b and E26 cover the commands
+**Stress test** (calibration/stress/; `STRESS_TEST_93_95.md`): **142 of 142 rows pass.** E8, the failed fit
+that led to the retry, failed until the rerun of 1–3 Nov (#96, "The rerun"); E8b, E23 and E24 pass too. E25, E25b and E26 cover the commands
 that hadn't been run on one day: `export-sim --sim mujoco` refuses plainly (it says to use `fit-sim --sim mujoco`),
 `export-sim gazebo` scores a one-day calibration in bluerov2_gz, and `fit-noise` fits from one day.
 - **Found by the audit of 31 Oct:** 31 all-pairs rows (dataset × held-out kind × fraction), each split worked out
@@ -3666,6 +3666,21 @@ and 10 kinds of damage: each ingests and calibrates or stops with a sentence), `
 `test_no_velocity_assumption.py`, `test_ingest_sensors.py`, `test_sensor_messages.py` (every sensor refusal reached by
 a test), `test_simfit_mujoco.py` (`--starts-from`), `test_ingest_ardupilot.py` (the no-DVL template on a `.bin`), and
 the coverage gate (42 variables found in the code, each with a row).
+
+**The rerun of #93–#95's long rows (31 Oct – 3 Nov).** 60 results, on the code as of #48 (e237de2, before this feature):
+| Feature | Rows rerun | Totals now | What changed |
+|---|---|---|---|
+| #93 | 27 | 142 of 142 | E8-named: fail to pass, held-out skill −3.0 to +0.32, as the retry now catches that fit |
+| #94 | 18 | 424 of 424 | Five `-cal` rows are new; the others still pass |
+| #95 | 15 | 146 of 154 | Nothing: the same 8 fail, and all 15 rows gave the same numbers |
+
+- **22 rows weren't rerun** and keep their October results: E9, E10 and E24, and 19 of #95's, with 4 of its 8 failures among them.
+  The queue was cut to one #95 row per variable family (1 Nov) so that this feature got the machine's cores.
+- **Against this feature's code:** four rows were then run on main (11a47c9): E11 (BlueROV2), E5 (DFKI), E6 (URI) and
+  E18 (MuJoCo fit-sim). All pass with the same skill and drift. E18's numbers are identical. The other three's final
+  training RMSE differs from the rerun's by at most 2 parts in 10 million, so a fit with a DVL isn't bit-identical to
+  before. That cause wasn't traced; `objective.py` now averages with `nanmean`, a possible one. Those four rows are
+  the latest in results_93.csv. The other 56 ran only on the older code.
 
 ## Honest open items
 
