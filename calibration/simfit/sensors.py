@@ -8,7 +8,7 @@ one, this module:
   smoother over every sensor; no physics by default, since the simulator's model may be of any vehicle), and the
   logged gyro rates;
 - scores the simulator's own motion against what each sensor read: its body rates against the gyro, its velocity
-  against the DVL where it read, and its path, integrated with the simulator's own attitude, against the position
+  against the DVL where it read, and its path, integrated with the logged attitude, against the position
   fixes and depth, each window's unknown starting position removed exactly (measurements.py);
 - measures drift against the position fixes (or depth), not against a velocity.
 """
@@ -35,17 +35,19 @@ def set_starts(runs: list, params=None, vehicle=None, noise: Optional[dict] = No
     return sm.set_anchors(runs, params, vehicle, sigma, noise)
 
 
-def _pred(ch, V, Q, dt, rel, R):
+def _pred(ch, V, dt, rel, R):
     from measurements import path_in_window, predicted
     path = path_in_window(V, R, dt) if ch.kind in ("position", "depth") else None
     return predicted(ch, V, R, path, dt, rel)
 
 
-def window_parts(run, a: int, n: int, V: np.ndarray, Q: np.ndarray) -> dict:
+def window_parts(run, a: int, n: int, V: np.ndarray) -> dict:
     """{label: residuals} for one simulator window: each sensor's readings in (a, a+n) against the simulated vehicle,
     positions and depth taken about their window mean. Empty for a channel with too few readings."""
     from measurements import MIN_FIXES_PER_WINDOW
-    R = Rotation.from_quat(np.nan_to_num(Q) + np.array([0, 0, 0, 1e-12])).as_matrix()
+    # the logged attitude, as a calibration's path does (measurements.path_in_window): a simulator's own heading, off by
+    # a few degrees after 30 s, would turn the path away from the fixes and take the blame out on surge
+    R = Rotation.from_quat(run.orientation_quat[a:a + n]).as_matrix()
     out = {}
     for ch in run.channels:
         if ch.kind == "accelerometer":
@@ -57,7 +59,7 @@ def window_parts(run, a: int, n: int, V: np.ndarray, Q: np.ndarray) -> dict:
         rel = np.flatnonzero(ok)
         if len(rel) < (1 if ch.kind in ("gyro", "dvl") else MIN_FIXES_PER_WINDOW):
             continue
-        r = _pred(ch, V, Q, run.dt, rel, R) - seg[rel]
+        r = _pred(ch, V, run.dt, rel, R) - seg[rel]
         if ch.kind in ("position", "depth"):
             r = r - r.mean(axis=0)
         for j, lab in enumerate(ch.labels):
@@ -103,11 +105,11 @@ def residuals(run, wins, preds, sc: dict, lay: list) -> list:
     """The optimizer's residuals for one recording's windows: each sensor axis over its still RMS and the square root
     of its readings in the window (a blown-up window: PENALTY in the same shape)."""
     out = []
-    for (a, n), (V, Q), lw in zip(wins, preds, lay):
+    for (a, n), (V, _), lw in zip(wins, preds, lay):
         if np.isnan(V).any():
             out.append(np.full(sum(k for _, k in lw), PENALTY))
             continue
-        parts = window_parts(run, a, n, V, Q)
+        parts = window_parts(run, a, n, V)
         for lab, k in lw:
             r = parts.get(lab)
             if r is None or len(r) != k:
@@ -166,7 +168,7 @@ def score(runs_wins: list, preds: list, horizons) -> dict:
                                if ok[k]), None)
                     if k0 is not None and k1 is not None and k1 > k0:
                         drift[h].append(float(np.linalg.norm((P[k1] - P[k0])[axes] - (vals[k1] - vals[k0]))))
-            for lab, r in window_parts(run, a, n, V, Q).items():
+            for lab, r in window_parts(run, a, n, V).items():
                 sens.setdefault(lab, []).append(r)
             for lab, r in still_parts(run, a, n).items():
                 still.setdefault(lab, []).append(r)

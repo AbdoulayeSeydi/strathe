@@ -3560,7 +3560,7 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - Roll and pitch inertia aren't pinned down by 1 Hz fixes (they are by 10 Hz motion capture).
 - A current that changes during a recording, USBL multipath, and accelerometer bias drift aren't modelled.
 - A late position or depth sensor is corrected only when its readings show it clearly (0.3 s late isn't); a gyro that lags the orientation is said, not shifted (LIMITS).
-- fit-sim from GPS at the surface lost surge on URI, cause not found (LIMITS).
+- fit-sim's own report can't show surge without a DVL (LIMITS).
 - Four real vehicles, three of them BlueROV2s: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public).
 - On KTH's Marinarium BlueROV2, fixes didn't recover sway (K-1, K-2), cause not established (LIMITS).
 
@@ -3578,7 +3578,7 @@ now built and tested, or said here as not possible:
 - **A late position sensor.** Calibration now scans 0–2 s of shift with the state smoother and the description's
   physics.
   - With the first threshold (2 per fix), the plan's bar failed: 1 s late was found at 0.8 s but at only 1.21 per
-    fix, so nothing was said. **B-latency-1 is kept as a failure.**
+    fix, so nothing was said. B-latency-1 failed; with the 0.5 bar it passes on the rerun of 3 Nov (0.982, the delay said and taken off).
   - 0.5 was chosen from those numbers, then tested on recordings and noise it wasn't chosen on: 0 s quiet, 1 s and
     2 s warned (B-latency-fresh-*).
   - Real fixes with no delay (the tank's, DFKI's) read 0.0 s. URI's real GPS read at least 2 s, at 0.125 per fix,
@@ -3598,13 +3598,15 @@ now built and tested, or said here as not possible:
   had fixes at both ends on that day.
 - **fit-sim on real data, the truth hidden (the plan's Phase-2 bar).** Mean held-out skill of 10 s free runs, fit-sim
   (MuJoCo) against Strathe's calibration from the same sensors, scored the same way.
-  - **DFKI, D-3's sensors:** 0.067 against −0.107. Passes.
-  - **URI, U-1's sensors:** 0.033 against 0.101. **Fails.** fit-sim fitted surge to 0.15, where the model began at
-    0.82.
+  - **DFKI, D-3's sensors:** 0.084 against −0.107. Passes.
+  - **URI, U-1's sensors:** 0.126 against 0.101, surge 0.82. Passes since the fix of 3 Nov. It first failed at 0.033:
+    fit-sim fitted surge to 0.15, where the model began at 0.82.
+    - The cause: the path was integrated with the simulator's own heading, where a calibration's uses the logged
+      attitude. Over a 30 s window that heading drifts, and the fit took the error out on surge. `simfit/sensors.py`
+      now uses the logged attitude; `tests/test_simfit_sensors.py` turns a window's heading 30° and expects no change.
     - The DVL control: fit-sim from URI's DVL, 0.123 against 0.173, surge kept at 0.81.
     - New `fit-sim --starts-from CALIBRATION` gives any simulator the calibration's physics-aided window starts
-      (MuJoCo couldn't take `--from-strathe`). It didn't change URI (0.032) or DFKI (0.061), so the starts aren't the
-      cause. Not yet explained (LIMITS).
+      (MuJoCo couldn't take `--from-strathe`). It changes nothing measurable (URI 0.126, DFKI 0.084).
 - **export-sim from the sensors** had never been run. Through Gazebo (Docker), Gazebo with Strathe's values drifted
   5.38 m at 10 s against Strathe's own model's 5.39 m. MuJoCo refuses it by design and says why (E-export-sim).
 - **The sweep's missing values**, each passing its bar, fixed before it ran:
@@ -3657,9 +3659,10 @@ now built and tested, or said here as not possible:
   - One row (fresh, depth and the gyro only, 1 s) first read FAIL because it finished before its on-time
     reference; scored again once the reference was in, as set up before the run, it passes on the same fit.
 
-**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **237 of 248 rows
-pass.** The 11 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, K-1, K-3, U-1, U-1b,
-B-set-depth, S-solaqua, B-latency-1, FS-real-U1, FS-real-U1-starts.
+**Stress test** (`calibration/stress/run_96.py`; `STRESS_TEST_93_95.md`; the results page): **240 of 248 rows
+pass.** The 8 that fail are each above, in LIMITS, and kept as failures: R-3, D-3, K-1, K-3, U-1, U-1b, B-set-depth,
+S-solaqua. FS-real-U1 and FS-real-U1-starts pass since fit-sim's path uses the logged attitude, B-latency-1 since the
+delay check's 0.5 bar.
 
 **Tests:** `tests/test_measurements.py`, `test_sensor_calibration.py`, `test_sensor_fuzz.py` (80 random sensor mixes
 and 10 kinds of damage: each ingests and calibrates or stops with a sentence), `test_simfit_sensors.py`,
@@ -3678,9 +3681,10 @@ the coverage gate (42 variables found in the code, each with a row).
   The queue was cut to one #95 row per variable family (1 Nov) so that this feature got the machine's cores.
 - **Against this feature's code:** four rows were then run on main (11a47c9): E11 (BlueROV2), E5 (DFKI), E6 (URI) and
   E18 (MuJoCo fit-sim). All pass with the same skill and drift. E18's numbers are identical. The other three's final
-  training RMSE differs from the rerun's by at most 2 parts in 10 million, so a fit with a DVL isn't bit-identical to
-  before. That cause wasn't traced; `objective.py` now averages with `nanmean`, a possible one. Those four rows are
-  the latest in results_93.csv. The other 56 ran only on the older code.
+  training RMSE differs from the rerun's by at most 2 parts in 10 million. Traced (3 Nov): those rows give no `--seed`,
+  so each run starts from a new random point, and two runs of the same code differ as much. E11's fit with one seed on
+  e237de2 and on 11a47c9 gave the same parameters, cost and RMSE to the last bit, so the sensor suite doesn't change a
+  fit with a DVL. Those four rows are the latest in results_93.csv. The other 56 ran only on the older code.
 
 ## Honest open items
 
