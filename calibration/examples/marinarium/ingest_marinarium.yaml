@@ -1,0 +1,62 @@
+# Ingest spec: KTH's Marinarium BlueROV2 (PX4), from its ROS 2 bags (github.com/ViktorNfa/bluerov2_dynamics, MIT),
+# read directly. See README.md here for where the bags come from and what was checked.
+#     python strathe.py ingest --spec ingest_marinarium.yaml --out <folder>
+# Everything is in PX4's frames, which the motion capture also publishes in: world NED (z down), body FRD.
+vehicle: marinarium_bluerov2
+source:
+  files: "bags/rosbag2_*"      # each bag is a folder with metadata.yaml and its .db3
+  format: rosbag
+  stamp: header                # the motion capture's own stamps; PX4's messages have no header, so receive times
+  message_types:               # Humble-era .db3 bags carry no message definitions: PX4's, from the same repository
+    - px4_msgs/msg/ActuatorMotors.msg
+    - px4_msgs/msg/SensorCombined.msg
+resample_hz: 10
+session_date: {from: recording}
+frame: frd
+body_velocity:
+  columns:
+    u: /mocap/itrl_rov_1/odom.twist.twist.linear.x    # motion capture, body frame (child_frame_id base_link)
+    v: /mocap/itrl_rov_1/odom.twist.twist.linear.y
+    w: /mocap/itrl_rov_1/odom.twist.twist.linear.z
+    p: /itrl_rov_1/fmu/out/sensor_combined.gyro_rad[0]   # PX4's own gyro (FRD)
+    q: /itrl_rov_1/fmu/out/sensor_combined.gyro_rad[1]
+    r: /itrl_rov_1/fmu/out/sensor_combined.gyro_rad[2]
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion:
+    x: /mocap/itrl_rov_1/odom.pose.pose.orientation.x
+    y: /mocap/itrl_rov_1/odom.pose.pose.orientation.y
+    z: /mocap/itrl_rov_1/odom.pose.pose.orientation.z
+    w: /mocap/itrl_rov_1/odom.pose.pose.orientation.w
+wrench:
+  thrusters:
+    # PX4's normalized motor commands; NaN is a stopped motor (taken as stopped, LOG_FORMATS.md)
+    pwm_columns: ["/itrl_rov_1/fmu/out/actuator_motors.control[0]", "/itrl_rov_1/fmu/out/actuator_motors.control[1]",
+                  "/itrl_rov_1/fmu/out/actuator_motors.control[2]", "/itrl_rov_1/fmu/out/actuator_motors.control[3]",
+                  "/itrl_rov_1/fmu/out/actuator_motors.control[4]", "/itrl_rov_1/fmu/out/actuator_motors.control[5]",
+                  "/itrl_rov_1/fmu/out/actuator_motors.control[6]", "/itrl_rov_1/fmu/out/actuator_motors.control[7]"]
+    command: normalized
+    command_range: [-1, 1]     # PX4 drives reversible motors over 1100..1900 us: the built-in T200 curve
+    # PX4's BlueROV2 Heavy geometry, as the repository's own allocation has it (create_thrust_torque_csv.py), in FRD;
+    # z from the horizontal thrusters' plane (PX4 puts them 6 cm below the vertical ones)
+    layout:
+      - {position_m: [ 0.14,  0.10,  0.00], direction: [0.7071, -0.7071, 0]}
+      - {position_m: [ 0.14, -0.10,  0.00], direction: [0.7071,  0.7071, 0]}
+      - {position_m: [-0.14,  0.10,  0.00], direction: [0.7071,  0.7071, 0]}
+      - {position_m: [-0.14, -0.10,  0.00], direction: [0.7071, -0.7071, 0]}
+      - {position_m: [ 0.12,  0.22, -0.06], direction: [0, 0, -1]}
+      - {position_m: [ 0.12, -0.22, -0.06], direction: [0, 0,  1]}
+      - {position_m: [-0.12,  0.22, -0.06], direction: [0, 0,  1]}
+      - {position_m: [-0.12, -0.22, -0.06], direction: [0, 0, -1]}
+position:                      # the motion capture's positions (NED), checked against the velocity
+  use: check
+  source: mocap
+  name: mocap
+  x: /mocap/itrl_rov_1/odom.pose.pose.position.x
+  y: /mocap/itrl_rov_1/odom.pose.pose.position.y
+  z: /mocap/itrl_rov_1/odom.pose.pose.position.z
+accelerometer:                 # PX4's raw accelerometer (FRD)
+  x: /itrl_rov_1/fmu/out/sensor_combined.accelerometer_m_s2[0]
+  y: /itrl_rov_1/fmu/out/sensor_combined.accelerometer_m_s2[1]
+  z: /itrl_rov_1/fmu/out/sensor_combined.accelerometer_m_s2[2]

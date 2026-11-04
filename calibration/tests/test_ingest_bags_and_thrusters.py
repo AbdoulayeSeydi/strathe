@@ -60,6 +60,25 @@ def test_custom_layout_template_is_exactly_the_bluerov2_heavy():
     assert torque_reference_for(layout_spec) == [0.0, 0.0, 0.0]
 
 
+def test_the_marinarium_example_has_px4s_bluerov2_heavy_geometry():
+    """examples/marinarium (#96): the thrusters as the dataset's own allocation has them (bluerov2_dynamics,
+    rosbags/create_thrust_torque_csv.py: PX4's BlueROV2 Heavy, FRD), with torques about the horizontal thrusters'
+    plane, 6 cm below the vertical ones; and a vertical thruster's positive command pushes the way PX4 says."""
+    spec = load_ingest_spec(os.path.join(HERE, "..", "examples", "marinarium", "ingest_marinarium.yaml"))
+    cfg = spec._thruster_cfg
+    px4 = [((1, -1, 0), (0.14, 0.10, 0.06)), ((1, 1, 0), (0.14, -0.10, 0.06)), ((1, 1, 0), (-0.14, 0.10, 0.06)),
+           ((1, -1, 0), (-0.14, -0.10, 0.06)), ((0, 0, -1), (0.12, 0.22, 0.0)), ((0, 0, 1), (0.12, -0.22, 0.0)),
+           ((0, 0, 1), (-0.12, 0.22, 0.0)), ((0, 0, -1), (-0.12, -0.22, 0.0))]
+    B = np.zeros((6, 8))
+    for i, (axis, pos) in enumerate(px4):
+        a = np.asarray(axis, float) / np.linalg.norm(axis)
+        B[:3, i], B[3:, i] = a, np.cross(np.asarray(pos) - [0, 0, 0.06], a)
+    np.testing.assert_allclose(cfg.allocation, B, atol=1e-4)
+    assert cfg.command_range == (-1.0, 1.0) and cfg.command_neutral == 0.0
+    w = cfg.wrench(np.array([[0, 0, 0, 0, 0, 0.5, 0, 0]]))[0]   # motor 6 alone, half forward: thrust along +z (down)
+    assert w[2] > 5 and abs(w[0]) < 1e-6 and abs(w[1]) < 1e-6
+
+
 def test_allocation_template_matches_the_layout():
     cfg = tm.thruster_block({"allocation_csv": "allocation_template.csv", "directions": [-1, -1, 1, 1, -1, 1, 1, -1],
                              "curve_csv": "thrust_curve_template.csv"}, TEMPLATES)

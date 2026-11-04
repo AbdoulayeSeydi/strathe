@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-03 12:15. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-03 18:43. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -876,7 +876,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #96. Calibrate from what the vehicle measures: no DVL needed
 
-**234 of 243 rows pass** (42 variables found in the code, each with a row).
+**237 of 248 rows pass** (42 variables found in the code, each with a row).
 
 ### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
 
@@ -916,6 +916,19 @@ Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion)
 | U-2 | U-1 plus the accelerometer (exploratory) | +0.84 | -0.10 | +0.39 | +0.01 | -0.14 | -0.16 | **+0.140** | 10.85 m (11.93) | none | ✅ |
 | U-Vb | today's DVL fit on URI, the bay day held out | +0.87 | +0.21 | +0.06 | +0.02 | -0.37 | -0.29 | **+0.081** | 5.52 m (25.88) | none | ✅ |
 | default | the description's physics, nothing fitted | +0.74 | -1.91 | -2.03 | -6.51 | -5.07 | -4.38 | -3.192 | | | |
+
+### KTH's Marinarium BlueROV2 on PX4 (the held-out day, against the hidden motion-capture velocity)
+
+Held-out skill per axis (1 is perfect, 0 is no better than predicting no motion); 60 s drift is against what the fit had (the position fixes, or depth), median.
+
+| Row | Sensors | surge | sway | heave | roll | pitch | yaw | Mean | Drift 60 s (default) | Not calibrated | Bar |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| K-V | today's velocity fit on KTH's Marinarium BlueROV2 (motion-capture velocity) | +0.66 | +0.21 | -0.08 | +0.10 | +0.18 | +0.56 | **+0.271** | 2.45 m (14.52) | none | ✅ |
+| K-1 | no velocity: motion-capture positions and depth | +0.61 | +0.00 | -0.09 | +0.08 | +0.15 | +0.56 | **+0.220** | 2.40 m (14.49) | none | ❌ |
+| K-2 | no velocity: USBL-like fixes and depth | +0.63 | +0.02 | -0.08 | +0.09 | +0.16 | +0.56 | **+0.231** | 2.37 m (14.28) | none | ✅ |
+| K-3 | the BlueROV2 lab with no DVL: depth, PX4's gyro and the attitude only | -0.86 | -1.57 | -0.11 | +0.01 | +0.13 | +0.16 | **-0.372** | 3.02 m (14.18) | u, v | ❌ |
+| K-4 | K-3 plus PX4's accelerometer (exploratory) | -0.85 | -1.64 | -0.10 | +0.01 | +0.14 | +0.15 | **-0.380** | 2.97 m (14.19) | u, v | ✅ |
+| default | the description's physics, nothing fitted | +0.15 | -1.36 | -6.49 | -0.98 | -2.31 | +0.32 | -1.776 | | | |
 
 ### Known truth: what each sensor set recovers
 
@@ -962,6 +975,16 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | U-2 | real data = u2 | U-1 plus the accelerometer (exploratory) | URI ALPHA RISE | ✅ | {"skill": [0.8418, -0.1027, 0.3915, 0.0082, -0.141, -0.1567], "mean_skill": 0.1402, "default_skill": [0.7428, -1.9065, -2.0319, -6.5069, -5.0672, -4.3826], "win... | 0 min |
 | U-Vb | real data = uVb | today's DVL fit on URI, the bay day held out | URI ALPHA RISE | ✅ | {"skill": [0.868, 0.211, 0.0555, 0.0159, -0.3732, -0.2921], "mean_skill": 0.0808, "default_skill": [0.798, -0.5014, -3.3031, -4.3679, -11.3543, -6.2883], "windo... | 0 min |
 | U-1b | real data = u1b | U-1 with the bay day held out (trained on the pond day) | URI ALPHA RISE | ❌ | {"skill": [0.8265, 0.1749, 0.1128, 0.0274, -0.2599, 0.249], "mean_skill": 0.1884, "default_skill": [0.798, -0.5014, -3.3031, -4.3679, -11.3543, -6.2883], "windo... | 0 min |
+
+### Real: KTH's Marinarium BlueROV2 on PX4, its own thrust commands and IMU, motion-capture velocity hidden
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| K-V | real data = kV | today's velocity fit on KTH's Marinarium BlueROV2 (motion-capture velocity) | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [0.6577, 0.2057, -0.0794, 0.0987, 0.1774, 0.5647], "mean_skill": 0.2708, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "windo... | 0 min |
+| K-1 | real data = k1 | no velocity: motion-capture positions and depth | KTH Marinarium BlueROV2 (PX4) | ❌ | {"skill": [0.6144, 0.0011, -0.0871, 0.0826, 0.1456, 0.5622], "mean_skill": 0.2198, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "windo... | 0 min |
+| K-2 | real data = k2 | no velocity: USBL-like fixes and depth | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [0.6301, 0.0228, -0.0761, 0.0883, 0.1559, 0.5645], "mean_skill": 0.2309, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "windo... | 0 min |
+| K-3 | real data = k3 | the BlueROV2 lab with no DVL: depth, PX4's gyro and the attitude only | KTH Marinarium BlueROV2 (PX4) | ❌ | {"skill": [-0.8565, -1.5742, -0.1115, 0.0146, 0.1345, 0.1605], "mean_skill": -0.3721, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "wi... | 0 min |
+| K-4 | real data = k4 | K-3 plus PX4's accelerometer (exploratory) | KTH Marinarium BlueROV2 (PX4) | ✅ | {"skill": [-0.8472, -1.6416, -0.1002, 0.0133, 0.1413, 0.1535], "mean_skill": -0.3802, "default_skill": [0.1497, -1.3569, -6.4861, -0.9829, -2.3062, 0.3248], "wi... | 0 min |
 
 ### Known truth, one variable at a time
 
