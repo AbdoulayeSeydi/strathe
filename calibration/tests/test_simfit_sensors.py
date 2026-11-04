@@ -21,11 +21,25 @@ def _run(**kw):
 def test_a_window_that_moves_as_the_truth_reads_what_the_sensors_read():
     run, nu, df = _run(pos_every=10, depth_every=2)
     wins = core.windows(run, 30.0, 30.0)
-    Q = df[["qx", "qy", "qz", "qw"]].values
     for a, n in wins:
-        parts = SN.window_parts(run, a, n, nu[a:a + n], Q[a:a + n])
+        parts = SN.window_parts(run, a, n, nu[a:a + n])
         assert set(parts) == {"gyro.p", "gyro.q", "gyro.r", "main.d", "usbl.n", "usbl.e", "usbl.d"}
         assert max(np.abs(r).max() for r in parts.values()) < 1e-9
+
+
+def test_a_simulators_heading_error_doesnt_turn_its_path_away_from_the_fixes():
+    """FS-real-U1 (#96): over 30 s a simulator's own heading drifts, and a path turned by it read as a surge error."""
+    from scipy.spatial.transform import Rotation
+    run, nu, df = _run(pos_every=10, depth_every=2)
+    wins = core.windows(run, 30.0, 30.0)
+    Q = df[["qx", "qy", "qz", "qw"]].values
+    turned = (Rotation.from_euler("z", 30, degrees=True) * Rotation.from_quat(Q)).as_quat()
+    rw = [(run, wins)]
+    sc, lay = SN.scales(rw), SN.layout(rw)[0]
+    good = SN.residuals(run, wins, [(nu[a:a + n], Q[a:a + n]) for a, n in wins], sc, lay)
+    off = SN.residuals(run, wins, [(nu[a:a + n], turned[a:a + n]) for a, n in wins], sc, lay)
+    assert max(np.abs(r).max() for r in off) < 1e-9
+    assert all(np.array_equal(x, y) for x, y in zip(good, off))
 
 
 def test_the_residuals_keep_their_length_and_a_blow_up_is_a_penalty():

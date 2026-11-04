@@ -81,7 +81,7 @@ measurement, not its velocity.
 HoloOcean and external simulators.
 - Your simulator runs free over each window, as with a DVL.
 - It starts from the estimated velocity.
-- It's scored against what each sensor read: its path, under its own attitude, against the fixes and depth; its rates
+- It's scored against what each sensor read: its path, under the logged attitude, against the fixes and depth; its rates
   against the gyro; and its velocity against the DVL where the DVL read.
 - Drift is measured against the position fixes.
 
@@ -100,12 +100,12 @@ On real data, with the hidden truth (#96, FS-real-*), held-out mean skill over 1
 
 | | fit-sim | `--starts-from` | Strathe's calibration, same sensors | the model before fitting |
 |---|---|---|---|---|
-| DFKI BlueROV2: depth, gyro, attitude | 0.067 | 0.061 | −0.107 | −1.53 |
-| URI ALPHA RISE: GPS at the surface, depth, IMU | 0.033 | 0.032 | 0.101 | −0.36 |
+| DFKI BlueROV2: depth, gyro, attitude | 0.084 | 0.084 | −0.107 | −1.53 |
+| URI ALPHA RISE: GPS at the surface, depth, IMU | 0.126 | 0.126 | 0.101 | −0.36 |
 | URI ALPHA RISE with its DVL (a control) | 0.123 | | 0.173 | −0.36 |
 
-The physics-aided starts made no measurable difference on either. On URI with no DVL, fit-sim fitted surge to 0.15,
-where the model already had 0.82. With the DVL it kept 0.81. The cause isn't found (LIMITS.md).
+The physics-aided starts made no measurable difference on either. On URI with no DVL, surge stays at 0.82, as with
+the DVL (0.81).
 
 **Everything else works the same with sensors:**
 - `--restarts`, the automatic retry of a failed fit, `--finish`;
