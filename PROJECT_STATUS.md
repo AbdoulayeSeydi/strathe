@@ -3563,6 +3563,7 @@ Gazebo and Stonefish (Docker) ran from the sensors with their reports.
 - fit-sim's own report can't show surge without a DVL (LIMITS).
 - Four real vehicles, three of them BlueROV2s: a search for more public logs with thruster commands and a different sensor suite found none released with both (Bremen MSS is non-commercial and lists no thrust; STERN and DIVO aren't public).
 - On KTH's Marinarium BlueROV2, fixes didn't recover sway (K-1, K-2), cause not established (LIMITS).
+- Surge and sway inferred from the gyro and depth are estimates nothing in the logs can check, and need the vehicle to turn; tried on BlueROV2s and one torpedo (LIMITS).
 
 **Closing the plan (2026-11-02).** After #51 merged, an audit against the approved plan found parts not done. Each is
 now built and tested, or said here as not possible:
@@ -3685,6 +3686,25 @@ the coverage gate (42 variables found in the code, each with a row).
   so each run starts from a new random point, and two runs of the same code differ as much. E11's fit with one seed on
   e237de2 and on 11a47c9 gave the same parameters, cost and RMSE to the last bit, so the sensor suite doesn't change a
   fit with a DVL. Those four rows are the latest in results_93.csv. The other 56 ran only on the older code.
+
+**Inferring surge and sway (4 Nov).** A trial that let the fit move the values it had been holding showed they aren't really unseen: wrong surge and sway values wreck yaw, so yaw and depth carry them. On a known truth that took depth and the gyro from 0.058 to 0.999. Inferring is now the default when depth holds heave; `--unseen hold` keeps the description's values. The existing rows run with `--unseen hold`, so their bars and results keep their meaning (R-3, D-3, K-3 and B-set-depth stay failures). The new rows' bars were committed before they ran, though the trial's skills had been seen for R-3i, D-3i and K-3i.
+
+| Row | Sensors | Held-out mean skill | Heave | Yaw | Bar |
+|---|---|---|---|---|---|
+| R-3i | tank | 0.340 (V 0.394) | 0.57 | 0.60 | ✅ |
+| D-3i | DFKI | 0.364 (V 0.401) | 0.41 | 0.58 | ❌ heave 0.413, bar 0.43 |
+| K-3i | KTH | 0.210 (V 0.271) | −0.07 | 0.56 | ✅ sway still −0.13 |
+| B-infer-depth, -fresh | known truth, the second on recordings nothing was looked at on | 0.999, 0.998 | 1.00 | 1.00 | ✅ |
+| U-3 | URI, held | 0.039 (V 0.163) | 0.37 | −0.13 | ✅ |
+| U-3i | URI, inferred | −0.438 | 0.42 | −0.31 | ✅ on the day; ❌ from now on |
+| U-3g | URI, the default | 0.039 | 0.37 | −0.13 | ✅ too little turning: held and said |
+| B-infer-turn-0.5, -0.25 | known truth, turning at 0.35 and 0.20 rad/s | 0.999, 0.999 | 1.00 | 1.00 | ✅ |
+| B-infer-turn-0.1 | known truth, 0.09 rad/s | −0.216 | 0.68 | −1.35 | ✅ held and said |
+| IM-*, IMA-* | 16 sensor mixes on two vehicles, a short budget | | | | ✅ all |
+
+- **U-3i, the check nothing had been looked at on, met its bar and was still wrong.** ALPHA RISE turns at about a tenth of the BlueROV2s' rate. Inferring ran every surge and sway value to a limit, and sway reached −3.0. The bar only looks at heave and yaw. So under 0.15 rad/s RMS of yaw rate (`measurements.MIN_TURNING_RAD_S`, from training data only) they're now held, and the report says why. Run again, U-3i fails its bar, as nothing is inferred there any more; U-3g covers that behaviour.
+- **A bug the IM rows found:** finishing a fit from its checkpoint didn't know `--unseen`, so any fit out of budget crashed. Fixed, with a test in both modes.
+- **K-1 stays a failure.** Four starts ended at the same cost, and no window length reaches its sway bar (LIMITS).
 
 ## Honest open items
 
