@@ -26,7 +26,7 @@ from simfit.adapters import ExportDef, FileAdapter, KnobDef
 from simfit.core import SimFitError
 from simfit.replay_tool import ReplayTool, join_command, split_command, tool_argv
 
-KNOB_KEYS = {"name", "group", "at", "transform", "sign", "lo", "hi", "axisym", "note"}
+KNOB_KEYS = {"name", "group", "at", "transform", "sign", "lo", "hi", "axisym", "note", "if_zero"}
 EXPORT_KEYS = {"param", "at", "scale", "offset"}
 
 

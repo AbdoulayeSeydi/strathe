@@ -416,13 +416,15 @@ def residual_vector(params, run, vehicle, horizon_samples: Optional[int] = None,
     square root of its number of readings. zero_weight: labels left out (an excluded gyro axis, e.g. gyro.p). If the
     simulation blows up, the still residuals x objective.DIVERGED_PENALTY in the same shape (a very bad fit, not a
     crash, as for the velocity objective)."""
+    from dynamics_model import NonPhysicalMass
     from objective import DIVERGED_PENALTY
     plan = plan_for(run, horizon_samples)
     labels = channel_labels(run.channels)
     try:
         parts = raw_channel_residuals(params, run, vehicle, horizon_samples, simulate_fn)
     except (FloatingPointError, ValueError) as e:
-        if isinstance(e, ValueError) and "Non-finite" not in str(e) and "non-finite" not in str(e):
+        if (isinstance(e, ValueError) and not isinstance(e, NonPhysicalMass) and "Non-finite" not in str(e)
+                and "non-finite" not in str(e)):
             raise
         parts = [DIVERGED_PENALTY * s for s in plan.still]
     out = []

@@ -91,9 +91,12 @@ def score(runs_wins: list, preds: list, horizons=HORIZONS_S) -> dict:
 
 
 def strathe_free_run(params, vehicle, run, a: int, n: int):
-    """Strathe's own model over the same window: its physics step, its own attitude (as validation.free_run)."""
+    """Strathe's own model over the same window: its physics step, its own attitude, its thruster lag and the logged
+    water current (as validation.free_run)."""
     from dynamics_model import SimulationConfig
     from fast_dynamics import FastDynamics
+    from validation import _lagged, current_in_body, world_current
+    run = _lagged(run, params)
     acc = FastDynamics(params, vehicle).acceleration_trig
     cfg = SimulationConfig(dt=run.dt)
     sub, h = cfg.n_substeps, cfg.sub_dt
@@ -105,9 +108,11 @@ def strathe_free_run(params, vehicle, run, a: int, n: int):
         if k + 1 == n:
             break
         tau = run.forces_torques[a + k].tolist()
+        cw = world_current(run, a + k)
         for _ in range(sub):
             r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
-            vd = acc(v, tau, r21, r22, -r20, 1.0)
+            cb = None if cw is None else current_in_body(cw, qx, qy, qz, qw)
+            vd = acc(v, tau, r21, r22, -r20, 1.0, cb)
             v = [v[j] + vd[j] * h for j in range(6)]
             if not all(math.isfinite(x) and abs(x) < 1e3 for x in v):
                 return V, Q

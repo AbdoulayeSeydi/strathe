@@ -2457,7 +2457,7 @@ origin at the logs' reference point.
 - Buoyancy at the centre of mass (plain gravcomp) left MuJoCo with no righting: it pitched 74° under 20 N of thrust.
   With the buoyancy body, 9°.
 - A bare converted hull in Gazebo still pitches up under thrust: sway and heave added mass of about 230 kg against
-  10 kg in surge make a strong destabilising Munk moment, which ALPHA's fins counter. The conversion has no fin data,
+  10 kg in surge make a strong destabilising Munk moment, which nothing in the bare hull counters. ALPHA RISE's description, Stonefish model and logs show no fins,
   so the `lift` knobs are there for `fit-sim`.
 
 **Tests (`tests/test_simfit_convert.py`):** the facts relative to the reference point and the trim kept; each converted
@@ -3355,7 +3355,7 @@ depends on the seed and suggest calibrating `describe-vehicle`'s description bes
   0.183): roll inertia and heave drag aren't held by that day's logs, and the two fits put them in different places
   (LIMITS: "A generated description can't fix what the logs don't hold").
 - **Pitch damping on ALPHA RISE** ends at or near its most negative limit in every fit (hand-written and generated,
-  −90 to −154; −537 to −557 with the 3.6× wider box rules): a constant value can't hold what the fins add (LIMITS,
+  −90 to −154; −537 to −557 with the 3.6× wider box rules): a constant value doesn't hold it, cause not established (LIMITS,
   "Model structure"). Widening the torpedo limit as a frame's (enough to stop the largest inertia in 0.1 s: −1046
   instead of −154) didn't help: on the bay day both fits' replays blew up (NaN skill, too stiff for the 0.1 s step),
   and on the pond day the first fit ended worse than its start (error 1.44 against 0.319, and 1.11 against 0.31).
@@ -3705,6 +3705,21 @@ the coverage gate (42 variables found in the code, each with a row).
 - **U-3i, the check nothing had been looked at on, met its bar and was still wrong.** ALPHA RISE turns at about a tenth of the BlueROV2s' rate. Inferring ran every surge and sway value to a limit, and sway reached −3.0. The bar only looks at heave and yaw. So under 0.15 rad/s RMS of yaw rate (`measurements.MIN_TURNING_RAD_S`, from training data only) they're now held, and the report says why. Run again, U-3i fails its bar, as nothing is inferred there any more; U-3g covers that behaviour.
 - **A bug the IM rows found:** finishing a fit from its checkpoint didn't know `--unseen`, so any fit out of budget crashed. Fixed, with a test in both modes.
 - **K-1 stays a failure.** Four starts ended at the same cost, and no window length reaches its sway bar (LIMITS).
+
+### 97. Fin Steer: fin-steered AUVs (2026-11-05, in progress)
+
+**Why.** Most survey AUVs steer with fins. A fin's force depends on speed squared and the water's angle to it, so it can't
+be a logged force: it has to be computed in the physics. Plan in order: audit fixes, general added mass, fin physics, vehicle
+type and ingest, calibration, every simulator, proof.
+
+**Found by the audit and fixed first** (`tests/test_audit_fixes_97.py`):
+- `skip_checks: [depth_vs_thrust]`, the fix a refusal told labs to use, was itself refused.
+- A report on a fit with thruster lag at a limit could crash: the lag had no plain name.
+- `if_zero`, documented for a simulator description's knobs, was refused when given.
+- A mass matrix that isn't positive-definite stopped the whole fit: it's now a very bad fit, like a simulation that blows up.
+- fit-sim's "Strathe's own model" line left out thruster lag and the water current. It now shares `validation.free_run`'s
+  handling, so with a lag or a current its number changes from earlier reports.
+- ALPHA RISE's fins were credited in two places: its description, Stonefish model and logs show none.
 
 ## Honest open items
 
