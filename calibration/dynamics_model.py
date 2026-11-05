@@ -463,6 +463,11 @@ def _hull_lift_force(params: CalibrationParameters, v: np.ndarray) -> Optional[n
                      params.Muw * u * w + params.Muq * u * q, -params.Muw * u * vv + params.Muq * u * r])
 
 
+class NonPhysicalMass(ValueError):
+    """The mass matrix isn't positive-definite: no real vehicle has these values. A fit treats it as a very bad fit
+    rather than stopping (objective.residuals_for_run)."""
+
+
 def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
     """Builds the full mass/inertia matrix M (6x6), linear_damping, and
     quad_damping from params/vehicle — factored out so both
@@ -488,7 +493,7 @@ def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleCons
     try:
         np.linalg.cholesky(M)
     except np.linalg.LinAlgError:
-        raise ValueError(
+        raise NonPhysicalMass(
             f"Mass matrix is not positive-definite for this parameter combination "
             f"(off-diagonal Xq_dot={params.Xq_dot}, Zq_dot={params.Zq_dot} too large "
             f"relative to the corresponding diagonal terms) — a nonphysical mass "

@@ -97,6 +97,23 @@ def path_from_velocity(nu_lin: np.ndarray, quat: np.ndarray, dt: float) -> np.nd
     return np.vstack([np.zeros(3), np.cumsum(vw[:-1] * dt, axis=0)])
 
 
+def world_current(run, i: int):
+    """Sample i's water current in world axes (a list), or None in still water."""
+    cb = getattr(run, "current_body", None)
+    if cb is None or not np.any(cb[i]):
+        return None
+    return Rotation.from_quat(run.orientation_quat[i]).apply(cb[i]).tolist()
+
+
+def current_in_body(cw, qx, qy, qz, qw) -> list:
+    """A world current in the model's own body axes, R^T cw, for a model integrating its own attitude."""
+    r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
+    r00, r01, r02 = 1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)
+    r10, r11, r12 = 2 * (qx * qy + qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx)
+    return [r00 * cw[0] + r10 * cw[1] + r20 * cw[2], r01 * cw[0] + r11 * cw[1] + r21 * cw[2],
+            r02 * cw[0] + r12 * cw[1] + r22 * cw[2]]
+
+
 def free_run(params, vehicle, run, a: int, n: int, step_s=None):
     """Roll, pitch, yaw (n,3, rad) with the model integrating its own orientation from the real state at a, driven
     by the logged forces. The calibration's own physics and step: FastDynamics.acceleration_trig (what the fit
@@ -115,18 +132,11 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
         out[k] = (qx, qy, qz, qw)
         i = a + k
         tau = run.forces_torques[i].tolist()
-        cw = None
-        if run.current_body is not None and np.any(run.current_body[i]):
-            cw = Rotation.from_quat(run.orientation_quat[i]).apply(run.current_body[i]).tolist()
+        cw = world_current(run, i)
         for _ in range(sub):
             # world-down in body axes = -(third row of R): exactly what the logged roll/pitch give the fit
             r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
-            cb = None
-            if cw is not None:  # world current into the model's own body axes: R^T cw
-                r00, r01, r02 = 1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)
-                r10, r11, r12 = 2 * (qx * qy + qw * qz), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx)
-                cb = [r00 * cw[0] + r10 * cw[1] + r20 * cw[2], r01 * cw[0] + r11 * cw[1] + r21 * cw[2],
-                      r02 * cw[0] + r12 * cw[1] + r22 * cw[2]]
+            cb = None if cw is None else current_in_body(cw, qx, qy, qz, qw)
             # acceleration_trig uses sin(pitch), cos(pitch)*sin(roll), cos(pitch)*cos(roll): pass them with cp = 1
             vd = acc(v, tau, r21, r22, -r20, 1.0, cb)
             v = [v[j] + vd[j] * h for j in range(6)]

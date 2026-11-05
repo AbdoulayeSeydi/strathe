@@ -387,6 +387,15 @@ def test_depth_alone_is_checked_against_the_thrust(raw, tmp_path):
     assert chk["correlation"] > 0.5 and "problem" not in chk
 
 
+def test_the_depth_thrust_check_can_be_skipped_as_its_message_says(raw, tmp_path):
+    veh = synth_vehicle()
+    write_csv(raw / "r.csv", veh, depth_scale=-1.0)
+    with pytest.raises(IngestError, match=r"skip_checks: \[depth_vs_thrust\]"):
+        run(tmp_path, spec_dict(raw, position=None), name="flipped")
+    s, _ = run(tmp_path, spec_dict(raw, position=None, skip_checks=["depth_vs_thrust", "force_direction"]), name="skipped")
+    assert "problem" in s["files"][0]["sensor_checks"]["depth_vs_thrust"]["depth_main"]
+
+
 def test_the_depth_thrust_check_says_nothing_without_vertical_thrust():
     veh = synth_vehicle()
     still = np.zeros_like(veh["wrench"][:, :3])

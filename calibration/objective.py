@@ -103,6 +103,7 @@ import pandas as pd
 
 from dynamics_model import (
     CalibrationParameters,
+    NonPhysicalMass,
     VehicleConstants,
     SimulationConfig,
     TrajectoryInputs,
@@ -605,9 +606,9 @@ def residuals_for_run(
     try:
         residuals = _raw_residuals(params, run, vehicle, simulate_fn, horizon_samples)
     except (FloatingPointError, ValueError) as e:
-        if isinstance(e, ValueError) and "Non-finite" not in str(e):
+        if isinstance(e, ValueError) and not isinstance(e, NonPhysicalMass) and "Non-finite" not in str(e):
             raise
-        # These parameters make the simulation blow up on this recording. Tell the optimizer it's a very bad fit,
+        # These parameters make the simulation blow up on this recording (or describe no real vehicle). Tell the optimizer it's a very bad fit,
         # rather than stopping the whole calibration (PROJECT_STATUS.md #77; URI's X2 crashed this way): the
         # residuals of predicting no motion, x DIVERGED_PENALTY, in the shape a normal evaluation has.
         residuals = -DIVERGED_PENALTY * _zero_prediction_rows(run, horizon_samples)

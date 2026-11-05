@@ -59,12 +59,13 @@ PLAIN = {
     "Xq_dot": "surge-pitch coupling", "Zq_dot": "heave-pitch coupling",
     "cg_cb_offset_x": "centre of gravity ahead of buoyancy (nose-down trim)", "Zuw": "hull lift (grows with speed)",
     "Muw": "hull lift's pitching/turning moment", "Muq": "pitch/turn damping that grows with speed",
+    "thruster_time_constant_s": "how fast the thrusters reach a new command",
 }
 # which parameters mainly drive each axis (for "why" and "what next")
-AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot"], "v": ["Yv", "Yvv", "Yv_dot", "Zuw"],
-               "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zuw"],
+AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot"], "v": ["Yv", "Yvv", "Yv_dot", "Zuw"],
+               "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zuw", "Zq_dot"],
                "p": ["Ieff_roll", "Kp", "Kpp", "cg_cb_offset_z"],
-               "q": ["Ieff_pitch", "Mq", "Mqq", "cg_cb_offset_z", "cg_cb_offset_x", "Muw", "Muq"],
+               "q": ["Ieff_pitch", "Mq", "Mqq", "cg_cb_offset_z", "cg_cb_offset_x", "Muw", "Muq", "Xq_dot", "Zq_dot"],
                "r": ["Ieff_yaw", "Nr", "Nrr", "Muw", "Muq"]}
 # a fitted value more than this far from the vehicle's own independent measurement (a calibration target's
 # `reference:` in its vehicle_spec.yaml; PROJECT_STATUS.md #28, #70) is flagged as physically implausible
