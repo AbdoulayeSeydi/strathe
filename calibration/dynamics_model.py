@@ -115,6 +115,11 @@ from typing import Optional
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from fin_force import Actuators, actuator_wrench, prepare
+
+NO_CONTROLS = ("this vehicle has fins or other actuators, but this replay wasn't given their logged controls: "
+               "its forces can't be worked out without them")
+
 # Order used ONLY internally for vector<->object conversion at the
 # optimizer boundary (scipy.optimize needs a flat float array). Nothing
 # outside CalibrationParameters.to_vector()/from_vector() should construct
@@ -131,6 +136,8 @@ _PARAM_ORDER = (
     "cg_cb_offset_x", "Zuw", "Muw", "Muq",
     "Xv_dot", "Xw_dot", "Xp_dot", "Xr_dot", "Yw_dot", "Yp_dot", "Yq_dot", "Yr_dot",
     "Zp_dot", "Zr_dot", "Kq_dot", "Kr_dot", "Mr_dot",
+    "fin_lift_slope_a", "fin_lift_slope_b", "fin_inflow_a", "fin_inflow_b", "fin_drag0",
+    "fin_bias_roll", "fin_bias_pitch", "fin_bias_yaw", "fin_servo_T", "thrust_scale",
 )
 
 # Every off-diagonal entry of the symmetric mass matrix, by name: (row, column, name) over u, v, w, p, q, r. M[i, j] and
@@ -238,6 +245,18 @@ class CalibrationParameters:
     Kr_dot: float = 0.0
     Mr_dot: float = 0.0
 
+    # Fins and a propeller (fin_force.py, #97). Only used by a vehicle with actuators (VehicleConstants.actuators).
+    fin_lift_slope_a: float = 0.0  # lift per radian, fins in group 0 (the effective fin-and-hull product)
+    fin_lift_slope_b: float = 0.0  # group 1
+    fin_inflow_a: float = 0.0      # how much of the local flow angle the fin sees, group 0
+    fin_inflow_b: float = 0.0
+    fin_drag0: float = 0.0         # a fin's drag at zero lift
+    fin_bias_roll: float = 0.0     # zero offsets: what the fins are really at when the log says centred, rad
+    fin_bias_pitch: float = 0.0
+    fin_bias_yaw: float = 0.0
+    fin_servo_T: float = 0.0       # the fins' first-order lag, s; commanded angles only
+    thrust_scale: float = 1.0      # the propeller curve's true scale
+
     def validate(self) -> None:
         """Cheap sanity checks — called once per construction, not per
         integration step, so this doesn't cost anything in the hot loop."""
@@ -277,9 +296,11 @@ class CalibrationParameters:
 @dataclass
 class VehicleConstants:
     """Truly known/measured quantities — NOT touched by calibration.
-    Just mass for now; inertia lives in CalibrationParameters instead,
-    since no CAD is available and it's a genuine unknown."""
+    Mass, and what steers a fin-steered vehicle; inertia lives in
+    CalibrationParameters instead, since no CAD is available and it's a
+    genuine unknown."""
     mass_kg: float
+    actuators: Optional[Actuators] = None  # fin_force.py; None: the logged forces are everything that drives it
 
     def validate(self) -> None:
         if self.mass_kg <= 0:
@@ -363,6 +384,7 @@ class TrajectoryInputs:
                                      # (radians) — see TEACHER_FORCED_ORIENTATION
     current_body_series: Optional[np.ndarray] = None  # (N,3) water current in body
                                      # axes per sample (m/s); None = still water
+    control_series: Optional[np.ndarray] = None  # (N,Actuators.width) fin angles and the like, per sample
 
     def validate(self) -> None:
         n = self.forces_torques.shape[0]
@@ -375,6 +397,9 @@ class TrajectoryInputs:
         if self.current_body_series is not None and (
                 self.current_body_series.shape != (n, 3) or not np.all(np.isfinite(self.current_body_series))):
             raise ValueError(f"current_body_series must be finite (N,3), got {self.current_body_series.shape}")
+        if self.control_series is not None and (
+                self.control_series.shape[0] != n or not np.all(np.isfinite(self.control_series))):
+            raise ValueError(f"control_series must be finite with one row per sample, got {self.control_series.shape}")
         for name, arr in [("forces_torques", self.forces_torques),
                            ("roll_pitch_series", self.roll_pitch_series),
                            ("nu0", self.nu0)]:
@@ -600,6 +625,16 @@ def _relative_to_water(v, current_body):
     return v_r, transport
 
 
+def _actuator_force(params, vehicle, v, controls, sr, cr, sp, cp) -> Optional[np.ndarray]:
+    """What the vehicle's fins and propeller do (fin_force.py), from its velocity through the water. None without any."""
+    act = vehicle.actuators
+    if act is None:
+        return None
+    if controls is None:
+        raise ValueError(NO_CONTROLS)
+    return np.array(actuator_wrench(act, prepare(act, params), params, [float(x) for x in v], controls, sr, cr, sp, cp))
+
+
 def compute_acceleration(
     params: CalibrationParameters,
     vehicle: VehicleConstants,
@@ -608,6 +643,7 @@ def compute_acceleration(
     roll: float,
     pitch: float,
     current_body=None,
+    controls=None,
 ):
     """
     THE single-step physics calculation — computes body-frame acceleration
@@ -632,6 +668,8 @@ def compute_acceleration(
     current_body: optional (3,) water current velocity in BODY axes at this
     instant (m/s). None or zero = still water, identical to before. See
     _relative_to_water for the physics.
+
+    controls: this sample's fin angles and the like, for a vehicle with actuators.
     """
     v, transport = _relative_to_water(v, current_body)
     M, linear_damping, quad_damping = _mass_and_damping_arrays(params, vehicle)
@@ -639,11 +677,13 @@ def compute_acceleration(
     lift = _hull_lift_force(params, v)
     if lift is not None:
         damping_force = damping_force + lift
+    if vehicle.actuators is not None:
+        damping_force = damping_force + _actuator_force(params, vehicle, v, controls, math.sin(roll), math.cos(roll),
+                                                        math.sin(pitch), math.cos(pitch))
     g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z,
                               cg_cb_offset_x=params.cg_cb_offset_x)
     coriolis_force = _coriolis_centripetal_force(M, v)
-    # M isn't diagonal in general (MASS_COUPLINGS: the off-diagonal
-    # off-diagonal entries) — a proper linear solve, not elementwise
+    # M isn't diagonal in general (MASS_COUPLINGS) — a proper linear solve, not elementwise
     # division, is required. Reduces to exactly the same answer as the
     # old division when M is diagonal (confirmed: solving a diagonal
     # system is mathematically identical to elementwise division).
@@ -694,6 +734,7 @@ def compute_acceleration_from_rotation_matrix(
     tau,
     R,
     current_world=None,
+    controls=None,
 ):
     """Identical physics to compute_acceleration() -- same mass/damping/
     Coriolis logic, reused directly via the SAME
@@ -719,6 +760,8 @@ def compute_acceleration_from_rotation_matrix(
     lift = _hull_lift_force(params, v)
     if lift is not None:
         damping_force = damping_force + lift
+    if vehicle.actuators is not None:  # world-down in body axes gives what the restoring terms use, with cos(pitch) = 1
+        damping_force = damping_force + _actuator_force(params, vehicle, v, controls, R[2, 1], R[2, 2], -R[2, 0], 1.0)
     g_eta = _restoring_forces_from_rotation_matrix(R, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z,
                                                    cg_cb_offset_x=params.cg_cb_offset_x)
     coriolis_force = _coriolis_centripetal_force(M, v)
@@ -780,7 +823,7 @@ def simulate_trajectory(
         nu = simulate_velocity_teacher_forced(params, vehicle, n_substeps, sub_dt, trajectory.nu0,
                                               np.asarray(trajectory.forces_torques, dtype=float),
                                               np.asarray(trajectory.roll_pitch_series, dtype=float),
-                                              trajectory.current_body_series)
+                                              trajectory.current_body_series, trajectory.control_series)
         n_steps = 0  # skip the reference loop
 
     for k in range(n_steps - 1):
@@ -788,6 +831,7 @@ def simulate_trajectory(
         tau = trajectory.forces_torques[k]
         roll, pitch = trajectory.roll_pitch_series[k]
         cb = None if trajectory.current_body_series is None else trajectory.current_body_series[k]
+        ctl = None if trajectory.control_series is None else trajectory.control_series[k]
 
         # Sub-step between logged samples k and k+1, holding tau/roll/pitch
         # constant across sub-steps (zero-order hold — real data isn't
@@ -796,7 +840,7 @@ def simulate_trajectory(
         # function's existing per-external-sample debug granularity.
         damping_force = g_eta = v_dot = None
         for _ in range(n_substeps):
-            v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch, cb)
+            v_dot, damping_force, g_eta = compute_acceleration(params, vehicle, v, tau, roll, pitch, cb, ctl)
             v = v + v_dot * sub_dt
 
         nu[k + 1] = v

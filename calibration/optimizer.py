@@ -109,6 +109,17 @@ for _i, _j, _name in MASS_COUPLINGS:
             "source": "default", "confidence": "assumed"}
 
 
+# fins and a propeller (#97): held unless the spec lists them under calibration_targets.fins
+for _name, _unit, _value in (("fin_lift_slope_a", "per rad", 0.0), ("fin_lift_slope_b", "per rad", 0.0), ("fin_inflow_a", "-", 0.0),
+                             ("fin_inflow_b", "-", 0.0), ("fin_drag0", "-", 0.0), ("fin_bias_roll", "rad", 0.0),
+                             ("fin_bias_pitch", "rad", 0.0), ("fin_bias_yaw", "rad", 0.0), ("fin_servo_T", "s", 0.0),
+                             ("thrust_scale", "-", 1.0)):
+    OPTIONAL_CALIBRATION_TARGETS[_name] = {
+        "unit": _unit, "initial_guess": _value, "bounds": [_value, _value],
+        "bounds_rationale": "not in this vehicle_spec.yaml: no fins or propeller model", "source": "default",
+        "confidence": "assumed"}
+
+
 def held_by_bounds(lb, ub, param_names) -> dict:
     """{name: value} for parameters whose bounds have zero width: held there, never fitted (a zero-width range
     can't be scaled or stepped). OPTIONAL_CALIBRATION_TARGETS a spec leaves out are such parameters."""

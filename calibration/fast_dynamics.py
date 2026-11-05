@@ -38,7 +38,9 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from arena_core import ArenaState
-from dynamics_model import CalibrationParameters, VehicleConstants, SimulationConfig, _mass_and_damping_arrays
+from dynamics_model import (CalibrationParameters, NO_CONTROLS, VehicleConstants, SimulationConfig,
+                            _mass_and_damping_arrays)
+from fin_force import actuator_wrench, prepare
 
 GRAVITY = 9.81  # matches dynamics_model._restoring_forces' default g
 
@@ -62,6 +64,9 @@ class FastDynamics:
         self._zg = params.cg_cb_offset_z
         self._xg = params.cg_cb_offset_x  # hull terms (#71); all 0 for vehicles without them
         self._lift = (params.Zuw, params.Muw, params.Muq) if (params.Zuw or params.Muw or params.Muq) else None
+        self._act = vehicle.actuators  # fins and a propeller (fin_force.py, #97); None for most vehicles
+        self._params = params
+        self._fins = prepare(self._act, params) if self._act is not None else ()
 
     def acceleration(self, v, tau, roll: float, pitch: float) -> list:
         """Body-frame v_dot (list of 6 floats). Equivalent to
@@ -74,13 +79,13 @@ class FastDynamics:
         velocity relative to the water, plus the -omega x cb transport term."""
         return self.acceleration_trig(v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch), cb)
 
-    def acceleration_trig(self, v, tau, sr: float, cr: float, sp: float, cp: float, cb=None) -> list:
+    def acceleration_trig(self, v, tau, sr: float, cr: float, sp: float, cp: float, cb=None, ctl=None) -> list:
         """acceleration() with sin/cos of roll and pitch precomputed (they are
         constant across a teacher-forced sample's sub-steps). cb: optional
-        water current in body axes (see acceleration_current)."""
+        water current in body axes (see acceleration_current). ctl: this sample's controls (fin_force.py)."""
         if cb is not None and (cb[0] or cb[1] or cb[2]):
             p_, q_, r_ = v[3], v[4], v[5]
-            vd = self.acceleration_trig([v[0] - cb[0], v[1] - cb[1], v[2] - cb[2], p_, q_, r_], tau, sr, cr, sp, cp)
+            vd = self.acceleration_trig([v[0] - cb[0], v[1] - cb[1], v[2] - cb[2], p_, q_, r_], tau, sr, cr, sp, cp, None, ctl)
             vd[0] -= q_ * cb[2] - r_ * cb[1]
             vd[1] -= r_ * cb[0] - p_ * cb[2]
             vd[2] -= p_ * cb[1] - q_ * cb[0]
@@ -123,6 +128,11 @@ class FastDynamics:
             rhs[2] += zuw * u * w
             rhs[4] += muw * u * w + muq * u * b
             rhs[5] += -muw * u * vv + muq * u * c
+        if self._act is not None:  # the velocity here is already through the water
+            if ctl is None:
+                raise ValueError(NO_CONTROLS)
+            f = actuator_wrench(self._act, self._fins, self._params, v, ctl, sr, cr, sp, cp)
+            rhs = [rhs[i] + f[i] for i in range(6)]
         return [Minv[i][0] * rhs[0] + Minv[i][1] * rhs[1] + Minv[i][2] * rhs[2]
                 + Minv[i][3] * rhs[3] + Minv[i][4] * rhs[4] + Minv[i][5] * rhs[5]
                 for i in range(6)]
@@ -254,7 +264,7 @@ class FastCore:
 
 def simulate_velocity_teacher_forced(params: CalibrationParameters, vehicle: VehicleConstants,
                                      n_substeps: int, sub_dt: float, nu0, forces_torques,
-                                     roll_pitch_series, current_body_series=None) -> np.ndarray:
+                                     roll_pitch_series, current_body_series=None, control_series=None) -> np.ndarray:
     """dynamics_model.simulate_trajectory's integration loop (teacher-forced
     roll/pitch, Forward Euler sub-steps), on FastDynamics. Returns (N, 6)."""
     dyn = FastDynamics(params, vehicle)
@@ -266,13 +276,15 @@ def simulate_velocity_teacher_forced(params: CalibrationParameters, vehicle: Veh
     F = forces_torques.tolist()
     RP = roll_pitch_series.tolist()
     CB = None if current_body_series is None else np.asarray(current_body_series, dtype=float).tolist()
+    CT = None if control_series is None else np.asarray(control_series, dtype=float).tolist()
     for k in range(n - 1):
         tau = F[k]
         roll, pitch = RP[k]
         cb = None if CB is None else CB[k]
+        ctl = None if CT is None else CT[k]
         sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
         for _ in range(n_substeps):
-            vd = acc(v, tau, sr, cr, sp, cp, cb)
+            vd = acc(v, tau, sr, cr, sp, cp, cb, ctl)
             v = [v[0] + vd[0] * sub_dt, v[1] + vd[1] * sub_dt, v[2] + vd[2] * sub_dt,
                  v[3] + vd[3] * sub_dt, v[4] + vd[4] * sub_dt, v[5] + vd[5] * sub_dt]
         out[k + 1] = v

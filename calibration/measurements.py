@@ -256,6 +256,7 @@ def slice_run(run, a: int, b: int):
                   real_nu=run.real_nu[a:b], nu0=np.nan_to_num(run.real_nu[a]).copy(),
                   current_body=None if run.current_body is None else run.current_body[a:b],
                   orientation_quat=None if run.orientation_quat is None else run.orientation_quat[a:b],
+                  controls=None if run.controls is None else run.controls[a:b],
                   channels=None if run.channels is None else [replace(ch, values=ch.values[a:b]) for ch in run.channels],
                   anchor_lin=None if run.anchor_lin is None else run.anchor_lin[a:b])
     return out
@@ -317,7 +318,8 @@ def _window_nu(params, run, vehicle, a, b, simulate_fn):
     from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
     nu0 = np.r_[run.anchor_lin[a], run.real_nu[a, 3:6]]
     traj = TrajectoryInputs(nu0=nu0, forces_torques=run.forces_torques[a:b], roll_pitch_series=run.roll_pitch[a:b],
-                            current_body_series=None if run.current_body is None else run.current_body[a:b])
+                            current_body_series=None if run.current_body is None else run.current_body[a:b],
+                            control_series=None if run.controls is None else run.controls[a:b])
     sim = simulate_fn if simulate_fn is not None else simulate_trajectory
     nu = sim(params, vehicle, SimulationConfig(dt=run.dt), traj).nu
     if not np.all(np.isfinite(nu)):
