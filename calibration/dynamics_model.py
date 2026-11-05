@@ -26,7 +26,7 @@ they are, not the backstory.
 - Constant timestep (fixed dt, no variable-rate integration)
 - No Coriolis/centripetal coupling terms
 - No ocean current
-- Diagonal added mass and diagonal damping (no off-diagonal coupling)
+- Diagonal damping; added mass diagonal unless a vehicle lists couplings (MASS_COUPLINGS)
 - Orientation (roll/pitch) is TEACHER-FORCED from real logged data, not
   self-integrated — see TEACHER_FORCED_ORIENTATION below. This is the
   single most important caveat in this file; read that section.
@@ -129,7 +129,22 @@ _PARAM_ORDER = (
     "Xq_dot", "Zq_dot",
     "thruster_time_constant_s",
     "cg_cb_offset_x", "Zuw", "Muw", "Muq",
+    "Xv_dot", "Xw_dot", "Xp_dot", "Xr_dot", "Yw_dot", "Yp_dot", "Yq_dot", "Yr_dot",
+    "Zp_dot", "Zr_dot", "Kq_dot", "Kr_dot", "Mr_dot",
 )
+
+# Every off-diagonal entry of the symmetric mass matrix, by name: (row, column, name) over u, v, w, p, q, r. M[i, j] and
+# M[j, i] are one number, so Nv_dot is Yr_dot and Mw_dot is Zq_dot. Each is the matrix's own entry, the total of rigid
+# body and added mass, not SNAME's sign. Zero for a vehicle that doesn't list it.
+MASS_COUPLINGS = (
+    (0, 1, "Xv_dot"), (0, 2, "Xw_dot"), (0, 3, "Xp_dot"), (0, 4, "Xq_dot"), (0, 5, "Xr_dot"),
+    (1, 2, "Yw_dot"), (1, 3, "Yp_dot"), (1, 4, "Yq_dot"), (1, 5, "Yr_dot"),
+    (2, 3, "Zp_dot"), (2, 4, "Zq_dot"), (2, 5, "Zr_dot"),
+    (3, 4, "Kq_dot"), (3, 5, "Kr_dot"), (4, 5, "Mr_dot"),
+)
+# what a vehicle symmetric about its centre plane (x-z) can have: the others link the two halves, so they need
+# `symmetry: none` in the vehicle description
+XZ_SYMMETRIC_COUPLINGS = ("Xw_dot", "Xq_dot", "Zq_dot", "Yp_dot", "Yr_dot", "Kr_dot")
 
 TEACHER_FORCED_ORIENTATION = True  # see module docstring — comparison code
                                     # elsewhere should check this flag
@@ -207,6 +222,21 @@ class CalibrationParameters:
     Zuw: float = 0.0
     Muw: float = 0.0
     Muq: float = 0.0
+
+    # The rest of the mass matrix's off-diagonal entries (MASS_COUPLINGS, #97). All 0.0: the model before they existed.
+    Xv_dot: float = 0.0
+    Xw_dot: float = 0.0
+    Xp_dot: float = 0.0
+    Xr_dot: float = 0.0
+    Yw_dot: float = 0.0
+    Yp_dot: float = 0.0
+    Yq_dot: float = 0.0
+    Yr_dot: float = 0.0
+    Zp_dot: float = 0.0
+    Zr_dot: float = 0.0
+    Kq_dot: float = 0.0
+    Kr_dot: float = 0.0
+    Mr_dot: float = 0.0
 
     def validate(self) -> None:
         """Cheap sanity checks — called once per construction, not per
@@ -468,38 +498,32 @@ class NonPhysicalMass(ValueError):
     rather than stopping (objective.residuals_for_run)."""
 
 
-def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
-    """Builds the full mass/inertia matrix M (6x6), linear_damping, and
-    quad_damping from params/vehicle — factored out so both
-    simulate_trajectory() and compute_acceleration() build these
-    identically, with no risk of the two drifting apart.
-
-    M is diagonal EXCEPT for two off-diagonal coupling terms (Xq_dot,
-    Zq_dot — see CalibrationParameters' docstring on why these two
-    specifically). Checked for positive-definiteness (via Cholesky, not
-    just "diagonal entries positive" — the diagonal-only check used
-    before this was added is no longer sufficient once off-diagonal
-    terms exist) — fails loudly if a parameter combination would make
-    the mass matrix non-physical, the same "fail fast, don't silently
-    integrate garbage" principle used everywhere else in this file.
-    """
+def mass_matrix(params: CalibrationParameters, vehicle: VehicleConstants) -> np.ndarray:
+    """The full 6x6 mass matrix, rigid body and added mass: the one place it's built. Raises NonPhysicalMass unless it's
+    positive-definite (Cholesky: positive diagonal entries aren't enough once there are off-diagonal terms)."""
     m = vehicle.mass_kg
     M = np.diag([
         m + params.Xu_dot, m + params.Yv_dot, m + params.Zw_dot,
         params.Ieff_roll, params.Ieff_pitch, params.Ieff_yaw,
     ])
-    M[0, 4] = M[4, 0] = params.Xq_dot  # surge-pitch coupling
-    M[2, 4] = M[4, 2] = params.Zq_dot  # heave-pitch coupling
+    for i, j, name in MASS_COUPLINGS:
+        M[i, j] = M[j, i] = getattr(params, name)
     try:
         np.linalg.cholesky(M)
     except np.linalg.LinAlgError:
+        big = ", ".join(f"{n}={getattr(params, n):g}" for _, _, n in MASS_COUPLINGS if getattr(params, n))
         raise NonPhysicalMass(
             f"Mass matrix is not positive-definite for this parameter combination "
-            f"(off-diagonal Xq_dot={params.Xq_dot}, Zq_dot={params.Zq_dot} too large "
-            f"relative to the corresponding diagonal terms) — a nonphysical mass "
-            f"matrix, not just a numerically awkward one. Check vehicle_spec.yaml's "
-            f"bounds on Xq_dot/Zq_dot aren't allowing this combination through."
+            f"(off-diagonal {big or 'none'}, too large relative to the diagonal terms): a nonphysical mass matrix, "
+            f"not just a numerically awkward one. Check the limits of these in the vehicle description."
         )
+    return M
+
+
+def _mass_and_damping_arrays(params: CalibrationParameters, vehicle: VehicleConstants):
+    """M (mass_matrix), linear_damping and quad_damping from params/vehicle, so simulate_trajectory() and
+    compute_acceleration() build these identically."""
+    M = mass_matrix(params, vehicle)
     linear_damping = np.array([params.Xu, params.Yv, params.Zw, params.Kp, params.Mq, params.Nr])
     quad_damping = np.array([params.Xuu, params.Yvv, params.Zww, params.Kpp, params.Mqq, params.Nrr])
     return M, linear_damping, quad_damping
@@ -618,7 +642,7 @@ def compute_acceleration(
     g_eta = _restoring_forces(roll, pitch, vehicle.mass_kg, params.net_buoyancy_z, params.cg_cb_offset_z,
                               cg_cb_offset_x=params.cg_cb_offset_x)
     coriolis_force = _coriolis_centripetal_force(M, v)
-    # M is no longer guaranteed diagonal (Xq_dot/Zq_dot introduce two
+    # M isn't diagonal in general (MASS_COUPLINGS: the off-diagonal
     # off-diagonal entries) — a proper linear solve, not elementwise
     # division, is required. Reduces to exactly the same answer as the
     # old division when M is diagonal (confirmed: solving a diagonal

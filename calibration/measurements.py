@@ -489,9 +489,9 @@ MIN_READINGS_TO_SEE = 30     # ...and this many readings in all
 
 # parameters that only matter through an axis's own motion: held at the vehicle description's values when no sensor
 # sees that axis (run_calibration.EXCLUDABLE_AXIS_PARAMS does the same for roll and pitch with --exclude-axes)
-LINEAR_AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot", "Muq"],
-                      "v": ["Yv", "Yvv", "Yv_dot"],
-                      "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zq_dot"]}
+LINEAR_AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot", "Muq", "Xv_dot", "Xw_dot", "Xp_dot", "Xr_dot"],
+                      "v": ["Yv", "Yvv", "Yv_dot", "Yw_dot", "Yp_dot", "Yq_dot", "Yr_dot"],
+                      "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zq_dot", "Zp_dot", "Zr_dot"]}
 COUPLED_PARAMS = {("u", "w"): ["Zuw", "Muw"]}
 
 

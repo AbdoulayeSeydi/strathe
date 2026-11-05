@@ -24,6 +24,7 @@ import tempfile
 
 import numpy as np
 
+from dynamics_model import MASS_COUPLINGS
 from simfit.core import SimFitError
 from simfit.editors import XmlFile, _parse_xml, fmt_number
 from simfit.knobs import KnobSpec
@@ -495,8 +496,9 @@ class GazeboAdapter:
         Ma = np.zeros((6, 6))
         Ma[0, 0], Ma[1, 1], Ma[2, 2] = params.Xu_dot, params.Yv_dot, params.Zw_dot
         Ma[3, 3], Ma[4, 4], Ma[5, 5] = Ieff - rigid
-        Ma[0, 4] = Ma[4, 0] = -params.Xq_dot  # forward-left-up signs
-        Ma[2, 4] = Ma[4, 2] = params.Zq_dot
+        flip = (1, -1, -1, 1, -1, -1)  # forward-left-up signs
+        for i, j, name in MASS_COUPLINGS:
+            Ma[i, j] = Ma[j, i] = flip[i] * flip[j] * getattr(params, name)
         J = np.block([[np.eye(3), -S], [np.zeros((3, 3)), np.eye(3)]])
         Mo = J.T @ Ma @ J
         names = "xyzpqr"

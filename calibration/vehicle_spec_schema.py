@@ -122,6 +122,26 @@ class HullLift(BaseModel):
     Muq: CalibrationParam
 
 
+class AddedMassCoupling(BaseModel):
+    """Optional off-diagonal mass entries (dynamics_model.MASS_COUPLINGS, #97): any not listed are held at 0."""
+    symmetry: Literal["xz", "none"] = "xz"
+    Xv_dot: Optional[CalibrationParam] = None
+    Xw_dot: Optional[CalibrationParam] = None
+    Xp_dot: Optional[CalibrationParam] = None
+    Xq_dot: Optional[CalibrationParam] = None
+    Xr_dot: Optional[CalibrationParam] = None
+    Yw_dot: Optional[CalibrationParam] = None
+    Yp_dot: Optional[CalibrationParam] = None
+    Yq_dot: Optional[CalibrationParam] = None
+    Yr_dot: Optional[CalibrationParam] = None
+    Zp_dot: Optional[CalibrationParam] = None
+    Zq_dot: Optional[CalibrationParam] = None
+    Zr_dot: Optional[CalibrationParam] = None
+    Kq_dot: Optional[CalibrationParam] = None
+    Kr_dot: Optional[CalibrationParam] = None
+    Mr_dot: Optional[CalibrationParam] = None
+
+
 class ThrusterDynamics(BaseModel):
     """Optional (PROJECT_STATUS.md #66): without it the thruster lag is held at 0."""
     thruster_time_constant_s: CalibrationParam
@@ -132,6 +152,7 @@ class CalibrationTargets(BaseModel):
     linear_damping: LinearDamping
     quadratic_damping: QuadraticDamping
     added_mass_diag: AddedMassDiag
+    added_mass_coupling: Optional[AddedMassCoupling] = None
     buoyancy: Buoyancy
     thruster_dynamics: Optional[ThrusterDynamics] = None
     hull_lift: Optional[HullLift] = None

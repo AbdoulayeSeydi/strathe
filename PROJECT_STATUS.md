@@ -3721,6 +3721,16 @@ type and ingest, calibration, every simulator, proof.
   handling, so with a lag or a current its number changes from earlier reports.
 - ALPHA RISE's fins were credited in two places: its description, Stonefish model and logs show none.
 
+**General added mass** (`dynamics_model.MASS_COUPLINGS`, `mass_matrix`, `tests/test_mass_couplings.py`):
+- All 15 off-diagonal entries of the symmetric mass matrix, by name, and one builder used by the physics. Gazebo's export
+  carries each with its frame's sign; HoloOcean's generated class builds the same matrix; Stonefish's added mass is diagonal, so
+  its export says which were dropped.
+- `Yr_dot` is the same number as `Nv_dot`, and `Zq_dot` as `Mw_dot`: the matrix is symmetric.
+- Only six entries exist on a vehicle symmetric port to starboard. Listing another is refused without `symmetry: none`.
+- Each is the matrix's own entry, rigid body plus added mass.
+- `worst_mass_margin` finds exactly whether a description's limits can reach a non-physical matrix, and loading warns if so.
+- Not listing any changes nothing: seeded fits on real logs are identical to before (below).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
