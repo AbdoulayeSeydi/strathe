@@ -356,6 +356,7 @@ PARAMS = {"P-bias-roll": ("fin_bias_roll", .03, -.1, .1, {}), "P-bias-pitch": ("
           "P-drag0": ("fin_drag0", .05, 0.0, .3, {})}
 RECOVER.update({k: dict(platform="remus100", param=v[:4], **v[4]) for k, v in PARAMS.items()})
 RECOVER["P-position-fixes"] = dict(platform="remus100", fixes=True)   # no DVL: speed from a USBL's fixes at 1 Hz; RECOVER_NOISY, as velocity is estimated
+RECOVER["P-position-fixes-long"] = dict(platform="remus100", fixes=True, n=3000)   # added after P-position-fixes came back 11% off, to see what more data does: that row stands
 
 
 def _platform_spec(path: str, o: dict) -> dict:
@@ -387,7 +388,7 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
     s = load_vehicle_spec(spec_path)
     act = s.vehicle.actuators
     P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b, **({o["param"][0]: o["param"][1]} if o.get("param") else {}))
-    n, os_ = 500, os.path
+    n, os_ = o.get("n", 500), os.path
     k = 0
     for date in ("01-10-2026", "02-10-2026"):
         for run in (1, 2):
@@ -441,6 +442,8 @@ def run_recover_row(row: str) -> bool:
     s = load_vehicle_spec(spec)
     start = initial_parameters(s)
     ta, tb = start.fin_lift_slope_a * 1.25, (start.fin_lift_slope_b or 3.0) * .8
+    if o.get("param"):   # one value's recovery: what's held must be what flew
+        ta, tb = start.fin_lift_slope_a, start.fin_lift_slope_b
     _own_truth(spec, d + "/data", o, ta, tb)
     wanted = {o["param"][0]} if o.get("param") else {"fin_lift_slope_a", "fin_lift_slope_b"}
     free = wanted & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
