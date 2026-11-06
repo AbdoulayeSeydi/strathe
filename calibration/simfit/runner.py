@@ -146,7 +146,7 @@ def _compare_section(results) -> list:
 def _print_results(results) -> None:
     for name, r in results.items():
         hs = [f"{r[f'{h}s']['drift_median_m']:.2f}" for h in HORIZONS_S if f"{h}s" in r]
-        print(f"  {name:36s} drift {' / '.join(hs)} m")
+        print(f"  {name:36s} drift {' / '.join(hs)} m" if hs else f"  {name:36s} not scored: no held-out recording is long enough for a 60 s window")
 
 
 def _calibration_noise(pfile: str, data: str) -> dict:

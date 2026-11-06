@@ -45,8 +45,11 @@ RECOVER_NOISY = 0.10     # the same at grade noise
 PATHS_AGREE = 1e-11      # fast, reference and oracle physics, relative
 SPEED_NO_FINS = 1.02     # hover's step against before fins
 SPEED_FOUR_FINS = 3.0    # four fins against none
+FORMAT_DEG = 0.06        # a logged fin angle through any log format, degrees: half of one PWM step at 10 us per degree
+FORMAT_REL = 1e-6        # the same for rpm, gimbal, moving mass and buoyancy, relative to the signal's size
+SIM_RECOVER = 0.15       # fit-sim from twice the true fin lift lands within this of it, and drifts less on unseen recordings
 BARS = {"fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
-        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS}
+        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER}
 BARS_HASH = hashlib.sha256(json.dumps(BARS, sort_keys=True).encode()).hexdigest()[:12]
 NFEV = 40
 

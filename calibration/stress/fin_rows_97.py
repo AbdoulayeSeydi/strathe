@@ -318,6 +318,11 @@ def run_fast(pick) -> int:
     for f in FORMATS:
         if pick(f"LF-{f}"):
             ok &= run_format(f)
+        for v in (PWM_VARIANTS if f in PWM_ONLY else VARIANTS):
+            if pick(f"LF-{f}-{v}"):
+                ok &= run_format(f, v)
+        if f not in PWM_ONLY and pick(f"LF-{f}-direction"):
+            ok &= run_direction(f)
     for c in HOVER_BASE:
         if pick(f"H-{c}"):
             ok &= run_hover(c)
@@ -555,84 +560,198 @@ def _lf_spec(fmt, files, top):
     return s
 
 
-def run_format(fmt: str) -> bool:
-    import data_ingestion as di
+def _deg(fn, **fins):
+    return {"fins": fins, "log": fn}
+
+
+# One logged value each way a lab can state it. `log` turns true degrees into what the log holds; `flip` is which fin channels log the
+# opposite way; `extra` adds a channel: (spec block, log column, its logged values from t, the prepared column, its true values from t).
+VARIANTS = {"source-measured": {"fins": {"source": "measured"}},
+            "unit-deg": _deg(lambda d: d, unit="deg"),
+            "unit-rad": _deg(np.radians, unit="rad"),
+            "unit-percent": _deg(lambda d: d * 5, unit="percent", full_scale_deg=20.0),
+            "unit-pwm": _deg(lambda d: 1500 + 10 * d, unit="pwm_us", pwm_us_per_deg=10.0),
+            "pwm-center": _deg(lambda d: 1480 + 10 * d, unit="pwm_us", pwm_center_us=1480.0, pwm_us_per_deg=10.0),
+            "pwm-reversed": _deg(lambda d: 1500 - 10 * d, unit="pwm_us", pwm_us_per_deg=-10.0),
+            "turns-port": {"fins": {"positive_turns": "port"}, "flip": ("rud",)},
+            "pitches-down": {"fins": {"positive_pitches": "nose_down"}, "flip": ("ele",)},
+            "rolls-starboard": {"fins": {"positive_rolls": "starboard"}, "aileron": 1},
+            "rolls-port": {"fins": {"positive_rolls": "port"}, "aileron": -1}}
+_WAVE = lambda t: np.sin(t / 5)   # noqa: E731
+for unit, k in (("rpm", 1.0), ("rad_s", 2 * np.pi / 60), ("rev_s", 1 / 60)):
+    VARIANTS[f"prop-{unit}"] = {"prop": unit, "prop_k": k}
+for unit, fn in (("deg", lambda a: a), ("rad", np.radians)):
+    VARIANTS[f"gimbal-{unit}"] = {"gimbal": unit, "gimbal_log": fn}
+for unit, k in (("m", 1.0), ("cm", 100.0), ("mm", 1000.0)):
+    VARIANTS[f"mass-{unit}"] = {"extra": ("moving_mass", {"unit": unit}, "mm", lambda t, k=k: .05 * _WAVE(t) * k, "moving_mass", lambda t: .05 * _WAVE(t))}
+VARIANTS["buoyancy-N"] = {"extra": ("buoyancy_engine", {"unit": "N"}, "bu", lambda t: 3 * _WAVE(t), "buoyancy_change", lambda t: 3 * _WAVE(t))}
+VARIANTS["buoyancy-litre"] = {"extra": ("buoyancy_engine", {"unit": "litre"}, "bu", lambda t: .3 * _WAVE(t), "buoyancy_change", lambda t: .3 * 1025 * 9.81 / 1000 * _WAVE(t))}
+VARIANTS["buoyancy-litre-fresh"] = {"extra": ("buoyancy_engine", {"unit": "litre", "water_density_kg_m3": 1000.0}, "bu", lambda t: .3 * _WAVE(t), "buoyancy_change", lambda t: .3 * 9.81 * _WAVE(t))}
+PWM_ONLY = ("ardupilot", "rosbag")   # these logs hold servo outputs, so only PWM ways of stating a fin apply
+PWM_VARIANTS = ("source-measured", "pwm-center", "pwm-reversed", "turns-port", "pitches-down")
+
+
+def format_rows() -> list:
+    return [f"LF-{f}" for f in FORMATS] + [f"LF-{f}-{v}" for f in FORMATS for v in (PWM_VARIANTS if f in PWM_ONLY else VARIANTS)] + [f"LF-{f}-direction" for f in FORMATS if f not in PWM_ONLY]
+
+
+def _ref(fmt, k):
+    return {"csv": k, "px4": f"fin.{k}", "lcm": f"FIN.{k}", "moos": f"F_{k.upper()}"}[fmt]
+
+
+def _write_direct(fmt, d, t, att, rates, vel, chan, top):
+    """A log in one of the formats that can hold any channel; returns its ingest spec."""
     from format_writers import Topic, write_alog, write_lcm, write_ulog
+    bv = {"linear_unit": "m/s", "angular_unit": "rad/s"}
+    if fmt == "csv":
+        pd.DataFrame({"t": t, **att, **rates, **vel, **chan}).to_csv(os.path.join(d, "a.csv"), index=False)
+        s = _lf_spec("csv", os.path.join(d, "*.csv"), {"time": {"column": "t", "unit": "s"}, "body_velocity": {"columns": dict(u="u", v="v", w="w", p="p", q="q", r="r"), **bv},
+                     "orientation": {"quaternion": dict(x="qx", y="qy", z="qz", w="qw")}, **top})
+        s.pop("resample_hz")
+        return s
+    if fmt == "px4":
+        p = os.path.join(d, "a.ulg")
+        write_ulog(p, {"att": Topic(t, att), "gyr": Topic(t, rates), "vel": Topic(t, vel), "fin": Topic(t, chan)}, None)
+        return _lf_spec("px4", p, {"body_velocity": {"columns": dict(u="vel.u", v="vel.v", w="vel.w", p="gyr.p", q="gyr.q", r="gyr.r"), **bv},
+                        "orientation": {"quaternion": dict(x="att.qx", y="att.qy", z="att.qz", w="att.qw")}, **top})
+    if fmt == "moos":
+        p = os.path.join(d, "a.alog")
+        tm = t + 1.7e9
+        write_alog(p, {"a": Topic(tm, {"QX": att["qx"], "QY": att["qy"], "QZ": att["qz"], "QW": att["qw"]}), "g": Topic(tm, {"GP": rates["p"], "GQ": rates["q"], "GR": rates["r"]}),
+                       "v": Topic(tm, {"VU": vel["u"], "VV": vel["v"], "VW": vel["w"]}), "f": Topic(tm, {f"F_{k.upper()}": v for k, v in chan.items()})})
+        return _lf_spec("moos", p, {"body_velocity": {"columns": dict(u="VU", v="VV", w="VW", p="GP", q="GQ", r="GR"), **bv}, "orientation": {"quaternion": dict(x="QX", y="QY", z="QZ", w="QW")}, **top})
+    p = os.path.join(d, "lcmlog-a.00")
+    write_lcm(p, os.path.join(d, "types"), {"ATT": Topic(t, att), "GYR": Topic(t, {"rp": rates["p"], "rq": rates["q"], "rr": rates["r"]}), "VEL": Topic(t, vel), "FIN": Topic(t, chan)},
+              with_utime=True, receive_delay_s=0.0)
+    s = _lf_spec("lcm", p, {"body_velocity": {"columns": dict(u="VEL.u", v="VEL.v", w="VEL.w", p="GYR.rp", q="GYR.rq", r="GYR.rr"), **bv},
+                 "orientation": {"quaternion": dict(x="ATT.qx", y="ATT.qy", z="ATT.qz", w="ATT.qw")}, **top})
+    s["source"]["lcm_types"] = [os.path.join(d, "types", "*.lcm")]
+    return s
+
+
+def _write_servo(fmt, d, t, att, rates, vel, rud_log, ele_log, fins):
+    """ArduPilot and ROS log servo outputs, so the fins are PWM channels of a shipped template."""
+    n = len(t)
+    d_ = pd.DataFrame({"Bu": vel["u"], "Bv": vel["v"], "Bw": vel["w"], "Bp": rates["p"], "Bq": rates["q"], "Br": rates["r"], **att, **{f"pwm{i}": np.full(n, 1500.0) for i in range(1, 9)}})
+    d_["pwm1"], d_["pwm2"] = np.round(rud_log), np.round(ele_log)
+    s = yaml.safe_load(open(os.path.join(CAL, "templates", "ingest_ardupilot_bin.yaml" if fmt == "ardupilot" else "ingest_rosbag_mavros.yaml"), encoding="utf-8"))
+    cols = s["wrench"]["thrusters"]["pwm_columns"]
+    s.pop("wrench")
+    s["fins"] = {**fins, "channels": {"rudder": cols[0], "elevator": cols[1]}}
+    s["propeller"] = {"column": cols[2]}
+    s["skip_checks"] = ["fin_direction"] + list(s.get("skip_checks", []))
+    if fmt == "ardupilot":
+        from ardupilot_log_writer import write_bin
+        write_bin(os.path.join(d, "a.bin"), d_)
+        s["source"]["files"] = os.path.join(d, "*.bin")
+    else:
+        from test_ingest_bags_and_thrusters import write_bag
+        write_bag(os.path.join(d, "a.bag"), d_)
+        s["source"]["files"] = os.path.join(d, "*.bag")
+        tw = "/odom.twist.twist."
+        s["body_velocity"] = {"columns": {"u": tw + "linear.x", "v": tw + "linear.y", "w": tw + "linear.z", "p": tw + "angular.x", "q": tw + "angular.y", "r": tw + "angular.z"},
+                              "linear_unit": "m/s", "angular_unit": "rad/s"}
+        s["orientation"] = {"quaternion": {k: f"/odom.pose.pose.orientation.{k}" for k in "xyzw"}}
+    s["session_date"] = {"from": "constant", "value": "2026-01-15"}
+    return s
+
+
+def _prepared(tmp, s):
+    import glob
+    import data_ingestion as di
+    path = os.path.join(tmp, "s.yaml")
+    open(path, "w").write(yaml.safe_dump(s))
+    di.ingest(di.load_ingest_spec(path), os.path.join(tmp, "o"))
+    return pd.read_csv(sorted(glob.glob(os.path.join(tmp, "o", "**", "*.csv"), recursive=True))[0])
+
+
+def _signals(n=400):
+    t, rud, ele = _channels(n)
+    return (t, rud, ele, {"qx": 0 * t, "qy": 0 * t, "qz": 0 * t, "qw": 0 * t + 1}, {"p": 0 * t, "q": 0 * t, "r": .01 * np.sin(t / 3)}, {"u": 0 * t + 1.5, "v": 0 * t, "w": 0 * t})
+
+
+def run_format(fmt: str, variant: str = "") -> bool:
+    """One way of stating a channel, through one log format: the prepared recording must hold the true value, in SI units, signed
+    Strathe's way, however the log held it."""
+    R = _bars()
     t0 = time.time()
-    t, rud, ele = _channels()
-    h = _bars().BARS_HASH
+    t, rud, ele, att, rates, vel = _signals()
+    V = VARIANTS.get(variant, {})
+    row = f"LF-{fmt}-{variant}" if variant else f"LF-{fmt}"
+    servo = fmt in PWM_ONLY
+    fins = {"source": "commanded", **({"unit": "pwm_us", "pwm_us_per_deg": 10.0} if servo else {}), **V.get("fins", {})}
+    log = V.get("log") or ((lambda d: 1500 + 10 * d) if servo else (lambda d: d))
+    sign = lambda k: -1.0 if k in V.get("flip", ()) else 1.0   # noqa: E731
+    prefix = "fin_" if fins["source"] == "measured" else "fincmd_"
+    want = {prefix + "rudder": (np.radians(rud), True), prefix + "elevator": (np.radians(ele), True)}
     with tempfile.TemporaryDirectory() as tmp:
         d = os.path.join(tmp, "logs")
         os.makedirs(d)
-        att = {"qx": 0 * t, "qy": 0 * t, "qz": 0 * t, "qw": 0 * t + 1}
-        rates = {"p": 0 * t, "q": 0 * t, "r": .01 * np.sin(t / 3)}
-        vel = {"u": 0 * t + 1.5, "v": 0 * t, "w": 0 * t}
-        fins = {"rud": rud, "ele": ele, "rpm": 0 * t + 900}
-        bv = {"linear_unit": "m/s", "angular_unit": "rad/s"}
-        if fmt == "csv":
-            df = pd.DataFrame({"t": t, **att, **rates, **vel, **fins})
-            df.to_csv(os.path.join(d, "a.csv"), index=False)
-            s = _lf_spec("csv", os.path.join(d, "*.csv"), {"time": {"column": "t", "unit": "s"}, "body_velocity": {"columns": dict(u="u", v="v", w="w", p="p", q="q", r="r"), **bv},
-                         "orientation": {"quaternion": dict(x="qx", y="qy", z="qz", w="qw")}, "fins": {"source": "commanded", "channels": {"rudder": "rud", "elevator": "ele"}},
-                         "propeller": {"column": "rpm"}})
-            s.pop("resample_hz")
-        elif fmt == "px4":
-            p = os.path.join(d, "a.ulg")
-            write_ulog(p, {"att": Topic(t, att), "gyr": Topic(t, rates), "vel": Topic(t, vel), "fin": Topic(t, fins)}, None)
-            s = _lf_spec("px4", p, {"body_velocity": {"columns": dict(u="vel.u", v="vel.v", w="vel.w", p="gyr.p", q="gyr.q", r="gyr.r"), **bv},
-                         "orientation": {"quaternion": dict(x="att.qx", y="att.qy", z="att.qz", w="att.qw")},
-                         "fins": {"source": "commanded", "channels": {"rudder": "fin.rud", "elevator": "fin.ele"}}, "propeller": {"column": "fin.rpm"}})
-        elif fmt == "moos":
-            p = os.path.join(d, "a.alog")
-            tm = t + 1.7e9
-            write_alog(p, {"a": Topic(tm, {"QX": att["qx"], "QY": att["qy"], "QZ": att["qz"], "QW": att["qw"]}), "g": Topic(tm, {"GP": rates["p"], "GQ": rates["q"], "GR": rates["r"]}),
-                           "v": Topic(tm, {"VU": vel["u"], "VV": vel["v"], "VW": vel["w"]}), "f": Topic(tm, {"DESIRED_RUDDER": rud, "DESIRED_ELEVATOR": ele, "DESIRED_THRUST": fins["rpm"]})}, logstart=tm[0] - 2.0, sources={})
-            s = _lf_spec("moos", p, {"body_velocity": {"columns": dict(u="VU", v="VV", w="VW", p="GP", q="GQ", r="GR"), **bv}, "orientation": {"quaternion": dict(x="QX", y="QY", z="QZ", w="QW")},
-                         "fins": {"source": "commanded", "channels": {"rudder": "DESIRED_RUDDER", "elevator": "DESIRED_ELEVATOR"}}, "propeller": {"column": "DESIRED_THRUST"}})
-        elif fmt == "lcm":
-            p = os.path.join(d, "lcmlog-a.00")
-            write_lcm(p, os.path.join(d, "types"), {"ATT": Topic(t, att), "GYR": Topic(t, {"rp": rates["p"], "rq": rates["q"], "rr": rates["r"]}), "VEL": Topic(t, vel), "FIN": Topic(t, fins)},
-                      with_utime=True, receive_delay_s=0.0)
-            s = _lf_spec("lcm", p, {"body_velocity": {"columns": dict(u="VEL.u", v="VEL.v", w="VEL.w", p="GYR.rp", q="GYR.rq", r="GYR.rr"), **bv},
-                         "orientation": {"quaternion": dict(x="ATT.qx", y="ATT.qy", z="ATT.qz", w="ATT.qw")},
-                         "fins": {"source": "commanded", "channels": {"rudder": "FIN.rud", "elevator": "FIN.ele"}}, "propeller": {"column": "FIN.rpm"}})
-            s["source"]["lcm_types"] = [os.path.join(d, "types", "*.lcm")]
-        else:   # ArduPilot and ROS log servo outputs: the same fin channels as servo PWM
-            n = len(t)
-            d_ = pd.DataFrame({"Bu": vel["u"], "Bv": vel["v"], "Bw": vel["w"], "Bp": rates["p"], "Bq": rates["q"], "Br": rates["r"], **att,
-                               **{f"pwm{i}": np.full(n, 1500.0) for i in range(1, 9)}})
-            d_["pwm1"], d_["pwm2"] = np.round(1500 + 10 * rud), np.round(1500 + 10 * ele)
-            name = "ingest_ardupilot_bin.yaml" if fmt == "ardupilot" else "ingest_rosbag_mavros.yaml"
-            s = yaml.safe_load(open(os.path.join(CAL, "templates", name), encoding="utf-8"))
-            cols = s["wrench"]["thrusters"]["pwm_columns"]
-            s.pop("wrench")
-            s["fins"] = {"source": "commanded", "unit": "pwm_us", "pwm_us_per_deg": 10.0, "channels": {"rudder": cols[0], "elevator": cols[1]}}
-            s["propeller"] = {"column": cols[2]}
-            s["skip_checks"] = ["fin_direction"] + [c for c in s.get("skip_checks", [])]
-            if fmt == "ardupilot":
-                from ardupilot_log_writer import write_bin
-                open(os.path.join(d, "a.bin"), "wb").write(write_bin(os.path.join(d, "a.bin"), d_) or b"") if False else write_bin(os.path.join(d, "a.bin"), d_)
-                s["source"]["files"] = os.path.join(d, "*.bin")
-            else:
-                from test_ingest_bags_and_thrusters import write_bag
-                write_bag(os.path.join(d, "a.bag"), d_)
-                s["source"]["files"] = os.path.join(d, "*.bag")
-                tw = "/odom.twist.twist."
-                s["body_velocity"] = {"columns": {"u": tw + "linear.x", "v": tw + "linear.y", "w": tw + "linear.z", "p": tw + "angular.x", "q": tw + "angular.y",
-                                                  "r": tw + "angular.z"}, "linear_unit": "m/s", "angular_unit": "rad/s"}
-                s["orientation"] = {"quaternion": {k: f"/odom.pose.pose.orientation.{k}" for k in "xyzw"}}
-            s["session_date"] = {"from": "constant", "value": "2026-01-15"}
-        path = os.path.join(tmp, "s.yaml")
-        open(path, "w").write(yaml.safe_dump(s))
         try:
-            di.ingest(di.load_ingest_spec(path), os.path.join(tmp, "o"))
-            out = pd.read_csv(sorted(__import__("glob").glob(os.path.join(tmp, "o", "**", "*.csv"), recursive=True))[0])
+            if servo:
+                s = _write_servo(fmt, d, t, att, rates, vel, log(sign("rud") * rud), log(sign("ele") * ele), fins)
+            else:
+                rpm = 900 + 100 * _WAVE(t)
+                chan = {"rud": log(sign("rud") * rud), "ele": log(sign("ele") * ele), "rpm": rpm * V.get("prop_k", 1.0)}
+                top = {"fins": {**fins, "channels": {"rudder": _ref(fmt, "rud"), "elevator": _ref(fmt, "ele")}}, "propeller": {"column": _ref(fmt, "rpm"), "unit": V.get("prop", "rpm")}}
+                want["rpm"] = (rpm, False)
+                if "aileron" in V:
+                    ail = 3 * _WAVE(t)
+                    chan["ail"] = log(V["aileron"] * ail)
+                    top["fins"]["channels"]["aileron"] = _ref(fmt, "ail")
+                    want[prefix + "aileron"] = (np.radians(ail), True)
+                if "gimbal" in V:
+                    gy, gz = 5 * _WAVE(t), 7 * np.cos(t / 4)
+                    chan["gy"], chan["gz"] = V["gimbal_log"](gy), V["gimbal_log"](gz)
+                    top["gimbal"] = {"y": _ref(fmt, "gy"), "z": _ref(fmt, "gz"), "unit": V["gimbal"]}
+                    want["gimbal_y"], want["gimbal_z"] = (np.radians(gy), False), (np.radians(gz), False)
+                if "extra" in V:
+                    block, keys, col, logged, out_col, true = V["extra"]
+                    chan[col] = logged(t)
+                    top[block] = {"column": _ref(fmt, col), **keys}
+                    want[out_col] = (true(t), False)
+                s = _write_direct(fmt, d, t, att, rates, vel, chan, top)
+            out = _prepared(tmp, s)
         except Exception as e:
-            return record(F, f"LF-{fmt}", "log format", fmt, "fin channels", "synthetic", {"error": f"{type(e).__name__}: {e}"[:220], "bars": h}, "fin channels read", False, time.time() - t0)
-        col = "fincmd_rudder"
-        err = float(np.abs(np.degrees(out[col].to_numpy()) - np.interp(np.arange(len(out)) / 10.0 + 0, t, rud)).max()) if col in out else None
-        ok = err is not None and "rpm" in out and float(np.percentile(np.abs(np.degrees(out[col].to_numpy())), 99)) > 8
-    return record(F, f"LF-{fmt}", "log format", fmt, "commanded fin angles and rpm through this format", "synthetic", {"max_rudder_deg_err": err, "bars": h}, "fin channels read", ok, time.time() - t0)
+            return record(F, row, "log format", fmt, f"{variant or 'commanded fin angles and rpm'} through this format", "synthetic", {"error": f"{type(e).__name__}: {e}"[:220], "bars": R.BARS_HASH},
+                          "the true value in the prepared recording", False, time.time() - t0)
+    tt = np.arange(len(out)) / 10.0
+    worst_deg = worst_rel = 0.0
+    missing = [c for c in want if c not in out]
+    for c, (true, is_fin) in want.items():
+        if c not in out:
+            continue
+        e = np.abs(out[c].to_numpy() - np.interp(tt, t, true)).max()
+        if is_fin:
+            worst_deg = max(worst_deg, float(np.degrees(e)))
+        else:
+            worst_rel = max(worst_rel, float(e / np.abs(true).max()))
+    ok = not missing and worst_deg <= R.FORMAT_DEG and worst_rel <= R.FORMAT_REL
+    return record(F, row, "log format", fmt, f"{variant or 'commanded fin angles and rpm'} through this format", "synthetic", {"worst_deg": worst_deg, "worst_rel": worst_rel, "missing": missing, "bars": R.BARS_HASH},
+                  "the true value in the prepared recording", ok, time.time() - t0)
+
+
+def run_direction(fmt: str) -> bool:
+    """A rudder that turns the vehicle the wrong way is refused, and skip_checks: fin_direction lets the lab overrule that."""
+    R = _bars()
+    t0 = time.time()
+    t, rud, ele, att, rates, vel = _signals()
+    rates = {**rates, "r": -.05 * rud}
+    top = {"fins": {"source": "commanded", "channels": {"rudder": _ref(fmt, "rud"), "elevator": _ref(fmt, "ele")}}}
+    res = []
+    for skip in (False, True):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = os.path.join(tmp, "logs")
+            os.makedirs(d)
+            s = _write_direct(fmt, d, t, att, rates, vel, {"rud": rud, "ele": ele}, top)
+            s["skip_checks"] = [c for c in s["skip_checks"] if skip or c != "fin_direction"]
+            try:
+                _prepared(tmp, s)
+                res.append("wrote")
+            except Exception as e:
+                res.append("refused" if "fin" in str(e).lower() else f"{type(e).__name__}: {e}"[:160])
+    return record(F, f"LF-{fmt}-direction", "log format", fmt, "the wrong fin sign is refused, and skip_checks overrules it", "synthetic", {"without_skip": res[0], "with_skip": res[1], "bars": R.BARS_HASH},
+                  "refused, then written", res == ["refused", "wrote"], time.time() - t0)
 
 
 # ------------------------------------------------------------------ hover: nothing changed
@@ -665,7 +784,6 @@ def run_hover(case: str) -> bool:
 
 
 # ------------------------------------------------------------------ every simulator: its own physics recovers its own fin lift
-SIM_RECOVER = 0.15   # fit-sim from a fin lift twice the truth lands within this of it, and drifts less on unseen recordings
 
 
 SIM_MODEL = {"mass": 30.0, "x": -.7, "area": .02, "lift": 3.0}
@@ -768,6 +886,17 @@ def _fly_engine(sim: str, model: str, tool, out_dir: str, ref_rows, spec_path: s
     return rp.run(model, rows, out_dir)
 
 
+def _sim_verdict(fit_yaml: str, true: float, label: str) -> dict:
+    """Both halves of SIM_RECOVER: every fitted fin lift lands near the truth, and unseen recordings drift less at 30 s."""
+    y = yaml.safe_load(open(fit_yaml))
+    found = {k: float(v) for k, v in (y.get("after") or {}).items()}
+    held = y.get("heldout") or {}
+    drift = [(held.get(f"{label}, {w}") or {}).get("30s", {}).get("drift_median_m") for w in ("original", "calibrated by Strathe")]
+    err = max((abs(v / true - 1) for v in found.values()), default=None)
+    return {"true": true, "found": found, "err": err, "drift_30s_before": drift[0], "drift_30s_after": drift[1],
+            "ok": err is not None and err <= _bars().SIM_RECOVER and None not in drift and drift[1] < drift[0]}
+
+
 def run_sim(row: str) -> bool:
     """Fly fin steps in the engine with its true lift, then fit-sim from twice that lift, on those recordings."""
     import subprocess
@@ -787,7 +916,7 @@ def run_sim(row: str) -> bool:
         for date in ("01-10-2026", "02-10-2026"):
             k += 1
             rng = np.random.default_rng(k)
-            n = 600
+            n = 900
             ang = np.repeat(rng.uniform(-.25, .25, n // 25 + 1), 25)[:n]
             rows = FinRows([np.c_[np.tile([1.5, 0, 0, 0, 0, 0, 0, 0, 0, 1.0], (n, 1)), np.tile([40.0, 0, 0, 0, 0, 0], (n, 1)), ang, -ang]])
             rows.fins = fins
@@ -805,13 +934,12 @@ def run_sim(row: str) -> bool:
         with open(d + "/fit.log", "w") as f:
             rc = subprocess.run(cmd, cwd=os.path.dirname(CAL), stdout=f, stderr=subprocess.STDOUT).returncode
         text = open(d + "/fit.log").read()
-        y = yaml.safe_load(open(next(os.path.join(d, "fit", x) for x in os.listdir(d + "/fit") if x.endswith("_fit.yaml"))))
-        got = next((v for k_, v in (y.get("values") or y.get("fitted") or y).items() if k_ == knob), None)
+        v = _sim_verdict(f"{d}/fit/{sim}_fit.yaml", true, {"gazebo": "Gazebo", "stonefish": "Stonefish", "mujoco": "MuJoCo"}[sim])
     except Exception as e:
         return record(F, row, "simulator", sim, "the engine recovers its own fin lift", "own flights", {"error": f"{type(e).__name__}: {e}"[:260], "bars": R.BARS_HASH}, "recover fin lift", False, time.time() - t0)
-    err = None if got is None else abs(float(got) / true - 1)
-    return record(F, row, "simulator", sim, "from twice the lift, on recordings the engine flew itself", "own flights", {"true": true, "found": got, "err": err, "exit": rc, "bars": R.BARS_HASH},
-                  f"within {SIM_RECOVER:.0%}", rc == 0 and err is not None and err <= SIM_RECOVER, time.time() - t0)
+    ok = v.pop("ok")
+    return record(F, row, "simulator", sim, "from twice the lift, on recordings the engine flew itself", "own flights", {**v, "exit": rc, "bars": R.BARS_HASH},
+                  f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", rc == 0 and ok, time.time() - t0)
 
 
 def run_holoocean_row() -> bool:
@@ -830,10 +958,12 @@ def run_holoocean_row() -> bool:
     with open(d + "/fit.log", "w") as f:
         rc = subprocess.run([R.PY, "strathe.py", "fit-sim", "--sim", "holoocean", "--scenario", d + "/scn.json", "--data", d + "/data", "--spec", d + "/spec.yaml", "--heldout-dates", T.HELD_DATE,
                              "--fit", "fins", "--reference-point", "0", "0", "0", "--hz", "50", "--max-iterations", "6", "--out", d + "/out"], cwd=os.path.dirname(CAL), stdout=f, stderr=subprocess.STDOUT, env=env).returncode
-    got = json.load(open(d + "/out/scn_calibrated.json"))["agents"][0]["actuator"]["CL_delta"] if os.path.exists(d + "/out/scn_calibrated.json") else None
-    err = None if got is None else abs(got / .5 - 1)
-    return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class, from twice the fin lift", "its own flights", {"true": .5, "found": got, "err": err, "exit": rc, "bars": R.BARS_HASH},
-                  f"within {SIM_RECOVER:.0%}", rc == 0 and err is not None and err <= SIM_RECOVER, time.time() - t0)
+    if not os.path.exists(d + "/out/holoocean_fit.yaml"):
+        return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class, from twice the fin lift", "its own flights", {"exit": rc, "bars": R.BARS_HASH}, f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", False, time.time() - t0)
+    v = _sim_verdict(d + "/out/holoocean_fit.yaml", .5, "HoloOcean")
+    ok = v.pop("ok")
+    return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class, from twice the fin lift", "its own flights", {**v, "exit": rc, "bars": R.BARS_HASH},
+                  f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", rc == 0 and ok, time.time() - t0)
 
 
 def run_external_row() -> bool:
@@ -872,7 +1002,7 @@ def run_sims(pick) -> int:
 
 
 def fast_rows_more() -> list:
-    return [f"LF-{f}" for f in FORMATS] + [f"H-{c}" for c in HOVER_BASE]
+    return format_rows() + [f"H-{c}" for c in HOVER_BASE]
 
 
 def sim_rows() -> list:
