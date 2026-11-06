@@ -12,6 +12,7 @@ CAL = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(CAL, "stress"))
 
 AUDITED = {
+    "fin_fit.py": "speed from a DVL if it read at most samples, else from the propeller's rpm; gyro rates otherwise",
     "objective.py": "the sensor-suite path (run.channels) for every residual and RMSE; NaN-aware baselines",
     "measurements.py": "u, v, w only where a DVL read (the DVL channel); never the hidden velocity",
     "state_smoother.py": "the gyro rates only (real_nu[:, 3:6])",

@@ -369,6 +369,7 @@ class CalibrationReport:
     objective_sampling_rate_hz: float = 10.0
     objective_current_by_file: Optional[tuple] = None
     sensor_suite: Optional[dict] = None   # what the sensors could calibrate, per sensor axis's fit (#96)
+    fins: Optional[dict] = None           # what the logs covered and what was held (fin_fit.py, #97)
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +447,8 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
     names = list(default_params.param_names)
     lb, ub = parameter_bounds(loaded_spec)
     already = set((cc.fixed_params or {}))
-    inferred = ms.inferred_axes(seen) if config.unseen == "infer" else set()
+    # not for fins: their force goes as speed squared, so speed inferred from the turning they cause would be circular
+    inferred = ms.inferred_axes(seen) if config.unseen == "infer" and vehicle.actuators is None else set()
     turning = ms.turning_rms(train_runs)
     too_little_turning = bool(inferred) and turning < ms.MIN_TURNING_RAD_S
     if too_little_turning:
@@ -736,6 +738,8 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
         "reproducibility": asdict(report.reproducibility),
         "success": report.success,
     }
+    if report.fins is not None:
+        metrics["fins"] = _jsonable(report.fins)
     if report.sensor_suite is not None:
         metrics["sensor_suite"] = _jsonable(report.sensor_suite)
         # what validation, finishing a checkpoint and the report reload the logs with
@@ -882,6 +886,18 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
             logger.info("Drag reference: %s", n)
         logger.info("Drag: %s, toward %s", config.drag, dr.REFERENCES[config.drag_reference]["source"])
     sensor_info = None
+    fin_info = None
+    if vehicle.actuators is not None and vehicle.actuators.fins:
+        import fin_fit
+        fin_info = fin_fit.setup(train_runs, vehicle.actuators, default_params, config.calibration_config.fixed_params)
+        config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **fin_info["held"]}
+        for line in fin_info["plain"]:
+            logger.info("Fins: %s", line)
+        for s, why in fin_info["held_why"].items():
+            logger.warning("Fins: %s: their lift keeps its geometry value", why)
+        for word in fin_info["few_manoeuvres"]:
+            logger.warning("Fins: few %s manoeuvres in these logs: the fit can predict missions like these while its fin "
+                           "value is well off (FINS.md)", word)
     if sensor_mode:
         if config.axis_scaling != "none":
             logger.info("Sensor suite: --axis-scaling doesn't apply (each sensor axis is scaled by what predicting no "
@@ -998,6 +1014,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
 
     report = CalibrationReport(
         vehicle_type=steering.steering_of(loaded_spec.raw),
+        fins=fin_info,
         dataset=DatasetSummary(
             train_dates=split.train_groups, heldout_dates=split.heldout_groups,
             n_train_files=len(train_runs), n_heldout_files=len(heldout_runs),

@@ -31,6 +31,8 @@ from typing import Optional
 import numpy as np
 import yaml
 
+from dynamics_model import XZ_SYMMETRIC_COUPLINGS
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "templates", "vehicle_spec_template.yaml")
 G = 9.81
@@ -127,7 +129,8 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
                   inertia=None, cg_below_cb: Optional[float] = None, net_buoyancy: Optional[float] = None,
                   volume: Optional[float] = None, reference_point=(0.0, 0.0, 0.0),
                   torque_reference_offset=(0.0, 0.0, 0.0), max_force=None, hull_lift: bool = False,
-                  name: str = "my_vehicle", source: str = "your measurements") -> tuple:
+                  name: str = "my_vehicle", source: str = "your measurements", steering: str = "hover",
+                  fins: Optional[dict] = None, propeller: Optional[dict] = None) -> tuple:
     """(vehicle description dict, notes). max_force: the thrusters' largest force per axis (N), for the notes."""
     m, L = float(mass), float(length)
     if not (m > 0 and L > 0):
@@ -275,7 +278,45 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
                                        f"{shape}, {size}, water {rho:g} kg/m^3). Starting values and limits only: "
                                        f"the logs decide the calibrated values.")
     spec["thruster_model"]["note"] = "Layout and thrust curve are in the ingestion spec's thrusters block."
+    if steering != "hover":
+        _add_steering(spec, steering, fins, propeller, m, rho, notes)
     return _plain(spec), notes
+
+
+def _add_steering(spec: dict, steering: str, fins: Optional[dict], propeller: Optional[dict], mass: float, rho: float,
+                  notes: list) -> None:
+    """A fin-steered vehicle's sections: its fins and propeller, fin lift's limits from the fins' own shape, and the off-diagonal
+    mass they make, worked out and held."""
+    import fin_fit
+    import steering as st
+    spec["vehicle"]["steering"] = steering
+    if steering in ("fin", "hybrid"):
+        if not fins:
+            raise DescribeError(f"--steering {steering} needs the fins: --fins, --fin-x, --fin-radius, --fin-area, --fin-span")
+        spec["fins"] = fins
+    if propeller:
+        spec["propeller"] = propeller
+    elif steering == "vectored":
+        raise DescribeError("--steering vectored needs the propeller: --propeller-diameter and --kt0")
+    try:
+        act = st.actuators_from(spec)
+    except (st.SteeringError, KeyError, TypeError) as e:
+        raise DescribeError(str(e))
+    targets = spec["calibration_targets"]
+    if act.fins:
+        targets["fins"] = fin_fit.fin_targets(act)
+        cg = float(targets["buoyancy"]["cg_cb_offset_z"]["initial_guess"])
+        held = fin_fit.held_couplings(act.fins, rho, mass, cg)
+        section = targets.setdefault("added_mass_coupling", {})
+        section.update(fin_fit.coupling_targets({k: v for k, v in held.items() if k in XZ_SYMMETRIC_COUPLINGS}))
+        odd = sorted(set(held) - set(XZ_SYMMETRIC_COUPLINGS))
+        if odd:
+            section["symmetry"] = "none"
+            section.update(fin_fit.coupling_targets({k: held[k] for k in odd}))
+        notes.append(f"Fin lift's limits come from the fins' shape; off-diagonal mass ({', '.join(sorted(held)) or 'none'}) is worked "
+                     f"out from them and held, because logs rarely separate it.")
+    if not propeller:
+        notes.append("No propeller given: give --propeller-diameter and --kt0 with logged rpm, or log thrust as forces.")
 
 
 def _plain(x):
@@ -532,7 +573,8 @@ def run(a) -> int:
                                 rho=rho, inertia=a.inertia, cg_below_cb=a.cg_below_cb, net_buoyancy=a.net_buoyancy,
                                 volume=a.volume, reference_point=tuple(a.reference_point),
                                 torque_reference_offset=tuple(a.torque_reference_offset),
-                                max_force=max_force_of(a.thrusters), hull_lift=a.hull_lift, name=a.name, source=source)
+                                max_force=max_force_of(a.thrusters), hull_lift=a.hull_lift, name=a.name, source=source,
+                                steering=a.steering, fins=_fins_of(a), propeller=_propeller_of(a))
     out = os.path.abspath(os.path.expanduser(a.out))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     header = ("# Written by `strathe describe-vehicle` (calibration/DESCRIBE_VEHICLE.md). Starting values and limits\n"
@@ -547,6 +589,26 @@ def run(a) -> int:
         print("  note: " + n)
     print(f"Next: python strathe.py calibrate --ingest-spec <your logs' spec> --spec {out} --name {a.name}")
     return 0
+
+
+def _fins_of(a) -> Optional[dict]:
+    if a.fins is None:
+        return None
+    given = {"layout": a.fins, "x_m": a.fin_x, "radius_m": a.fin_radius, "area_m2": a.fin_area, "span_m": a.fin_span}
+    missing = [k for k, v in given.items() if v is None]
+    if missing:
+        raise DescribeError("--fins needs --fin-x, --fin-radius, --fin-area and --fin-span: from the reference point to the fins "
+                            "(forward positive), hull axis to the fin's centre, one fin's area and its root-to-tip span")
+    return {**given, "limit_deg": a.fin_limit, "stall_deg": a.fin_stall}
+
+
+def _propeller_of(a) -> Optional[dict]:
+    if a.propeller_diameter is None:
+        return None
+    if a.kt0 is None:
+        raise DescribeError("--propeller-diameter needs --kt0, the thrust coefficient with no forward speed (a similar propeller's "
+                            "is a start: FINS.md)")
+    return {"diameter_m": a.propeller_diameter, "kt0": a.kt0, "kt1": a.kt1, "gimbal": bool(a.steering == "vectored")}
 
 
 def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
@@ -573,6 +635,18 @@ def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
     ap.add_argument("--thrusters", help="your ingest spec (its thrusters block) or a preset (bluerov2_heavy): "
                                         "checks the drag limits against what they can push")
     ap.add_argument("--hull-lift", action="store_true", help="torpedo: include the hull-lift terms")
+    ap.add_argument("--steering", choices=("hover", "fin", "vectored", "hybrid"), default="hover",
+                    help="what steers it: hover (thrusters, the default), fin, vectored (a gimballed tail), hybrid (FINS.md)")
+    ap.add_argument("--fins", choices=("cross", "x", "y3", "rudder_only"), help="the fins' layout")
+    ap.add_argument("--fin-x", type=float, help="the fins' place from the reference point, forward positive (m)")
+    ap.add_argument("--fin-radius", type=float, help="hull axis to a fin's centre of pressure (m)")
+    ap.add_argument("--fin-area", type=float, help="one fin's area (m^2)")
+    ap.add_argument("--fin-span", type=float, help="one fin, root to tip (m)")
+    ap.add_argument("--fin-limit", type=float, default=30.0, help="the servos' end stops (degrees)")
+    ap.add_argument("--fin-stall", type=float, default=20.0, help="the fins' stall angle (degrees)")
+    ap.add_argument("--propeller-diameter", type=float, help="the propeller's diameter (m)")
+    ap.add_argument("--kt0", type=float, help="its thrust coefficient with no forward speed")
+    ap.add_argument("--kt1", type=float, default=0.0, help="the thrust coefficient's change with advance ratio")
     ap.add_argument("--from-model", help="your vehicle's model: Gazebo .sdf/.world, URDF, MuJoCo .xml, HoloOcean "
                                          "scenario .json. Mass, inertia and size come from it; any size you give wins")
     ap.add_argument("--sim", choices=("gazebo", "urdf", "mujoco", "holoocean"), help="what --from-model is")

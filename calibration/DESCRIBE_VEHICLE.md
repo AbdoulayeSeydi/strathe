@@ -6,7 +6,7 @@ it for you**:
 - from the vehicle's mass and size;
 - or from its model in Gazebo, URDF, MuJoCo or HoloOcean.
 
-There's no template to fill in by hand. (For a Stonefish model, `describe-stonefish` does the same: see
+A fin-steered vehicle adds `--steering fin` and its fins and propeller (`FINS.md`). There's no template to fill in by hand. (For a Stonefish model, `describe-stonefish` does the same: see
 `stonefish/README.md`.)
 
 ```bash

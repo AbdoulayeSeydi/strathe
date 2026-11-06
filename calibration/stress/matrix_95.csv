@@ -45,3 +45,22 @@ web:water,W-measurements W-torpedo W-refuse-nothing,the web card's field
 web:width,W-measurements W-torpedo W-refuse-nothing,the web card's field
 web:inertia,W-cad-and-thrusters W-refuse-two_inertia_values,the web card's field
 web:thrusters,W-cad-and-thrusters W-refuse-thrusters_file_missing,the web card's field
+option:--steering,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--steering=hover,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--steering=fin,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--steering=vectored,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--steering=hybrid,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fins,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fins=cross,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fins=x,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fins=y3,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fins=rudder_only,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-x,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-radius,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-area,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-span,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-limit,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--fin-stall,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--propeller-diameter,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--kt0,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
+option:--kt1,exempt,"proved on fin vehicles in #97 (stress/matrix_97.csv)"
