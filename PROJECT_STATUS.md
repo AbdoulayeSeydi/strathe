@@ -3781,7 +3781,7 @@ type and ingest, calibration, every simulator, proof.
   agrees within about 0.4%. Stonefish's `Rudder`, commanded, within about 9% (sway 0.107 against 0.099, yaw -2.04 against -2.23).
 - HoloOcean's real `Torpedo` class runs on a Mac with no engine. `fit-sim` from a wrong fin lift (1.0, truth 0.5) took 30 s drift from 21.7 m to
   0.8 m and found 0.46. The 8% left is the description's propeller estimate.
-- MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: almost none below about 3°, and not linear. Recorded, not hidden.
+- MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian. (An earlier version of this line said almost no lift below about 3°. That was measured on a fin the generator had laid flat, and is withdrawn.)
 - Fit knobs: `fin_cla` (Gazebo), `fin_lift` (Stonefish), `CL_delta` (HoloOcean), each fin's Kutta lift (MuJoCo).
 
 **Export** (`simfit/fin_models.py`, `stonefish_export.carry_fins`):
@@ -3796,6 +3796,7 @@ type and ingest, calibration, every simulator, proof.
 - `S-stonefish`: a `--stonefish-data` folder inside the Docker image was mounted over, hiding its meshes.
 - Reading the rows: a fin's `chord_axis` reached its mixing but not its force. A litre of buoyancy change lifted a flat 9.81 N, fresh water's.
 - Stonefish's comparison with Strathe's own model built the vehicle with no actuators.
+- `C-cross-measured-mujoco`: every generated MuJoCo fin lay flat, so its hinge barely changed its lift. A cross turned about 430 times too little. S-mujoco had passed on those fins: it recovered a coefficient self-consistently, which is why a row needs real turning behind it.
 
 **A file-sharing fault, measured.** On Colima (virtiofs), a file rewritten at the same path with a new size reached a container at its old size in 8
 of 12 tries, cutting its last rows off. Same path and same size: 0 of 12 stale, and contents were right. New paths: 0 of 12. Container to host: 0

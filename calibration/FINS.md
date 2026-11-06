@@ -159,7 +159,7 @@ with `fit-sim`.
 
 **In Docker,** `--stonefish-data /src/Tests/Data` is the image's own folder of meshes, which generated fins use.
 
-**MuJoCo isn't a foil.** Its fluid model gives almost no lift below about 3° and isn't linear above that. Stonefish's `Rudder` drops
+**MuJoCo isn't a foil.** On a fin in steady flow, its fluid model's lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian, so a centred fin can chatter. Stonefish's `Rudder` drops
 lift to zero at stall and never uses `drag_coeff`.
 
 ## In experiments

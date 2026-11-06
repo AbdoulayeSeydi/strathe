@@ -54,4 +54,4 @@ To run Strathe's own calibrated model inside MuJoCo, see `calibration/mujoco_bac
 
 ## Fin-steered vehicles
 
-Give `--spec` with your vehicle description: each fin is a child body on a hinge `fin_<name>`, with an ellipsoid geom. `--fit fins` tunes each one's Kutta lift. MuJoCo's fluid model isn't a foil: almost no lift below about 3°. See [FINS.md](../../FINS.md).
+Give `--spec` with your vehicle description: each fin is a child body on a hinge `fin_<name>`, with an ellipsoid geom. `--fit fins` tunes each one's Kutta lift. MuJoCo's fluid model isn't a foil: lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian. See [FINS.md](../../FINS.md).
