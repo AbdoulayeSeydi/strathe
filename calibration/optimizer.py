@@ -254,7 +254,8 @@ def load_vehicle_spec(yaml_path: str) -> LoadedVehicleSpec:
     _validate_flat_targets(flat)
     _check_mass_couplings(raw, flat)
 
-    vehicle = VehicleConstants(mass_kg=raw["fixed_parameters"]["mass_kg"]["value"])
+    from steering import actuators_from
+    vehicle = VehicleConstants(mass_kg=raw["fixed_parameters"]["mass_kg"]["value"], actuators=actuators_from(raw))
     vehicle.validate()
     if worst_mass_margin(flat, vehicle.mass_kg) <= 0:
         logger.warning("Some values inside this description's limits make a non-physical mass matrix (the couplings under "

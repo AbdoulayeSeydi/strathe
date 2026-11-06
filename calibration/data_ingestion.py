@@ -294,6 +294,63 @@ class WrenchSpec(BaseModel):
         return self
 
 
+FIN_ANGLE_UNITS = ("deg", "rad", "percent", "pwm_us")
+
+
+class FinChannels(BaseModel):
+    """The logged fin angles (PROJECT_STATUS.md #97, FINS.md). channels: rudder, elevator and aileron, or one per fin by the
+    name the vehicle description gives it. source: measured (what the fins did) or commanded (what they were told: the
+    calibration applies the servo's lag and end stops, and they're held between log messages). Say which way a positive
+    angle goes and the logs are checked against it: a fin's sign is the silent error that ruins a fit."""
+    model_config = {"extra": "forbid"}
+    source: Literal["measured", "commanded"]
+    channels: dict[str, str] = Field(min_length=1)
+    unit: Literal["deg", "rad", "percent", "pwm_us"] = "deg"
+    full_scale_deg: Optional[float] = Field(default=None, gt=0)   # percent: the angle at 100
+    pwm_center_us: float = 1500.0
+    pwm_us_per_deg: Optional[float] = None                         # pwm_us: signed
+    positive_turns: Literal["starboard", "port"] = "starboard"
+    positive_pitches: Literal["nose_up", "nose_down"] = "nose_up"
+    positive_rolls: Literal["starboard", "port"] = "starboard"
+
+    @model_validator(mode="after")
+    def _scale(self):
+        if self.unit == "percent" and self.full_scale_deg is None:
+            raise ValueError("fins: unit: percent needs full_scale_deg, the angle at 100%. If you don't know it, give your "
+                             "best figure: the fit's fin lift absorbs the difference")
+        if self.unit == "pwm_us" and not self.pwm_us_per_deg:
+            raise ValueError("fins: unit: pwm_us needs pwm_us_per_deg, how many microseconds move the fin one degree")
+        return self
+
+
+class RpmColumn(BaseModel):
+    model_config = {"extra": "forbid"}
+    column: str
+    unit: Literal["rpm", "rad_s", "rev_s"] = "rpm"
+
+
+class GimbalColumns(BaseModel):
+    """A vectored thruster's two angles: y tilts the thrust up for positive, z swings it to starboard."""
+    model_config = {"extra": "forbid"}
+    y: str
+    z: str
+    unit: Literal["deg", "rad"] = "deg"
+
+
+class MovingMassColumn(BaseModel):
+    """How far the moving mass has travelled from its neutral place."""
+    model_config = {"extra": "forbid"}
+    column: str
+    unit: Literal["m", "mm", "cm"] = "m"
+
+
+class BuoyancyColumn(BaseModel):
+    """The buoyancy engine's change from neutral. newtons of lift, or litres of water displaced."""
+    model_config = {"extra": "forbid"}
+    column: str
+    unit: Literal["N", "litre"] = "N"
+
+
 class ExcludeRule(BaseModel):
     """Drop samples where a logged column is above and/or below a value: a tether pulled taut (a tension sensor),
     contact with the bottom, a manual-override flag. The recording is split at the dropped stretches
@@ -429,17 +486,55 @@ class IngestSpec(BaseModel):
     frame: Literal["frd", "flu"] = "frd"
     body_velocity: Optional[VelocitySpec] = None   # no DVL and no gyro logged: leave it out (#96)
     orientation: OrientationSpec
-    wrench: WrenchSpec
+    wrench: Optional[WrenchSpec] = None   # left out only by a vehicle moved by what's below: the physics works its force out
+    fins: Optional[FinChannels] = None
+    propeller: Optional[RpmColumn] = None
+    gimbal: Optional[GimbalColumns] = None
+    moving_mass: Optional[MovingMassColumn] = None
+    buoyancy_engine: Optional[BuoyancyColumn] = None
     position: Union[PositionSpec, list[PositionSpec], None] = None
     depth: Union[DepthSpec, list[DepthSpec], None] = None
     accelerometer: Optional[AccelerometerSpec] = None
     skip_checks: list[Literal["force_direction", "orientation_vs_position", "gyro_vs_orientation", "accelerometer",
-                              "depth_vs_position", "depth_vs_thrust", "heading_vs_position"]] = []  # escape hatch, says so
+                              "depth_vs_position", "depth_vs_thrust", "heading_vs_position", "fin_direction"]] = []  # escape hatch, says so
     exclude_samples: list[ExcludeRule] = []
     min_segment_s: float = Field(default=10.0, gt=0)  # with exclude_samples: shorter pieces are discarded
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
     _thruster_cfg: object = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _moved_by_something(self):
+        if self.wrench is None and self.fins is None and self.propeller is None:
+            raise ValueError("wrench: is needed unless the vehicle has a fins: or propeller: block: without one, nothing says "
+                             "what moves it")
+        th = self.wrench.thrusters if self.wrench is not None else None
+        for c in (th.pwm_columns if th is not None else []):
+            # not "servo": ArduSub logs its thrusters as SERVO_OUTPUT_RAW.servoN_raw
+            if re.search(r"(^|[^a-z])(fin|fins|rudder|elevator|stern|aileron)([^a-z]|$)", c.lower()):
+                raise ValueError(f"wrench.thrusters.pwm_columns has {c!r}, which looks like a fin, not a thruster: it would be "
+                                 f"read as thrust. Fin angles go in a fins: block (FINS.md)")
+        return self
+
+    def actuator_columns(self) -> list:
+        """Every source column the fins and the rest read."""
+        cols = list(self.fins.channels.values()) if self.fins is not None else []
+        if self.propeller is not None:
+            cols.append(self.propeller.column)
+        if self.gimbal is not None:
+            cols += [self.gimbal.y, self.gimbal.z]
+        if self.moving_mass is not None:
+            cols.append(self.moving_mass.column)
+        if self.buoyancy_engine is not None:
+            cols.append(self.buoyancy_engine.column)
+        return cols
+
+    def held_columns(self) -> list:
+        """Commands: they hold between messages. Everything else moves smoothly and is interpolated."""
+        out = list(self.wrench.thrusters.pwm_columns) if self.wrench is not None and self.wrench.thrusters is not None else []
+        if self.fins is not None and self.fins.source == "commanded":
+            out += list(self.fins.channels.values())
+        return out
 
     @model_validator(mode="after")
     def _time_source(self):
@@ -506,9 +601,11 @@ class IngestSpec(BaseModel):
         cols += ([getattr(o.quaternion, k) for k in "xyzw"] if o.quaternion is not None
                  else [getattr(o.euler, k) for k in ("roll", "pitch", "yaw")])
         w = self.wrench
-        cols += list(w.columns.values()) if w.columns is not None else list(w.thrusters.pwm_columns)
-        if w.thrusters is not None and w.thrusters.voltage_column:
-            cols.append(w.thrusters.voltage_column)
+        if w is not None:
+            cols += list(w.columns.values()) if w.columns is not None else list(w.thrusters.pwm_columns)
+            if w.thrusters is not None and w.thrusters.voltage_column:
+                cols.append(w.thrusters.voltage_column)
+        cols += [c for c in self.actuator_columns() if c not in cols]
         for p in self.positions():
             if p.use == "check":
                 cols += self._block_columns(p)
@@ -527,7 +624,7 @@ def load_ingest_spec(path: str) -> IngestSpec:
     base = os.path.dirname(os.path.abspath(path))
     spec.source.files = os.path.join(base, spec.source.files) if not os.path.isabs(spec.source.files) else spec.source.files
     spec.source.message_types = [p if os.path.isabs(p) else os.path.join(base, p) for p in spec.source.message_types]
-    th = spec.wrench.thrusters
+    th = spec.wrench.thrusters if spec.wrench is not None else None
     if th is not None:
         import thruster_model as tm
         try:
@@ -597,7 +694,7 @@ def _read_source(spec: IngestSpec, path: str) -> tuple:
     quat = [[getattr(o.quaternion, k) for k in "xyzw"]] if o.quaternion is not None else []
     angles = ({getattr(o.euler, k): (360.0 if o.euler.unit == "deg" else 2 * np.pi) for k in ("roll", "pitch", "yaw")}
               if o.euler is not None else {})
-    hold = spec.wrench.thrusters.pwm_columns if spec.wrench.thrusters is not None else []
+    hold = spec.held_columns()
     sensors = {"native_columns": spec.native_columns(), "span_exempt": spec.span_exempt_columns()}
     if spec.source.format == "rosbag":
         import rosbag_reader as rb
@@ -639,6 +736,77 @@ def _block_readings(spec: IngestSpec, b, df, t, native, path) -> tuple:
                           f"from one message ({type(b).__name__.replace('Spec', '').lower()} block)")
     return np.asarray(t0, float), np.stack([np.asarray(v, float) for _, v in series], 1) if len(t0) else \
         np.empty((0, len(cols)))
+
+
+def _fin_radians(spec: IngestSpec, x: np.ndarray) -> np.ndarray:
+    f = spec.fins
+    if f.unit == "deg":
+        return np.radians(x)
+    if f.unit == "rad":
+        return x
+    if f.unit == "percent":
+        return np.radians(x / 100.0 * f.full_scale_deg)
+    return np.radians((x - f.pwm_center_us) / f.pwm_us_per_deg)
+
+
+def _actuator_channels(spec: IngestSpec, df, path: str, report: dict) -> tuple:
+    """(column names, (n, k) values) of the fins and the rest, in SI units, signed so positive turns to starboard, lifts the nose
+    and rolls to starboard. Kept as logged channels: the vehicle description mixes them to each fin when a run loads."""
+    names, cols = [], []
+    f = spec.fins
+    if f is not None:
+        prefix = "fin_" if f.source == "measured" else "fincmd_"
+        for ch, col in f.channels.items():
+            if not re.fullmatch(r"[A-Za-z0-9_]+", ch):
+                raise IngestError(f"{path}: fin channel {ch!r}: use letters, digits and _")
+            x = _fin_radians(spec, _col(df, col, path))
+            if len(x) and np.nanmax(np.abs(x)) > np.radians(90):
+                raise IngestError(f"{path}: fin channel {ch} ({col}) reaches {np.degrees(np.nanmax(np.abs(x))):.0f} deg: check "
+                                  f"its unit (it's read as {f.unit})")
+            flip = ((ch == "rudder" and f.positive_turns == "port") or (ch == "elevator" and f.positive_pitches == "nose_down")
+                    or (ch == "aileron" and f.positive_rolls == "port"))
+            names.append(prefix + ch)
+            cols.append(-x if flip else x)
+        report["fin_angles"] = {"source": f.source, "channels": sorted(f.channels), "unit": f.unit}
+    if spec.propeller is not None:
+        k = {"rpm": 1.0, "rad_s": 60 / (2 * np.pi), "rev_s": 60.0}[spec.propeller.unit]
+        names.append("rpm")
+        cols.append(_col(df, spec.propeller.column, path) * k)
+    if spec.gimbal is not None:
+        k = np.pi / 180 if spec.gimbal.unit == "deg" else 1.0
+        names += ["gimbal_y", "gimbal_z"]
+        cols += [_col(df, spec.gimbal.y, path) * k, _col(df, spec.gimbal.z, path) * k]
+    if spec.moving_mass is not None:
+        names.append("moving_mass")
+        cols.append(_col(df, spec.moving_mass.column, path) * {"m": 1.0, "cm": .01, "mm": .001}[spec.moving_mass.unit])
+    if spec.buoyancy_engine is not None:
+        names.append("buoyancy_change")
+        cols.append(_col(df, spec.buoyancy_engine.column, path) * {"N": 1.0, "litre": 9.81}[spec.buoyancy_engine.unit])
+    return names, (np.stack(cols, 1) if cols else None)
+
+
+MIN_FIN_SWING_RAD = np.radians(1.0)   # a fin moved less than this tells nothing about its sign
+MIN_SPEED_FOR_FINS_MPS = 0.3
+FIN_REVERSED_CORRELATION = -0.3
+
+
+def fin_direction(t, rate: np.ndarray, angle: np.ndarray, moving: np.ndarray, word: str, key: str) -> dict:
+    """Does a positive angle do what the spec says? A fin's angle against the rate it causes, at the short lag that fits best.
+    Whatever else turns the vehicle, a reversed sign shows as a clearly negative correlation."""
+    a, r = angle[moving], rate[moving]
+    if len(a) < 30 or float(np.std(a)) < MIN_FIN_SWING_RAD or float(np.std(r)) < 1e-4:
+        return {"note": f"the {word} barely moved at speed: its sign can't be checked"}
+    dt = float(np.median(np.diff(t)))
+    best = 0.0
+    for lag in range(0, max(1, int(round(3.0 / max(dt, 1e-3)))) + 1):
+        c = float(np.corrcoef(a[:len(a) - lag or None], r[lag:])[0, 1])
+        if abs(c) > abs(best):
+            best = c
+    out = {"correlation": round(best, 3)}
+    if best < FIN_REVERSED_CORRELATION:
+        out["problem"] = (f"the {word} looks reversed (a positive angle goes with the opposite motion, correlation {best:.2f}): "
+                          f"flip {key} in the fins: block, or check the channel")
+    return out
 
 
 def _sensor_channel(spec: IngestSpec, b, t_n, v, path, report) -> dict:
@@ -821,7 +989,10 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     if lin is not None and vel.linear_frame == "world":
         lin = np.einsum("nji,nj->ni", R, lin)  # R maps body to world, so R^T takes world velocity to body
         report["velocity_rotated_from_world_frame"] = True
-    if spec.wrench.columns is not None:
+    if spec.wrench is None:
+        wrench = np.zeros((n, 6))
+        report["wrench_source"] = "none logged: the fins and propeller drive it, worked out in the physics"
+    elif spec.wrench.columns is not None:
         wc = spec.wrench.columns
         wrench = np.stack([_col(df, wc[k], path) for k in ("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")], 1)
         report["wrench_source"] = "logged forces"
@@ -889,7 +1060,7 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
             lin = lin @ FLU_TO_FRD
         if ang is not None:
             ang = ang @ FLU_TO_FRD
-        if spec.wrench.columns is not None:  # PWM-derived wrenches are already FRD
+        if spec.wrench is not None and spec.wrench.columns is not None:  # PWM-derived wrenches are already FRD
             wrench = np.hstack([wrench[:, :3] @ FLU_TO_FRD, wrench[:, 3:] @ FLU_TO_FRD])
         R = ENU_TO_NED @ R @ FLU_TO_FRD
     for p in spec.positions():
@@ -928,10 +1099,11 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
             vb = vb @ mounts["lin"].T
         dvl_kept = {"_t": tb, "_v": vb, "native": si.native_stats(tb, vb)}
 
+    act_names, act_cols = _actuator_channels(spec, df, path, report)
     names = ["Fx", "Fy", "Fz", "Tx", "Ty", "Tz"] + (["Bu", "Bv", "Bw"] if lin is not None else []) + \
-        (["Bp", "Bq", "Br"] if ang is not None else []) + ["qx", "qy", "qz", "qw"]
+        (["Bp", "Bq", "Br"] if ang is not None else []) + act_names + ["qx", "qy", "qz", "qw"]
     data = np.hstack([wrench] + ([lin] if lin is not None else []) + ([ang] if ang is not None else [])
-                     + [Rotation.from_matrix(R).as_quat()])
+                     + ([act_cols] if act_names else []) + [Rotation.from_matrix(R).as_quat()])
     drop = np.zeros(len(data), dtype=bool)
     for rule in spec.exclude_samples:
         x = _col(df, rule.column, path)
@@ -957,6 +1129,9 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
         # t[0] + k / rate rather than np.arange(t[0], ...), which drifts at Unix-epoch magnitudes
         grid = t[0] + np.arange(int(np.ceil((t[-1] - t[0]) * spec.resample_hz - 1e-9))) / spec.resample_hz
         cols = [np.interp(grid, t, data[:, j]) for j in range(data.shape[1] - 4)]
+        for j, c in enumerate(names[:-4]):   # a command holds until the next one
+            if c.startswith("fincmd_"):
+                cols[j] = data[np.clip(np.searchsorted(t, grid, side="right") - 1, 0, len(t) - 1), j]
         from rosbag_reader import slerp  # orientation: spherical interpolation, valid across sudden jumps
         data = np.hstack([np.stack(cols, 1), slerp(t, data[:, -4:], grid)])
         drop = np.interp(grid, t, drop.astype(float)) > 0  # a grid sample next to a dropped one is dropped too
@@ -1056,6 +1231,15 @@ def _sensor_checks(spec: IngestSpec, out: pd.DataFrame, t, R, gyro_logged: bool,
     in skip_checks; the numbers are kept in the report either way."""
     import sensor_ingest as si
     checks = {}
+    if spec.fins is not None and gyro_logged:
+        prefix = "fin_" if spec.fins.source == "measured" else "fincmd_"
+        speed = out["rpm"].to_numpy() > 1 if "rpm" in out.columns else np.ones(len(out), dtype=bool)
+        if "Bu" in out.columns:
+            speed = np.nan_to_num(out["Bu"].to_numpy()) > MIN_SPEED_FOR_FINS_MPS
+        for ch, rate, word, key in (("rudder", "Br", "rudder", "positive_turns"), ("elevator", "Bq", "elevator", "positive_pitches")):
+            if prefix + ch in out.columns:
+                checks.setdefault("fin_direction", {})[ch] = fin_direction(t, out[rate].to_numpy(), out[prefix + ch].to_numpy(),
+                                                                           speed, word, key)
     if gyro_logged:
         checks["gyro_vs_orientation"] = si.gyro_vs_orientation(t, R, out[["Bp", "Bq", "Br"]].to_numpy())
     if "acc_x" in out.columns:
@@ -1101,7 +1285,7 @@ def torque_reference_for(spec: IngestSpec) -> Optional[list]:
     ingest spec determines it: the BlueROV2 preset reproduces the reference dataset's torque point
     (8.5 cm below the thrusters); a layout or allocation file gives torques about the point its
     positions are measured from (offset 0). Logged forces: unknown here (None = vehicle_spec.yaml)."""
-    if spec.wrench.thrusters is None:
+    if spec.wrench is None or spec.wrench.thrusters is None:
         return None
     return [float(x) for x in _thruster_config(spec).torque_reference_offset_m]
 
@@ -1342,7 +1526,7 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
             f"{'those axes' if len(sens['axes_not_seen']) > 1 else 'that axis'}): calibration can't learn "
             f"{'their' if len(sens['axes_not_seen']) > 1 else 'its'} drag or added mass from these logs and keeps "
             f"your vehicle description's values (calibration/SENSORS.md)")
-    unreach = _thruster_config(spec).unreachable_axes() if spec.wrench.thrusters is not None else []
+    unreach = _thruster_config(spec).unreachable_axes() if spec.wrench is not None and spec.wrench.thrusters is not None else []
     fd = force_direction_check([velocity_proxies(f, rates[0]) for f in frames], unreach)
     if "dvl" not in sens["have"]:
         fd["velocity_from"] = "position fixes and depth (no DVL)"
@@ -1372,7 +1556,7 @@ def ingest(spec: IngestSpec, out_dir: str) -> dict:
             f"every recording is from one session ({next(iter(counters))}). Calibration will hold out recordings "
             f"within it (or the last part of a single recording), which is an easier check than a session it never "
             f"saw: record a second session for the honest number (calibration/ONE_SESSION.md)")
-    if spec.wrench.thrusters is not None:
+    if spec.wrench is not None and spec.wrench.thrusters is not None:
         import thruster_model as tm
         cfg = _thruster_config(spec)
         summary["thrusters"] = tm.describe(cfg) + ("; thrust rescaled to each sample's logged voltage "

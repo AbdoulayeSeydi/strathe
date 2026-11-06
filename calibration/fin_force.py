@@ -41,6 +41,7 @@ class Fin:
     stall_rad: float = 0.35
     oswald: float = 0.7
     limit_rad: float = 0.6      # the servo's end stop
+    sign: float = 1.0           # per-fin logged angles: -1 when positive in the log lifts away from span x chord
     chord_axis: tuple = (1.0, 0.0, 0.0)
 
 

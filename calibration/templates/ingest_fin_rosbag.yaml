@@ -1,0 +1,26 @@
+# Ingest spec: a FIN-STEERED vehicle's ROS bags. Read FINS.md first.
+# Change the names on the right to yours, then:
+#     python strathe.py calibrate --ingest-spec this_file.yaml --spec my_vehicle_spec.yaml --name my_auv
+# The vehicle description says `steering: fin`: templates/vehicle_spec_fin_template.yaml.
+
+vehicle: my_auv
+source:
+  format: rosbag
+  files: "bags/*"
+resample_hz: 10
+session_date: {from: recording}
+frame: flu
+body_velocity:
+  columns: {u: /dvl/twist.twist.linear.x, v: /dvl/twist.twist.linear.y, w: /dvl/twist.twist.linear.z,
+            p: /imu/data.angular_velocity.x, q: /imu/data.angular_velocity.y, r: /imu/data.angular_velocity.z}
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  quaternion: {x: /imu/data.orientation.x, y: /imu/data.orientation.y, z: /imu/data.orientation.z, w: /imu/data.orientation.w}
+fins:
+  source: measured             # measured: what the fins did. commanded: what they were told (the servo's lag is then applied)
+  unit: rad                     # deg | rad | percent (with full_scale_deg) | pwm_us (with pwm_us_per_deg)
+  channels: {rudder: /fins/state.rudder, elevator: /fins/state.elevator}    # or one per fin, by the name in the vehicle description
+  positive_turns: starboard     # which way a positive rudder turns the vehicle: the logs are checked against this
+  positive_pitches: nose_up
+propeller: {column: /thruster/state.rpm, unit: rpm}

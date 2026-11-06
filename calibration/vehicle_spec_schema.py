@@ -142,6 +142,20 @@ class AddedMassCoupling(BaseModel):
     Mr_dot: Optional[CalibrationParam] = None
 
 
+class FinTargets(BaseModel):
+    """Optional (fin_force.py, #97): the fit's fin values, under calibration_targets.fins. Any not listed are held."""
+    fin_lift_slope_a: Optional[CalibrationParam] = None
+    fin_lift_slope_b: Optional[CalibrationParam] = None
+    fin_inflow_a: Optional[CalibrationParam] = None
+    fin_inflow_b: Optional[CalibrationParam] = None
+    fin_drag0: Optional[CalibrationParam] = None
+    fin_bias_roll: Optional[CalibrationParam] = None
+    fin_bias_pitch: Optional[CalibrationParam] = None
+    fin_bias_yaw: Optional[CalibrationParam] = None
+    fin_servo_T: Optional[CalibrationParam] = None
+    thrust_scale: Optional[CalibrationParam] = None
+
+
 class ThrusterDynamics(BaseModel):
     """Optional (PROJECT_STATUS.md #66): without it the thruster lag is held at 0."""
     thruster_time_constant_s: CalibrationParam
@@ -153,6 +167,7 @@ class CalibrationTargets(BaseModel):
     quadratic_damping: QuadraticDamping
     added_mass_diag: AddedMassDiag
     added_mass_coupling: Optional[AddedMassCoupling] = None
+    fins: Optional[FinTargets] = None
     buoyancy: Buoyancy
     thruster_dynamics: Optional[ThrusterDynamics] = None
     hull_lift: Optional[HullLift] = None
@@ -160,6 +175,7 @@ class CalibrationTargets(BaseModel):
 
 class Vehicle(BaseModel):
     name: str
+    steering: Literal["hover", "fin", "vectored", "hybrid", "glider"] = "hover"   # steering.py, FINS.md
 
 
 class Environment(BaseModel):
@@ -224,6 +240,10 @@ class VehicleSpec(BaseModel):
     optimization: OptimizationConfig
     validation: ValidationConfig
     sensors: Optional[dict[str, SensorMount]] = None
+    fins: Optional[dict] = None             # steering.actuators_from checks these
+    propeller: Optional[dict] = None
+    moving_mass: Optional[dict] = None
+    buoyancy_engine: Optional[bool] = None
 
 
 def load_and_validate(yaml_path: str) -> VehicleSpec:

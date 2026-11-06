@@ -243,7 +243,8 @@ def main(argv=None) -> int:
             late = {k: d["applied_s"] for k, d in ((json.load(f).get("sensor_suite") or {}).get("fix_delays")
                                                     or {}).items() if "applied_s" in d}
     dc = DatasetConfig(float(rate), tuple(offset), None, sensors=tuple(args.sensors), lever_arms=_sensor_mounts(spec),
-                       sensor_noise=noise, fix_delays=tuple((k, v) for k, v in sorted(late.items()) if v) or None)
+                       sensor_noise=noise, fix_delays=tuple((k, v) for k, v in sorted(late.items()) if v) or None,
+                       actuators=spec.vehicle.actuators)
     print(f"Estimating the current in {len(files)} recording(s) at {rate:g} Hz with {label}...", flush=True)
     rows = estimate_currents(files, params, spec.vehicle, dc, args.workers)
     for r in rows:

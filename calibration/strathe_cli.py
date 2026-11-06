@@ -39,6 +39,7 @@ specialists can run on its own.
 from __future__ import annotations
 
 import argparse
+import glob
 import importlib
 import json
 import os
@@ -141,6 +142,27 @@ def default_spec_warning(spec_arg: str, ingest_spec: Optional[str], data: Option
             f"first: copy calibration/templates/vehicle_spec_template.yaml, fill in its mass and size, and add "
             f"--spec my_vehicle_spec.yaml (LAB_GUIDE.md step 4). A mismatched description fits poorly and can make "
             f"the simulation blow up.")
+
+
+def _steering_line(spec_path: str, data: Optional[str]) -> int:
+    """Says what kind of vehicle this is before anything runs; 2 if the description and the logs disagree."""
+    import yaml
+    import steering
+    try:
+        with open(_abs(spec_path), encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        print(steering.banner(raw), flush=True)
+        steering.actuators_from(raw)
+        files = sorted(glob.glob(os.path.join(data, "**", "*.csv"), recursive=True)) if data else []
+        if files:
+            with open(files[0], encoding="utf-8") as f:
+                steering.check_data(raw, f.readline().strip().split(","))
+    except steering.SteeringError as e:
+        print(f"❌ {e}", flush=True)
+        return 2
+    except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError):
+        return 0   # the calibration reads the description itself and reports what's wrong with it
+    return 0
 
 
 def default_workers() -> int:
@@ -589,6 +611,9 @@ def cmd_calibrate(args, runner=None) -> int:
                                 None if args.ingest_spec else data)
     if warn:
         print(warn, flush=True)
+    refusal = _steering_line(args.spec, None if args.ingest_spec else data)
+    if refusal:
+        return refusal
 
     import secrets
     restarts = getattr(args, "restarts", 1)
