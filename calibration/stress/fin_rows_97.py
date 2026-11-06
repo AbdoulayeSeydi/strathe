@@ -355,6 +355,7 @@ PARAMS = {"P-bias-roll": ("fin_bias_roll", .03, -.1, .1, {}), "P-bias-pitch": ("
           "P-servo-T": ("fin_servo_T", .5, 0.0, 2.0, {"commanded": True}), "P-inflow-a": ("fin_inflow_a", .8, 0.0, 1.2, {}), "P-inflow-b": ("fin_inflow_b", .8, 0.0, 1.2, {}),
           "P-drag0": ("fin_drag0", .05, 0.0, .3, {})}
 RECOVER.update({k: dict(platform="remus100", param=v[:4], **v[4]) for k, v in PARAMS.items()})
+RECOVER["P-position-fixes"] = dict(platform="remus100", fixes=True)   # no DVL: speed from a USBL's fixes at 1 Hz; RECOVER_NOISY, as velocity is estimated
 
 
 def _platform_spec(path: str, o: dict) -> dict:
@@ -418,6 +419,11 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
                 df[c] = nu[:, i] + (rng.normal(0, _bars().GRADE[c] * o.get("noise", 0), n) if o.get("noise") else 0)
             for i, c in enumerate(("qx", "qy", "qz", "qw")):
                 df[c] = q[:, i]
+            if o.get("fixes"):
+                world = np.cumsum(Rotation.from_quat(q).apply(nu[:, :3]) * .1, axis=0)
+                for i, c in enumerate("ned"):
+                    df[f"pos_usbl_{c}"] = np.where(np.arange(n) % 10 == 0, world[:, i], np.nan)
+                df = df.drop(columns=["Bu", "Bv", "Bw"])
             df.to_csv(f"{out}/p-{date}-run{run}.csv", index=False)
 
 
@@ -442,7 +448,7 @@ def run_recover_row(row: str) -> bool:
     fixed = {k: v for k, v in fixed.items() if s.flat_calibration_targets[k]["bounds"][0] < s.flat_calibration_targets[k]["bounds"][1]}
     cc = CalibrationConfig(max_nfev=15, seed=3, initialization_strategy="fixed", ftol=1e-7, xtol=1e-7, gtol=1e-7, fixed_params=fixed, horizon_samples=50)
     cfg = PipelineConfig(data_dir=d + "/data", spec_path=spec, output_dir=d + "/fit", sampling_rate_hz=10.0, heldout_dates=["02-10-2026"], heldout_fraction=.5,
-                         calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), sensors=("velocity",))
+                         calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), sensors=("auto",) if o.get("fixes") else ("velocity",))
     try:
         run_pipeline(cfg)
     except Exception as e:
@@ -456,7 +462,7 @@ def run_recover_row(row: str) -> bool:
         errs["a"] = abs(p["fin_lift_slope_a"] / ta - 1)
     if "fin_lift_slope_b" in free:
         errs["b"] = abs(p["fin_lift_slope_b"] / tb - 1)
-    bar = _bars().RECOVER_NOISY if o.get("noise") else _bars().RECOVER_CLEAN
+    bar = _bars().RECOVER_NOISY if o.get("noise") or o.get("fixes") else _bars().RECOVER_CLEAN
     return record(F, row, "recover", o["platform"], "Strathe's own model as the truth: plumbing, not physics", str(o), {**errs, "bars": _bars().BARS_HASH},
                   f"{o['param'][0] if o.get('param') else 'fin lift'} within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
 

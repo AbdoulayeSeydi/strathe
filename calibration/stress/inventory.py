@@ -222,7 +222,62 @@ def variables_96() -> list:
     return rows
 
 
-FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95, "96": variables_96}
+def _raises(path: str) -> list:
+    """Each `raise` in a module, as function-k: a new refusal needs its row."""
+    out = []
+    for fn in ast.walk(_tree(path)):
+        if isinstance(fn, ast.FunctionDef):
+            n = sum(isinstance(x, ast.Raise) for x in ast.walk(fn))
+            out += [f"{fn.name}-{k}" for k in range(1, n + 1)]
+    return out
+
+
+def _spec_keys() -> list:
+    """Every key steering.py reads from a vehicle description, found by reading it."""
+    text = open(os.path.join(CAL, "steering.py"), encoding="utf-8").read()
+    a, b = text.index("def _preset"), text.index("def logged_channels")
+    return sorted(set(re.findall(r'(?:\.get\(|\[)"([a-z_0-9]+)"', text[a:b])))
+
+
+def variables_97() -> list:
+    """Fin Steer: what steers a vehicle and every layout, every key a description's fins, propeller and the rest take, every fin and mass
+    calibration target, the options that bring them in, each log format's ways of stating a channel, each simulator, every refusal and the
+    constants that decide things."""
+    import dynamics_model as dm
+    import simfit.convert as conv
+    import simfit.runner as runner
+    import steering as st
+    import stonefish_export
+    import stonefish_fit
+    import strathe_cli as cli
+    import vehicle_describe as vd
+    from vehicle_spec_schema import FinTargets
+    rows = [("97", f"steering:{v}", "vehicle.steering", v) for v in st.STEERING]
+    rows += [("97", f"layout:{v}", "fins.layout", v) for v in st.LAYOUTS]
+    rows += [("97", f"key:{k}", "vehicle description key", k) for k in _spec_keys()]
+    rows += [("97", f"target:{k}", "fin calibration target", k) for k in FinTargets.model_fields]
+    rows += [("97", f"mass:{n}", "mass matrix entry", n) for _, _, n in dm.MASS_COUPLINGS]
+    rows += [("97", f"refusal:{k}", "a refusal in steering.py", k) for k in _raises("steering.py")]
+
+    def flags(parser, keep):
+        return [a.option_strings[0] for a in parser._actions if a.option_strings and keep(a.option_strings)]
+    fin_flag = lambda o: any(x.startswith(("--steering", "--fin", "--propeller", "--kt")) for x in o)   # noqa: E731
+    spec_flag = lambda o: "--spec" in o or "--fin-spec" in o   # noqa: E731
+    rows += [("97", f"option:describe-vehicle{f}", "describe-vehicle option", f) for f in flags(vd.build_parser(add_help=False), fin_flag)]
+    sub = next(a for a in cli.build_parser()._actions if a.__class__.__name__ == "_SubParsersAction")
+    rows += [("97", f"option:fin-check{f}", "fin-check option", f) for f in flags(sub.choices["fin-check"], lambda o: o[0].startswith("--") and o[0] != "--help")]
+    for name, parser in (("fit-stonefish", stonefish_fit.build_parser()), ("export-stonefish", stonefish_export.build_parser()), ("convert-sim", conv.build_parser())):
+        rows += [("97", f"option:{name}{f}", "simulator option", f) for f in flags(parser, spec_flag)]
+    rows += [("97", "option:fit-sim--fit=fins", "fit-sim value", "fins"), ("97", "option:fit-sim--spec", "simulator option", "--spec"), ("97", "option:export-sim--spec", "simulator option", "--spec")]
+    rows += [("97", f"const:{k}", "a constant that decides something", k) for k in ("MIN_FIN_MANOEUVRES", "FIN_WINDOW_S", "STALL_BAND_RAD", "STALLED_CN", "MIN_TURNING_RAD_S")]
+    rows += [("97", f"engine:{k}", "simulator", k) for k in ("gazebo", "stonefish", "holoocean", "mujoco", "external")]
+    rows += [("97", f"experiment:{k}", "experiment", k) for k in ("arena", "fleet", "train-fleet")]
+    web = open(os.path.join(CAL, "strathe_web.py"), encoding="utf-8").read()
+    rows += [("97", f"web:{n}", "web field", n) for n in ("steering", "fins", "fin_x", "fin_radius", "fin_area", "fin_span", "propeller_diameter", "kt0") if f"name={n}" in web]
+    return rows
+
+
+FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95, "96": variables_96, "97": variables_97}
 
 
 def inventory(features=None) -> list:

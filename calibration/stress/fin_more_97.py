@@ -663,8 +663,10 @@ def run_key(row: str) -> bool:
         for v in values:
             r = copy.deepcopy(_full_raw())
             put(r, v)
-            moved.append(float(np.abs(_probe(r) - base).max()))
-            worst = max(worst, _oracle_agrees(r))
+            now = _probe(r)
+            moved.append(float(np.abs(now - base).max()) if now.shape == base.shape else math.inf)   # a key can add or remove a control column
+            if key != "stall_deg":      # the independent fin is written below stall only
+                worst = max(worst, _oracle_agrees(r))
     except Exception as e:
         err = f"{type(e).__name__}: {e}"[:200]
     ok = err is None and all(m > 1e-9 for m in moved) and worst <= R.PATHS_AGREE * 1e3
