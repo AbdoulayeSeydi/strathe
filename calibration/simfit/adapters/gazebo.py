@@ -25,6 +25,7 @@ import tempfile
 import numpy as np
 
 from dynamics_model import MASS_COUPLINGS
+from simfit.fin_models import fin_notes, lifts_for_export, require_actuators
 from simfit.core import SimFitError
 from simfit.editors import XmlFile, _parse_xml, fmt_number
 from simfit.knobs import KnobSpec
@@ -40,6 +41,7 @@ STRATHE_LIN = ("Xu", "Yv", "Zw", "Kp", "Mq", "Nr")
 STRATHE_QUAD = ("Xuu", "Yvv", "Zww", "Kpp", "Mqq", "Nrr")
 TIES = {"y": "yz", "z": "yz", "m": "mn", "n": "mn"}  # --axisymmetric: sway = heave, pitch = yaw
 # a fin's lift slope, inside a LiftDrag plugin
+LIFTDRAG_FIN = re.compile(r"<plugin\b[^>]*LiftDrag[^>]*>(?:(?!</plugin>).)*?</plugin>", re.S)   # one plugin; each is on link fin_<name>_link
 LIFTDRAG_CLA = re.compile(r"(<plugin\b[^>]*LiftDrag[^>]*>(?:(?!</plugin>).)*?<cla>)\s*([^<\s]+)\s*(</cla>)", re.S)
 
 
@@ -173,6 +175,9 @@ class GazeboAdapter:
             for key, v in (layer or {}).items():
                 if key == "fin_cla":
                     ed = XmlFile(LIFTDRAG_CLA.sub(lambda m: f"{m.group(1)}{fmt_number(float(v))}{m.group(3)}", ed.text))
+                elif key.startswith("fin_cla:"):   # an export: one fin's, as rudders and elevators differ
+                    link = f"<link_name>fin_{key[8:]}_link</link_name>"
+                    ed = XmlFile(LIFTDRAG_FIN.sub(lambda m: re.sub(r"<cla>[^<]*</cla>", f"<cla>{fmt_number(float(v))}</cla>", m.group(0)) if link in m.group(0) else m.group(0), ed.text))
                 elif key in defs:
                     ed.set(defs[key][0], float(v) * defs[key][1])
                 elif key == "buoyancy_scale":
@@ -455,6 +460,8 @@ class GazeboAdapter:
                 old = float(LIFTDRAG_CLA.search(self.model_text).group(2))
                 if abs(old - float(v)) > 1e-12 * max(1.0, abs(old)):
                     L.append(f"- fin lift slope: {fmt_number(old)} -> {fmt_number(float(v))} (`cla` in each fin's LiftDrag plugin)")
+            elif key.startswith("fin_cla:"):
+                L.append(f"- fin {key[8:]} lift slope: {fmt_number(float(v))} (`cla` in its LiftDrag plugin)")
             elif key in defs:
                 old = orig.get(defs[key][0])
                 new = float(v) * defs[key][1]
@@ -552,6 +559,16 @@ class GazeboAdapter:
                          f"from the centre of mass (at the logs' reference point, as in Strathe's model).")
         if params.thruster_time_constant_s:
             notes.append(f"Thruster lag ({params.thruster_time_constant_s:.2f} s) not carried: set it on your thrusters.")
+        act = getattr(train[0], "actuators", None) if train else None
+        require_actuators(params, act, "--spec")
+        if act is not None and act.fins:
+            areas = {}
+            for m in LIFTDRAG_FIN.finditer(self.model_text):
+                name, area = re.search(r"<link_name>fin_(.+?)_link</link_name>", m.group(0)), re.search(r"<area>\s*([^<\s]+)", m.group(0))
+                if name and area:
+                    areas[name.group(1)] = float(area.group(1))
+            v.update({f"fin_cla:{k}": x for k, x in lifts_for_export(act, params, areas, "Gazebo").items()})
+            notes += fin_notes(params, "each fin's LiftDrag plugin")
         return v, notes
 
 

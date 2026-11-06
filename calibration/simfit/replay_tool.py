@@ -23,6 +23,7 @@ import json
 import os
 import shlex
 import shutil
+import tempfile
 import subprocess
 from dataclasses import dataclass, field
 from typing import Optional
@@ -76,6 +77,14 @@ def read_predictions(path: str, rows_by_window: list) -> list:
         arr[:len(g)] = g
         out.append((arr[:, :6], arr[:, 6:]))
     return out
+
+
+def fresh_paths(work_dir: str) -> tuple:
+    """A replay's input and output, at paths no earlier replay used. A file rewritten at the same path with a new size can reach a container
+    at its old size through Colima's file share (measured: 8 of 12), which cuts its last rows off."""
+    os.makedirs(work_dir, exist_ok=True)
+    d = tempfile.mkdtemp(prefix="replay_", dir=work_dir)
+    return os.path.join(d, "windows.csv"), os.path.join(d, "pred.csv")
 
 
 def why_failed(r) -> str:
@@ -171,7 +180,7 @@ class ReplayTool:
         if getattr(rows_by_window, "fins", ()) and not self.takes_fins():
             raise SimFitError(f"the {self.name} replay tool doesn't take fin angles: its --features must say \"fins\": true and it "
                               f"must apply fin_<name> columns (calibration/simulators/SIMULATOR_PROTOCOL.md)")
-        fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
+        fin, fout = fresh_paths(work_dir)
         write_windows(fin, rows_by_window)
         io = ["--windows", fin, "--out", fout]
         r = self._call(self._argv(model, (os.path.abspath(work_dir),))

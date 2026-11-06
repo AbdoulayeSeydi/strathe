@@ -308,7 +308,7 @@ def test_other_actuators_are_prepared_in_si(tmp_path):
     df, _ = _run(tmp_path, skip_checks=["fin_direction"], **t)
     assert abs(df["gimbal_z"]).max() == pytest.approx(math.radians(10), rel=.01)
     assert abs(df["moving_mass"]).max() == pytest.approx(.002, rel=.01)
-    assert abs(df["buoyancy_change"]).max() == pytest.approx(2 * 9.81, rel=.01)
+    assert abs(df["buoyancy_change"]).max() == pytest.approx(2 * 1025 * 9.81 / 1000, rel=.001)   # a litre of seawater's lift
 
 
 def test_the_report_opens_with_the_vehicle_type(tmp_path):

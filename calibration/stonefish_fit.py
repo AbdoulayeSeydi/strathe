@@ -116,6 +116,7 @@ class PartSettings:
     # {"linear": [Xu, Yv, Zw], "linear_rot": [Kp, Mq, Nr], "quadratic": [Xuu, ...], "quadratic_rot": [...], "point": xyz}
     axis_damping: Optional[dict] = None
     fin_lift: Optional[float] = None         # every rudder actuator's lift_coeff (fins: FINS.md)
+    fin_lifts: Optional[dict] = None         # or each one's, by actuator name: an export, where rudders and elevators differ
 
 
 def _search(pattern: str, text: str):
@@ -147,7 +148,7 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
     if base is None or top is None:
         return top if base is None else base
     out = PartSettings(**base.__dict__)
-    for k in ("fin_lift", "quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
+    for k in ("fin_lift", "fin_lifts", "quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
         if getattr(top, k) is not None:
             setattr(out, k, getattr(top, k))
     if top.added_mass is not None:
@@ -167,6 +168,9 @@ def _fmt(v) -> str:
 
 def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Optional[str] = None) -> str:
     """The scenario text with the tuned part (and the buoyancy part) changed; everything else untouched."""
+    for name, lift in (s.fin_lifts or {}).items():
+        text = re.sub(rf'(<actuator\b[^>]*name="{re.escape(name)}"[^>]*>(?:(?!</actuator>).)*?<specs\b[^>]*\blift_coeff=")[^"]+(")',
+                      lambda m: f"{m.group(1)}{lift:.9g}{m.group(2)}", text, flags=re.S)
     if s.fin_lift is not None:
         text = RUDDER_LIFT.sub(lambda m: f"{m.group(1)}{s.fin_lift:.9g}{m.group(3)}", text)
     span = _part_span(text, part)
@@ -355,8 +359,8 @@ class Replay:
     def run(self, scenario: str, rows_by_window: list, work_dir: str) -> list:
         """[(V (n,6), Q (n,4))] per window; NaN where Stonefish diverged."""
         os.makedirs(work_dir, exist_ok=True)
-        fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
-        from simfit.replay_tool import write_windows
+        from simfit.replay_tool import fresh_paths, write_windows
+        fin, fout = fresh_paths(work_dir)
         write_windows(fin, rows_by_window)
         try:
             io = ["--windows", fin, "--out", fout]
@@ -568,6 +572,8 @@ def run_fit_stonefish(a) -> int:
             rho = training_density(split.train_groups, densities, measure(None).get("water_density") or 1025.0)
             from_strathe = export_settings(sp, smass, measure, a.part, a.buoyancy_part, rho,
                                            [axis_speeds(train, i) for i in range(3)])
+            from stonefish_export import carry_fins
+            carry_fins(from_strathe, sp, getattr(train[0], "actuators", None), scenario)
             scenario.base = from_strathe.settings
             a.compare_params, a.compare_mass = a.compare_params or pfile, a.compare_mass or smass
             print(f"Starting from {pfile}'s values, converted into Stonefish's settings (mass {smass:g} kg).", flush=True)
@@ -694,7 +700,7 @@ def run_fit_stonefish(a) -> int:
             doc = yaml.safe_load(open(a.compare_params, encoding="utf-8"))
             p = CalibrationParameters(**doc["parameters"])
             mass = a.compare_mass or doc.get("vehicle_mass_kg") or info["base"]["mass"]
-            results["Strathe's own model"] = score(runs_wins, [[strathe_free_run(p, VehicleConstants(mass), run, a_, n)
+            results["Strathe's own model"] = score(runs_wins, [[strathe_free_run(p, VehicleConstants(mass, actuators=getattr(run, "actuators", None)), run, a_, n)
                                                                 for a_, n in wins] for run, wins in runs_wins])
         results.update(baselines(runs_wins))
 

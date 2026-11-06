@@ -201,3 +201,76 @@ def test_a_data_folder_inside_the_image_isnt_mounted_over(tmp_path, monkeypatch)
     rp = sf.Replay(["docker:img"], "/not/on/this/host", "auv", (0, 0, 0))
     argv = rp._argv(str(tmp_path / "a.scn"))
     assert not any("/not/on/this/host:" in a for a in argv)
+
+
+def _gazebo_with_fins(tmp_path, area_scale=1.0):
+    from simfit.adapters.gazebo import GazeboAdapter
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0)
+    a = FULL.fins[0].area_m2
+    plugins = plugins.replace(f"<area>{a:.6g}</area>", f"<area>{a * area_scale:.6g}</area>")
+    world = tmp_path / "w.sdf"
+    world.write_text(f"""<?xml version="1.0"?><sdf version="1.11"><world name="w"><model name="v">
+      <link name="base_link"><inertial><mass>30</mass><inertia><ixx>1</ixx><iyy>1</iyy><izz>1</izz></inertia></inertial></link>{links}
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics"><link_name>base_link</link_name><xU>-5</xU></plugin>
+      {plugins}</model></world></sdf>""")
+    return GazeboAdapter(str(world), link="base_link")
+
+
+def _lifted(a=3.0, b=5.0):
+    from types import SimpleNamespace as N
+    return N(fin_lift_slope_a=a, fin_lift_slope_b=b, fin_inflow_a=.4, fin_inflow_b=.5, fin_bias_roll=0.0, fin_bias_pitch=0.0, fin_bias_yaw=0.0)
+
+
+def test_each_fin_gets_its_groups_lift_and_area_keeps_the_force():
+    """#97: export-sim left a fin vehicle's lift out and said nothing."""
+    p = _lifted()
+    full = fm.lifts_for_export(FULL, p, {f.name: f.area_m2 for f in FULL.fins}, "Gazebo")
+    assert all(full[f.name] == pytest.approx(5.0 if f.group else 3.0) for f in FULL.fins)
+    half = fm.lifts_for_export(FULL, p, {f.name: f.area_m2 / 2 for f in FULL.fins}, "Gazebo")
+    assert all(abs(half[k] - 2 * full[k]) < 1e-12 for k in full)
+
+
+def test_a_fin_the_model_lacks_is_refused_by_name():
+    from simfit.core import SimFitError
+    areas = {f.name: f.area_m2 for f in FULL.fins[1:]}
+    with pytest.raises(SimFitError, match=FULL.fins[0].name):
+        fm.lifts_for_export(FULL, _lifted(), areas, "Gazebo")
+
+
+def test_a_fin_calibration_with_no_fins_described_is_refused_not_dropped():
+    from simfit.core import SimFitError
+    with pytest.raises(SimFitError, match="--spec"):
+        fm.require_actuators(_lifted(), None, "--spec")
+    fm.require_actuators(_lifted(0.0, 0.0), None, "--spec")   # a hover calibration: nothing to say
+
+
+def test_gazebo_writes_each_fins_own_lift(tmp_path):
+    ad = _gazebo_with_fins(tmp_path)
+    f0, f1 = FULL.fins[0], next(f for f in FULL.fins if f.group != FULL.fins[0].group)
+    text = ad._edit({f"fin_cla:{f0.name}": 3.25, f"fin_cla:{f1.name}": 5.5})
+    import re
+    got = {re.search(r"fin_(.+?)_link</link_name>", m).group(1): re.search(r"<cla>([^<]+)", m).group(1) for m in re.findall(r"<plugin\b[^>]*LiftDrag.*?</plugin>", text, re.S)}
+    assert got[f0.name] == "3.25" and got[f1.name] == "5.5"
+    assert "lift slope" in "\n".join(ad.changes({f"fin_cla:{f0.name}": 3.25}))
+
+
+def test_stonefish_writes_each_fins_own_lift():
+    from stonefish_fit import PartSettings, apply_part_settings
+    text = fm.stonefish_fins(FULL, "Hull")
+    names = [f.name for f in FULL.fins]
+    out = apply_part_settings(text, "Nope", PartSettings(fin_lifts={f"fin_{names[0]}": 3.25, f"fin_{names[1]}": 5.5}))
+    import re
+    got = dict(re.findall(r'<actuator name="(fin_[^"]+)" type="rudder">\s*<specs lift_coeff="([^"]+)"', out))
+    assert got[f"fin_{names[0]}"] == "3.25" and got[f"fin_{names[1]}"] == "5.5"
+
+
+def test_stonefish_reads_each_rudders_area():
+    from stonefish_export import RUDDER_AREA
+    found = dict(RUDDER_AREA.findall(fm.stonefish_fins(FULL, "Hull")))
+    assert {f"fin_{f.name}" for f in FULL.fins} == set(found)
+    assert abs(float(found[f"fin_{FULL.fins[0].name}"]) - FULL.fins[0].area_m2) < 1e-9
+
+
+def test_no_two_replays_share_a_path(tmp_path):
+    from simfit.replay_tool import fresh_paths
+    assert fresh_paths(str(tmp_path)) != fresh_paths(str(tmp_path))

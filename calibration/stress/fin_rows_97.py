@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import tempfile
 import time
@@ -393,8 +394,8 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
             ctl, cmd = steering.controls_from_frame(df, act)
             if o.get("per_fin"):
                 for i, f in enumerate(act.fins):
-                    df[f"fin_{f.name}"] = ctl[:, i]
-                df = df.drop(columns=["fin_rudder", "fin_elevator"])
+                    df[f"{'fincmd' if o.get('commanded') else 'fin'}_{f.name}"] = ctl[:, i]
+                df = df.drop(columns=[c for c in df if c in ("fin_rudder", "fin_elevator", "fincmd_rudder", "fincmd_elevator")])
             applied = servo_angles(act, ctl, 0.0, .1) if cmd else ctl
             rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
             u0 = o.get("u0", 1.5)
@@ -805,10 +806,10 @@ def _sim_spec(path: str) -> str:
     return path
 
 
-def _sdf(lift: float) -> str:
+def _sdf(lift: float, act=None) -> str:
     from simfit import fin_models as fm
-    links, plugins = fm.sdf_fins(_fin_set(), "base_link", 1000.0)
-    plugins = plugins.replace("<cla>3</cla>", f"<cla>{lift:g}</cla>")
+    links, plugins = fm.sdf_fins(act or _fin_set(), "base_link", 1000.0)
+    plugins = re.sub(r"<cla>[^<]+</cla>", f"<cla>{lift:g}</cla>", plugins)
     return f"""<?xml version="1.0"?>
 <sdf version="1.11"><world name="water">
   <physics name="s" type="dart"><max_step_size>0.01</max_step_size><real_time_factor>0</real_time_factor></physics>
@@ -827,7 +828,7 @@ def _sdf(lift: float) -> str:
 """
 
 
-def _scn(lift: float) -> str:
+def _scn(lift: float, act=None) -> str:
     from simfit import fin_models as fm
     return f"""<?xml version="1.0"?>
 <scenario>
@@ -837,16 +838,16 @@ def _scn(lift: float) -> str:
  <looks><look name="gray" gray="0.3" roughness="0.4"/></looks>
  <robot name="auv" fixed="false" self_collisions="false">
   <base_link name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.3"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/></base_link>
-{fm.stonefish_fins(_fin_set(), "Hull").replace('lift_coeff="3"', f'lift_coeff="{lift:g}"')}
+{re.sub(r'lift_coeff="[^"]+"', f'lift_coeff="{lift:g}"', fm.stonefish_fins(act or _fin_set(), "Hull"))}
   <world_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 20.0"/>
  </robot>
 </scenario>
 """
 
 
-def _mjcf(lift: float) -> str:
+def _mjcf(lift: float, act=None) -> str:
     from simfit import fin_models as fm
-    body = fm.mjcf_fins(_fin_set()).replace('fluidcoef="0.5 0.25 1.5 2.0 0"', f'fluidcoef="0.5 0.25 1.5 {lift:g} 0"')
+    body = fm.mjcf_fins(act or _fin_set()).replace('fluidcoef="0.5 0.25 1.5 2.0 0"', f'fluidcoef="0.5 0.25 1.5 {lift:g} 0"')
     return f"""<mujoco model="fins"><option timestep="0.002" density="1000" viscosity="0.0009" integrator="implicitfast" gravity="0 0 0"/>
   <worldbody><body name="auv" pos="0 0 -3"><freejoint/><inertial pos="0 0 0" mass="30" diaginertia="1 10 10"/>
       <geom name="hull" type="ellipsoid" size="0.6 0.15 0.15" fluidshape="ellipsoid" fluidcoef="0.5 0.25 1.5 0 0" mass="0" contype="0" conaffinity="0"/>

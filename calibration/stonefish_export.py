@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -256,6 +257,20 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
     return e
 
 
+RUDDER_AREA = re.compile(r'<actuator\b[^>]*name="([^"]+)"[^>]*type="rudder"[^>]*>(?:(?!</actuator>).)*?<specs\b[^>]*\barea="([^"]+)"', re.S)
+
+
+def carry_fins(e: Export, params, act, scenario) -> None:
+    """A fin calibration's lift into each rudder actuator. Nothing to do for a hover vehicle; refused rather than left out for a fin one."""
+    from simfit.fin_models import fin_notes, lifts_for_export, require_actuators
+    require_actuators(params, act, "--fin-spec")
+    if act is None or not act.fins:
+        return
+    areas = {n[4:]: float(a) for text in scenario.files().values() for n, a in RUDDER_AREA.findall(text) if n.startswith("fin_")}
+    e.settings.fin_lifts = {f"fin_{k}": v for k, v in lifts_for_export(act, params, areas, "Stonefish").items()}
+    e.notes += fin_notes(params, "Stonefish's Rudder")
+
+
 def load_calibration(path: str, mass: Optional[float] = None) -> tuple:
     """(CalibrationParameters, mass in kg, the yaml's path) from a calibration's output folder or its
     calibrated_parameters.yaml."""
@@ -306,7 +321,7 @@ def run_export(a) -> int:
     os.makedirs(out, exist_ok=True)
     work = tempfile.mkdtemp(prefix="strathe_stonefish_export_")
     try:
-        train, held, split = _load_runs(data, heldout)
+        train, held, split = _load_runs(data, heldout, a.fin_spec)
         replay.dt = (train or held)[0].dt
         densities = dict((d, float(r)) for d, r in (kv.split("=", 1) for kv in (a.density_by_date or [])))
         counter = {"n": 0}
@@ -319,6 +334,7 @@ def run_export(a) -> int:
               f"(mass {mass:g} kg, water {rho:g} kg/m³)...", flush=True)
         e = export_settings(params, float(mass), measure, a.part, a.buoyancy_part, rho,
                             [axis_speeds(train or held, i) for i in range(3)], a.reference_point)
+        carry_fins(e, params, getattr((train or held)[0], "actuators", None), scenario)
         s = e.settings
         vehicle_out = os.path.join(out, os.path.splitext(os.path.basename(scenario.vehicle_file))[0] + "_strathe.scn")
         scenario.write_calibrated_vehicle(vehicle_out, s)
@@ -338,7 +354,7 @@ def run_export(a) -> int:
                                                   densities.get(run.date))
                     preds.append(replay.run(scn, window_rows(run, wins), os.path.join(work, f"eval{m}_run{i}")))
                 results[label] = score(runs_wins, preds)
-            results["Strathe's own model"] = score(runs_wins, [[strathe_free_run(params, VehicleConstants(float(mass)),
+            results["Strathe's own model"] = score(runs_wins, [[strathe_free_run(params, VehicleConstants(float(mass), actuators=getattr(run, "actuators", None)),
                                                                                  run, a_, n) for a_, n in wins]
                                                                for run, wins in runs_wins])
             results.update(baselines(runs_wins))
@@ -513,7 +529,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "m from its origin), e.g. the base_link of your URDF")
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized for the net buoyancy")
     ap.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
-    ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder). With Docker, /src/Tests/Data is the image's own")
+    ap.add_argument("--fin-spec", help="a fin vehicle's description: says what its fin channels mean, and its fins' areas (FINS.md)")
     ap.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")
