@@ -5,6 +5,7 @@ stress/run_97.py -- stress test of Fin Steer (PROJECT_STATUS.md #97): fin-steere
     python stress/run_97.py truth [ROW]   # independent truths: fit with the truth hidden, fly on unseen recordings (hours)
     python stress/run_97.py recover [ROW] # every layout and option through Strathe's own model (plumbing, labelled so)
     python stress/run_97.py real [ROW]    # OOI's REMUS logs (stress/prepare_ooi_97.py) and rudder checks
+    python stress/run_97.py truth-finish ROW   # a truth row whose fit is done: finalize its checkpoint
     python stress/run_97.py sim [ROW]     # every simulator's own physics recovers its own fin lift (Docker, HOLOOCEAN_SRC)
     python stress/run_97.py more [ROW]    # mass entries, vectored, all pairs, layout x source x engine, export, cross engine, the lab's journey
     python stress/run_97.py list
@@ -123,7 +124,8 @@ def judge_flight(v: dict) -> tuple:
     return ok, n
 
 
-def run_truth(row: tuple) -> bool:
+def run_truth(row: tuple, finish: bool = False) -> bool:
+    """finish: the fit is done and its checkpoint is there; only finalize it. A row's hours are in the fit, so a fault after it needn't cost them."""
     import fin_truth as T
     rid, engine, kind, o, bar, what = row
     t0 = time.time()
@@ -136,12 +138,13 @@ def run_truth(row: tuple) -> bool:
         if k in o:
             fly[k] = o[k]
     rate = o.get("rate", 10.0)
-    T.write_set(engine, data, kind, train_s=o.get("train_s", 900.0), rate=rate, **fly)
-    if o.get("noise"):
-        for i, f in enumerate(sorted(os.listdir(data))):
-            _noisy(os.path.join(data, f), o["noise"], 100 + i)
-    spec = T.vehicle_spec(engine, d + "/spec.yaml", o.get("inertia", 1.0), bool(o.get("thrust_free")), o.get("kt", 1.0))
-    flags = ["--sensors", "velocity"]
+    if not finish:
+        T.write_set(engine, data, kind, train_s=o.get("train_s", 900.0), rate=rate, **fly)
+        if o.get("noise"):
+            for i, f in enumerate(sorted(os.listdir(data))):
+                _noisy(os.path.join(data, f), o["noise"], 100 + i)
+    spec = d + "/spec.yaml" if finish else T.vehicle_spec(engine, d + "/spec.yaml", o.get("inertia", 1.0), bool(o.get("thrust_free")), o.get("kt", 1.0))
+    flags = ["--sensors", "velocity"] + (["--finish"] if finish else [])
     if "current" in o:
         import math
         v, b = o["current"]
@@ -186,6 +189,8 @@ def main(argv) -> int:
         return 0
     if cmd == "truth":
         return 0 if all([run_truth(r) for r in TRUTH if pick(r[0])]) else 1
+    if cmd == "truth-finish":
+        return 0 if all([run_truth(r, finish=True) for r in TRUTH if pick(r[0])]) else 1
     if cmd == "fast":
         return R.run_fast(pick)
     if cmd == "recover":
