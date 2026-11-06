@@ -569,7 +569,7 @@ def plot_steps(plt, steps: dict, rate: float, path):
 
 # ------------------------------------------------------------------ driver
 
-def dataset_config_from_metrics(metrics: dict, rate_override=None) -> DatasetConfig:
+def dataset_config_from_metrics(metrics: dict, rate_override=None, actuators=None) -> DatasetConfig:
     obj = metrics.get("objective") or {}
     rate = rate_override or obj.get("sampling_rate_hz") or 10.0
     offset = tuple(obj.get("torque_reference_offset_m") or (0.0, 0.0, 0.0))
@@ -578,7 +578,7 @@ def dataset_config_from_metrics(metrics: dict, rate_override=None) -> DatasetCon
     return DatasetConfig(float(rate), offset, None if not cur or not any(cur) else tuple(cur),
                          None if not by_file else tuple((f, tuple(c)) for f, c in by_file),
                          sensors=tuple(obj.get("sensors") or ("auto",)),
-                         use_accelerometer=bool(obj.get("use_accelerometer", False)))
+                         use_accelerometer=bool(obj.get("use_accelerometer", False)), actuators=actuators)
 
 
 def sensor_anchors(metrics: dict, runs: list, params, vehicle) -> Optional[dict]:
@@ -596,7 +596,7 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
         params = CalibrationParameters(**yaml.safe_load(f)["parameters"])
     spec = load_vehicle_spec(spec_path)
     vehicle = spec.vehicle
-    dc = dataset_config_from_metrics(metrics, rate)
+    dc = dataset_config_from_metrics(metrics, rate, spec.vehicle.actuators)
     from dataclasses import replace as _replace
     from run_calibration import _sensor_mounts
     dc = _replace(dc, lever_arms=_sensor_mounts(spec))   # the sensors' mounts (#96)

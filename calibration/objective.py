@@ -162,6 +162,7 @@ class DatasetConfig:
     use_accelerometer: bool = False     # the accelerometer as a channel (opt-in: #96 measures whether it helps)
     lever_arms: Optional[dict] = None   # {sensor name: (x, y, z) m in the body, FRD} for the measurement model
     sensor_noise: Optional[dict] = None  # {sensor name: reading std} for the state smoother (measurements.smoother_noise)
+    actuators: Optional[object] = None   # fin_force.Actuators from the vehicle description: mixes logged fin channels per fin
     fix_delays: Optional[tuple] = None   # ((sensor, s), ...): a calibration's delay off a late position/depth sensor
 
     def current_for(self, filepath: str) -> Optional[tuple]:
@@ -334,6 +335,13 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
     except ValueError:
         date = None  # best-effort metadata — not fatal if the filename doesn't match
 
+    controls, servo = None, None
+    act = dataset_config.actuators
+    if act is not None:
+        from steering import controls_from_frame
+        controls, commanded = controls_from_frame(df, act, os.path.basename(filepath))
+        servo = act if commanded else None
+
     return RunData(
         filepath=filepath,
         forces_torques=forces_torques,
@@ -347,6 +355,8 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         orientation_quat=quats,
         channels=channels,
         anchor_lin=None if channels is None else np.nan_to_num(real_nu[:, :3]),
+        controls=controls,
+        servo=servo,
     )
 
 

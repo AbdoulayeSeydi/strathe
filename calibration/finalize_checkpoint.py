@@ -74,7 +74,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     current_world = None if current_world is None or not np.any(current_world) else tuple(map(float, current_world))
     from run_calibration import _sensor_mounts
     dc = DatasetConfig(sampling_rate_hz, offset, current_world, current_by_file, sensors=tuple(sensors),
-                       use_accelerometer=use_accelerometer, lever_arms=_sensor_mounts(spec))
+                       use_accelerometer=use_accelerometer, lever_arms=_sensor_mounts(spec),
+                       actuators=spec.vehicle.actuators)
     split = split_by_date(discover_csv_files(data_dir)[0], heldout_dates=heldout_dates)
     train = [load_run(f, dc) for f in split.train_files]
     held = [load_run(f, dc) for f in split.heldout_files]

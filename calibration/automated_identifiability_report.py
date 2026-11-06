@@ -70,6 +70,7 @@ def identifiability_for_result(result_dir: str, data_dir: str, spec_path: str, w
                        use_accelerometer=bool(obj.get("use_accelerometer", False)))
     loaded = load_vehicle_spec(spec_path)
     from dataclasses import replace as _replace
+    dc = _replace(dc, actuators=loaded.vehicle.actuators)
     from run_calibration import _sensor_mounts
     dc = _replace(dc, lever_arms=_sensor_mounts(loaded))
     csv_paths, _ = discover_csv_files(data_dir)

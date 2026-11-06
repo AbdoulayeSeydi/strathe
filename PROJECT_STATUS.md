@@ -3743,6 +3743,18 @@ type and ingest, calibration, every simulator, proof.
 - A fin vehicle replayed without its fin angles refuses, rather than silently flying with centred fins.
 - Not on any lab's path yet: the vehicle description and ingest come next.
 
+**Vehicle type and fin logs** (`steering.py`, `calibration/FINS.md`, `tests/test_steering.py`):
+- `vehicle.steering` is hover, fin, vectored, hybrid or glider, separate from hull shape. Left out, it's hover and says so. Every
+  calibration and report opens with it, and `calibrated_parameters.yaml` records it.
+- Fin layouts are presets (cross, x, y3, rudder_only) or a custom list. Logs carry rudder, elevator and aileron, or one channel per
+  fin. Through the real physics, positive rudder turns to starboard, positive elevator lifts the nose and positive aileron rolls to
+  starboard on every layout.
+- Ingest takes fin angles in degrees, radians, percent or servo PWM; propeller rpm; gimbal angles; moving mass; buoyancy engine.
+  A vehicle moved only by these needs no `wrench:`. Commanded angles hold between messages.
+- A new check, `fin_direction`, catches a reversed fin from the logs alone. Unknown keys in an ingest spec are now refused, not ignored.
+- Refused, each with its fix: a description and logs that disagree, a servo in the thruster columns, a fin vehicle with no speed
+  source (speed can't be inferred from turning a fin causes), glider calibration.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

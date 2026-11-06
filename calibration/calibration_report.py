@@ -71,6 +71,8 @@ PLAIN = {
     "fin_bias_pitch": "fins' zero offset in pitch", "fin_bias_yaw": "fins' zero offset in yaw",
     "fin_servo_T": "how fast the fins reach a new command", "thrust_scale": "the propeller curve's true scale",
 }
+from steering import banner  # noqa: E402  the line every report opens with
+
 # which parameters mainly drive each axis (for "why" and "what next")
 AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot", "fin_drag0", "thrust_scale"], "v": ["Yv", "Yvv", "Yv_dot", "Zuw", "Yr_dot", "Yp_dot"],
                "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zuw", "Zq_dot"],
@@ -111,7 +113,7 @@ def per_axis_heldout(metrics: Optional[dict], params, spec, data_dir: Optional[s
         by_file = ((metrics or {}).get("objective") or {}).get("current_by_file")
         by_file = None if not by_file else tuple((f, tuple(c)) for f, c in by_file)
         runs = [load_run(f, DatasetConfig(float(rate), tuple(offset), None if current is None else tuple(current),
-                                          by_file)) for f in split.heldout_files]
+                                          by_file, actuators=spec.vehicle.actuators)) for f in split.heldout_files]
         z = zero_baseline_rmse(runs)
         if c is None:
             d = np.mean([rmse_by_dof(initial_parameters(spec), r, spec.vehicle) for r in runs], axis=0)
@@ -667,8 +669,10 @@ def sensors_section(metrics: Optional[dict]) -> list:
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None, sensors=None):
+                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None, sensors=None, vehicle_type=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
+    if vehicle_type:
+        L.append(f"**{vehicle_type}**\n")
     if fit_note:     # the fit failed, or was retried from more starting points (#93)
         L.append(fit_note + "\n")
     if split_note:   # one session: an easier check than an unseen day (#93)
@@ -858,7 +862,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
                  whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")),
                  ((metrics or {}).get("dataset") or {}).get("split_warning"), fit_note(metrics),
-                 sensors_section(metrics))
+                 sensors_section(metrics), banner(spec.raw))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 

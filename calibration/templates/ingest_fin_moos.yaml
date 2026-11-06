@@ -1,0 +1,25 @@
+# Ingest spec: a FIN-STEERED vehicle's MOOS-IvP logs. Read FINS.md first.
+# Change the names on the right to yours, then:
+#     python strathe.py calibrate --ingest-spec this_file.yaml --spec my_vehicle_spec.yaml --name my_auv
+# The vehicle description says `steering: fin`: templates/vehicle_spec_fin_template.yaml.
+
+vehicle: my_auv
+source:
+  format: moos
+  files: "logs/*.alog"
+resample_hz: 10
+session_date: {from: recording}
+frame: frd
+body_velocity:
+  columns: {u: DVL_U, v: DVL_V, w: DVL_W, p: GYRO_P, q: GYRO_Q, r: GYRO_R}
+  linear_unit: m/s
+  angular_unit: rad/s
+orientation:
+  euler: {roll: NAV_ROLL, pitch: NAV_PITCH, yaw: NAV_HEADING, unit: deg}
+fins:
+  source: commanded             # measured: what the fins did. commanded: what they were told (the servo's lag is then applied)
+  unit: deg                     # deg | rad | percent (with full_scale_deg) | pwm_us (with pwm_us_per_deg)
+  channels: {rudder: DESIRED_RUDDER, elevator: DESIRED_ELEVATOR}    # or one per fin, by the name in the vehicle description
+  positive_turns: starboard     # which way a positive rudder turns the vehicle: the logs are checked against this
+  positive_pitches: nose_up
+propeller: {column: DESIRED_THRUST, unit: rpm}

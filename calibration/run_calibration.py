@@ -50,6 +50,7 @@ import yaml
 
 from checkpoint_io import CheckpointError, read_checkpoint, write_checkpoint
 from data_split import split_by_date, discover_csv_files, DEFAULT_HELDOUT_FRACTION
+from steering import SteeringError
 from dynamics_model import CalibrationParameters
 from stall_watchdog import StallWatchdog
 from objective import read_currents_file
@@ -359,6 +360,7 @@ class CalibrationReport:
     objective_axis_scaling: str = "none"
     objective_horizon_samples: Optional[int] = None
     objective_excluded_axes: tuple = ()
+    vehicle_type: Optional[str] = None      # steering.py: hover, fin, vectored, hybrid
     objective_torque_reference_offset_m: tuple = (0.0, 0.0, 0.0)
     objective_current_world_mps: Optional[tuple] = None
     objective_held_parameters: Optional[dict] = None
@@ -439,6 +441,8 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
         r._horizon = H
     labels = list(dict.fromkeys(lab for r in train_runs for lab in ms.channel_labels(r.channels)))
     seen = ms.axes_seen(train_runs, H)
+    from steering import check_speed_source
+    check_speed_source(loaded_spec.raw, seen)
     names = list(default_params.param_names)
     lb, ub = parameter_bounds(loaded_spec)
     already = set((cc.fixed_params or {}))
@@ -672,6 +676,7 @@ def _save_artifacts(report: CalibrationReport, output_dir: str) -> None:
             "git_commit": report.reproducibility.git_commit,
             "vehicle_mass_kg": report.reproducibility.vehicle_mass_kg,
             "seed": report.reproducibility.seed,
+            **({"vehicle_type": report.vehicle_type} if report.vehicle_type else {}),
             "parameters": params_dict,
             # the sensors it was calibrated from, and what they couldn't see (#96); absent for a velocity fit
             **({"sensors": {"channels": report.sensor_suite["channels"],
@@ -773,6 +778,10 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         logger.warning(split.warning)
 
     loaded_spec = load_vehicle_spec(config.spec_path)
+    import steering
+    logger.info(steering.banner(loaded_spec.raw))
+    with open(csv_paths[0], encoding="utf-8") as f:
+        steering.check_data(loaded_spec.raw, f.readline().strip().split(","))
     if config.torque_reference_offset_m is None:
         config.torque_reference_offset_m = spec_torque_reference_offset(loaded_spec)
     if config.current_world_mps is None:
@@ -786,7 +795,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                                                       else tuple(config.current_world_mps)),
                                    current_by_file=config.current_by_file,
                                    sensors=tuple(config.sensors), use_accelerometer=config.use_accelerometer,
-                                   lever_arms=_sensor_mounts(loaded_spec))
+                                   lever_arms=_sensor_mounts(loaded_spec), actuators=loaded_spec.vehicle.actuators)
     if config.current_by_file:
         logger.info("Each recording's own water current, for %d recording(s) (from a currents file)",
                     len(config.current_by_file))
@@ -988,6 +997,7 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
     )
 
     report = CalibrationReport(
+        vehicle_type=steering.steering_of(loaded_spec.raw),
         dataset=DatasetSummary(
             train_dates=split.train_groups, heldout_dates=split.heldout_groups,
             n_train_files=len(train_runs), n_heldout_files=len(heldout_runs),
@@ -1391,6 +1401,9 @@ def main() -> None:
 
     try:
         report = run_pipeline(pipeline_config)
+    except SteeringError as e:   # a mismatch with a fix, not a failure of the fit
+        print(f"❌ {e}", flush=True)
+        sys.exit(2)
     except Exception as e:
         logger.error("Pipeline failed: %s", e)
         note_restart_costs(checkpoint_path, e)

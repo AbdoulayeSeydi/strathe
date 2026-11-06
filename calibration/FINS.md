@@ -1,0 +1,103 @@
+# Fin-steered vehicles
+
+Strathe calibrates two kinds of vehicle, and every command and report says which one it's on.
+
+| | Hover | Fin-steered |
+|---|---|---|
+| What steers it | Thrusters | Fins and a propeller (or a gimballed tail) |
+| Examples | BlueROV2, ALPHA RISE | REMUS, Iver, LAUV, Hugin, Autosub, Tethys, Bluefin, Dorado |
+| What the logs must have | Thruster commands or forces | Fin angles and propeller rpm |
+| Vehicle description | `vehicle_spec_template.yaml` | `vehicle_spec_fin_template.yaml` |
+
+A hull's shape doesn't decide this: ALPHA RISE is torpedo-shaped, and its thrusters steer it, so it's hover.
+
+## Say what kind of vehicle it is
+
+In the vehicle description:
+
+```yaml
+vehicle:
+  name: my_auv
+  steering: fin     # hover | fin | vectored | hybrid
+```
+
+- `hover`: thrusters steer it. This is the default.
+- `fin`: fins and a propeller.
+- `vectored`: a gimballed tail or thruster. Give `propeller:` with `gimbal: true`.
+- `hybrid`: fins and steering thrusters.
+- `glider`: refused. Calibration needs a propeller's thrust, and a glider moves by changing its buoyancy.
+
+## Describe the fins
+
+```yaml
+fins:
+  layout: cross       # cross | x | y3 | rudder_only | custom
+  x_m: -0.7           # from the torque reference point, forward positive
+  radius_m: 0.15      # centre of pressure from the hull's axis
+  area_m2: 0.012      # one fin
+  span_m: 0.1         # one fin, root to tip
+  limit_deg: 20       # the servos' end stops
+  stall_deg: 20
+  servo: {rate_limit_deg_s: 60}
+
+propeller:
+  diameter_m: 0.14
+  kt0: 0.45           # thrust coefficient with no forward speed
+  kt1: -0.4           # its change with advance ratio
+  position_m: [-0.75, 0, 0]
+```
+
+For an unusual layout, use `layout: custom` and list each fin with `name`, `position_m` and `span_axis`.
+
+Moving mass and a buoyancy engine (Tethys-class vehicles):
+
+```yaml
+moving_mass: {mass_kg: 6.0, axis: [1, 0, 0]}
+buoyancy_engine: true
+```
+
+## Log the fin angles
+
+In the ingest spec, in place of `wrench:`:
+
+```yaml
+fins:
+  source: measured              # measured: what the fins did. commanded: what they were told
+  unit: deg                     # deg | rad | percent (with full_scale_deg) | pwm_us (with pwm_us_per_deg)
+  channels: {rudder: rudder_deg, elevator: elevator_deg}   # or one per fin, by its name in the description
+  positive_turns: starboard     # which way a positive rudder turns the vehicle
+  positive_pitches: nose_up     # which way a positive elevator pitches it
+propeller: {column: prop_rpm, unit: rpm}
+```
+
+Other blocks: `gimbal: {y: ..., z: ..., unit: deg}`, `moving_mass: {column: ..., unit: mm}`, and
+`buoyancy_engine: {column: ..., unit: litre}`.
+
+Prefer measured angles if you have them. Commanded ones go through the servo's end stops, lag and top speed.
+
+Templates: `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yaml`.
+
+## What ingestion checks
+
+| Check | What it catches |
+|---|---|
+| `fin_direction` | A rudder or elevator whose sign is reversed: positive angles go with the opposite motion. It says which key to flip |
+| A fin channel past 90° | The wrong `unit` |
+| A thruster column named like a fin | A servo that would be read as thrust |
+
+`skip_checks: [fin_direction]` skips the sign check, and the report still shows the numbers.
+
+## What's refused, and what to do
+
+| Message says | Do this |
+|---|---|
+| Logs have fin channels, description is hover | Say `steering: fin` and describe the fins, or leave the channels out of the ingest spec |
+| Description is fin, logs have no fin channels | Add a `fins:` block to the ingest spec |
+| Needs a speed source | Log a DVL or position fixes. A fin's force goes as speed squared, so speed can't be inferred from the turning it causes |
+| A glider | `strathe fin-check` reads a glider's rudder; calibration doesn't apply |
+
+## How fins are modelled
+
+A thruster's force can be logged. A fin's can't: it depends on how fast the water passes the fin and at what angle. So it's
+worked out inside the physics at every step, from the state and the logged angle. A centred fin still pushes back when the
+flow meets it at an angle, which is why fins add damping that grows with speed.
