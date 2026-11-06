@@ -90,6 +90,8 @@ class ArenaCore:
         )
         return self.state
 
+    controls = None   # a fin vehicle's fin angles and rpm for the next step (fin_force.action_controls)
+
     def step(self, tau: np.ndarray) -> ArenaState:
         """Advances by one external dt. tau is body-frame [Fx,Fy,Fz,Tx,Ty,Tz].
 
@@ -129,7 +131,7 @@ class ArenaCore:
 
             # THEN update velocity using this sub-step's acceleration.
             v_dot, _damping, _restoring = compute_acceleration(
-                self.params, self.vehicle, v, tau, roll, pitch, current_body
+                self.params, self.vehicle, v, tau, roll, pitch, current_body, self.controls
             )
             v = v + v_dot * sub_dt
 

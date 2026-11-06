@@ -148,6 +148,13 @@ in the logged force.
 **MuJoCo isn't a foil.** Its fluid model gives almost no lift below about 3° and isn't linear above that. Stonefish's `Rudder` drops
 lift to zero at stall and never uses `drag_coeff`.
 
+## In experiments
+
+`arena`, `fleet` and `train-fleet` run a calibrated fin vehicle on the stand-in physics. An action's six numbers ask for the same things:
+surge is the propeller, and roll, pitch and yaw go to the fins through the same mixing the logs use. Sway and heave ask nothing of it: a
+fin vehicle can't push sideways, so a policy has to turn. It also can't steer below the speed its fins need. The MuJoCo backend takes a
+wrench, so it refuses a fin vehicle.
+
 ## How fins are modelled
 
 A thruster's force can be logged. A fin's can't: it depends on how fast the water passes the fin and at what angle. So it's
