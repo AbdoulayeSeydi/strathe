@@ -318,3 +318,11 @@ def test_the_scan_leaves_other_knobs_and_hover_fits_alone():
     assert not calls, "a hover fit must spend nothing on it"
     x = core.scan_fin_lift(lambda x: abs(x[1] + .5), x0, ["Xu", "fin_lift"], np.full(2, -3.), np.full(2, 3.))
     assert x[0] == .1 and x[1] != 0.0
+
+
+@pytest.mark.parametrize("command", ["fit", "export"])
+@pytest.mark.parametrize("sim", ["gazebo", "mujoco", "holoocean", "external"])
+def test_both_commands_take_the_vehicle_description_on_every_simulator(command, sim):
+    """#97, E-gazebo: export-sim refused --spec, the option FINS.md tells labs to give it."""
+    from simfit import cli
+    assert "--spec" in [o for a in cli.build_parser(command, sim)._actions for o in a.option_strings]

@@ -3796,6 +3796,7 @@ type and ingest, calibration, every simulator, proof.
 - `S-stonefish`: a `--stonefish-data` folder inside the Docker image was mounted over, hiding its meshes.
 - Reading the rows: a fin's `chord_axis` reached its mixing but not its force. A litre of buoyancy change lifted a flat 9.81 N, fresh water's.
 - Stonefish's comparison with Strathe's own model built the vehicle with no actuators.
+- `E-gazebo`: `export-sim` refused `--spec`, the option FINS.md gives it: it had been added to `fit-sim`'s parser only.
 - `C-cross-measured-mujoco`: every generated MuJoCo fin lay flat, so its hinge barely changed its lift. A cross turned about 430 times too little. S-mujoco had passed on those fins: it recovered a coefficient self-consistently, which is why a row needs real turning behind it.
 
 **A fit that started far off.** With MuJoCo's fins fixed, S-mujoco's vehicle went round in circles and its fit stuck at 3.44 (truth 2) from a start of 4: past the
