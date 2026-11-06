@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -80,6 +81,15 @@ def _frame(rows: list, rudder_sign: float, stern_sign: float) -> pd.DataFrame:
     return pd.DataFrame(d)
 
 
+def prestero_autopilot(pitch, q, yaw, r, psi_d, th_d, ii, h) -> tuple:
+    """The autopilot every Prestero mission flies under: (his delta_s, his delta_r, the integrator)."""
+    e_th = pitch - th_d
+    ii = float(np.clip(ii + e_th * h, -.5, .5))
+    ds = float(np.clip(1.5 * e_th + 1.2 * q + .4 * ii, -LIMIT, LIMIT))    # his +delta_s pushes the nose down
+    dr = float(np.clip(-1.2 * _wrap(psi_d - yaw) + 1.2 * r, -LIMIT, LIMIT))   # his +delta_r yaws to port
+    return ds, dr, ii
+
+
 def fly_prestero(kind, seed, T, rate=10.0, current=(0, 0, 0), rpm=1500.0) -> pd.DataFrame:
     plan, h = Plan(kind, seed, rpm), .01
     x = np.zeros(12)
@@ -87,15 +97,94 @@ def fly_prestero(kind, seed, T, rate=10.0, current=(0, 0, 0), rpm=1500.0) -> pd.
     every, rows, ii = int(round(1 / rate / h)), [], 0.0
     for i in range(int(T / h)):
         psi_d, th_d, n = plan(i * h)
-        e_th = x[10] - th_d
-        ii = float(np.clip(ii + e_th * h, -.5, .5))
-        ds = float(np.clip(1.5 * e_th + 1.2 * x[4] + .4 * ii, -LIMIT, LIMIT))    # his +delta_s pushes the nose down
-        dr = float(np.clip(-1.2 * _wrap(psi_d - x[11]) + 1.2 * x[5], -LIMIT, LIMIT))   # his +delta_r yaws to port
+        ds, dr, ii = prestero_autopilot(x[10], x[4], x[11], x[5], psi_d, th_d, ii, h)
         if i % every == 0:
             rows.append([x[9], x[10], x[11], x[8], *x[:6], dr, ds, n])
         x = PR.step(x, ds, dr, n, h, current)
         x[8] = max(x[8], 2.0)
     return _frame(rows, -1.0, -1.0)
+
+
+def fly_truth_on_autopilot(x0, orders, h=.01) -> np.ndarray:
+    """Prestero's vehicle from state x0 under its autopilot, on orders [(until, heading, pitch, rpm)]: (n, 3) heading, pitch, depth, once a second."""
+    x, ii, out, t = np.array(x0, dtype=float), 0.0, [], 0.0
+    every = int(round(1 / h))
+    for psi_d, th_d, n, steps in _order_steps(orders, h):
+        for _ in range(steps):
+            if int(round(t / h)) % every == 0:
+                out.append((x[11], x[10], x[8]))
+            ds, dr, ii = prestero_autopilot(x[10], x[4], x[11], x[5], psi_d, th_d, ii, h)
+            x = PR.step(x, ds, dr, n, h)
+            t += h
+    return np.array(out)
+
+
+def _order_steps(orders, h) -> list:
+    done, out = 0.0, []
+    for until, psi_d, th_d, n in orders:
+        out.append((psi_d, th_d, n, int(round((until - done) / h))))
+        done = until
+    return out
+
+
+def fly_model_on_autopilot(params, vehicle, x0, orders, h=.01) -> Optional[np.ndarray]:
+    """A calibrated model from the same state under the same autopilot and orders, through Strathe's own physics. None if it diverges. It sees its own
+    motion: this is a lab's simulator with the vehicle's controller on it."""
+    from fast_dynamics import FastDynamics
+    import steering
+    act = vehicle.actuators
+    acc = FastDynamics(params, vehicle).acceleration_trig
+    # his signs to Strathe's, as _frame does; controls are linear in the channels, so read the mix off once
+    basis = [steering.controls_from_frame(pd.DataFrame({"fin_rudder": [a], "fin_elevator": [b], "rpm": [c]}), act)[0][0] for a, b, c in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
+    zero = [0.0] * 6
+    v = [float(a) for a in x0[:6]]
+    z = float(x0[8])
+    qx, qy, qz, qw = Rotation.from_euler("ZYX", [x0[11], x0[10], x0[9]]).as_quat()
+    every, out, ii, t = int(round(1 / h)), [], 0.0, 0.0
+    for psi_d, th_d, n, steps in _order_steps(orders, h):
+        for _ in range(steps):
+            r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
+            pitch = -math.asin(max(-1.0, min(1.0, r20)))
+            yaw = math.atan2(2 * (qx * qy + qw * qz), 1 - 2 * (qy * qy + qz * qz))
+            if int(round(t / h)) % every == 0:
+                out.append((yaw, pitch, z))
+            ds, dr, ii = prestero_autopilot(pitch, v[4], yaw, v[5], psi_d, th_d, ii, h)
+            ctl = [-dr * a - ds * b + n * c for a, b, c in zip(*basis)]
+            vd = acc(v, zero, r21, r22, -r20, 1.0, None, ctl)
+            v = [v[j] + vd[j] * h for j in range(6)]
+            if not all(math.isfinite(a) and abs(a) < 1e3 for a in v):
+                return None
+            z += (r20 * v[0] + r21 * v[1] + r22 * v[2]) * h
+            wx, wy, wz = v[3] * h, v[4] * h, v[5] * h
+            th = math.sqrt(wx * wx + wy * wy + wz * wz)
+            if th > 1e-12:
+                c, s = math.cos(th / 2), math.sin(th / 2) / th
+                dx, dy, dz = wx * s, wy * s, wz * s
+                qw, qx, qy, qz = (qw * c - qx * dx - qy * dy - qz * dz, qw * dx + qx * c + qy * dz - qz * dy,
+                                  qw * dy - qx * dz + qy * c + qz * dx, qw * dz + qx * dy - qy * dx + qz * c)
+            m = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+            qx, qy, qz, qw = qx / m, qy / m, qz / m, qw / m
+            t += h
+    return np.array(out)
+
+
+def truth_against_itself(path: str, window_s: float, every: int = 10, h: float = .01) -> float:
+    """Prestero's own equations replaying a recording's logged fins from its real start: median heading error, degrees, at the window's end. The best any
+    model of this vehicle could do from these logs, because the logged fins are 10 Hz samples of a 100 Hz loop."""
+    d = pd.read_csv(path)
+    e = Rotation.from_quat(d[["qx", "qy", "qz", "qw"]].to_numpy()).as_euler("ZYX")[:, ::-1]
+    n = int(round(window_s * 10)) + 1
+    err = []
+    for a in range(0, len(d) - n, n - 1):
+        x = np.zeros(12)
+        x[:6] = d.loc[a, ["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy()
+        x[8], x[9:12] = 30.0, e[a]
+        for i in range(a, a + n - 1):
+            dr, ds, rpm = -d.fin_rudder.iloc[i], -d.fin_elevator.iloc[i], d.rpm.iloc[i]
+            for _ in range(every):
+                x = PR.step(x, ds, dr, rpm, h)
+        err.append(abs(_wrap(x[11] - e[a + n - 1, 2])))
+    return float(np.degrees(np.median(err)))
 
 
 def fly_fossen(kind, seed, T, rate=10.0, current=(0, 0), rpm=1100.0) -> pd.DataFrame:
