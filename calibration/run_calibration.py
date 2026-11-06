@@ -891,6 +891,9 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         import fin_fit
         fin_info = fin_fit.setup(train_runs, vehicle.actuators, default_params, config.calibration_config.fixed_params)
         config.calibration_config.fixed_params = {**(config.calibration_config.fixed_params or {}), **fin_info["held"]}
+        if config.calibration_config.horizon_samples is None and train_runs[0].channels is None:
+            config.calibration_config.horizon_samples = fin_fit.window_samples(train_runs)
+            logger.info("Fins: %d-sample prediction windows (--prediction-horizon-s to change)", config.calibration_config.horizon_samples)
         for line in fin_info["plain"]:
             logger.info("Fins: %s", line)
         for s, why in fin_info["held_why"].items():

@@ -220,3 +220,22 @@ def test_fin_check_refuses_a_text_file_that_isnt_a_slocum_log(tmp_path):
     (tmp_path / "a.asc").write_text("hello\n")
     with pytest.raises(ValueError, match="num_ascii_tags"):
         fin_check.check_folder(str(tmp_path))
+
+
+def test_a_fin_fit_uses_short_windows_and_a_slow_log_still_gets_a_few_samples():
+    import fin_fit
+    run = lambda hz: type("R", (), {"sample_rate_hz": hz})()
+    assert fin_fit.window_samples([run(10.0)]) == 20
+    assert fin_fit.window_samples([run(1.0)]) == fin_fit.FIN_MIN_WINDOW_SAMPLES
+
+
+def test_a_fin_fit_left_to_its_default_reports_the_window_it_used(tmp_path):
+    cc = CalibrationConfig(max_nfev=1, seed=3, initialization_strategy="fixed", x0_override=initial_parameters(load_vehicle_spec(TEMPLATE)).to_vector())
+    cfg = PipelineConfig(data_dir=str(dataset(tmp_path / "data")), spec_path=str(TEMPLATE), output_dir=str(tmp_path / "out"), sampling_rate_hz=10.0, heldout_dates=[DATES[1]],
+                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0))
+    try:
+        run_pipeline(cfg)
+    except Exception as e:
+        if "converge" not in str(e):
+            raise
+    assert cc.horizon_samples == 20

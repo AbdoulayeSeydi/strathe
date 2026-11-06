@@ -140,6 +140,19 @@ def few_manoeuvres(env: dict) -> list:
             and g["swing_deg"] >= MIN_FIN_SWING_DEG]
 
 
+# A fin vehicle's fit replays short windows, not whole recordings (#97). Many fin vehicles are unstable with their fins held, and a real one is flown by its
+# autopilot: replaying a 900 s recording on logged fins sends the true values of Prestero's REMUS far from the log (cost 5.9 against 0.6 for a wrong, nearly stable
+# vehicle), so a whole-recording fit is rewarded for inventing stability. At 2 s the truth wins (0.16 against 0.36), and the fit found his growth rate, 0.76 s doubling
+# against 0.69. A stable vehicle lost nothing: Fossen's REMUS flew 30 s to 1.9 degrees, from 2.7. --prediction-horizon-s overrides it.
+FIN_WINDOW_S = 2.0
+FIN_MIN_WINDOW_SAMPLES = 5   # a slow log's window still needs a few samples to say anything
+
+
+def window_samples(train_runs: list) -> int:
+    """A fin vehicle's default prediction window, in samples."""
+    return max(FIN_MIN_WINDOW_SAMPLES, int(round(FIN_WINDOW_S * train_runs[0].sample_rate_hz)))
+
+
 def setup(train_runs: list, act: Actuators, default_params, already_fixed: dict) -> dict:
     """What the fit holds and what the report says, before the fit."""
     env = envelope(train_runs, act)
