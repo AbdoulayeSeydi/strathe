@@ -267,6 +267,13 @@ MUTANTS = {"M-flip-moment": ("fin_force.py", "N += x * fy - y * fx", "N -= x * f
            "M-mass-transpose": ("dynamics_model.py", "M[i, j] = M[j, i] = getattr(params, name)", "M[i, j] = getattr(params, name)", "tests/test_mass_couplings.py"),
            "M-gazebo-sign": ("simfit/adapters/gazebo.py", "Ma[i, j] = Ma[j, i] = flip[i] * flip[j] * getattr(params, name)", "Ma[i, j] = Ma[j, i] = getattr(params, name)", "tests/test_mass_couplings.py"),
            "M-no-fin-check": ("data_ingestion.py", "if best < FIN_REVERSED_CORRELATION:", "if False:", "tests/test_steering.py"),
+           "M-export-area": ("simfit/fin_models.py", "* f.area_m2 / model_areas[f.name]", "", "tests/test_simfit_fins.py"),
+           "M-export-group": ("simfit/fin_models.py", "(params.fin_lift_slope_b if f.group else params.fin_lift_slope_a)", "params.fin_lift_slope_a", "tests/test_simfit_fins.py"),
+           "M-export-drops-fins": ("simfit/fin_models.py", 'if act is None and (getattr(params, "fin_lift_slope_a", 0.0)', 'if False and (getattr(params, "fin_lift_slope_a", 0.0)', "tests/test_simfit_fins.py"),
+           "M-same-replay-path": ("simfit/replay_tool.py", 'd = tempfile.mkdtemp(prefix="replay_", dir=work_dir)', "d = work_dir", "tests/test_simfit_fins.py"),
+           "M-silent-replay": ("simfit/replay_tool.py", 'said = (r.stderr or "").strip() or (r.stdout or "").strip()', 'said = (r.stderr or "").strip()', "tests/test_simfit_fins.py"),
+           "M-mount-over-image": ("stonefish_fit.py", "if os.path.isdir(self.data_dir):", "if True:", "tests/test_simfit_fins.py"),
+           "M-finish-crash": ("finalize_checkpoint.py", '    if sensor_info is not None:\n        metrics["sensor_suite"]', '    if sensor_info is not None:\n        from run_calibration import _jsonable\n        metrics["sensor_suite"]', "tests/test_fin_calibration.py"),
            "M-no-guard": ("fin_fit.py", 'if g is not None and g["swing_deg"] < MIN_FIN_SWING_DEG:', "if False:", "tests/test_fin_calibration.py")}
 
 
@@ -284,8 +291,8 @@ def run_mutant(row: str) -> bool:
         applied = old in t
         open(p, "w", encoding="utf-8").write(t.replace(old, new, 1))
         r = subprocess.run([sys.executable, "-m", "pytest", tests, "-q", "-x", "-p", "no:cacheprovider"], cwd=dst, capture_output=True, text=True)
-    caught = r.returncode != 0
-    return record(F, row, "mutant", f, f"{old[:50]} broken", "tests", {"applied": applied, "caught": caught, "bars": _bars().BARS_HASH}, f"{tests} must fail", applied and caught, time.time() - t0)
+    caught = r.returncode == 1 and " failed" in r.stdout    # a test that failed: not one that couldn't start, which would prove nothing
+    return record(F, row, "mutant", f, f"{old[:50]} broken", "tests", {"applied": applied, "caught": caught, "exit": r.returncode, "bars": _bars().BARS_HASH}, f"{tests} must fail", applied and caught, time.time() - t0)
 
 
 def fast_rows() -> list:
