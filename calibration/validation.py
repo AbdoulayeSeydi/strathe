@@ -59,14 +59,19 @@ def _lagged(run, params):
     """The run with the model's thruster lag applied to its whole recording (objective.with_thruster_lag), cached:
     every window of a recording then starts from the thrusters' real state, as in the calibration."""
     T = float(params.thruster_time_constant_s)
-    if T <= 0:
+    Ts = float(params.fin_servo_T) if run_has_servo(run) else 0.0
+    if T <= 0 and not run_has_servo(run):
         return run
-    key = (id(run), T)
+    key = (id(run), T, Ts)
     hit = _LAGGED.get(key)
     if hit is None or hit[0] is not run:
         from objective import with_thruster_lag
         hit = _LAGGED[key] = (run, with_thruster_lag(run, params))
     return hit[1]
+
+
+def run_has_servo(run) -> bool:
+    return getattr(run, "servo", None) is not None
 
 
 def start_velocity(run, a: int) -> np.ndarray:
@@ -83,7 +88,8 @@ def window_replay(params, vehicle, run, a: int, b: int):
     run = _lagged(run, params)
     traj = TrajectoryInputs(nu0=start_velocity(run, a), forces_torques=run.forces_torques[a:b],
                             roll_pitch_series=run.roll_pitch[a:b],
-                            current_body_series=None if run.current_body is None else run.current_body[a:b])
+                            current_body_series=None if run.current_body is None else run.current_body[a:b],
+                            control_series=None if run.controls is None else run.controls[a:b])
     try:
         nu = simulate_trajectory(params, vehicle, SimulationConfig(dt=run.dt), traj).nu
     except (FloatingPointError, ValueError):
@@ -95,6 +101,12 @@ def path_from_velocity(nu_lin: np.ndarray, quat: np.ndarray, dt: float) -> np.nd
     """Positions (n,3) from body-frame linear velocity and body->world orientation, starting at 0."""
     vw = Rotation.from_quat(quat).apply(nu_lin)
     return np.vstack([np.zeros(3), np.cumsum(vw[:-1] * dt, axis=0)])
+
+
+def control_at(run, i: int):
+    """Sample i's fin angles and the like, or None for a vehicle without them."""
+    c = getattr(run, "controls", None)
+    return None if c is None else c[i].tolist()
 
 
 def world_current(run, i: int):
@@ -133,12 +145,13 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
         i = a + k
         tau = run.forces_torques[i].tolist()
         cw = world_current(run, i)
+        ctl = control_at(run, i)
         for _ in range(sub):
             # world-down in body axes = -(third row of R): exactly what the logged roll/pitch give the fit
             r20, r21, r22 = 2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)
             cb = None if cw is None else current_in_body(cw, qx, qy, qz, qw)
             # acceleration_trig uses sin(pitch), cos(pitch)*sin(roll), cos(pitch)*cos(roll): pass them with cp = 1
-            vd = acc(v, tau, r21, r22, -r20, 1.0, cb)
+            vd = acc(v, tau, r21, r22, -r20, 1.0, cb, ctl)
             v = [v[j] + vd[j] * h for j in range(6)]
             if not all(math.isfinite(x) and abs(x) < 1e3 for x in v):
                 return None

@@ -75,7 +75,8 @@ def _half(run, a, b):
         return replace(slice_run(run, a, b), current_body=None)
     return replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
                    real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(), current_body=None,
-                   orientation_quat=run.orientation_quat[a:b])
+                   orientation_quat=run.orientation_quat[a:b],
+                   controls=None if run.controls is None else run.controls[a:b])
 
 
 def estimate_run(job) -> dict:

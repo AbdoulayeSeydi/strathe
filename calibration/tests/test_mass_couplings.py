@@ -47,7 +47,7 @@ def test_each_entry_lands_where_its_name_says_and_only_there(i, j, name):
 
 def test_saved_values_from_before_load_and_mean_the_same():
     a = np.array(P.to_vector())
-    assert a.size == 40 and not a[-13:].any()
+    assert a.size == 50 and not a[27:40].any()
     assert np.array_equal(mass_matrix(P, V), np.diag([33., 60, 60, 2, 9, 9]))
 
 

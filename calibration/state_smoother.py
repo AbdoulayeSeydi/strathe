@@ -90,6 +90,7 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
     RP = run.roll_pitch.tolist()
     W = run.real_nu[:, 3:6].tolist()
     CB = None if run.current_body is None else np.asarray(run.current_body, dtype=float).tolist()
+    CT = None if run_l.controls is None else np.asarray(run_l.controls, dtype=float).tolist()
 
     blocks = _blocks(run.channels)
     pos_blocks = [(ci, kind, ax) for ci, kind, ax in blocks if kind in ("position", "depth")]
@@ -110,9 +111,10 @@ def smooth(run, params, vehicle, accel_sigma: float = 0.1, noise: Optional[dict]
         sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
         w = W[k]
         cb = None if CB is None else CB[k]
+        ctl = None if CT is None else CT[k]
         x = [v[0], v[1], v[2], w[0], w[1], w[2]]
         for _ in range(ns):
-            vd = acc(x, tau, sr, cr, sp, cp, cb)
+            vd = acc(x, tau, sr, cr, sp, cp, cb, ctl)
             x = [x[0] + vd[0] * sdt, x[1] + vd[1] * sdt, x[2] + vd[2] * sdt, w[0], w[1], w[2]]
         return np.array(x[:3])
 

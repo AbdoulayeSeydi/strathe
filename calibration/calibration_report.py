@@ -65,13 +65,19 @@ PLAIN = {
     "Yq_dot": "sway-pitch coupling", "Yr_dot": "sway-yaw coupling", "Zp_dot": "heave-roll coupling",
     "Zr_dot": "heave-yaw coupling", "Kq_dot": "roll-pitch coupling", "Kr_dot": "roll-yaw coupling",
     "Mr_dot": "pitch-yaw coupling",
+    "fin_lift_slope_a": "fin lift (steering fins)", "fin_lift_slope_b": "fin lift (pitching fins)",
+    "fin_inflow_a": "how much flow angle the steering fins see", "fin_inflow_b": "how much flow angle the pitching fins see",
+    "fin_drag0": "fin drag at zero lift", "fin_bias_roll": "fins' zero offset in roll",
+    "fin_bias_pitch": "fins' zero offset in pitch", "fin_bias_yaw": "fins' zero offset in yaw",
+    "fin_servo_T": "how fast the fins reach a new command", "thrust_scale": "the propeller curve's true scale",
 }
 # which parameters mainly drive each axis (for "why" and "what next")
-AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot"], "v": ["Yv", "Yvv", "Yv_dot", "Zuw", "Yr_dot", "Yp_dot"],
+AXIS_PARAMS = {"u": ["Xu", "Xuu", "Xu_dot", "Xq_dot", "fin_drag0", "thrust_scale"], "v": ["Yv", "Yvv", "Yv_dot", "Zuw", "Yr_dot", "Yp_dot"],
                "w": ["Zw", "Zww", "Zw_dot", "net_buoyancy_z", "Zuw", "Zq_dot"],
-               "p": ["Ieff_roll", "Kp", "Kpp", "cg_cb_offset_z", "Yp_dot", "Kr_dot"],
-               "q": ["Ieff_pitch", "Mq", "Mqq", "cg_cb_offset_z", "cg_cb_offset_x", "Muw", "Muq", "Xq_dot", "Zq_dot"],
-               "r": ["Ieff_yaw", "Nr", "Nrr", "Muw", "Muq", "Yr_dot", "Kr_dot"]}
+               "p": ["Ieff_roll", "Kp", "Kpp", "cg_cb_offset_z", "Yp_dot", "Kr_dot", "fin_bias_roll"],
+               "q": ["Ieff_pitch", "Mq", "Mqq", "cg_cb_offset_z", "cg_cb_offset_x", "Muw", "Muq", "Xq_dot", "Zq_dot",
+                     "fin_lift_slope_b", "fin_inflow_b", "fin_bias_pitch"],
+               "r": ["Ieff_yaw", "Nr", "Nrr", "Muw", "Muq", "Yr_dot", "Kr_dot", "fin_lift_slope_a", "fin_inflow_a", "fin_bias_yaw"]}
 # a fitted value more than this far from the vehicle's own independent measurement (a calibration target's
 # `reference:` in its vehicle_spec.yaml; PROJECT_STATUS.md #28, #70) is flagged as physically implausible
 MAX_PLAUSIBLE_RATIO = 5.0

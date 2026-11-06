@@ -3731,6 +3731,18 @@ type and ingest, calibration, every simulator, proof.
 - `worst_mass_margin` finds exactly whether a description's limits can reach a non-physical matrix, and loading warns if so.
 - Not listing any changes nothing: seeded fits on real logs are identical to before (below).
 
+**Fin physics** (`fin_force.py`, `tests/test_fin_force.py`, `tests/test_fin_pipeline.py`, `tests/fin_oracle.py`):
+- One function works out what fins, a propeller, a gimballed thruster, a moving mass and a buoyancy engine do at each instant, and
+  both physics paths call it, so they can't drift apart. Logged fin angles reach it as a new per-sample input, `RunData.controls`.
+- Per fin: the flow at its centre of pressure, turning included, then lift across that flow and drag along it, with a smooth stall.
+  A centred fin pushes back when the flow meets it at an angle, so fins add damping that grows with speed by themselves.
+- A separately written vector version agrees to 1e-11. Moving mass agrees exactly with shifting `cg_cb_offset_x`, a buoyancy engine
+  with changing `net_buoyancy_z`, and the propeller with Fossen's published form.
+- Before building, the formula was compared with real engines with nothing fitted: Gazebo's LiftDrag within about 0.4%, Stonefish's
+  `Rudder` within about 9% (flow-driven only; a commanded angle wasn't tested there yet).
+- A fin vehicle replayed without its fin angles refuses, rather than silently flying with centred fins.
+- Not on any lab's path yet: the vehicle description and ingest come next.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

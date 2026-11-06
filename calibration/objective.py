@@ -207,6 +207,8 @@ class RunData:
     # it didn't read, all NaN with no DVL in use), never anything else.
     channels: Optional[list] = None
     anchor_lin: Optional[np.ndarray] = None    # (N,3) each window's starting body velocity (state_smoother.py)
+    controls: Optional[np.ndarray] = None      # (N,Actuators.width) logged fin angles and the like (fin_force.py, #97)
+    servo: Optional[object] = None             # fin_force.Actuators when the fin angles are commanded, not measured
     sensor_scales: Optional[dict] = None       # {channel-axis: still RMS on the training runs} (measurements.py)
     n_samples: int = field(init=False)
 
@@ -408,7 +410,10 @@ def with_thruster_lag(run: RunData, params: CalibrationParameters) -> RunData:
     """The run with its logged (commanded) wrench replaced by what lagging thrusters apply over each sample
     (dynamics_model.apply_thruster_lag, params.thruster_time_constant_s). The run itself when there is no lag.
     Applied to a whole recording before it's cut into prediction windows, so each window starts from the
-    thrusters' real state."""
+    thrusters' real state. Commanded fin angles get their servo's lag the same way (fin_force.servo_angles)."""
+    if getattr(run, "servo", None) is not None:
+        from fin_force import servo_angles
+        run = replace(run, controls=servo_angles(run.servo, run.controls, float(params.fin_servo_T), run.dt), servo=None)
     T = float(getattr(params, "thruster_time_constant_s", 0.0) or 0.0)
     if T <= 0:
         return run
@@ -471,14 +476,16 @@ def _lagged_raw_residuals(
             sub = replace(run, forces_torques=run.forces_torques[a:b], roll_pitch=run.roll_pitch[a:b],
                           real_nu=run.real_nu[a:b], nu0=run.real_nu[a].copy(),
                           current_body=None if run.current_body is None else run.current_body[a:b],
-                          orientation_quat=None if run.orientation_quat is None else run.orientation_quat[a:b])
+                          orientation_quat=None if run.orientation_quat is None else run.orientation_quat[a:b],
+                          controls=None if run.controls is None else run.controls[a:b])
             parts.append(_lagged_raw_residuals(params, sub, vehicle, simulate_fn, None)[1:])
         return np.concatenate(parts, axis=0)
 
     simulate = simulate_fn if simulate_fn is not None else simulate_trajectory
     sim_config = SimulationConfig(dt=run.dt)
     trajectory = TrajectoryInputs(nu0=run.nu0, forces_torques=run.forces_torques,
-                                    roll_pitch_series=run.roll_pitch, current_body_series=run.current_body)
+                                    roll_pitch_series=run.roll_pitch, current_body_series=run.current_body,
+                                    control_series=run.controls)
     result = simulate(params, vehicle, sim_config, trajectory)
 
     if simulate_fn is None:
