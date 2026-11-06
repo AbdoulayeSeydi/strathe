@@ -105,6 +105,15 @@ Templates: `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yam
 | Needs a speed source | Log a DVL or position fixes. A fin's force goes as speed squared, so speed can't be inferred from the turning it causes |
 | A glider | `strathe fin-check` reads a glider's rudder; calibration doesn't apply |
 
+## Check a rudder without calibrating
+
+```bash
+python strathe.py fin-check --data my_prepared_logs
+```
+
+It reads recordings from `strathe ingest` and says whether each fin's sign is right, how quickly the vehicle responds and how much
+it turns per unit of fin angle. It's the only fin command for a glider, and a quick first step for any vehicle.
+
 ## How far to trust a fit
 
 The report has a Fins section. It says what the logs covered: the speeds, fin angles and turning. **Predictions outside that range
@@ -116,6 +125,8 @@ aren't supported.**
 - **A group of fins that barely moved keeps its geometry value**, and the report says so.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
+- **Read "Flying on its own" first.** The fit's score feeds the logged pitch back in, which hides what the elevator does to depth.
+  That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
 
 ## How fins are modelled
 
