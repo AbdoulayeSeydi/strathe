@@ -567,13 +567,43 @@ def run_fin_check_row() -> bool:
                   "no reversed fin on any mission", ok and bool(out))
 
 
+GLIDERS = ("CP05MOAS-GL339", "CP05MOAS-GL340", "CP05MOAS-GL376")
+GLIDER_LOGS = os.path.expanduser("~/strathe_fin_data/glider_asc")
+
+
+def run_glider_rows(pick) -> bool:
+    """OOI's Slocum gliders: rudder check only, through `strathe fin-check`'s own reader."""
+    import fin_check
+    R = _bars()
+    seen, ok = {}, True
+    for g in GLIDERS:
+        row = f"O-glider-{g[-5:]}"
+        d = os.path.join(GLIDER_LOGS, g)
+        if not os.path.isdir(d):
+            ok &= record(F, row, "real", g, "not available here", "OOI glider", {"bars": R.BARS_HASH}, "NOT VERIFIED: the logs aren't here", False)
+            continue
+        res = fin_check.check_folder(d)
+        c = res["channels"].get("rudder", {})
+        seen[g] = c.get("correlation")
+        if pick(row):
+            good = seen[g] is not None and abs(seen[g]) >= R.GLIDER_CORRELATION
+            ok &= record(F, row, "real", g, "rudder against turn rate, full-rate logs", "OOI glider", {**c, "recordings": res["recordings"], "bars": R.BARS_HASH},
+                         f"correlation at least {R.GLIDER_CORRELATION} in size", good)
+    if pick("O-glider-agree"):
+        vals = [v for v in seen.values() if v is not None]
+        same = len(vals) == len(GLIDERS) and len({v > 0 for v in vals}) == 1
+        ok &= record(F, "O-glider-agree", "real", "all gliders", "the rudder's sign is the same on every glider", "OOI glider", {**seen, "bars": R.BARS_HASH}, "one sign on all three", same)
+    return ok
+
+
 def real_rows() -> list:
-    return [*REAL, "O-fin-check"]
+    return [*REAL, "O-fin-check", *[f"O-glider-{g[-5:]}" for g in GLIDERS], "O-glider-agree"]
 
 
 def run_real(pick) -> int:
     ok = all([run_real_row(r) for r in REAL if pick(r)])
-    return 0 if (run_fin_check_row() if pick("O-fin-check") else True) and ok else 1
+    ok = (run_fin_check_row() if pick("O-fin-check") else True) and ok
+    return 0 if run_glider_rows(pick) and ok else 1
 
 
 # ------------------------------------------------------------------ every log format: fin channels read as they were written

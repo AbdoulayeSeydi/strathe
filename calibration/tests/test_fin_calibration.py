@@ -185,3 +185,38 @@ def test_a_fin_fit_that_runs_out_of_evaluations_can_still_be_finished():
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "finalize")
     local = {a.asname or a.name for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
     assert "_jsonable" not in local and callable(fc._jsonable)
+
+
+def _slocum_log(path, sign=1.0, n=400, dt=4.0):
+    """A dbd2asc file: a rudder swinging, a heading that follows it, and a stretch at the surface that must not count."""
+    t = 1.65e9 + dt * np.arange(n)
+    fin = .4 * np.sin(2 * np.pi * np.arange(n) / 40)
+    hdg = (1.0 + np.cumsum(sign * .05 * fin * dt)) % (2 * np.pi)
+    depth = np.where(np.arange(n) < 20, .5, 50.0)
+    head = ["dbd_label: DBD_ASC(dinkum_binary_data_ascii)file", "encoding_ver: 2", "num_ascii_tags: 3",
+            "m_present_time m_fin c_fin m_heading m_depth", "timestamp rad rad rad m", "8 4 4 4 4"]
+    body = [f"{a:.3f} {b:.4f} {b:.4f} {c:.4f} {d:.1f}" for a, b, c, d in zip(t, fin, hdg, depth)]
+    path.write_text("\n".join(head + body) + "\n")
+
+
+def test_fin_check_reads_a_slocum_log_as_it_comes(tmp_path):
+    import fin_check
+    _slocum_log(tmp_path / "a.asc")
+    parts, hz = fin_check.read_slocum(str(tmp_path / "a.asc"))
+    assert hz == pytest.approx(.25) and sum(len(p) for p in parts) < 385      # the surface stretch is out
+    r = fin_check.check_folder(str(tmp_path))["channels"]["rudder"]
+    assert r["correlation"] > .9 and "problem" not in r
+
+
+def test_fin_check_says_when_a_slocum_rudder_runs_the_other_way(tmp_path):
+    import fin_check
+    _slocum_log(tmp_path / "a.asc", sign=-1.0)
+    r = fin_check.check_folder(str(tmp_path))["channels"]["rudder"]
+    assert r["correlation"] < -.9 and "reversed" in r["problem"]
+
+
+def test_fin_check_refuses_a_text_file_that_isnt_a_slocum_log(tmp_path):
+    import fin_check
+    (tmp_path / "a.asc").write_text("hello\n")
+    with pytest.raises(ValueError, match="num_ascii_tags"):
+        fin_check.check_folder(str(tmp_path))

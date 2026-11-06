@@ -53,7 +53,9 @@ SIM_RECOVER = 0.15       # fit-sim from twice the true fin lift lands within thi
 EXPORT_EXACT = 1e-6      # the lift an export writes, against the lift the calibration found
 FLY_UNSTABLE_S = 5.0     # Prestero's vehicle doubles an error every 0.7 s, so it can't be flown 30 s by any model: FLY's numbers at this horizon, and better than
                          # the default and than holding course. Set after T-prestero-rich failed and before any result at this horizon was seen.
-BARS = {"fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
+GLIDER_CORRELATION = 0.3 # a real Slocum's rudder against its turn rate, each glider: at least this size, and the same sign on all of them. Slocum's own
+                         # convention wasn't found published, so the bar is agreement. Set before any glider log was checked.
+BARS = {"glider_correlation": GLIDER_CORRELATION, "fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
         "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER, "export_exact": EXPORT_EXACT, "fly_unstable_s": FLY_UNSTABLE_S}
 BARS_HASH = hashlib.sha256(json.dumps(BARS, sort_keys=True).encode()).hexdigest()[:12]
 NFEV = 40

@@ -116,6 +116,9 @@ python strathe.py fin-check --data my_prepared_logs
 It reads recordings from `strathe ingest` and says whether each fin's sign is right, how quickly the vehicle responds and how much
 it turns per unit of fin angle. It's the only fin command for a glider, and a quick first step for any vehicle.
 
+A Slocum glider's logs need no ingest: point `--data` at a folder of `dbd2asc` text files (`.asc`). It reads `m_fin`, `c_fin`,
+`m_heading` and `m_depth`, works out the turn rate from the heading, and leaves out time at the surface.
+
 ## How far to trust a fit
 
 The report has a Fins section. It says what the logs covered: the speeds, fin angles and turning. **Predictions outside that range
