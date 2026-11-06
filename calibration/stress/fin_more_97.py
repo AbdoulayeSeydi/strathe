@@ -366,7 +366,8 @@ def _export_holoocean(t0: float) -> bool:
 
 
 # ------------------------------------------------------------------ one engine's vehicle in another
-CONVERTS = {"CV-gazebo": "gazebo", "CV-mujoco": "mujoco"}
+# -first-turn was added after CV-gazebo failed on a steady turn, which a converted sphere doesn't hold: that row stands, and this asks the narrower question
+CONVERTS = {"CV-gazebo": "gazebo", "CV-mujoco": "mujoco", "CV-gazebo-first-turn": "gazebo", "CV-mujoco-first-turn": "mujoco"}
 
 
 def run_convert(row: str) -> bool:
@@ -409,6 +410,11 @@ def run_convert(row: str) -> bool:
         (V1, _), = ad.replay(ad.write_runnable(None, d + "/w1"), rows, d + "/w1")
     except Exception as e:
         return record(F, row, "cross engine", to, "fly in both", "-", {"error": f"{type(e).__name__}: {e}"[:240], "bars": R.BARS_HASH}, "flown", False, time.time() - t0)
+    if row.endswith("first-turn"):
+        peak = lambda V: float(V[:50, 5][np.nanargmax(np.abs(V[:50, 5]))])   # noqa: E731
+        r0, r1 = peak(V0), peak(V1)
+        return record(F, row, "cross engine", to, "the same rudder starts the same turn after conversion", "-", {"stonefish_peak_yaw_rate": r0, f"{to}_peak_yaw_rate": r1, "bars": R.BARS_HASH}, "same sign, in the first 5 s",
+                      r0 * r1 > 0 and min(abs(r0), abs(r1)) > 1e-3, time.time() - t0)
     r0, r1 = float(np.nanmean(V0[20:, 5])), float(np.nanmean(V1[20:, 5]))
     return record(F, row, "cross engine", to, "the same rudder turns it the same way after conversion", "-", {"stonefish_yaw_rate": r0, f"{to}_yaw_rate": r1, "bars": R.BARS_HASH}, "same sign, and turning", r0 * r1 > 0 and min(abs(r0), abs(r1)) > 1e-3, time.time() - t0)
 
