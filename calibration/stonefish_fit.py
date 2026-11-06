@@ -329,7 +329,9 @@ class Replay:
                 "--ref", *(f"{x:g}" for x in self.ref), "--depth", f"{self.depth:g}", "--hz", f"{self.hz:g}",
                 "--dt", f"{self.dt:g}"]
         if self.tool and self.tool[0].startswith("docker:"):  # nothing to build: the tool in a container (#86, #92)
-            dirs = {os.path.dirname(os.path.abspath(scenario)), os.path.abspath(self.data_dir), *folders}
+            dirs = {os.path.dirname(os.path.abspath(scenario)), *folders}
+            if os.path.isdir(self.data_dir):   # otherwise it's a folder inside the image: mounting over it would hide its meshes
+                dirs.add(os.path.abspath(self.data_dir))
             dirs |= sim_docker.referenced_dirs(os.path.dirname(os.path.abspath(scenario)))
             try:
                 sim_docker.check_shared(self.tool[0][7:], dirs)
@@ -365,7 +367,8 @@ class Replay:
             raise StonefishFitError("the Stonefish replay didn't finish within 24 hours; try fewer recordings or "
                                     "--workers to run them in parallel")
         if r.returncode:
-            raise StonefishFitError(f"the Stonefish replay failed: {r.stderr.strip()[-800:]}")
+            from simfit.replay_tool import why_failed
+            raise StonefishFitError(f"the Stonefish replay failed: {why_failed(r)}")
         got = {}
         with open(fout) as f:
             for row in csv.DictReader(f):
@@ -817,7 +820,7 @@ def add_arguments(ap) -> None:
     ap.add_argument("--axisymmetric", action="store_true",
                     help="one drag and added mass across the hull (y = z), for a torpedo-shaped vehicle")
     ap.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
-    ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder). With Docker, /src/Tests/Data is the image's own")
     ap.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
     ap.add_argument("--from-strathe", metavar="CALIBRATION",

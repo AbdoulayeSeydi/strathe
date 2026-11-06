@@ -172,3 +172,32 @@ def test_stonefish_rudders_are_valid_and_tunable():
     assert len(ET.fromstring(f"<r>{text}</r>").findall("actuator")) == 4 and len(RUDDER_LIFT.findall(text)) == 1 + 3
     out = apply_part_settings(text, "none", PartSettings(fin_lift=7.5))
     assert out.count('lift_coeff="7.5"') == 4
+
+
+def test_gazebos_report_can_say_what_the_fin_fit_changed(tmp_path):
+    """#97: S-gazebo found the lift, then fit-sim died writing the report: the knob's place isn't an XML path."""
+    from simfit.adapters.gazebo import GazeboAdapter
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0)
+    world = tmp_path / "w.sdf"
+    world.write_text(f"""<?xml version="1.0"?><sdf version="1.11"><world name="w"><model name="v">
+      <link name="base_link"><inertial><mass>30</mass><inertia><ixx>1</ixx><iyy>1</iyy><izz>1</izz></inertia></inertial></link>{links}
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics"><link_name>base_link</link_name><xU>-5</xU></plugin>
+      {plugins}</model></world></sdf>""")
+    ad = GazeboAdapter(str(world), link="base_link")
+    said = "\n".join(ad.changes({"fin_cla": 1.5}))
+    assert "fin lift slope" in said and "1.5" in said
+
+
+def test_a_replay_that_only_spoke_on_stdout_is_still_heard():
+    from types import SimpleNamespace as N
+    from simfit.replay_tool import why_failed
+    assert why_failed(N(stderr="", stdout="[ERROR] no mesh", returncode=1)) == "[ERROR] no mesh"
+    assert "exit code 3" in why_failed(N(stderr="", stdout="", returncode=3))
+
+
+def test_a_data_folder_inside_the_image_isnt_mounted_over(tmp_path, monkeypatch):
+    import stonefish_fit as sf
+    monkeypatch.setattr(sf.sim_docker, "check_shared", lambda *a: None)
+    rp = sf.Replay(["docker:img"], "/not/on/this/host", "auv", (0, 0, 0))
+    argv = rp._argv(str(tmp_path / "a.scn"))
+    assert not any("/not/on/this/host:" in a for a in argv)

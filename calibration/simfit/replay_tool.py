@@ -78,6 +78,12 @@ def read_predictions(path: str, rows_by_window: list) -> list:
     return out
 
 
+def why_failed(r) -> str:
+    """The end of what a replay said. Stonefish reports on stdout, so an empty stderr doesn't mean it said nothing."""
+    said = (r.stderr or "").strip() or (r.stdout or "").strip()
+    return said[-800:] or f"it stopped with exit code {r.returncode} and said nothing"
+
+
 def tool_argv(spec: str, sim: Optional[str] = None) -> list:
     """A --replay-tool value -> argv prefix. `docker` / `docker:IMAGE` -> ["docker:IMAGE"] (ReplayTool mounts the
     folders), once Docker is running and the image is there; work folders then go where Docker can see them."""
@@ -172,7 +178,7 @@ class ReplayTool:
                        + (sim_docker.translate(io) if self.tool[0].startswith("docker:") else io),
                        RUN_TIMEOUT_S, "finish the replay")
         if r.returncode or not os.path.exists(fout):
-            raise SimFitError(f"the {self.name} replay failed: {r.stderr.strip()[-800:]}")
+            raise SimFitError(f"the {self.name} replay failed: {why_failed(r)}")
         return read_predictions(fout, rows_by_window)
 
 

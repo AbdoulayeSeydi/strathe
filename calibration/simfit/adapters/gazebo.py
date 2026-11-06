@@ -451,7 +451,11 @@ class GazeboAdapter:
         orig = XmlFile(self.model_text)
         defs = {n: (p, s) for n, _g, p, s, _t in self._knob_defs()}
         for key, v in values.items():
-            if key in defs:
+            if key == "fin_cla":   # every fin's LiftDrag, not one place in the file
+                old = float(LIFTDRAG_CLA.search(self.model_text).group(2))
+                if abs(old - float(v)) > 1e-12 * max(1.0, abs(old)):
+                    L.append(f"- fin lift slope: {fmt_number(old)} -> {fmt_number(float(v))} (`cla` in each fin's LiftDrag plugin)")
+            elif key in defs:
                 old = orig.get(defs[key][0])
                 new = float(v) * defs[key][1]
                 if abs(old - new) > 1e-12 * max(1.0, abs(old)):

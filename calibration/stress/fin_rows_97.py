@@ -618,7 +618,7 @@ def _write_direct(fmt, d, t, att, rates, vel, chan, top):
         p = os.path.join(d, "a.alog")
         tm = t + 1.7e9
         write_alog(p, {"a": Topic(tm, {"QX": att["qx"], "QY": att["qy"], "QZ": att["qz"], "QW": att["qw"]}), "g": Topic(tm, {"GP": rates["p"], "GQ": rates["q"], "GR": rates["r"]}),
-                       "v": Topic(tm, {"VU": vel["u"], "VV": vel["v"], "VW": vel["w"]}), "f": Topic(tm, {f"F_{k.upper()}": v for k, v in chan.items()})})
+                       "v": Topic(tm, {"VU": vel["u"], "VV": vel["v"], "VW": vel["w"]}), "f": Topic(tm, {f"F_{k.upper()}": v for k, v in chan.items()})}, logstart=tm[0] - 2.0, sources={})
         return _lf_spec("moos", p, {"body_velocity": {"columns": dict(u="VU", v="VV", w="VW", p="GP", q="GQ", r="GR"), **bv}, "orientation": {"quaternion": dict(x="QX", y="QY", z="QZ", w="QW")}, **top})
     p = os.path.join(d, "lcmlog-a.00")
     write_lcm(p, os.path.join(d, "types"), {"ATT": Topic(t, att), "GYR": Topic(t, {"rp": rates["p"], "rq": rates["q"], "rr": rates["r"]}), "VEL": Topic(t, vel), "FIN": Topic(t, chan)},
