@@ -32,7 +32,7 @@ from objective import read_currents_file
 from objective import (DatasetConfig, load_run, mean_run_rmse, rmse_by_dof, skill_vs_zero, stable_mean_run_rmse,
                        stable_rmse_by_dof, zero_baseline_rmse)
 from optimizer import initial_parameters, load_vehicle_spec
-from run_calibration import (SKILL_EVAL_HORIZON_S, _get_git_commit, excluded_axis_setup, free_decay_setup,
+from run_calibration import (SKILL_EVAL_HORIZON_S, _get_git_commit, _jsonable, excluded_axis_setup, free_decay_setup,
                              spec_torque_reference_offset)
 
 
@@ -152,7 +152,6 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if fin_info is not None:
         metrics["fins"] = _jsonable(fin_info)
     if sensor_info is not None:
-        from run_calibration import _jsonable
         metrics["sensor_suite"] = _jsonable(sensor_info)
         metrics["objective"]["sensors"] = sensor_info["sensors_asked"]
         metrics["objective"]["use_accelerometer"] = sensor_info["use_accelerometer"]

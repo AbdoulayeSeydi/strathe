@@ -175,3 +175,13 @@ def test_a_hover_description_is_unchanged_by_the_new_options(tmp_path):
     vd.run(_args(out=str(a)))
     r = yaml.safe_load(open(a))
     assert "fins" not in r and "steering" not in r["vehicle"]
+
+
+def test_a_fin_fit_that_runs_out_of_evaluations_can_still_be_finished():
+    """#97, J-cli-fin: finishing a fin fit from its checkpoint crashed. A name imported inside finalize() was used before that line."""
+    import ast
+    import finalize_checkpoint as fc
+    tree = ast.parse(open(fc.__file__, encoding="utf-8").read())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "finalize")
+    local = {a.asname or a.name for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    assert "_jsonable" not in local and callable(fc._jsonable)

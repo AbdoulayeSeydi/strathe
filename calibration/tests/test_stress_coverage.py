@@ -53,6 +53,39 @@ def test_the_results_page_lists_every_row():
     import page
     from common import load_rows
     text = page.render()
-    for feature in ("93", "94", "95", "96"):
+    for feature in ("93", "94", "95", "96", "97"):
         missing = [r["row"] for r in load_rows(feature) if f"<code>{page.E(r['row'])}</code>" not in text]
         assert not missing, f"#{feature} rows missing from the page: {missing[:5]}"
+
+
+def test_what_other_matrices_owe_97_names_rows_that_exist():
+    """An exemption saying "proved in #97" is only true if the row does: #94 once said it of 111 options before any row did."""
+    import re
+    import run_97
+    known = set(run_97.all_rows())
+    for feature in ("94", "96"):
+        for var, (rows, note) in inventory.matrix(feature).items():
+            if rows == ["exempt"] and "#97" in note:
+                named = re.findall(r"\b(?:LF|X|XS|P|S|E|J)-[\w.-]*\w", note)
+                assert named, f"{var}: says #97 proves it without naming the row"
+                assert set(named) <= known, f"{var}: names rows #97 doesn't have: {set(named) - known}"
+
+
+def _results_97():
+    from common import load_rows
+    return load_rows("97")
+
+
+def test_97s_results_were_judged_by_the_bars_in_force():
+    """Results keep the hash of the bars they met: moving a bar after seeing a result can't go unnoticed."""
+    import json
+    import run_97
+    old = [r["row"] for r in _results_97() if json.loads(r["numbers"].replace("'", '"') if r["numbers"].startswith("{'") else r["numbers"] or "{}").get("bars") not in (None, run_97.BARS_HASH)]
+    assert not old, f"judged by other bars: {old[:5]}"
+
+
+def test_97s_failing_rows_are_written_down():
+    """A failure is a finding: every failing row is in LIMITS, with what it means for a lab."""
+    limits = open(os.path.join(os.path.dirname(HERE), "..", "LIMITS.md"), encoding="utf-8").read()
+    missing = [r["row"] for r in _results_97() if r["passed"] != "pass" and r["row"] not in limits]
+    assert not missing, f"failing rows with no LIMITS.md entry: {missing}"
