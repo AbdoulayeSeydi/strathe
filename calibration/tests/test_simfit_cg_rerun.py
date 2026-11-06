@@ -79,7 +79,7 @@ def _run(tmp_path, monkeypatch, held_drift, extra=()):
         return out, []
     run = types.SimpleNamespace(dt=0.1, date="d2")
     split = types.SimpleNamespace(train_groups=["d1"], heldout_groups=["d2"], mode="dates", warning=None)
-    monkeypatch.setattr(core, "load_runs", lambda data, held: ([run], [run], split))
+    monkeypatch.setattr(core, "load_runs", lambda data, held, spec=None: ([run], [run], split))
     monkeypatch.setattr(core, "fit", fake_fit)
     monkeypatch.setattr(core, "windows", lambda *a: [])
     monkeypatch.setattr(core, "baselines", lambda rw: {"no motion": _r(3.3, [3.9, 6.3, 95.1])})

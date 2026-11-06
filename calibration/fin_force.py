@@ -123,9 +123,9 @@ def prepare(act: Actuators, params) -> tuple:
     return tuple(rows)
 
 
-def actuator_wrench(act: Actuators, fins: tuple, params, v, c, sr: float, cr: float, sp: float, cp: float) -> list:
-    """The 6-DOF force and moment of every actuator at this instant. v: velocity through the water (u, v, w, p, q, r); c: this
-    sample's controls; sr..cp as dynamics' restoring terms use them (only the products they use)."""
+def fins_wrench(fins: tuple, v, c) -> list:
+    """The fins' force and moment. v: velocity through the water; c: their angles, by each row's index. Plain math and nothing else:
+    a generated simulator class carries this function as it is."""
     u, vv, w, a, b, r = v
     X = Y = Z = K = M = N = 0.0
     for i, x, y, z, cx, cy, cz, nx, ny, nz, q, slope, inflow, bias, cd0, kind, stall in fins:
@@ -154,6 +154,14 @@ def actuator_wrench(act: Actuators, fins: tuple, params, v, c, sr: float, cr: fl
         K += y * fz - z * fy
         M += z * fx - x * fz
         N += x * fy - y * fx
+    return [X, Y, Z, K, M, N]
+
+
+def actuator_wrench(act: Actuators, fins: tuple, params, v, c, sr: float, cr: float, sp: float, cp: float) -> list:
+    """The 6-DOF force and moment of every actuator at this instant. v: velocity through the water (u, v, w, p, q, r); c: this
+    sample's controls; sr..cp as dynamics' restoring terms use them (only the products they use)."""
+    X, Y, Z, K, M, N = fins_wrench(fins, v, c)
+    u, vv, w, a, b, r = v
     k = len(act.fins)
     p = act.propeller
     if p is not None:
@@ -194,6 +202,25 @@ def actuator_wrench(act: Actuators, fins: tuple, params, v, c, sr: float, cr: fl
         Y -= dB * cp * sr
         Z -= dB * cp * cr
     return [X, Y, Z, K, M, N]
+
+
+def other_wrench(act: Actuators, nu, roll_pitch, controls, thrust_scale: float = 1.0):
+    """(N,6): everything but the fins, from the log, for a simulator: propeller, gimbal, moving mass and buoyancy engine don't depend
+    on how its hull moves through the water. Only fin force does, so only fin angles go to its physics."""
+    import numpy as np
+    rest = Actuators(propeller=act.propeller, moving_mass=act.moving_mass, buoyancy_engine=act.buoyancy_engine, rho=act.rho)
+    out = np.zeros((len(nu), 6))
+    if not rest.width:
+        return out
+    class P:
+        pass
+    P.thrust_scale = thrust_scale
+    k = len(act.fins)
+    for i in range(len(nu)):
+        r, p = roll_pitch[i]
+        v = [0.0 if not math.isfinite(x) else float(x) for x in nu[i]]
+        out[i] = actuator_wrench(rest, (), P, v, [float(x) for x in controls[i, k:]], math.sin(r), math.cos(r), math.sin(p), math.cos(p))
+    return out
 
 
 def servo_angles(act: Actuators, controls, time_constant_s: float, dt: float):

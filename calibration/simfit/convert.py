@@ -156,6 +156,29 @@ def write_holoocean(f: dict, out: str) -> str:
 WRITERS = {"gazebo": write_gazebo, "mujoco": write_mujoco, "holoocean": write_holoocean}
 
 
+def add_fins(path: str, sim: str, spec_path: str, rho: float) -> None:
+    """A fin vehicle's fins, written into a converted model in that simulator's own terms."""
+    import yaml
+    import steering
+    from simfit import fin_models as fm
+    act = steering.actuators_from(yaml.safe_load(open(spec_path, encoding="utf-8")))
+    if act is None or not act.fins:
+        return
+    text = open(path, encoding="utf-8").read()
+    if sim == "gazebo":
+        links, plugins = fm.sdf_fins(act, "base_link", rho)
+        text = text.replace("    </model>", links + "\n" + plugins + "\n    </model>", 1)
+    elif sim == "mujoco":
+        i = text.rindex("    </body>\n  </worldbody>")
+        text = text[:i] + fm.mjcf_fins(act) + "\n" + text[i:]
+    else:   # HoloOcean's torpedo has its own fins: a scenario sets their lift and area
+        sc = json.loads(text)
+        f = act.fins[0]
+        sc["agents"][0]["actuator"] = {"fin_count": len(act.fins), "fin_area": f.area_m2, "CL_delta": .5, "deltaMax_fin_deg": math.degrees(f.limit_rad)}
+        text = json.dumps(sc, indent=2)
+    open(path, "w", encoding="utf-8").write(text)
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="strathe convert-sim", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -170,6 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--stonefish-data")
     ap.add_argument("--replay-tool")
     ap.add_argument("--out", required=True, help="folder for the converted model")
+    ap.add_argument("--spec", help="a fin vehicle's description: its fins go into the converted model (FINS.md)")
     return ap
 
 
@@ -185,6 +209,8 @@ def main(argv=None) -> int:
         f = facts_from_stonefish(info, a.reference_point, a.mass)
         os.makedirs(a.out, exist_ok=True)
         path = WRITERS[a.to](f, a.out)
+        if a.spec:
+            add_fins(path, a.to, a.spec, float(f["rho"]))
         json.dump(f, open(os.path.join(a.out, "converted_from.json"), "w"), indent=2)
         print(f"Wrote {path} from {os.path.basename(a.scenario)} ({f['mass']:g} kg, hull {f['length']:.2f} x "
               f"{f['diameter']:.2f} m). Its origin is the logs' reference point: use --reference-point 0 0 0 with it.")

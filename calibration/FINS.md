@@ -128,6 +128,26 @@ aren't supported.**
 - **Read "Flying on its own" first.** The fit's score feeds the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
 
+## In your simulator
+
+`fit-sim` and `export-sim` take `--spec` with the vehicle description (`--fin-spec` for `fit-stonefish`). The fins go through the
+simulator's own physics: Strathe sends each fin's logged angle, and the propeller, gimbal, moving mass and buoyancy engine are already
+in the logged force.
+
+| Simulator | What a fin is there | What `fit-sim` tunes |
+|---|---|---|
+| Gazebo | A link on a revolute joint `fin_<name>`, with a `LiftDrag` plugin | `fin_cla`, the lift slope |
+| Stonefish | A `rudder` actuator `fin_<name>` | `fin_lift`, every rudder's `lift_coeff` |
+| HoloOcean | The Fossen class's own fins, matched by where they stand | `CL_delta` |
+| MuJoCo | A child body on a hinge `fin_<name>` with an ellipsoid geom | Each fin's Kutta lift |
+| Your own | `fin_<name>` columns in the replay contract (`simulators/SIMULATOR_PROTOCOL.md`) | Your knobs |
+
+`convert-sim --spec` writes the fins into a converted model. Strathe's Docker images need rebuilding to take fin angles:
+`strathe setup-sim gazebo --docker`, or `stonefish`.
+
+**MuJoCo isn't a foil.** Its fluid model gives almost no lift below about 3° and isn't linear above that. Stonefish's `Rudder` drops
+lift to zero at stall and never uses `drag_coeff`.
+
 ## How fins are modelled
 
 A thruster's force can be logged. A fin's can't: it depends on how fast the water passes the fin and at what angle. So it's

@@ -42,10 +42,28 @@ def _nu(run):
     return run.real_nu
 
 
+class FinRows(list):
+    """Windows whose rows carry fin angles after the 16 usual numbers; `fins` names those columns."""
+    fins: tuple = ()
+    actuators: object = None
+
+
 def window_rows(run, wins) -> list:
+    """Each window's rows: velocity, attitude, wrench. A fin vehicle's propeller and the like are worked out from the log and added to
+    the wrench; its fin angles follow, for the simulator's own physics."""
     nu = _nu(run)
-    return [np.hstack([nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
-            for a, n in wins]
+    act = getattr(run, "actuators", None)
+    if act is None:
+        return [np.hstack([nu[a:a + n], run.orientation_quat[a:a + n], run.forces_torques[a:a + n]])
+                for a, n in wins]
+    from fin_force import other_wrench, servo_angles
+    ctl = servo_angles(act, run.controls, 0.0, run.dt) if getattr(run, "servo", None) is not None else run.controls
+    F = run.forces_torques + other_wrench(act, nu, run.roll_pitch, ctl)
+    k = len(act.fins)
+    out = FinRows(np.hstack([nu[a:a + n], run.orientation_quat[a:a + n], F[a:a + n], ctl[a:a + n, :k]]) for a, n in wins)
+    out.fins = tuple(f"fin_{f.name}" for f in act.fins)
+    out.actuators = act
+    return out
 
 
 def path(V, Q, dt):
@@ -297,7 +315,24 @@ def finish_from_checkpoint(checkpoint: str, knobs, fingerprint: dict = None) -> 
 # Recordings, table and plot
 # ---------------------------------------------------------------------------------------------------------------------
 
-def load_runs(data_dir: str, heldout_dates: Optional[list]):
+def actuators_of(spec_path: Optional[str], columns) -> Optional[object]:
+    """A fin vehicle's actuators, from the description --spec gives. Fin logs need one: it says what the channels mean."""
+    import steering
+    fins = steering.has_actuator_columns(columns)
+    if spec_path is None:
+        if fins:
+            raise SimFitError("these logs have fin channels: give --spec, the vehicle description with the fins (FINS.md)")
+        return None
+    import yaml
+    try:
+        raw = yaml.safe_load(open(spec_path, encoding="utf-8"))
+        steering.check_data(raw, columns)
+        return steering.actuators_from(raw)
+    except steering.SteeringError as e:
+        raise SimFitError(str(e))
+
+
+def load_runs(data_dir: str, heldout_dates: Optional[list], spec_path: Optional[str] = None):
     from data_split import discover_csv_files, split_by_date
     from objective import DatasetConfig, load_run
     files = discover_csv_files(data_dir)[0]
@@ -309,7 +344,9 @@ def load_runs(data_dir: str, heldout_dates: Optional[list]):
     rp = os.path.join(data_dir, "ingest_report.json")
     if os.path.exists(rp):
         rate = json.load(open(rp, encoding="utf-8")).get("sampling_rate_hz")
-    cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None)  # torques as logged, about the reference
+    with open(files[0], encoding="utf-8") as f:
+        act = actuators_of(spec_path, f.readline().strip().split(","))
+    cfg = DatasetConfig(float(rate or 10.0), (0.0, 0.0, 0.0), None, None, actuators=act)  # torques as logged, about the reference
     train, held = [load_run(f, cfg) for f in split.train_files], [load_run(f, cfg) for f in split.heldout_files]
     if len({getattr(r, "channels", None) is not None for r in train + held}) > 1:   # one objective for all, as calibrate does
         from dataclasses import replace as _replace

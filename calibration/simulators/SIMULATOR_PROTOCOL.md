@@ -28,7 +28,7 @@ TOOL --model MODEL --ref X Y Z --dt DT --model-dir DIR [your options] --windows 
 | `--model-dir` | The folder your original model file is in. Resolve relative paths in the model (meshes, includes) against it. |
 | `--ref X Y Z` | Where the logs' velocity and forces are measured, in the vehicle's frame: metres from the model's origin, x forward, y right, z down. |
 | `--dt` | The logs' sample time, in seconds. Hold each logged force for `dt`, stepping your physics as finely as it needs inside. |
-| `--features` | Print one JSON line about the simulator, e.g. its version, without loading a model. `strathe check` uses it. |
+| `--features` | Print one JSON line about the simulator, e.g. its version (and `"fins": true` if it applies fin angles), without loading a model. `strathe check` uses it. |
 | `--info` | Load the model and print one JSON line with what you know. Lines that don't start with `{` are ignored. Useful keys: `mass` (kg) and `water_density` (kg/m³). |
 | `--windows IN.csv --out OUT.csv` | Replay every window in `IN.csv` and write `OUT.csv`. |
 
@@ -45,6 +45,11 @@ win,k,u,v,w,p,q,r,qx,qy,qz,qw,Fx,Fy,Fz,Tx,Ty,Tz
 - `Fx Fy Fz Tx Ty Tz` is the logged force and torque from the thrusters, in body axes and about the reference point
   (N, N·m). Apply row `k`'s wrench from sample `k` to `k + 1`.
 
+**A fin-steered vehicle** (`FINS.md`) adds one column per fin after `Tz`, named `fin_<name>` from the vehicle description, in radians.
+A positive angle lifts toward span × chord. Fin force depends on your simulator's own flow, so apply these with your fin model. The
+propeller, gimbal, moving mass and buoyancy engine are already in the wrench. Say `"fins": true` in `--features`, or fit-sim refuses
+fin logs with your tool. Hover vehicles' windows don't change.
+
 **`OUT.csv`** has the same windows, with what your vehicle did:
 
 ```text
@@ -59,7 +64,8 @@ win,k,u,v,w,p,q,r,qx,qy,qz,qw
 **Rules:**
 - **Deterministic:** the same input gives the same output, every time. The fit compares nearby settings, and noise
   would swamp the differences. Turn off sensor noise, random currents and anything else random.
-- **No controller:** apply the logged wrench as it is, with your vehicle's thrusters and controllers out of the loop.
+- **No controller:** apply the logged wrench and any logged fin angles as they are, with your vehicle's thrusters and controllers out
+  of the loop.
 - **Free water:** a fixed depth, away from the surface and the seabed, in still water (Strathe models the current from
   the logs separately).
 - **Fast is better:** every step of the fit replays all training windows several times. Strathe runs `--workers`
