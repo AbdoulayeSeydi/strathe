@@ -205,20 +205,28 @@ def clear_flights(train_runs: list) -> None:
         run.__dict__.pop("_flights", None)
 
 
-def flight_residuals(params, run, vehicle, plan: Flights) -> np.ndarray:
-    """Each flight's attitude error through its length, in units of plan.scale, weighted so a recording's flights count as one unit per axis."""
+def flights_flown(params, run, vehicle, plan: Flights, starts) -> np.ndarray:
+    """These flights' attitude errors through their length, in units of plan.scale."""
     from validation import free_run
     n, k = plan.samples, plan.every
     width = len(range(k, n, k)) * 3
     out = []
-    for a in plan.starts:
+    for a in starts:
         got = free_run(params, vehicle, run, a, n)
         if got is None:
             out.append(np.full(width, FLIGHT_LOST))
         else:
             out.append(np.nan_to_num(_wrap(got[k::k] - plan.logged[a + k:a + n:k]) / plan.scale).ravel())
-    r = np.concatenate(out)
-    return r / math.sqrt(len(r) / 3)
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+def flight_weight(plan: Flights) -> float:
+    """So a recording's flights count as one unit per axis, however many there are."""
+    return math.sqrt(len(plan.starts) * len(range(plan.every, plan.samples, plan.every)))
+
+
+def flight_residuals(params, run, vehicle, plan: Flights) -> np.ndarray:
+    return flights_flown(params, run, vehicle, plan, plan.starts) / flight_weight(plan)
 
 
 def window_samples(train_runs: list) -> int:

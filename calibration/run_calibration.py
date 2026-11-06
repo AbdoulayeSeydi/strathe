@@ -107,6 +107,7 @@ class PipelineConfig:
     free_decay: Optional[str] = None  # free_decay.yaml (free_decay.py): roll/pitch damping and righting arm
         # measured in free-decay tank tests, held fixed instead of fitted from the mission logs
     checkpoint_path: Optional[str] = None  # where a retried fit's record is noted, for a not-converged finish (#93)
+    fin_flights: bool = True                # a fin vehicle's second stage (fin_fit.py); False only keeps unit tests quick
     # the sensor suite (PROJECT_STATUS.md #96, SENSORS.md): which sensors to fit to (objective.DatasetConfig.sensors),
     # the accelerometer as a channel, how many times to re-estimate the windows' starting velocities with the fitted
     # values and refit, and the state smoother's process noise (None: chosen from the data)
@@ -186,7 +187,17 @@ def fin_flight_stage(config, loaded_spec, train_runs, first, fin_info: dict, sto
                       max_nfev=min(cc.max_nfev, fin_fit.FLIGHT_MAX_NFEV) if cc.max_nfev else fin_fit.FLIGHT_MAX_NFEV,
                       on_iteration=make_checkpoint_callback(config.checkpoint_path) if cc.on_iteration and config.checkpoint_path else cc.on_iteration)
     try:
-        return calibrate_parallel(loaded_spec, train_runs, second, max_workers=config.max_workers) if config.parallel else calibrate(loaded_spec, train_runs, second)
+        result = calibrate_parallel(loaded_spec, train_runs, second, max_workers=config.max_workers) if config.parallel else calibrate(loaded_spec, train_runs, second)
+        fin_info["flight_stage"] = {"converged": True, "nfev": int(result.n_iterations)}
+        return result
+    except RestartsFailed as e:
+        fin_info["flight_stage"] = {"converged": False, "nfev": int(e.restarts[0].nfev)}
+        if first is None:      # neither stage converged: finished from the checkpoint, as any fit out of budget is
+            raise
+        # it starts from a converged fit and its budget is deliberately short, so stopping there is how it usually ends, not a failed fit
+        logger.info("Fins: the flight stage used its %d-step budget; keeping where it got to", second.max_nfev)
+        best = min(e.restarts, key=lambda r: r.cost)
+        return result_from_restarts([_replace(best, success=True)], second, train_runs, loaded_spec.vehicle, 0.0)
     finally:
         fin_fit.clear_flights(train_runs)
 
@@ -958,7 +969,9 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         cal_result = sensor_anchor_rounds(config, loaded_spec, train_runs, heldout_runs, cal_result, vehicle,
                                           sensor_info)
     if fin_info is not None:
-        cal_result = fin_flight_stage(config, loaded_spec, train_runs, cal_result, fin_info, stopped)
+        cal_result = fin_flight_stage(config, loaded_spec, train_runs, cal_result, fin_info, stopped) if config.fin_flights else cal_result
+        if cal_result is None:
+            raise stopped
     calibration_s = time.monotonic() - t_cal
     logger.info("Calibration converged: %s (%d/%d restarts), cost=%.6g (%.2fs)",
                 cal_result.converged, cal_result.stability["n_converged"],

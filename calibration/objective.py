@@ -706,6 +706,19 @@ def _pool_residuals(job):
                              dof_scales, normalize_by_run_length, None, horizon_samples)
 
 
+def _pool_replay(job):
+    i, param_vec, dof_scales, normalize_by_run_length, horizon_samples = job
+    return replay_residuals(CalibrationParameters.from_vector(param_vec), _POOL_RUNS[i], _POOL_VEHICLE,
+                            dof_scales, normalize_by_run_length, None, horizon_samples)
+
+
+def _pool_flights(job):
+    from fin_fit import flights_flown
+    i, param_vec, starts = job
+    run = _POOL_RUNS[i]
+    return flights_flown(CalibrationParameters.from_vector(param_vec), run, _POOL_VEHICLE, run.__dict__["_flights"], starts)
+
+
 class ParallelJointResiduals:
     """Drop-in for joint_residuals (same call signature) that evaluates runs
     in worker processes. Results are identical to joint_residuals, in the
@@ -721,6 +734,7 @@ class ParallelJointResiduals:
         self._vehicle = vehicle
         # longest runs first so no worker is left with a long run at the end
         self._order = sorted(range(len(self._runs)), key=lambda i: -self._runs[i].n_samples)
+        self._workers = workers
         self._pool = ProcessPoolExecutor(max_workers=workers, initializer=_pool_init,
                                          initargs=(self._runs, vehicle))
 
@@ -732,8 +746,26 @@ class ParallelJointResiduals:
             raise ValueError("ParallelJointResiduals was built for a different set of runs")
         vec = np.asarray(param_vec, dtype=float)
         jobs = [(i, vec, dof_scales, normalize_by_run_length, horizon_samples) for i in self._order]
+        if any("_flights" in r.__dict__ for r in self._runs):
+            return self._with_flights(vec, jobs)
         parts = dict(zip(self._order, self._pool.map(_pool_residuals, jobs)))
         return np.concatenate([parts[i] for i in range(len(self._runs))])
+
+    def _with_flights(self, vec, jobs) -> np.ndarray:
+        """A fin vehicle's second stage: one recording's flights split across the workers, as a truth row or a single long log would otherwise leave them idle."""
+        from fin_fit import flight_weight
+        replay = {j[0]: self._pool.submit(_pool_replay, j) for j in jobs}
+        flown = {}
+        for i, run in enumerate(self._runs):
+            plan = run.__dict__.get("_flights")
+            if plan is not None:
+                flown[i] = [self._pool.submit(_pool_flights, (i, vec, list(c))) for c in np.array_split(plan.starts, self._workers) if len(c)]
+        out = []
+        for i, run in enumerate(self._runs):
+            out.append(replay[i].result())
+            if i in flown:
+                out.append(np.concatenate([f.result() for f in flown[i]]) / flight_weight(run.__dict__["_flights"]))
+        return np.concatenate(out)
 
     def close(self) -> None:
         self._pool.shutdown(wait=True, cancel_futures=True)

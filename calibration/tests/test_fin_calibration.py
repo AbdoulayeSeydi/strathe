@@ -58,7 +58,7 @@ def calibrate(data, out, nfev=12, spec=TEMPLATE):
     cc = CalibrationConfig(max_nfev=nfev, seed=3, initialization_strategy="fixed", ftol=1e-4, xtol=1e-4, gtol=1e-4,
                            x0_override=initial_parameters(load_vehicle_spec(spec)).to_vector(), horizon_samples=50)
     cfg = PipelineConfig(data_dir=str(data), spec_path=str(spec), output_dir=str(out), sampling_rate_hz=10.0, heldout_dates=[DATES[1]],
-                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0))
+                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), fin_flights=False)
     try:
         return run_pipeline(cfg)
     except Exception as e:
@@ -232,7 +232,7 @@ def test_a_fin_fit_uses_short_windows_and_a_slow_log_still_gets_a_few_samples():
 def test_a_fin_fit_left_to_its_default_reports_the_window_it_used(tmp_path):
     cc = CalibrationConfig(max_nfev=1, seed=3, initialization_strategy="fixed", x0_override=initial_parameters(load_vehicle_spec(TEMPLATE)).to_vector())
     cfg = PipelineConfig(data_dir=str(dataset(tmp_path / "data")), spec_path=str(TEMPLATE), output_dir=str(tmp_path / "out"), sampling_rate_hz=10.0, heldout_dates=[DATES[1]],
-                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0))
+                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), fin_flights=False)
     try:
         run_pipeline(cfg)
     except Exception as e:
@@ -313,13 +313,13 @@ def test_the_second_stage_starts_its_checkpoint_afresh(tmp_path, monkeypatch):
     import run_calibration as rc
     made = []
     monkeypatch.setattr(rc, "make_checkpoint_callback", lambda p: made.append(p) or (lambda *a: None))
-    monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: cc)
+    monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: type("R", (), {"cc": cc, "n_iterations": 1})())
     monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
     cfg = _stage_config(tmp_path)
     cfg.checkpoint_path = str(tmp_path / "checkpoint.yaml")
     cfg.calibration_config.on_iteration = lambda *a: None
     first = type("F", (), {"parameters": initial_parameters(load_vehicle_spec(TEMPLATE))})()
-    second = rc.fin_flight_stage(cfg, None, [], first, {"plain": []})
+    second = rc.fin_flight_stage(cfg, None, [], first, {"plain": []}).cc
     assert made == [cfg.checkpoint_path] and second.on_iteration is not cfg.calibration_config.on_iteration
     assert second.max_nfev <= 25 and second.n_restarts == 1
 
@@ -330,3 +330,50 @@ def test_a_budget_stopped_first_stage_with_nothing_to_fly_stops_as_it_would_have
     with pytest.raises(RuntimeError, match="budget"):
         rc.fin_flight_stage(_stage_config(tmp_path), None, [type("R", (), {"sample_rate_hz": 10.0, "orientation_quat": None, "n_samples": 5})()],
                             None, {"plain": []}, stopped)
+
+
+def test_a_flight_stage_that_uses_its_budget_keeps_the_fit_and_says_so(tmp_path, monkeypatch):
+    """A converged first stage mustn't turn into a failed fit because the short second stage stopped at its budget."""
+    import run_calibration as rc
+    from optimizer import RestartResult, RestartsFailed
+    x = initial_parameters(load_vehicle_spec(TEMPLATE)).to_vector()
+    stop = RestartResult(x0=x, x=x * 1.0, cost=1.0, success=False, status=0, nfev=25, message="budget", raw_result=None)
+
+    def out_of_budget(spec, runs, cc):
+        raise RestartsFailed(1, [stop])
+    monkeypatch.setattr(rc, "calibrate", out_of_budget)
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    run, spec = _flight_run(tmp_path)
+    first = type("F", (), {"parameters": initial_parameters(spec)})()
+    info = {"plain": []}
+    got = rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], first, info)
+    assert got.cost == 1.0 and info["flight_stage"] == {"converged": False, "nfev": 25}
+
+
+def test_when_neither_stage_converged_the_fit_finishes_from_its_checkpoint(tmp_path, monkeypatch):
+    import run_calibration as rc
+    from optimizer import RestartResult, RestartsFailed
+    run, spec = _flight_run(tmp_path)
+    x = initial_parameters(spec).to_vector()
+    stop = RestartResult(x0=x, x=x, cost=1.0, success=False, status=0, nfev=25, message="budget", raw_result=None)
+
+    def out_of_budget(spec, runs, cc):
+        raise RestartsFailed(1, [stop])
+    monkeypatch.setattr(rc, "calibrate", out_of_budget)
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    with pytest.raises(RestartsFailed):
+        rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], None, {"plain": []}, RestartsFailed(1, [stop]))
+
+
+def test_flights_split_across_workers_give_the_same_residuals(tmp_path):
+    import fin_fit
+    from objective import ParallelJointResiduals, joint_residuals
+    run, spec = _flight_run(tmp_path)
+    fin_fit.plan_flights([run])
+    x = TRUTH.to_vector()
+    serial = joint_residuals(x, [run], spec.vehicle, None, True, None, 20)
+    pool = ParallelJointResiduals([run], spec.vehicle, 2)
+    try:
+        assert np.array_equal(pool(x, [run], spec.vehicle, None, True, None, 20), serial)
+    finally:
+        pool.close()
