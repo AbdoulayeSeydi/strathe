@@ -274,3 +274,25 @@ def test_stonefish_reads_each_rudders_area():
 def test_no_two_replays_share_a_path(tmp_path):
     from simfit.replay_tool import fresh_paths
     assert fresh_paths(str(tmp_path)) != fresh_paths(str(tmp_path))
+
+
+def test_mujocos_fins_stand_along_their_spans():
+    """#97, C-cross-measured-mujoco: every generated fin lay flat, so its hinge barely changed its lift: a cross turned 430 times too little."""
+    mujoco = pytest.importorskip("mujoco")
+    xml = f"""<mujoco><worldbody><body name="auv"><freejoint/><inertial pos="0 0 0" mass="30" diaginertia="1 10 10"/>{fm.mjcf_fins(FULL)}</body></worldbody></mujoco>"""
+    m = mujoco.MjModel.from_xml_string(xml)
+    d = mujoco.MjData(m)
+    mujoco.mj_forward(m, d)
+    for f in FULL.fins:
+        R = d.geom_xmat[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"fin_{f.name}_geom")].reshape(3, 3)
+        span = np.array(fm._flu(f.span_axis))
+        assert abs(R[:, 1] @ span) == pytest.approx(1.0, abs=1e-9), f"{f.name}: its long axis isn't its span"
+        assert abs(R[:, 0] @ np.array([1.0, 0, 0])) == pytest.approx(1.0, abs=1e-9), f"{f.name}: its chord isn't along the flow"
+
+
+def test_a_generated_model_starts_each_fin_at_its_groups_lift():
+    p = _lifted(3.25, 5.5)
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0, params=p)
+    import re
+    got = {re.search(r"fin_(.+?)_link</link_name>", m).group(1): float(re.search(r"<cla>([^<]+)", m).group(1)) for m in re.findall(r"<plugin\b.*?</plugin>", plugins, re.S)}
+    assert all(got[f.name] == pytest.approx(5.5 if f.group else 3.25) for f in FULL.fins)

@@ -54,7 +54,7 @@ def mjcf_fins(act: Actuators) -> str:
         x, y, z = _flu(f.position_m)
         s = _flu(f.span_axis)
         chord = f.area_m2 / f.span_m
-        roll = math.atan2(s[2], s[1]) - math.pi / 2        # the ellipsoid's long axis along the span
+        roll = math.atan2(s[2], s[1])        # roll about x takes the ellipsoid's y, its long axis, onto the span; its thin axis is then across the flow
         out.append(f"""      <body name="fin_{f.name}" pos="{x:.6g} {y:.6g} {z:.6g}">
         <joint name="fin_{f.name}" type="hinge" axis="{s[0]:.6g} {s[1]:.6g} {s[2]:.6g}"/>
         <geom name="fin_{f.name}_geom" type="ellipsoid" size="{chord / 2:.6g} {f.span_m / 2:.6g} 0.004" euler="{math.degrees(roll):.6g} 0 0" mass="0.01"
