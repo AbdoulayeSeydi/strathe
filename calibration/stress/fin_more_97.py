@@ -81,6 +81,7 @@ def run_vectored(row: str) -> bool:
     os.makedirs(d + "/data", exist_ok=True)
     spec, _ = vd.describe_hull(o["mass"], o["length"], diameter=o["diameter"], shape="torpedo", name=row, steering="vectored", propeller={"diameter_m": o["prop"], "kt0": .45, "kt1": -.3, "gimbal": True})
     spec["propeller"]["position_m"] = [-o["length"] / 2, 0.0, 0.0]
+    spec["calibration_targets"].setdefault("fins", {})["thrust_scale"] = {"unit": "-", "initial_guess": 1.0, "bounds": [.3, 3.0], "bounds_rationale": "unknown propeller", "source": "row", "confidence": "assumed"}
     path = d + "/spec.yaml"
     open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
     s = load_vehicle_spec(path)
@@ -446,7 +447,7 @@ def _journey_fin(d: str) -> tuple:
                       "heading": np.degrees(yaw), "rudder_deg": np.degrees(df.fin_rudder), "elevator_deg": np.degrees(df.fin_elevator), "prop_rpm": df.rpm}).to_csv(f"{d}/raw/{date}.csv", index=False)
     ing = yaml.safe_load(open(os.path.join(CAL, "templates", "ingest_fin_csv.yaml"), encoding="utf-8"))
     ing["source"]["files"] = d + "/raw/*.csv"
-    ing["session_date"] = {"from": "filename", "pattern": r"(\d{4}-\d{2}-\d{2})"}
+    ing["session_date"] = {"from": "filename", "pattern": r"(\d{4}-\d{2}-\d{2})", "format": "%Y-%m-%d"}
     ing["skip_checks"] = ["gyro_vs_orientation", "orientation_vs_position"]
     path = d + "/ingest.yaml"
     open(path, "w").write(yaml.safe_dump(ing, sort_keys=False))
@@ -466,7 +467,7 @@ def _journey_cli(row: str) -> bool:
         word = "FIN-STEERED"
     else:
         os.makedirs(d, exist_ok=True)
-        args = ["--data", os.path.join(CAL, "..", "data", "raw"), "--heldout-dates", "19-02-2024"]
+        args = ["--data", os.path.expanduser("~/strathe_sensor_data/real/rV"), "--heldout-dates", "14-02-2024", "--sensors", "velocity"]
         word = "HOVER"
     r = subprocess.run([R.PY, "strathe_cli.py", "calibrate", *args, "--name", "lab", "--out", d + "/out", "--max-nfev", "3", "--seed", "3", "--workers", "1"], cwd=CAL, capture_output=True, text=True)
     open(d + "/journey.log", "w").write(r.stdout + r.stderr)
@@ -506,7 +507,7 @@ def _journey_web(row: str) -> bool:
         return r.status, r.read().decode("utf-8", "replace"), dict(r.getheaders())
     try:
         st, page, _ = call("GET", "/")
-        tok = re.search(r'name=(?:"|)token(?:"|) value=(?:"|)([^"> ]+)', page)
+        tok = re.search(r"name=token value='([^']+)'", page)
         token = {"token": tok.group(1)} if tok else {}
         chooser = "name=steering required" in page
         wrong = {"name": "x", "data": data, "steering": "hover" if fin else "fin", "vehicle_spec": spec, **token}
@@ -518,9 +519,226 @@ def _journey_web(row: str) -> bool:
                   "chosen, and checked", st == 200 and chooser and refused, time.time() - t0)
 
 
+# ------------------------------------------------------------------ every refusal in steering.py
+def _fin_raw(**fins):
+    return {"vehicle": {"steering": "fin"}, "fins": {"layout": "custom", "area_m2": .01, "span_m": .1, **fins}}
+
+
+_ONE = {"name": "a", "position_m": [-.7, 0, .1], "span_axis": [0, 0, 1]}
+
+
+def refusal_cases() -> dict:
+    import steering as st
+    act = st.actuators_from(_layout_raw("cross"))
+    prop = st.actuators_from({**A._spec_raw()})
+    h, fv = {"vehicle": {}}, {"vehicle": {"steering": "fin"}}
+    frame = lambda **c: pd.DataFrame({k: [0.0] for k in c})   # noqa: E731
+    return {"steering_of-1": (lambda: st.steering_of({"vehicle": {"steering": "sail"}}), "isn't one of"),
+            "_unit-1": (lambda: st.actuators_from(_fin_raw(fins=[{**_ONE, "span_axis": [0, 0, 0]}])), "no length"),
+            "actuators_from-1": (lambda: st.actuators_from({"vehicle": {}, "propeller": {"diameter_m": 1, "kt0": 1}}), "steering is hover"),
+            "actuators_from-2": (lambda: st.actuators_from(fv), "no fins: section"),
+            "actuators_from-3": (lambda: st.actuators_from({"vehicle": {"steering": "vectored"}}), "no propeller"),
+            "actuators_from-4": (lambda: st.actuators_from({"vehicle": {"steering": "fin"}, "fins": {"layout": "star"}}), "isn't one of"),
+            "actuators_from-5": (lambda: st.actuators_from(_fin_raw(fins=[])), "custom layout needs"),
+            "actuators_from-6": (lambda: st.actuators_from(_fin_raw(fins=[_ONE, _ONE])), "share a name"),
+            "actuators_from-7": (lambda: st.actuators_from(_fin_raw(fins=[_ONE], area_m2=0.0)), "area_m2"),
+            "controls_from_frame-1": (lambda: st.controls_from_frame(frame(fin_rudder=0, fincmd_rudder=0), act), "both measured and commanded"),
+            "controls_from_frame-2": (lambda: st.controls_from_frame(frame(Fx=0), act), "no fin angles"),
+            "controls_from_frame-3": (lambda: st.controls_from_frame(frame(fin_top=0), act), "log every fin"),
+            "controls_from_frame-4": (lambda: st.controls_from_frame(frame(fin_flap=0), act), "aren't rudder"),
+            "controls_from_frame-5": (lambda: st.controls_from_frame(frame(fin_rudder=0), prop), "no rpm column"),
+            "check_data-1": (lambda: st.check_data({"vehicle": {"steering": "glider"}}, ["fin_rudder"]), "fin-check"),
+            "check_data-2": (lambda: st.check_data(h, ["fin_rudder"]), "description is hover"),
+            "check_data-3": (lambda: st.check_data(fv, ["Fx"]), "no fin or propeller"),
+            "check_speed_source-1": (lambda: st.check_speed_source(fv, {"u": []}), "speed source"),
+            "refuse_experiment-1": (lambda: st.refuse_experiment({"vehicle": {"steering": "glider"}}, "arena"), "can't run a glider")}
+
+
+def run_refusal(row: str) -> bool:
+    import steering as st
+    fn, word = refusal_cases()[row[3:]]
+    try:
+        fn()
+        said, ok = "not refused", False
+    except st.SteeringError as e:
+        said, ok = str(e)[:150], word in str(e)
+    except Exception as e:
+        said, ok = f"{type(e).__name__}: {e}"[:150], False
+    return record(F, row, "refusal", row[3:], "refused by name, with its fix", "-", {"said": said, "bars": _bars().BARS_HASH}, f"says: {word}", ok)
+
+
+# ------------------------------------------------------------------ every key, singly
+def _full_raw() -> dict:
+    r = A._spec_raw()
+    r["vehicle"]["steering"] = "hybrid"
+    block = r["fins"]
+    block.update(layout="custom", area_m2=.02, span_m=.15, stall_deg=20.0, limit_deg=30.0, oswald=.7, servo={"rate_limit_deg_s": 40.0})
+    block["fins"] = [{"name": "top", "position_m": [-.7, 0, -.12], "span_axis": [0, 0, -1]}, {"name": "bottom", "position_m": [-.7, 0, .12], "span_axis": [0, 0, 1]},
+                     {"name": "port", "position_m": [-.7, -.12, 0], "span_axis": [0, -1, 0]}, {"name": "starboard", "position_m": [-.7, .12, 0], "span_axis": [0, 1, 0]}]
+    r["propeller"] = {"diameter_m": .14, "kt0": .45, "kt1": -.3, "kq0": .07, "kq1": -.05, "wake": .9, "thrust_deduction": .1, "position_m": [-.8, 0, .01], "spin": 1.0, "gimbal": True, "max_rpm": 1400.0}
+    r["moving_mass"] = {"mass_kg": 6.0, "axis": [1.0, 0.0, 0.0]}
+    r["buoyancy_engine"] = True
+    r.setdefault("environment", {})["water_density_kg_m3"] = 1025.0
+    return r
+
+
+def _at(*path):
+    def put(r, v):
+        o = r
+        for k in path[:-1]:
+            o = o[k]
+        o[path[-1]] = v
+    return put
+
+
+def _each_fin(key):
+    def put(r, v):
+        for f in r["fins"]["fins"]:
+            f[key] = v
+    return put
+
+
+def _first_fin(key):
+    def put(r, v):
+        r["fins"]["fins"][0][key] = v
+    return put
+
+
+KEYS = {"area_m2": (_at("fins", "area_m2"), (.005, .08)), "span_m": (_at("fins", "span_m"), (.06, .4)), "stall_deg": (_at("fins", "stall_deg"), (8.0, 15.0)), "oswald": (_at("fins", "oswald"), (.4, 1.0)),
+        "limit_deg": (_at("fins", "limit_deg"), (5.0, 12.0)), "rate_limit_deg_s": (_at("fins", "servo", "rate_limit_deg_s"), (5.0, 15.0)), "position_m": (_first_fin("position_m"), ([-.3, 0, -.12], [-1.2, 0, -.2])),
+        "span_axis": (_first_fin("span_axis"), ([0, .3, -1], [0, -.5, -1])), "chord_axis": (_first_fin("chord_axis"), ([1, 0, .2], [1, .2, 0])), "group": (_first_fin("group"), (1,)), "sign": (_first_fin("sign"), (-1.0,)),
+        "propeller.diameter_m": (_at("propeller", "diameter_m"), (.1, .3)), "propeller.kt0": (_at("propeller", "kt0"), (.2, .7)), "propeller.kt1": (_at("propeller", "kt1"), (-.6, 0.0)), "propeller.kq0": (_at("propeller", "kq0"), (0.0, .12)),
+        "propeller.kq1": (_at("propeller", "kq1"), (-.1, 0.0)), "propeller.wake": (_at("propeller", "wake"), (.6, 1.0)), "propeller.thrust_deduction": (_at("propeller", "thrust_deduction"), (0.0, .25)),
+        "propeller.position_m": (_at("propeller", "position_m"), ([-1.0, 0, .05], [-.5, .02, 0])), "propeller.spin": (_at("propeller", "spin"), (-1.0,)), "propeller.gimbal": (_at("propeller", "gimbal"), (False,)),
+        "propeller.max_rpm": (_at("propeller", "max_rpm"), (800.0, 2000.0)), "moving_mass.mass_kg": (_at("moving_mass", "mass_kg"), (2.0, 20.0)), "moving_mass.axis": (_at("moving_mass", "axis"), ([0.0, 0.0, 1.0],)),
+        "water_density_kg_m3": (_at("environment", "water_density_kg_m3"), (1000.0, 1030.0))}
+
+
+def _probe(raw: dict) -> np.ndarray:
+    """All a key could change: the actuators' force at a hard moment, what an angle does to each fin, the servo's path, an experiment's action."""
+    import steering as st
+    from fin_force import action_controls, actuator_wrench, prepare, servo_angles
+    act = st.actuators_from(raw)
+    P = A._params(fin_servo_T=.3)
+    k = len(act.fins)
+    c = [.5, -.2, .3, .1][:k] + [900.0, .1, -.1, .01, 2.0]
+    w = actuator_wrench(act, prepare(act, P), P, [1.5, .1, .05, .1, .05, .08], c, .1, .99, .05, .99)
+    df = pd.DataFrame({"fin_rudder": [.2, .9, .9, .9], "fin_elevator": [-.1, .4, .4, .4], "fin_aileron": [.05, .05, .05, .05], "rpm": 900.0, "gimbal_y": .1, "gimbal_z": -.1, "moving_mass": .01, "buoyancy_change": 1.0})
+    ctl, _ = st.controls_from_frame(df, act)
+    per = {"fin_top": [.1, .1], "fin_bottom": [.1, .1], "fin_port": [.1, .1], "fin_starboard": [.1, .1], "rpm": [900.0, 900.0], "gimbal_y": [0.0, 0.0], "gimbal_z": [0.0, 0.0], "moving_mass": [0.0, 0.0], "buoyancy_change": [0.0, 0.0]}
+    ctl2, _ = st.controls_from_frame(pd.DataFrame(per), act)
+    return np.r_[w, ctl.ravel(), ctl2.ravel(), servo_angles(act, ctl, .3, .1).ravel(), np.ravel(action_controls(act, [.5, .3, -.2, .1, .05, .1]))]
+
+
+def _oracle_agrees(raw: dict) -> float:
+    """Each fin's force, fast against the independently written fin, below stall."""
+    import sys
+    sys.path.insert(0, os.path.join(CAL, "tests"))
+    import fin_oracle
+    import steering as st
+    from fin_force import actuator_wrench, prepare
+    act = st.actuators_from(raw)
+    P = A._params(fin_inflow_a=.8, fin_inflow_b=.8, fin_lift_slope_a=3.0, fin_lift_slope_b=3.0)
+    v = np.array([1.5, .1, .05, .1, .05, .08])
+    worst = 0.0
+    for i, f in enumerate(act.fins):
+        if tuple(f.chord_axis) != (1.0, 0.0, 0.0):
+            continue
+        one = type(act)(fins=(f,), rho=act.rho)
+        got = np.array(actuator_wrench(one, prepare(one, P), P, list(v), [.1], 0.0, 1.0, 0.0, 1.0))
+        want = fin_oracle.fin_wrench(f.position_m, f.span_axis, f.area_m2, f.span_m, 3.0, .8, P.fin_drag0, f.oswald, .1 + (f.mix[0] * P.fin_bias_roll + f.mix[1] * P.fin_bias_pitch + f.mix[2] * P.fin_bias_yaw), v, rho=act.rho)
+        worst = max(worst, float(np.abs(got - want).max() / max(np.abs(want).max(), 1e-9)))
+    return worst
+
+
+def run_key(row: str) -> bool:
+    """A key that's read and ignored is the silent failure: every value must change something, and stay right."""
+    import copy
+    R = _bars()
+    key = row[3:]
+    put, values = KEYS[key]
+    base = _probe(_full_raw())
+    moved, worst, err = [], 0.0, None
+    try:
+        for v in values:
+            r = copy.deepcopy(_full_raw())
+            put(r, v)
+            moved.append(float(np.abs(_probe(r) - base).max()))
+            worst = max(worst, _oracle_agrees(r))
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"[:200]
+    ok = err is None and all(m > 1e-9 for m in moved) and worst <= R.PATHS_AGREE * 1e3
+    return record(F, row, "one key", key, "each value changes the physics, and agrees with the independent fin", "computed", {"moved": moved, "oracle_worst": worst, "error": err, "bars": R.BARS_HASH},
+                  "moves, and agrees", ok)
+
+
+# ------------------------------------------------------------------ describe-vehicle's options, and the web card that calls it
+OPTIONS = {"--fin-x": ("-.65", lambda s: s["fins"]["x_m"] == -.65), "--fin-radius": (".14", lambda s: s["fins"]["radius_m"] == .14), "--fin-area": (".02", lambda s: s["fins"]["area_m2"] == .02), "--fin-span": (".1", lambda s: s["fins"]["span_m"] == .1),
+           "--fin-limit": ("25", lambda s: s["fins"]["limit_deg"] == 25), "--fin-stall": ("17", lambda s: s["fins"]["stall_deg"] == 17), "--propeller-diameter": (".2", lambda s: s["propeller"]["diameter_m"] == .2),
+           "--kt0": (".5", lambda s: s["propeller"]["kt0"] == .5), "--kt1": ("-.2", lambda s: s["propeller"]["kt1"] == -.2)}
+BASE_ARGV = ["--mass", "38", "--length", "1.6", "--diameter", ".19", "--name", "d", "--steering", "fin", "--fins", "cross", "--fin-x", "-.7", "--fin-radius", ".13", "--fin-area", ".012", "--fin-span", ".09",
+             "--propeller-diameter", ".14", "--kt0", ".45"]
+
+
+def _describe(argv: list, d: str) -> tuple:
+    R = _bars()
+    out = os.path.join(d, "v.yaml")
+    r = subprocess.run([R.PY, "strathe_cli.py", "describe-vehicle", *argv, "--out", out], cwd=CAL, capture_output=True, text=True)
+    return r, (yaml.safe_load(open(out)) if r.returncode == 0 and os.path.exists(out) else None)
+
+
+def describe_rows() -> list:
+    return [f"D{o}" for o in OPTIONS] + ["D-steering-hover", "D-steering-fin", "D-steering-hybrid", "D-steering-vectored"] + [f"D-fins-{k}" for k in LAYOUTS] + ["W-describe"]
+
+
+def run_describe(row: str) -> bool:
+    import tempfile
+    import steering as st
+    R = _bars()
+    with tempfile.TemporaryDirectory() as d:
+        if row.startswith("D--"):
+            flag = row[1:]
+            value, holds = OPTIONS[flag]
+            argv = list(BASE_ARGV)
+            if flag in argv:
+                argv[argv.index(flag) + 1] = value
+            else:
+                argv += [flag, value]
+            r, s = _describe(argv, d)
+            ok = s is not None and holds(s) and st.actuators_from(s) is not None
+            return record(F, row, "describe option", flag, "given: it lands in the description, and the description loads", "-", {"exit": r.returncode, "said": "" if ok else (r.stdout + r.stderr)[-160:], "bars": R.BARS_HASH}, "as given", ok)
+        if row == "W-describe":
+            import strathe_web as w
+            a = w.describe_vehicle_cli_args({"mass": "38", "length": "1.6", "diameter": ".19", "name": "d", "steering": "fin", "fins": "cross", "fin_x": "-.7", "fin_radius": ".13", "fin_area": ".012", "fin_span": ".09", "propeller_diameter": ".14", "kt0": ".45"})
+            r, s = _describe([x for x in a[1:] if not x.startswith("--out")] if a[0] == "describe-vehicle" else a, d)
+            ok = s is not None and s["fins"]["area_m2"] == .012 and s["propeller"]["kt0"] == .45 and s["vehicle"]["steering"] == "fin"
+            return record(F, row, "web card", "describe", "every fin field of the card reaches the description", "-", {"exit": r.returncode, "said": "" if ok else (r.stdout + r.stderr)[-200:], "bars": R.BARS_HASH}, "as given", ok)
+        if row.startswith("D-fins-"):
+            layout = row[7:]
+            argv = list(BASE_ARGV)
+            argv[argv.index("--fins") + 1] = layout
+            r, s = _describe(argv, d)
+            ok = s is not None and len(st.actuators_from(s).fins) == {"cross": 4, "x": 4, "y3": 3, "rudder_only": 2}[layout]
+            return record(F, row, "describe option", "--fins", layout, "-", {"exit": r.returncode, "bars": R.BARS_HASH}, "its fins", ok)
+        value = row[11:]
+        argv = {"hover": ["--mass", "38", "--length", "1.6", "--diameter", ".19", "--name", "d"], "fin": BASE_ARGV, "hybrid": [*BASE_ARGV[:9], "hybrid", *BASE_ARGV[10:]],
+                "vectored": ["--mass", "38", "--length", "1.6", "--diameter", ".19", "--name", "d", "--steering", "vectored", "--propeller-diameter", ".14", "--kt0", ".45"]}[value]
+        r, s = _describe(argv, d)
+        ok = s is not None and st.steering_of(s) == value
+        return record(F, row, "describe option", "--steering", value, "-", {"exit": r.returncode, "said": "" if ok else (r.stdout + r.stderr)[-200:], "bars": R.BARS_HASH}, "that steering", ok)
+
+
+# ------------------------------------------------------------------ experiments
+def run_experiments() -> bool:
+    R = _bars()
+    t0 = time.time()
+    r = subprocess.run([R.PY, "-m", "pytest", "tests/test_fin_experiments.py", "-q", "-p", "no:cacheprovider"], cwd=CAL, capture_output=True, text=True)
+    return record(F, "EX-all", "experiments", "arena, fleet, train-fleet", "a calibrated fin vehicle runs in each experiment; MuJoCo refuses", "-", {"said": r.stdout.strip().splitlines()[-1][:120], "bars": R.BARS_HASH}, "all pass", r.returncode == 0, time.time() - t0)
+
+
 # ------------------------------------------------------------------ the run
 def more_rows() -> list:
-    return [*mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS]
+    return [*mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS, *[f"XS-{k}" for k in refusal_cases()], *[f"SV-{k}" for k in KEYS], *describe_rows(), "EX-all"]
 
 
 def run_more(pick) -> int:
@@ -547,4 +765,15 @@ def run_more(pick) -> int:
     for r in JOURNEYS:
         if pick(r):
             ok &= (_journey_cli if "cli" in r else _journey_web)(r)
+    for k in refusal_cases():
+        if pick(f"XS-{k}"):
+            ok &= run_refusal(f"XS-{k}")
+    for k in KEYS:
+        if pick(f"SV-{k}"):
+            ok &= run_key(f"SV-{k}")
+    for r in describe_rows():
+        if pick(r):
+            ok &= run_describe(r)
+    if pick("EX-all"):
+        ok &= run_experiments()
     return 0 if ok else 1

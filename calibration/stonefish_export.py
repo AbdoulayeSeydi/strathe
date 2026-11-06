@@ -530,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized for the net buoyancy")
     ap.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     ap.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder). With Docker, /src/Tests/Data is the image's own")
-    ap.add_argument("--fin-spec", help="a fin vehicle's description: says what its fin channels mean, and its fins' areas (FINS.md)")
+    ap.add_argument("--fin-spec", "--spec", dest="fin_spec", help="a fin vehicle's description: says what its fin channels mean, and its fins' areas (FINS.md)")
     ap.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date (e.g. 27-03-2026=1000 for fresh water)")
     ap.add_argument("--start-depth", type=float, default=3.0, help="depth the windows are replayed at, m")

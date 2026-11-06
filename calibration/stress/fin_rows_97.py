@@ -351,6 +351,12 @@ RECOVER.update({"P-source-commanded": dict(platform="remus100", commanded=True),
                 "P-speed-high": dict(platform="remus100", u0=2.5)})
 
 
+PARAMS = {"P-bias-roll": ("fin_bias_roll", .03, -.1, .1, {}), "P-bias-pitch": ("fin_bias_pitch", .03, -.1, .1, {}), "P-bias-yaw": ("fin_bias_yaw", .03, -.1, .1, {}),
+          "P-servo-T": ("fin_servo_T", .5, 0.0, 2.0, {"commanded": True}), "P-inflow-a": ("fin_inflow_a", .8, 0.0, 1.2, {}), "P-inflow-b": ("fin_inflow_b", .8, 0.0, 1.2, {}),
+          "P-drag0": ("fin_drag0", .05, 0.0, .3, {})}
+RECOVER.update({k: dict(platform="remus100", param=v[:4], **v[4]) for k, v in PARAMS.items()})
+
+
 def _platform_spec(path: str, o: dict) -> dict:
     import vehicle_describe as vd
     s = PLATFORMS[o["platform"]]
@@ -363,6 +369,9 @@ def _platform_spec(path: str, o: dict) -> dict:
         spec["moving_mass"] = {"mass_kg": s["moving_mass"]}
     if s.get("buoyancy"):
         spec["buoyancy_engine"] = True
+    if o.get("param"):
+        name, _, lo, hi = o["param"]
+        spec["calibration_targets"].setdefault("fins", {})[name] = {"unit": "-", "initial_guess": (lo + hi) / 2 if lo >= 0 else 0.0, "bounds": [lo, hi], "bounds_rationale": "row", "source": "row", "confidence": "assumed"}
     open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
     return spec
 
@@ -376,7 +385,7 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
     from scipy.spatial.transform import Rotation
     s = load_vehicle_spec(spec_path)
     act = s.vehicle.actuators
-    P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b)
+    P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b, **({o["param"][0]: o["param"][1]} if o.get("param") else {}))
     n, os_ = 500, os.path
     k = 0
     for date in ("01-10-2026", "02-10-2026"):
@@ -396,7 +405,7 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
                 for i, f in enumerate(act.fins):
                     df[f"{'fincmd' if o.get('commanded') else 'fin'}_{f.name}"] = ctl[:, i]
                 df = df.drop(columns=[c for c in df if c in ("fin_rudder", "fin_elevator", "fincmd_rudder", "fincmd_elevator")])
-            applied = servo_angles(act, ctl, 0.0, .1) if cmd else ctl
+            applied = servo_angles(act, ctl, P.fin_servo_T, .1) if cmd else ctl
             rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
             u0 = o.get("u0", 1.5)
             F = np.zeros((n, 6))
@@ -427,7 +436,8 @@ def run_recover_row(row: str) -> bool:
     start = initial_parameters(s)
     ta, tb = start.fin_lift_slope_a * 1.25, (start.fin_lift_slope_b or 3.0) * .8
     _own_truth(spec, d + "/data", o, ta, tb)
-    free = {"fin_lift_slope_a", "fin_lift_slope_b"} & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
+    wanted = {o["param"][0]} if o.get("param") else {"fin_lift_slope_a", "fin_lift_slope_b"}
+    free = wanted & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
     fixed = {n: float(getattr(start, n)) for n in start.param_names if n not in free}
     fixed = {k: v for k, v in fixed.items() if s.flat_calibration_targets[k]["bounds"][0] < s.flat_calibration_targets[k]["bounds"][1]}
     cc = CalibrationConfig(max_nfev=15, seed=3, initialization_strategy="fixed", ftol=1e-7, xtol=1e-7, gtol=1e-7, fixed_params=fixed, horizon_samples=50)
@@ -440,13 +450,15 @@ def run_recover_row(row: str) -> bool:
             return record(F, row, "recover", o["platform"], "own model", str(o), {"error": str(e)[:200], "bars": _bars().BARS_HASH}, "recover fin lift", False, time.time() - t0)
     p = yaml.safe_load(open(d + "/fit/calibrated_parameters.yaml"))["parameters"]
     errs = {}
+    if o.get("param"):
+        errs["param"] = abs(p[o["param"][0]] / o["param"][1] - 1)
     if "fin_lift_slope_a" in free:
         errs["a"] = abs(p["fin_lift_slope_a"] / ta - 1)
     if "fin_lift_slope_b" in free:
         errs["b"] = abs(p["fin_lift_slope_b"] / tb - 1)
     bar = _bars().RECOVER_NOISY if o.get("noise") else _bars().RECOVER_CLEAN
     return record(F, row, "recover", o["platform"], "Strathe's own model as the truth: plumbing, not physics", str(o), {**errs, "bars": _bars().BARS_HASH},
-                  f"fin lift within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
+                  f"{o['param'][0] if o.get('param') else 'fin lift'} within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
 
 
 def recover_rows() -> list:
@@ -837,8 +849,10 @@ def _scn(lift: float, act=None) -> str:
  <materials><material name="Neutral" density="1000.0" restitution="0.5"/><friction_table><friction material1="Neutral" material2="Neutral" static="0.5" dynamic="0.2"/></friction_table></materials>
  <looks><look name="gray" gray="0.3" roughness="0.4"/></looks>
  <robot name="auv" fixed="false" self_collisions="false">
-  <base_link name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.3"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/></base_link>
-{re.sub(r'lift_coeff="[^"]+"', f'lift_coeff="{lift:g}"', fm.stonefish_fins(act or _fin_set(), "Hull"))}
+  <base_link name="Vehicle" type="compound" physics="submerged">
+   <external_part name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.3"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/><compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/></external_part>
+  </base_link>
+{re.sub(r'lift_coeff="[^"]+"', f'lift_coeff="{lift:g}"', fm.stonefish_fins(act or _fin_set(), "Vehicle"))}
   <world_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 20.0"/>
  </robot>
 </scenario>
@@ -890,7 +904,7 @@ def _fly_engine(sim: str, model: str, tool, out_dir: str, ref_rows, spec_path: s
 def _sim_verdict(fit_yaml: str, true: float, label: str) -> dict:
     """Both halves of SIM_RECOVER: every fitted fin lift lands near the truth, and unseen recordings drift less at 30 s."""
     y = yaml.safe_load(open(fit_yaml))
-    found = {k: float(v) for k, v in (y.get("after") or {}).items()}
+    found = {k: float(v) for k, v in (y.get("after") or {}).items() if re.search(r"lift|cla|CL_delta", k)}   # `after` also holds settings flags
     held = y.get("heldout") or {}
     drift = [(held.get(f"{label}, {w}") or {}).get("30s", {}).get("drift_median_m") for w in ("original", "calibrated by Strathe")]
     err = max((abs(v / true - 1) for v in found.values()), default=None)

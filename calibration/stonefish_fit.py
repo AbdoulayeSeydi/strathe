@@ -816,7 +816,7 @@ def add_arguments(ap) -> None:
                          "the last 30%% of the one recording; calibration/ONE_SESSION.md)")
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized to fit the net buoyancy")
     ap.add_argument("--fit", nargs="+", choices=KNOBS, help=f"what to fit (default: all of {', '.join(KNOBS)})")
-    ap.add_argument("--fin-spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
+    ap.add_argument("--fin-spec", "--spec", dest="fin_spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     ap.add_argument("--hold", nargs="+", metavar="NAME=VALUE",
                     help="hold settings at values you measured instead of fitting them, e.g. added_mass_x=10.6 "
                          "(names: quadratic_drag_x/y/z, viscous_drag_x/y/z, added_mass_x/y/z -- _yz with "

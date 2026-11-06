@@ -130,7 +130,7 @@ def actuators_from(raw: dict) -> Optional[Actuators]:
                              stall_rad=math.radians(float(f.get("stall_deg", fb.get("stall_deg", 20.0)))),
                              oswald=float(f.get("oswald", fb.get("oswald", .7))),
                              limit_rad=math.radians(float(f.get("limit_deg", fb.get("limit_deg", 30.0)))),
-                             sign=float(f.get("sign", 1.0))))
+                             sign=float(f.get("sign", 1.0)), chord_axis=_unit(f.get("chord_axis", (1.0, 0.0, 0.0)))))
         fins = tuple(built)
     prop = None
     pb = blocks.get("propeller")
