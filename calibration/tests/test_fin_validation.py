@@ -110,3 +110,79 @@ def test_the_cli_command_exists_and_exits_on_a_problem(tmp_path, capsys):
     p = cli.build_parser()
     a = p.parse_args(["fin-check", "--data", str(_prepared(tmp_path / "a", flip=-1.0)), "--sampling-rate-hz", "10"])
     assert a.fn(a) == 1 and "reversed" in capsys.readouterr().out
+
+
+def _prestero():
+    """Prestero's published REMUS in Strathe's terms: his lumped coefficients, less what Strathe works out itself (the Munk moment from added mass,
+    the fins' share from their flow angle)."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stress"))
+    import prestero_remus as PR
+    import steering
+    from dynamics_model import CalibrationParameters, VehicleConstants
+    raw = {"vehicle": {"steering": "fin"}, "fins": {"layout": "cross", "x_m": -.64, "radius_m": .14, "area_m2": 6.65e-3, "span_m": .0857, "stall_deg": 25, "limit_deg": 30}}
+    mz = PR.M * PR.ZG
+    s = PR.YUUDR / (1025 * 6.65e-3)
+    p = CalibrationParameters(Ieff_roll=PR.IXX - PR.KPDOT, Ieff_pitch=PR.IYY - PR.MQDOT, Ieff_yaw=PR.IZZ - PR.NRDOT, Xu=0, Yv=0, Zw=0, Kp=0, Mq=0, Nr=0, Xuu=PR.XUU, Yvv=PR.YVV, Zww=PR.ZWW, Kpp=PR.KPP,
+                              Mqq=PR.MQQ, Nrr=PR.NRR, Xu_dot=-PR.XUDOT, Yv_dot=-PR.YVDOT, Zw_dot=-PR.ZWDOT, net_buoyancy_z=PR.B - PR.W, cg_cb_offset_z=PR.ZG, Zuw=PR.ZUW + PR.YUUDR, Muw=-4.4, Muq=0.0,
+                              Xq_dot=mz, Yp_dot=-mz, Yr_dot=-PR.YRDOT, Zq_dot=-PR.ZQDOT, fin_lift_slope_a=s, fin_lift_slope_b=s, fin_inflow_a=1.0, fin_inflow_b=1.0)
+    return p, VehicleConstants(mass_kg=PR.M, actuators=steering.actuators_from(raw))
+
+
+def test_stability_finds_prestero_unstable_as_his_own_equations_do():
+    """Worked out separately from his equations: +1.04 per second at 1.54 m/s, doubling in 0.67 s."""
+    p, v = _prestero()
+    s = val.fin_stability(p, v, 1.54)
+    assert s["growth_per_s"] == pytest.approx(1.04, rel=.1)
+    assert s["doubling_s"] < val.UNSTABLE_DOUBLING_S
+
+
+def test_strathes_physics_linearises_to_prestero_entry_by_entry():
+    """Prestero's equations (stress/prestero_remus.py) were written from his thesis, not from Strathe's model, and lump what Strathe works out
+    separately. About straight flight they must still say the same thing. Roll rate is left out: Strathe's fins damp roll, his linear terms don't."""
+    import math
+    import prestero_remus as PR
+    from dynamics_model import compute_acceleration
+    p, v = _prestero()
+    u, ctl = 1.54, [0.0] * v.actuators.width
+
+    def strathe(x):
+        a = compute_acceleration(p, v, np.r_[u, x[:5]], np.zeros(6), x[5], x[6], None, ctl)[0]
+        return np.r_[a[1:], x[2] + x[4] * math.tan(x[6]) * math.cos(x[5]), x[3] * math.cos(x[5]) - x[4] * math.sin(x[5])]
+
+    def his(x):
+        y = np.zeros(12)
+        y[0], y[1:6], y[8], y[9], y[10] = u, x[:5], 30.0, x[5], x[6]
+        d = PR.derivative(y, 0.0, 0.0, 1500.0)
+        return np.r_[d[1:6], d[9], d[10]]
+
+    def jac(f):
+        J = np.zeros((7, 7))
+        for i in range(7):
+            e = np.zeros(7)
+            e[i] = 1e-5
+            J[:, i] = (f(e) - f(-e)) / 2e-5
+        return J
+    A, B = jac(strathe), jac(his)
+    A[:, 2] = B[:, 2]
+    assert np.abs(A - B).max() < .05 * np.abs(B).max() * .1 + .05   # a worst entry of 0.05, on entries up to 24
+
+
+def test_a_stable_vehicle_says_so():
+    from dataclasses import replace
+    p, v = _prestero()
+    s = val.fin_stability(replace(p, Muw=-40.0, Muq=-30.0, fin_lift_slope_a=6.0, fin_lift_slope_b=6.0), v, 1.5)
+    assert s["doubling_s"] is None
+
+
+def test_the_report_says_when_a_flight_cant_be_followed():
+    from calibration_report import UNSTABLE_DOUBLING_S, fin_flight_section
+    assert UNSTABLE_DOUBLING_S == val.UNSTABLE_DOUBLING_S
+    m = {"median": 1.0, "p90": 2.0}
+    f = {k: m for k in ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")}
+    run = {"window_s": 30.0, "windows": 4, "diverged": {}, "calibrated": f, "default": f, "straight_on": f}
+    said = "\n".join(fin_flight_section({"fin_free_run": run, "fin_free_run_short": {**run, "window_s": 5.0}, "fin_stability": {"speed_m_s": 1.5, "doubling_s": .7}}))
+    assert "unstable with its fins held" in said and "Flying 5 s" in said
+    calm = "\n".join(fin_flight_section({"fin_free_run": run, "fin_stability": {"speed_m_s": 1.5, "doubling_s": None}}))
+    assert "unstable" not in calm

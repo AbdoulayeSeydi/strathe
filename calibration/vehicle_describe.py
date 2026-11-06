@@ -283,6 +283,9 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
     return _plain(spec), notes
 
 
+FIN_QUADRATIC_ROTATION = 4.0   # a fin vehicle's Mqq and Nrr limits, against a bare hull's
+
+
 def _add_steering(spec: dict, steering: str, fins: Optional[dict], propeller: Optional[dict], mass: float, rho: float,
                   notes: list) -> None:
     """A fin-steered vehicle's sections: its fins and propeller, fin lift's limits from the fins' own shape, and the off-diagonal
@@ -313,6 +316,9 @@ def _add_steering(spec: dict, steering: str, fins: Optional[dict], propeller: Op
         if odd:
             section["symmetry"] = "none"
             section.update(fin_fit.coupling_targets({k: held[k] for k in odd}))
+        for k in ("Mqq", "Nrr"):   # fins far from the centre damp turning far more than a bare hull: REMUS's published values are 3x the hull's limit
+            e = targets["quadratic_damping"][k]
+            e["bounds"] = [FIN_QUADRATIC_ROTATION * e["bounds"][0], e["bounds"][1]]
         notes.append(f"Fin lift's limits come from the fins' shape; off-diagonal mass ({', '.join(sorted(held)) or 'none'}) is worked "
                      f"out from them and held, because logs rarely separate it.")
     if not propeller:
