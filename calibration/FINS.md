@@ -132,8 +132,27 @@ aren't supported.**
   1 Hz, 50 s of training left the rudder's lift 11% off; 5 minutes brought it to 2.4%.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
-- **Read "Flying on its own" first.** The fit's score feeds the logged pitch back in, which hides what the elevator does to depth.
+- **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
+
+### How a fin fit works
+
+A fin fit runs in two stages, and takes longer than a hover fit because of it.
+
+1. **Short windows.** Each recording is replayed in 2 s windows, each starting from the real state. A hover fit replays whole recordings,
+   but that's wrong for many fin vehicles: see below. `--prediction-horizon-s` changes the length.
+2. **Flights.** The fit goes on from there with the model flying itself for 10 s at a time, on its own attitude, and scores its roll, pitch
+   and heading against the log. Windows alone never show the fit what its own pitch does. Recordings shorter than 10 s can't do this,
+   and the report says so.
+
+### A vehicle that's unstable on its own
+
+Many torpedo AUVs are unstable with their fins held still, and fly straight because an autopilot is always correcting them. Published
+values for a REMUS double any small error every 0.7 s. The report warns when a fit finds this, and gives a 5 s flight next to the 30 s one.
+
+**On logged fins, nothing can fly such a vehicle far.** Not even its true equations: fed the same 10 Hz fin log, they end up 68 and 146
+degrees from where it really went after 30 s. So a large 30 s number on such a vehicle doesn't mean the fit is bad. Use the 5 s number, and
+to see it fly for longer, put your autopilot on it in your simulator, as you would on the real vehicle.
 
 ## In your simulator
 
