@@ -744,9 +744,41 @@ def run_experiments() -> bool:
     return record(F, "EX-all", "experiments", "arena, fleet, train-fleet", "a calibrated fin vehicle runs in each experiment; MuJoCo refuses", "-", {"said": r.stdout.strip().splitlines()[-1][:120], "bars": R.BARS_HASH}, "all pass", r.returncode == 0, time.time() - t0)
 
 
+# ------------------------------------------------------------------ an open-loop unstable truth, at a horizon that can be predicted
+SHORT = {"T-prestero-rich-5s": "T-prestero-rich", "T-prestero-mixed-5s": "T-prestero-mixed"}
+
+
+def run_short(row: str) -> bool:
+    """The calibration its truth row made, flying FLY_UNSTABLE_S on unseen recordings. Needs that row's fit."""
+    import glob
+    import fin_truth as T
+    import validation as VAL
+    from dynamics_model import CalibrationParameters
+    from objective import DatasetConfig, load_run
+    from optimizer import initial_parameters, load_vehicle_spec
+    R = _bars()
+    t0 = time.time()
+    d = os.path.join(R.WORK, SHORT[row])
+    f = d + "/fit/calibrated_parameters.yaml"
+    if not os.path.exists(f):
+        return record(F, row, "truth", "prestero", "needs its truth row's fit", "-", {"bars": R.BARS_HASH}, "a fit", False)
+    spec = load_vehicle_spec(d + "/spec.yaml")
+    p = yaml.safe_load(open(f))["parameters"]
+    fitted = CalibrationParameters(**{k: p[k] for k in p if k in CalibrationParameters.__dataclass_fields__})
+    dc = DatasetConfig(10.0, (0.0, 0.0, 0.0), None, None, sensors=("velocity",), actuators=spec.vehicle.actuators)
+    runs = [load_run(x, dc) for x in sorted(glob.glob(f"{d}/data/remus-{T.HELD_DATE}*.csv"))]
+    v = VAL.fin_free_run({"calibrated": fitted, "default": initial_parameters(spec)}, runs, spec.vehicle, window_s=R.FLY_UNSTABLE_S)
+    n = {m: {k: v[m][k]["median"] for k in R.FLY} for m in ("calibrated", "default", "straight_on")}
+    n["p90"] = {k: v["calibrated"][k]["p90"] for k in R.FLY}
+    c = n["calibrated"]
+    ok = all(c[k] is not None and c[k] <= R.FLY[k] for k in R.FLY) and c["heading_deg"] < min(n["default"]["heading_deg"], n["straight_on"]["heading_deg"]) and not v["diverged"]["calibrated"]
+    return record(F, row, "truth", "prestero", f"flying {R.FLY_UNSTABLE_S:g} s on unseen recordings: the horizon an unstable vehicle allows", "held-out", {**n, "windows": v["windows"], "bars": R.BARS_HASH},
+                  "FLY's numbers, and better than the default and holding course", ok, time.time() - t0)
+
+
 # ------------------------------------------------------------------ the run
 def more_rows() -> list:
-    return [*mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS, *[f"XS-{k}" for k in refusal_cases()], *[f"SV-{k}" for k in KEYS], *describe_rows(), "EX-all"]
+    return [*SHORT, *mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS, *[f"XS-{k}" for k in refusal_cases()], *[f"SV-{k}" for k in KEYS], *describe_rows(), "EX-all"]
 
 
 def run_more(pick) -> int:
@@ -784,4 +816,7 @@ def run_more(pick) -> int:
             ok &= run_describe(r)
     if pick("EX-all"):
         ok &= run_experiments()
+    for r in SHORT:
+        if pick(r):
+            ok &= run_short(r)
     return 0 if ok else 1
