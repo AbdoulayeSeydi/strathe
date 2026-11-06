@@ -3798,6 +3798,9 @@ type and ingest, calibration, every simulator, proof.
 - Stonefish's comparison with Strathe's own model built the vehicle with no actuators.
 - `C-cross-measured-mujoco`: every generated MuJoCo fin lay flat, so its hinge barely changed its lift. A cross turned about 430 times too little. S-mujoco had passed on those fins: it recovered a coefficient self-consistently, which is why a row needs real turning behind it.
 
+**A fit that started far off.** With MuJoCo's fins fixed, S-mujoco's vehicle went round in circles and its fit stuck at 3.44 (truth 2) from a start of 4: past the
+true lift, position error is periodic, so the cost is a rough plateau. `core.scan_fin_lift` now tries seven lifts first, on a deliberately uneven grid. Hover fits don't change.
+
 **A file-sharing fault, measured.** On Colima (virtiofs), a file rewritten at the same path with a new size reached a container at its old size in 8
 of 12 tries, cutting its last rows off. Same path and same size: 0 of 12 stale, and contents were right. New paths: 0 of 12. Container to host: 0
 of 6. Every product fit already writes to fresh folders, so no fit is affected; only a stress row reused one. Replays now get paths of their own.

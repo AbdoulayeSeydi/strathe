@@ -296,3 +296,25 @@ def test_a_generated_model_starts_each_fin_at_its_groups_lift():
     import re
     got = {re.search(r"fin_(.+?)_link</link_name>", m).group(1): float(re.search(r"<cla>([^<]+)", m).group(1)) for m in re.findall(r"<plugin\b.*?</plugin>", plugins, re.S)}
     assert all(got[f.name] == pytest.approx(5.5 if f.group else 3.25) for f in FULL.fins)
+
+
+def test_a_fit_starting_far_off_on_a_rough_cost_finds_the_valley():
+    """S-mujoco's cost: a clean valley at the true lift, a rough plateau past it, where a local search stays."""
+    from simfit import core
+    import math
+
+    def cost(x):
+        lift = 4.0 * math.exp(x[0])
+        return min((lift - 2.0) ** 2, 1.0) + (.05 * math.sin(40 * lift) if lift > 3 else 0.0)
+    x = core.scan_fin_lift(cost, np.array([0.0]), ["fin_cla"], np.array([-3.0]), np.array([3.0]))
+    assert 1.5 < 4.0 * math.exp(x[0]) < 2.6
+
+
+def test_the_scan_leaves_other_knobs_and_hover_fits_alone():
+    from simfit import core
+    calls = []
+    x0 = np.array([.1, 0.0])
+    assert core.scan_fin_lift(lambda x: calls.append(1) or 1.0, x0, ["Xu", "added_mass_x"], np.full(2, -3.), np.full(2, 3.)) is x0
+    assert not calls, "a hover fit must spend nothing on it"
+    x = core.scan_fin_lift(lambda x: abs(x[1] + .5), x0, ["Xu", "fin_lift"], np.full(2, -3.), np.full(2, 3.))
+    assert x[0] == .1 and x[1] != 0.0

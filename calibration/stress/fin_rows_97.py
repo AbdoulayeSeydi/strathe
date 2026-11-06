@@ -276,6 +276,7 @@ MUTANTS = {"M-flip-moment": ("fin_force.py", "N += x * fy - y * fx", "N -= x * f
            "M-silent-replay": ("simfit/replay_tool.py", 'said = (r.stderr or "").strip() or (r.stdout or "").strip()', 'said = (r.stderr or "").strip()', "tests/test_simfit_fins.py"),
            "M-mount-over-image": ("stonefish_fit.py", "if os.path.isdir(self.data_dir):", "if True:", "tests/test_simfit_fins.py"),
            "M-finish-crash": ("finalize_checkpoint.py", '    if sensor_info is not None:\n        metrics["sensor_suite"]', '    if sensor_info is not None:\n        from run_calibration import _jsonable\n        metrics["sensor_suite"]', "tests/test_fin_calibration.py"),
+           "M-no-fin-scan": ("simfit/core.py", "    if not fins:\n        return x0\n", "    return x0\n", "tests/test_simfit_fins.py"),
            "M-no-guard": ("fin_fit.py", 'if g is not None and g["swing_deg"] < MIN_FIN_SWING_DEG:', "if False:", "tests/test_fin_calibration.py")}
 
 

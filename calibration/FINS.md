@@ -159,6 +159,9 @@ with `fit-sim`.
 
 **In Docker,** `--stonefish-data /src/Tests/Data` is the image's own folder of meshes, which generated fins use.
 
+A fit with fin lift in it first tries seven lifts from 0.3 to 2.4 times the model's, and starts from the best: a vehicle that turns hard goes
+round in circles, which gives a local search a rough cost past the true lift.
+
 **MuJoCo isn't a foil.** On a fin in steady flow, its fluid model's lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian, so a centred fin can chatter. Stonefish's `Rudder` drops
 lift to zero at stall and never uses `drag_coeff`.
 
