@@ -3765,6 +3765,14 @@ type and ingest, calibration, every simulator, proof.
   inflow at its true value still left it 27% wrong, so that isn't the cause, and holding it at the 0.7 guess made it 127% wrong with
   far worse predictions. It stays free within its limits. Survey lines simply don't pin rudder lift down, so the fit says so.
 
+**Flying on its own** (`validation.fin_free_run`, `fin_check.py`, `tests/test_fin_validation.py`):
+- The fit's score feeds the logged pitch back in, which hides what the elevator does to depth. So every fin calibration also flies itself
+  for 30 s on the logged fin angles, on recordings it never saw, and the report leads with heading, pitch, depth and turn rate against
+  assuming it holds its course. It says plainly when the model does no better.
+- Fin steps: the response to each step of the steering and pitching fins, real against the model.
+- `strathe fin-check`: sign, lag and gain of each fin channel from prepared recordings, with no calibration. It's the only fin command
+  for a glider.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

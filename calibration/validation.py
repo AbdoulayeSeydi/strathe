@@ -42,6 +42,7 @@ REPORT_DRIFT_S = (10, 30, 60)
 ORIENT_WINDOW_S = 10.0
 ORIENT_REPORT_S = (3, 10)
 RESPONSE_S = 1.0
+FIN_WINDOW_S = 30.0   # how long a fin vehicle flies itself before it's compared
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -126,12 +127,12 @@ def current_in_body(cw, qx, qy, qz, qw) -> list:
             r02 * cw[0] + r12 * cw[1] + r22 * cw[2]]
 
 
-def free_run(params, vehicle, run, a: int, n: int, step_s=None):
+def free_run(params, vehicle, run, a: int, n: int, step_s=None, full: bool = False):
     """Roll, pitch, yaw (n,3, rad) with the model integrating its own orientation from the real state at a, driven
     by the logged forces. The calibration's own physics and step: FastDynamics.acceleration_trig (what the fit
     integrates, fed the model's own attitude instead of the logged one) in Forward Euler steps of
     SimulationConfig.physics_dt. The attitude is a quaternion, advanced by the body rates each step. None if it
-    diverges."""
+    diverges. full: also (n,6) velocities and (n,) depth change, with the model's own attitude turning its velocity."""
     from fast_dynamics import FastDynamics
     run = _lagged(run, params)
     acc = FastDynamics(params, vehicle).acceleration_trig
@@ -140,8 +141,10 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
     qx, qy, qz, qw = (float(x) for x in run.orientation_quat[a])
     v = [float(x) for x in start_velocity(run, a)]
     out = np.empty((n, 4))
+    vel, sink, z = np.empty((n, 6)), np.empty(n), 0.0
     for k in range(n):
         out[k] = (qx, qy, qz, qw)
+        vel[k], sink[k] = v, z
         i = a + k
         tau = run.forces_torques[i].tolist()
         cw = world_current(run, i)
@@ -155,6 +158,7 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
             v = [v[j] + vd[j] * h for j in range(6)]
             if not all(math.isfinite(x) and abs(x) < 1e3 for x in v):
                 return None
+            z += (r20 * v[0] + r21 * v[1] + r22 * v[2]) * h
             wx, wy, wz = v[3] * h, v[4] * h, v[5] * h
             th = math.sqrt(wx * wx + wy * wy + wz * wz)
             if th > 1e-12:
@@ -164,7 +168,8 @@ def free_run(params, vehicle, run, a: int, n: int, step_s=None):
                                   qw * dy - qx * dz + qy * c + qz * dx, qw * dz + qx * dy - qy * dx + qz * c)
         norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
         qx, qy, qz, qw = qx / norm, qy / norm, qz / norm, qw / norm
-    return Rotation.from_quat(out).as_euler("xyz")
+    rpy = Rotation.from_quat(out).as_euler("xyz")
+    return (rpy, vel, sink) if full else rpy
 
 
 def _wrap(a):
@@ -396,6 +401,89 @@ def step_responses(models: dict, runs: list, vehicle) -> dict:
     return {"summary": summary, "detail": out}
 
 
+def _real_sink(run, a: int, n: int) -> Optional[np.ndarray]:
+    """How far the vehicle really sank over a window: from a depth sensor, else from its logged velocity. None if neither reads."""
+    for ch in run.channels or []:
+        if ch.kind == "depth":
+            d = np.asarray(ch.values[a:a + n, 0], dtype=float)
+            if np.isfinite(d[[0, -1]]).all():
+                return d - d[0]
+            return None
+    lin = run.real_nu[a:a + n, :3]
+    if not np.isfinite(lin).all():
+        return None
+    return path_from_velocity(lin, run.orientation_quat[a:a + n], run.dt)[:, 2]
+
+
+def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S) -> dict:
+    """A fin vehicle flying itself from each window's real start, on the logged fin angles: heading, pitch, depth and turn rate at
+    the end, against assuming it holds its heading and pitch and carries straight on. The fit's own score feeds the logged pitch
+    back in, which hides what the elevator does to depth, so this is the check that counts."""
+    keys = ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")
+    errs = {m: {k: [] for k in keys} for m in (*models, "straight_on")}
+    div = {m: 0 for m in models}
+    windows = 0
+    for run in runs:
+        n = int(round(window_s * run.sample_rate_hz)) + 1
+        logged = Rotation.from_quat(run.orientation_quat).as_euler("xyz")
+        for a in range(0, run.n_samples - n + 1, n - 1):
+            sink = _real_sink(run, a, n)
+            windows += 1
+            real = logged[a:a + n]
+            r_end = run.real_nu[a + n - 1, 5]
+            hold = errs["straight_on"]
+            hold["heading_deg"].append(float(np.degrees(abs(_wrap(real[-1, 2] - real[0, 2])))))
+            hold["pitch_deg"].append(float(np.degrees(abs(_wrap(real[-1, 1] - real[0, 1])))))
+            hold["turn_rate_rad_s"].append(float(abs(r_end - run.real_nu[a, 5])))
+            if sink is not None:
+                speed = run.real_nu[a, 0] if np.isfinite(run.real_nu[a, 0]) else 0.0
+                hold["depth_m"].append(float(abs(sink[-1] + speed * math.sin(real[0, 1]) * window_s)))
+            for m, p in models.items():
+                got = free_run(p, vehicle, run, a, n, full=True)
+                if got is None:
+                    div[m] += 1
+                    continue
+                rpy, vel, z = got
+                e = errs[m]
+                e["heading_deg"].append(float(np.degrees(abs(_wrap(rpy[-1, 2] - real[-1, 2])))))
+                e["pitch_deg"].append(float(np.degrees(abs(_wrap(rpy[-1, 1] - real[-1, 1])))))
+                e["turn_rate_rad_s"].append(float(abs(vel[-1, 5] - r_end)))
+                if sink is not None:
+                    e["depth_m"].append(float(abs(z[-1] - sink[-1])))
+    out = {"window_s": window_s, "windows": windows, "diverged": div}
+    for m, by in errs.items():
+        out[m] = {k: _summary(v) for k, v in by.items()}
+    return out
+
+
+def fin_steps(models: dict, runs: list, vehicle, act) -> dict:
+    """Steps of the steering and pitching fins, and the turn or pitch rate each caused, real against the model."""
+    from fin_fit import group_angle
+    out = {}
+    for group, word, j in ((0, "steering", 5), (1, "pitching", 4)):
+        idx = [i for i, f in enumerate(act.fins) if f.group == group]
+        if not idx:
+            continue
+        real, sim = [], {m: [] for m in models}
+        for run in runs:
+            rate = run.sample_rate_hz
+            post = int(round(STEP_POST_S * rate))
+            ang = group_angle(run, idx)
+            span = float(np.percentile(ang, 95) - np.percentile(ang, 5))
+            if span < 1e-3:
+                continue
+            for k in find_steps(ang, rate, .3 * span):
+                dv = float(run.real_nu[k + post, j] - run.real_nu[k, j])
+                if not np.isfinite(dv) or abs(dv) < 1e-4:
+                    continue
+                real.append(dv)
+                for m, p in models.items():
+                    nu = window_replay(p, vehicle, run, k, k + post + 1)
+                    sim[m].append(None if nu is None else float(nu[-1, j] - nu[0, j]) / dv)
+        out[word] = {"steps": len(real), **{f"{m}_size_ratio": _summary(sim[m])["median"] for m in models}}
+    return out
+
+
 # ------------------------------------------------------------------ plots
 
 def _plt():
@@ -624,6 +712,9 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
            "plots": []}
     steps = step_responses(models, runs, vehicle)
     res["steps"] = steps["summary"]
+    if vehicle.actuators is not None and vehicle.actuators.fins:
+        res["fin_free_run"] = fin_free_run(models, runs, vehicle)
+        res["fin_steps"] = fin_steps(models, runs, vehicle, vehicle.actuators)
     if anchoring is not None:
         res["sensor_suite"] = {"anchoring": anchoring, "drift_against": res["trajectory"].get("against")}
     plt = _plt() if plots else None

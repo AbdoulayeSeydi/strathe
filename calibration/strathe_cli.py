@@ -1317,6 +1317,19 @@ def cmd_fit_link(args, runner=None) -> int:
     return run_step(argv, runner)
 
 
+def cmd_fin_check(args, runner=None) -> int:
+    """A rudder against the turning it causes, with no calibration (fin_check.py, FINS.md)."""
+    import fin_check
+    try:
+        res = fin_check.check_folder(_abs(args.data), args.sampling_rate_hz)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"❌ {e}")
+        return 2
+    for line in fin_check.words(res):
+        print(line)
+    return 1 if any("problem" in r for r in res["channels"].values()) else 0
+
+
 def cmd_free_decay(args, runner=None) -> int:
     if bool(args.data) == bool(args.ingest_spec):
         print("❌ give either --data <folder of Strathe CSVs> or --ingest-spec <your ingestion YAML>")
@@ -1891,6 +1904,11 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--max-start-deg", type=float, default=35.0,
                    help="largest; beyond it the vehicle is probably at the surface (default 35)")
     d.set_defaults(fn=cmd_free_decay)
+
+    fc = sub.add_parser("fin-check", help="check a rudder or elevator against the motion it causes, without calibrating (FINS.md)")
+    fc.add_argument("--data", required=True, help="recordings in Strathe's CSV layout (`strathe ingest` makes them)")
+    fc.add_argument("--sampling-rate-hz", type=float, help="default: from ingest_report.json")
+    fc.set_defaults(fn=cmd_fin_check)
 
     i = sub.add_parser("ingest", help="convert your own logs into Strathe's CSV layout")
     i.add_argument("--spec", required=True, help="ingestion spec YAML (see data_ingestion.py)")

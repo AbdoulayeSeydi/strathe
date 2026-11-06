@@ -483,6 +483,40 @@ def _m(s, unit="", digits=2):
     return "n/a" if s is None or s.get("median") is None else f"{s['median']:.{digits}f}{unit}"
 
 
+def fin_flight_section(v: dict) -> list:
+    """How a fin vehicle flew itself on recordings it never saw: the check that counts for one (#97)."""
+    f = v.get("fin_free_run")
+    if not f or not f.get("windows"):
+        return []
+    win = f["window_s"]
+    L = [f"**Flying on its own.** The model steered by the logged fin angles for {win:g} s from each window's real start, with nothing "
+         f"fed back, over {f['windows']} windows. The fit's own score feeds the logged pitch back in, which hides what the elevator "
+         f"does to depth, so read this one first. Median error at the end (90% of windows under the second number):\n"]
+    L += ["| | Calibrated | Default physics | Assuming it holds course |", "|---|---|---|---|"]
+    for key, word, unit in (("heading_deg", "Heading", "°"), ("pitch_deg", "Pitch", "°"), ("depth_m", "Depth", " m"),
+                            ("turn_rate_rad_s", "Turn rate", " rad/s")):
+        c = f["calibrated"][key]
+        if c["median"] is None:
+            continue
+        L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(f['default'][key], unit)} | "
+                 f"{_m(f['straight_on'][key], unit)} |")
+    L.append("")
+    worse = [w for k, w in (("heading_deg", "heading"), ("pitch_deg", "pitch"), ("depth_m", "depth"))
+             if f["calibrated"][k]["median"] is not None and f["straight_on"][k]["median"] is not None
+             and f["calibrated"][k]["median"] >= f["straight_on"][k]["median"]]
+    if worse:
+        L.append(f"> ⚠️ For {' and '.join(worse)}, the model does no better than assuming the vehicle holds its course. On these "
+                 f"recordings that can mean it hardly manoeuvred, or that the model doesn't capture it.\n")
+    if f["diverged"].get("calibrated"):
+        L.append(f"> ⚠️ {f['diverged']['calibrated']} of {f['windows']} windows blew up flying on their own.\n")
+    st = v.get("fin_steps") or {}
+    rows = [(w, s) for w, s in st.items() if s["steps"] and s.get("calibrated_size_ratio") is not None]
+    if rows:
+        L.append("**Fin steps.** " + " ".join(f"{s['steps']} {w} steps: the model's response was {s['calibrated_size_ratio']:.2f} of the "
+                                              f"real one (1 is right)." for w, s in rows) + "\n")
+    return L
+
+
 def validation_section(v: dict) -> list:
     """The report's section from validation.py's validation.json: position drift, orientation with the model
     turning on its own, the 1 s response, command steps, and the plots (PROJECT_STATUS.md #65)."""
@@ -490,6 +524,7 @@ def validation_section(v: dict) -> list:
          f"On the {v['heldout_recordings']} recordings the calibration never saw"
          + (f" ({', '.join(v['heldout_dates'])})" if v.get("heldout_dates") else "")
          + f". The numbers are in `{VALIDATION_DIR}/validation.json`.\n"]
+    L += fin_flight_section(v)
     plots = set(v.get("plots") or [])
     tr = v["trajectory"]
     against = tr.get("against")
