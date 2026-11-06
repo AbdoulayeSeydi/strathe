@@ -44,7 +44,8 @@ from simfit.core import load_runs as _load_runs, table as _table  # noqa: F401
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_TOOL = os.path.join(HERE, "stonefish", "build", "strathe_stonefish_replay")
-KNOBS = ("drag", "added_mass", "buoyancy", "cg")
+KNOBS = ("drag", "added_mass", "buoyancy", "cg", "fins")
+RUDDER_LIFT = re.compile(r'(<actuator\b[^>]*type="rudder"[^>]*>(?:(?!</actuator>).)*?<specs\b[^>]*\blift_coeff=")([^"]+)(")', re.S)
 
 
 StonefishFitError = SimFitError  # a plain message for the lab: what is wrong and what to do (one class for every simulator)
@@ -114,6 +115,7 @@ class PartSettings:
     # Strathe's per-axis damping, replacing the vehicle's mesh drag (needs the patch's STONEFISH_AXIS_DAMPING_PATCH):
     # {"linear": [Xu, Yv, Zw], "linear_rot": [Kp, Mq, Nr], "quadratic": [Xuu, ...], "quadratic_rot": [...], "point": xyz}
     axis_damping: Optional[dict] = None
+    fin_lift: Optional[float] = None         # every rudder actuator's lift_coeff (fins: FINS.md)
 
 
 def _search(pattern: str, text: str):
@@ -145,7 +147,7 @@ def merge_settings(base: Optional[PartSettings], top: Optional[PartSettings]) ->
     if base is None or top is None:
         return top if base is None else base
     out = PartSettings(**base.__dict__)
-    for k in ("quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
+    for k in ("fin_lift", "quadratic_drag", "viscous_drag", "added_mass", "added_inertia", "mass", "inertia", "axis_damping"):
         if getattr(top, k) is not None:
             setattr(out, k, getattr(top, k))
     if top.added_mass is not None:
@@ -165,6 +167,8 @@ def _fmt(v) -> str:
 
 def apply_part_settings(text: str, part: str, s: PartSettings, buoyancy_part: Optional[str] = None) -> str:
     """The scenario text with the tuned part (and the buoyancy part) changed; everything else untouched."""
+    if s.fin_lift is not None:
+        text = RUDDER_LIFT.sub(lambda m: f"{m.group(1)}{s.fin_lift:.9g}{m.group(3)}", text)
     span = _part_span(text, part)
     if span:
         a, b = span
@@ -350,11 +354,8 @@ class Replay:
         """[(V (n,6), Q (n,4))] per window; NaN where Stonefish diverged."""
         os.makedirs(work_dir, exist_ok=True)
         fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
-        with open(fin, "w") as f:
-            f.write("win,k,u,v,w,p,q,r,qx,qy,qz,qw,Fx,Fy,Fz,Tx,Ty,Tz\n")
-            for i, rows in enumerate(rows_by_window):
-                for k, row in enumerate(rows):
-                    f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
+        from simfit.replay_tool import write_windows
+        write_windows(fin, rows_by_window)
         try:
             io = ["--windows", fin, "--out", fout]
             r = subprocess.run(self._argv(scenario, (os.path.abspath(work_dir),))
@@ -431,6 +432,8 @@ class Knobs:
             n += ["buoyancy_scale"]
         if "cg" in self.fit:
             n += ["cg_shift_x", "cg_shift_z"]
+        if "fins" in self.fit:
+            n += ["fin_lift"]
         return n
 
     def __post_init__(self):
@@ -444,6 +447,8 @@ class Knobs:
         return [n for n in self.all_names() if n not in self.held]
 
     def _start_value(self, name: str) -> float:
+        if name == "fin_lift":
+            return float(self.start["fin_lift"])
         kind, _, axis = name.rpartition("_")
         i = {"x": 0, "y": 1, "yz": 1, "z": 2}[axis]
         floor = {"quadratic_drag": 1e-4, "viscous_drag": 1e-5, "added_mass": 1e-2}[kind]
@@ -507,6 +512,8 @@ class Knobs:
             s.buoyancy_scale = v["buoyancy_scale"]
         if "cg" in self.fit:
             s.cg_shift = [v["cg_shift_x"], 0.0, v["cg_shift_z"]]
+        if "fins" in self.fit:
+            s.fin_lift = v["fin_lift"]
         return s
 
 
@@ -541,7 +548,7 @@ def run_fit_stonefish(a) -> int:
     os.makedirs(out, exist_ok=True)
     work = tempfile.mkdtemp(prefix="strathe_stonefish_")
     try:
-        train, held, split = _load_runs(a.data, a.heldout_dates)
+        train, held, split = _load_runs(a.data, a.heldout_dates, getattr(a, "fin_spec", None))
         if not held:
             raise StonefishFitError("no held-out recordings: give --heldout-dates, or logs from at least two sessions")
         replay.dt = train[0].dt
@@ -567,7 +574,8 @@ def run_fit_stonefish(a) -> int:
             raise StonefishFitError(f"Stonefish doesn't report a part '{a.part}' on robot '{a.robot}' (it has: "
                                     f"{', '.join(parts) or 'none listed; is the replay tool built against the patched '
                                     'Stonefish?'})")
-        fit_knobs = tuple(k for k in (a.fit or KNOBS))
+        lift = next((m for m in (RUDDER_LIFT.search(t) for t in scenario.files().values()) if m), None)
+        fit_knobs = tuple(k for k in (a.fit or KNOBS) if k != "fins" or lift is not None)
         notes = []
         if "added_mass" in fit_knobs and not info.get("patched"):
             fit_knobs = tuple(k for k in fit_knobs if k != "added_mass")
@@ -583,7 +591,8 @@ def run_fit_stonefish(a) -> int:
                 holds[name.strip()] = float(value)
             except ValueError:
                 raise StonefishFitError(f"--hold takes NAME=VALUE (e.g. added_mass_x=10.6), got {kv!r}")
-        knobs = Knobs(fit_knobs, parts[a.part], a.axisymmetric, holds)
+        start = {**parts[a.part], **({"fin_lift": float(lift.group(2))} if lift is not None else {})}
+        knobs = Knobs(fit_knobs, start, a.axisymmetric, holds)
         if holds:
             print("  held: " + ", ".join(f"{n} = {v:g}" for n, v in holds.items()), flush=True)
         if split.warning:   # one session: an easier check than an unseen day (#93)
@@ -660,7 +669,7 @@ def run_fit_stonefish(a) -> int:
             print(f"The calibrated model turns or tilts worse than your original ({', '.join(worse)}), and the fit moved "
                   f"the centre of gravity. Fitting again with it held (about as long again; --no-cg-rerun skips "
                   f"this)...", flush=True)
-            knobs_b = Knobs(tuple(k for k in fit_knobs if k != "cg"), parts[a.part], a.axisymmetric, holds)
+            knobs_b = Knobs(tuple(k for k in fit_knobs if k != "cg"), start, a.axisymmetric, holds)
             fb = fit_or_finish(knobs_b, "cg_held")
             tuned_label, held_label = cal_label + " (centre of gravity tuned)", cal_label + " (centre of gravity held)"
             results[tuned_label] = results.pop(cal_label)
@@ -798,6 +807,7 @@ def add_arguments(ap) -> None:
                          "the last 30%% of the one recording; calibration/ONE_SESSION.md)")
     ap.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part resized to fit the net buoyancy")
     ap.add_argument("--fit", nargs="+", choices=KNOBS, help=f"what to fit (default: all of {', '.join(KNOBS)})")
+    ap.add_argument("--fin-spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     ap.add_argument("--hold", nargs="+", metavar="NAME=VALUE",
                     help="hold settings at values you measured instead of fitting them, e.g. added_mass_x=10.6 "
                          "(names: quadratic_drag_x/y/z, viscous_drag_x/y/z, added_mass_x/y/z -- _yz with "

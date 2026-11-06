@@ -12,6 +12,7 @@ forward-right-down). What's tuned is in the dynamics dict (a missing key takes t
   added_mass  r44 (added roll inertia)
   cg          r_bg x and z (centre of gravity)
   mass        mass
+  fins        CL_delta (the fins' lift; a fin vehicle's logged angles go into the class's own fins)
 export-sim writes strathe_fossen.py: a Fossen class with Strathe's own model and HoloOcean's dynamics() interface, for
 the custom-dynamics control scheme, and scores it on the held-out logs.
 """
@@ -32,7 +33,7 @@ DEFAULT_MODEL = "holoocean.fossen_dynamics.torpedo:Torpedo"
 DEFAULT_CONFIGURE = "holoocean.fossen_dynamics.torpedo:configure_torpedo_from_scenario"
 KNOBS = (("T_surge", "drag"), ("T_sway", "drag"), ("T_yaw", "drag"), ("zeta_roll", "drag"), ("zeta_pitch", "drag"),
          ("K_nomoto", "drag"), ("Cd", "drag"), ("e", "lift"), ("r44", "added_mass"), ("r_bg/0", "cg"),
-         ("r_bg/2", "cg"), ("mass", "mass"))
+         ("r_bg/2", "cg"), ("mass", "mass"), ("CL_delta", "fins"))
 ATTR = {"mass": ("m", "mass"), "T_surge": ("T_surge",), "T_sway": ("T_sway",), "T_yaw": ("T_yaw",),
         "zeta_roll": ("zeta_roll",), "zeta_pitch": ("zeta_pitch",), "K_nomoto": ("K_nomoto",), "Cd": ("Cd",),
         "e": ("e",), "r44": ("r44",), "r_bg": ("r_bg",)}
@@ -101,6 +102,11 @@ class HolooceanAdapter:
             v = self.cls("stepInput")
         if self.configure:
             self.configure(scenario, self.agent, v)
+        cl = (scenario["agents"][self.index].get("actuator") or {}).get("CL_delta")
+        if cl is not None:
+            for c in getattr(v, "controls", ()):
+                if hasattr(c, "CL"):
+                    c.CL = float(cl)
         if not hasattr(v, "Minv") or not hasattr(v, "dynamics"):
             raise SimFitError(f"{self.cls.__name__} has no Minv / dynamics(): not a Fossen vehicle class")
         return v
@@ -110,6 +116,11 @@ class HolooceanAdapter:
 
     def _get(self, scenario, key):
         name, _, comp = key.partition("/")
+        if name == "CL_delta":   # the fins' lift: in the agent's actuator settings, not its dynamics
+            got = (scenario["agents"][self.index].get("actuator") or {}).get("CL_delta")
+            if got is not None:
+                return float(got)
+            return next((float(c.CL) for c in getattr(self._defaults, "controls", ()) if hasattr(c, "CL")), None)
         dyn = self._dyn(scenario)
         if name in dyn:
             val = dyn[name]
@@ -121,6 +132,9 @@ class HolooceanAdapter:
 
     def _set(self, scenario, key, value):
         name, _, comp = key.partition("/")
+        if name == "CL_delta":
+            scenario["agents"][self.index].setdefault("actuator", {})["CL_delta"] = float(value)
+            return
         dyn = self._dyn(scenario)
         if comp:
             cur = dyn.get(name)
@@ -238,11 +252,14 @@ class HolooceanAdapter:
             q = rows[0, 6:10] / np.linalg.norm(rows[0, 6:10])
             dimU = int(getattr(veh, "dimU", 3))
             u_actual, u_control = np.zeros(dimU), np.zeros(dimU)
+            slots = _fin_slots(veh, getattr(rows_by_window, "actuators", None))
             Minv = np.asarray(veh.Minv, dtype=float)
             pos = np.array([0.0, 0.0, self.depth])
             for k in range(n - 1):
                 F, T = rows[k, 10:13], rows[k, 13:16]
                 tau = np.concatenate([F, T + np.cross(r, F)])  # about the origin
+                for slot, j in slots:   # the logged fin angles, into the class's own fins
+                    u_control[slot] = rows[k, 16 + j]
                 for _ in range(sub):
                     eta = np.concatenate([pos, _euler(q)])
                     res = veh.dynamics(eta, nu, u_actual, u_control, h)
@@ -272,7 +289,7 @@ class HolooceanAdapter:
         return ns["StratheFossen"]()
 
     def export_values(self, params, mass, info, train, rho):
-        src = strathe_fossen_source(params, mass, self.ref)
+        src = strathe_fossen_source(params, mass, self.ref, getattr(train[0], "actuators", None) if train else None)
         notes = ["HoloOcean's torpedo model has time constants and drag coefficients, not per-axis damping, so Strathe's "
                  "model goes in as its own Fossen class (strathe_fossen.py, same dynamics() interface), used with the "
                  "custom-dynamics control scheme (calibration/simulators/holoocean/README.md). Its centre of gravity is "
@@ -283,10 +300,33 @@ class HolooceanAdapter:
 
 
 
-def strathe_fossen_source(params, mass: float, ref) -> str:
+def _fin_slots(veh, act) -> list:
+    """[(the class's control index, the fin's column among fin_<name>)]: the class's fin standing where each of ours does. A positive
+    angle lifts the same way in both (span x chord). A class with no `controls` (strathe_fossen) takes them in our order."""
+    if act is None or not act.fins:
+        return []
+    fins = [(i, c) for i, c in enumerate(getattr(veh, "controls", ())) if hasattr(c, "angle_rad")]
+    if not fins:
+        return [(j, j) for j in range(len(act.fins))]
+    out = []
+    for j, f in enumerate(act.fins):
+        a = math.atan2(f.position_m[2], f.position_m[1])
+        i, d = min(((i, abs(math.remainder(c.angle_rad - a, 2 * math.pi))) for i, c in fins), key=lambda x: x[1])
+        if d > math.radians(25):
+            raise SimFitError(f"fin {f.name} has no fin near it in the HoloOcean vehicle: its fins and the description's layout differ")
+        out.append((i, j))
+    return out
+
+
+def strathe_fossen_source(params, mass: float, ref, act=None) -> str:
     """A self-contained Fossen vehicle class with Strathe's calibrated model (no Strathe import needed)."""
+    import inspect
+    import fin_force
     from dynamics_model import MASS_COUPLINGS
     p = {k: float(getattr(params, k)) for k in params.__dataclass_fields__}
+    fins = fin_force.prepare(act, params) if act is not None and act.fins else ()
+    fin_code = "".join((f"STALL_BAND_RAD = {fin_force.STALL_BAND_RAD!r}\nSTALLED_CN = {fin_force.STALLED_CN!r}\n\n\n",
+                        inspect.getsource(fin_force._lift), "\n\n", inspect.getsource(fin_force.fins_wrench))) if fins else ""
     r = [float(x) for x in ref]
     return f'''"""StratheFossen: a vehicle calibrated by Strathe (strathe export-sim --sim holoocean), as a Fossen class with
 HoloOcean's interface: dynamics(eta, nu, u_actual, u_control, sampleTime) -> (nu_dot, u_actual), with nu at the
@@ -298,17 +338,19 @@ import numpy as np
 
 PARAMS = {json.dumps(p, indent=4)}
 COUPLINGS = {list(MASS_COUPLINGS)!r}
+FINS = {fins!r}
 MASS = {float(mass)!r}
 REF = np.array({r})
 G = 9.81
 
 
+{fin_code}
 def _skew(x):
     return np.array([[0.0, -x[2], x[1]], [x[2], 0.0, -x[0]], [-x[1], x[0], 0.0]])
 
 
 class StratheFossen:
-    dimU = 3
+    dimU = max(3, len(FINS))    # u_control: each fin's angle, in the order of FINS
 
     def __init__(self, *args, **kwargs):
         P = PARAMS
@@ -352,6 +394,8 @@ class StratheFossen:
         thrust, and u_actual unchanged."""
         v = self.J @ np.asarray(nu, dtype=float)
         f = self._accel_ref(v, eta[3], eta[4])
+        if FINS:
+            f = f + np.array(fins_wrench(FINS, [float(x) for x in v], [float(x) for x in u_control]))
         # forces at the reference point -> generalized forces at the origin (J^T), solved with the origin's mass matrix
         return self.Minv @ (self.J.T @ f), u_actual
 '''

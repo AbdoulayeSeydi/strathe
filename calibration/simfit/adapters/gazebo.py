@@ -39,12 +39,18 @@ AXIS_NAMES = {"x": "surge", "y": "sway", "z": "heave", "k": "roll", "m": "pitch"
 STRATHE_LIN = ("Xu", "Yv", "Zw", "Kp", "Mq", "Nr")
 STRATHE_QUAD = ("Xuu", "Yvv", "Zww", "Kpp", "Mqq", "Nrr")
 TIES = {"y": "yz", "z": "yz", "m": "mn", "n": "mn"}  # --axisymmetric: sway = heave, pitch = yaw
+# a fin's lift slope, inside a LiftDrag plugin
+LIFTDRAG_CLA = re.compile(r"(<plugin\b[^>]*LiftDrag[^>]*>(?:(?!</plugin>).)*?<cla>)\s*([^<\s]+)\s*(</cla>)", re.S)
 
 
 def _descend(n):
     for c in n.children:
         yield c
         yield from _descend(c)
+
+
+# fins: each fin is a link on a revolute joint named fin_<name>, with a LiftDrag plugin on the link (FINS.md); the replay holds each joint
+# at the logged angle and LiftDrag makes the force from the real flow
 
 
 class GazeboAdapter:
@@ -135,6 +141,8 @@ class GazeboAdapter:
                 tag = f"{a}Dot{v}"
                 if tag in self.params:
                     out.append((tag, "added_mass", f"{self.plugin}/{tag}", -1.0, "Dot_yz" if a in "yz" else None))
+        if LIFTDRAG_CLA.search(self.model_text):   # the fins' LiftDrag plugins: one lift slope for them all
+            out.append(("fin_cla", "fins", "<LiftDrag>", 1.0, None))
         if self.inertial is not None:
             if any(c.tag == "pose" for c in self.inertial.children):
                 out.append(("cg_x", "cg", f"{self.link_path}/inertial/pose#0", 1.0, None))
@@ -163,7 +171,9 @@ class GazeboAdapter:
         defs = {n: (p, s) for n, _g, p, s, _t in self._knob_defs()}
         for layer in (self.base, values):
             for key, v in (layer or {}).items():
-                if key in defs:
+                if key == "fin_cla":
+                    ed = XmlFile(LIFTDRAG_CLA.sub(lambda m: f"{m.group(1)}{fmt_number(float(v))}{m.group(3)}", ed.text))
+                elif key in defs:
                     ed.set(defs[key][0], float(v) * defs[key][1])
                 elif key == "buoyancy_scale":
                     self._scale_collisions(ed, float(v))
@@ -267,6 +277,9 @@ class GazeboAdapter:
         specs = []
         for name, group, path, sign, tie in self._knob_defs():
             if group not in groups:
+                continue
+            if group == "fins":
+                specs.append(KnobSpec(name, group, float(LIFTDRAG_CLA.search(ed.text).group(2)), "log_factor", floor=1e-3))
                 continue
             v = ed.get(path) * sign
             if group == "cg":

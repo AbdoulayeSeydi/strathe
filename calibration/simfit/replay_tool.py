@@ -54,8 +54,10 @@ def join_command(parts: list, windows: Optional[bool] = None) -> str:
 
 
 def write_windows(path: str, rows_by_window: list) -> None:
+    """A fin vehicle's windows carry each fin's angle after the wrench, named fin_<name> (radians)."""
+    extra = getattr(rows_by_window, "fins", ())
     with open(path, "w") as f:
-        f.write(IN_COLUMNS + "\n")
+        f.write(",".join((IN_COLUMNS, *extra)) + "\n")
         for i, rows in enumerate(rows_by_window):
             for k, row in enumerate(rows):
                 f.write(f"{i},{k}," + ",".join(f"{x:.9g}" for x in row) + "\n")
@@ -105,6 +107,7 @@ class ReplayTool:
     extra: list = field(default_factory=list)   # the simulator's own options
     name: str = "simulator"          # for messages
     env: dict = field(default_factory=dict)     # extra environment for the command
+    _fins: Optional[bool] = field(default=None, repr=False)
 
     def _argv(self, model: str, folders=()) -> list:
         base = ["--model", model, "--ref", *(f"{x:g}" for x in self.ref), "--dt", f"{self.dt:g}", *self.extra]
@@ -145,6 +148,11 @@ class ReplayTool:
             raise SimFitError(f"the {self.name} replay tool didn't report its features: {r.stderr.strip()[-400:]}")
         return json.loads(js[-1])
 
+    def takes_fins(self) -> bool:
+        if self._fins is None:
+            self._fins = bool(self.features().get("fins"))
+        return self._fins
+
     def info(self, model: str) -> dict:
         r = self._call(self._argv(model) + ["--info"], INFO_TIMEOUT_S, "load the model")
         js = [ln for ln in r.stdout.splitlines() if ln.startswith("{")]
@@ -154,6 +162,9 @@ class ReplayTool:
 
     def run(self, model: str, rows_by_window: list, work_dir: str) -> list:
         os.makedirs(work_dir, exist_ok=True)
+        if getattr(rows_by_window, "fins", ()) and not self.takes_fins():
+            raise SimFitError(f"the {self.name} replay tool doesn't take fin angles: its --features must say \"fins\": true and it "
+                              f"must apply fin_<name> columns (calibration/simulators/SIMULATOR_PROTOCOL.md)")
         fin, fout = os.path.join(work_dir, "windows.csv"), os.path.join(work_dir, "pred.csv")
         write_windows(fin, rows_by_window)
         io = ["--windows", fin, "--out", fout]

@@ -4,7 +4,11 @@ is a JSON file (vehicle.json next to this file):
   {"mass": 30, "added_mass": [x, y, z], "inertia": [roll, pitch, yaw],
    "linear_damping": [Xu, Yv, Zw, Kp, Mq, Nr], "quadratic_damping": [Xuu, ...], "water": {"density": 1000}}
 and each axis moves on its own: (m + A) dv/dt = tau + (linear + quadratic |v|) v (coefficients negative), which is
-Strathe's damping law, so an exact export reproduces Strathe's own model on decoupled motion."""
+Strathe's damping law, so an exact export reproduces Strathe's own model on decoupled motion.
+
+A fin-steered vehicle's windows carry fin_<name> columns after the wrench (radians). Add "fins" to the model and this tool applies them:
+  "fins": [{"name": "top", "position": [-0.7, 0, -0.1], "normal": [0, 1, 0], "k": 3.0}]
+each giving force k * u^2 * angle along its normal, at its position (your simulator does this with its own fin model)."""
 import json
 import math
 import sys
@@ -21,7 +25,7 @@ def arg(name, n=1, default=None):
 
 def main():
     if "--features" in sys.argv:
-        print(json.dumps({"simulator": "fake", "version": "1.0"}))
+        print(json.dumps({"simulator": "fake", "version": "1.0", "fins": True}))
         return 0
     model = json.load(open(arg("--model")))
     m = float(model["mass"])
@@ -37,8 +41,10 @@ def main():
     sub = 10
     h = dt / sub
     rows = {}
+    fins = {f"fin_{x['name']}": x for x in model.get("fins", [])}
     with open(arg("--windows")) as f:
-        f.readline()
+        header = f.readline().strip().split(",")
+        cols = [(header.index(c) - 2, fins[c]) for c in header[18:] if c in fins]
         for line in f:
             x = [float(v) for v in line.split(",")]
             rows.setdefault(int(x[0]), []).append(x[2:])
@@ -53,7 +59,11 @@ def main():
                     break
                 tau = np.array(row[10:16])
                 for _ in range(sub):
-                    v = v + h * (tau + (lin + quad * np.abs(v)) * v) / M
+                    fin = np.zeros(6)
+                    for j, x in cols:
+                        force = x["k"] * v[0] ** 2 * row[j] * np.array(x["normal"], dtype=float)
+                        fin += np.r_[force, np.cross(np.array(x["position"], dtype=float), force)]
+                    v = v + h * (tau + fin + (lin + quad * np.abs(v)) * v) / M
                     wx, wy, wz = v[3:] * h
                     th = math.sqrt(wx * wx + wy * wy + wz * wz)
                     if th > 1e-12:

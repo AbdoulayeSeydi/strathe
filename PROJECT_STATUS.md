@@ -3773,6 +3773,17 @@ type and ingest, calibration, every simulator, proof.
 - `strathe fin-check`: sign, lag and gain of each fin channel from prepared recordings, with no calibration. It's the only fin command
   for a glider.
 
+**Fins in every simulator** (`simfit/fin_models.py`, `tests/test_simfit_fins.py`):
+- A fin's force depends on the simulator's own flow, so only fin angles go to its physics, as `fin_<name>` columns after the wrench. Propeller,
+  gimbal, moving mass and buoyancy engine don't depend on its hull, so they're worked out from the log and added to the wrench.
+- A tool must say `"fins": true` in `--features`; otherwise fin logs are refused. Hover windows don't change.
+- Real engines, nothing fitted, against the fin formula: Gazebo's LiftDrag on a joint-driven fin reproduces the fixed-fin result exactly and
+  agrees within about 0.4%. Stonefish's `Rudder`, commanded, within about 9% (sway 0.107 against 0.099, yaw -2.04 against -2.23).
+- HoloOcean's real `Torpedo` class runs on a Mac with no engine. `fit-sim` from a wrong fin lift (1.0, truth 0.5) took 30 s drift from 21.7 m to
+  0.8 m and found 0.46. The 8% left is the description's propeller estimate.
+- MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: almost none below about 3°, and not linear. Recorded, not hidden.
+- Fit knobs: `fin_cla` (Gazebo), `fin_lift` (Stonefish), `CL_delta` (HoloOcean), each fin's Kutta lift (MuJoCo).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

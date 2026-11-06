@@ -22,6 +22,7 @@
 #include <entities/forcefields/Ocean.h>
 #include <graphics/OpenGLDataStructs.h>
 #include <actuators/Actuator.h>
+#include <actuators/Rudder.h>
 #include <BulletDynamics/Featherstone/btMultiBody.h>
 #include <cmath>
 #include <cstdio>
@@ -183,7 +184,7 @@ int main(int argc, char** argv) {
         else if (a == "--out") { next(); out = argv[++i]; }
         else if (a == "--info") doInfo = true;
         else if (a == "--features") {  // what this build supports, without a scenario (`strathe check`)
-            printf("{\"patched\": %s, \"axis_damping\": %s}\n", kPatched ? "true" : "false",
+            printf("{\"patched\": %s, \"axis_damping\": %s, \"fins\": true}\n", kPatched ? "true" : "false",
                    kAxisDamping ? "true" : "false");
             return 0;
         }
@@ -197,17 +198,25 @@ int main(int argc, char** argv) {
     if (!data.empty() && data.back() != '/') data += "/";
 
     std::map<int, std::vector<std::vector<double>>> wins;
+    std::vector<std::string> finNames;   // a fin-steered vehicle's windows name each fin after the wrench: fin_<name>, its rudder actuator
     if (!doInfo) {
         std::ifstream in(windows);
         if (!in) { fprintf(stderr, "can't read %s\n", windows.c_str()); return 2; }
         std::string line;
         while (std::getline(in, line)) {
-            if (line.empty() || line[0] == 'w') continue;
+            if (!line.empty() && line[0] == 'w') {
+                std::stringstream hs(line);
+                std::string cell;
+                int col = 0;
+                while (std::getline(hs, cell, ',')) if (col++ >= 18) finNames.push_back(cell);
+                continue;
+            }
+            if (line.empty()) continue;
             std::stringstream ss(line);
             std::string tok;
             std::vector<double> v;
             while (std::getline(ss, tok, ',')) v.push_back(std::stod(tok));
-            if (v.size() != 18) { fprintf(stderr, "bad window row (%zu values, need 18)\n", v.size()); return 2; }
+            if (v.size() != 18 + finNames.size()) { fprintf(stderr, "bad window row (%zu values, need %zu)\n", v.size(), 18 + finNames.size()); return 2; }
             wins[(int)v[0]].push_back(std::vector<double>(v.begin() + 2, v.end()));
         }
     }
@@ -222,6 +231,13 @@ int main(int argc, char** argv) {
     SolidEntity* body = robot->getBaseLink();
     if (doInfo) { info(stdout, &sim, robot, body); return 0; }
 
+    std::vector<Rudder*> fins;
+    for (const auto& name : finNames) {
+        Actuator* act = robot->getActuator(robotName + "/" + name);
+        Rudder* rd = act == nullptr ? nullptr : dynamic_cast<Rudder*>(act);
+        if (rd == nullptr) { fprintf(stderr, "the robot has no rudder actuator named %s: each fin needs one (FINS.md)\n", name.c_str()); return 2; }
+        fins.push_back(rd);
+    }
     btMultiBody* mb = robot->getDynamics()->getMultiBody();
     WrenchInjector* inj = new WrenchInjector();
     inj->body = body;
@@ -257,6 +273,7 @@ int main(int argc, char** argv) {
             if (k + 1 == rows.size()) break;
             inj->F_body = Vector3(rows[k][10], rows[k][11], rows[k][12]);
             inj->T_ref_body = Vector3(rows[k][13], rows[k][14], rows[k][15]);
+            for (size_t i = 0; i < fins.size(); ++i) fins[i]->setSetpoint(rows[k][16 + i]);
             int sub = (int)std::lround(sampleDt * hz);
             for (int i = 0; i < sub; ++i) sim.StepSimulation(h);
             if (!std::isfinite(body->getLinearVelocity().x())) { fprintf(stderr, "window %d diverged\n", win); break; }

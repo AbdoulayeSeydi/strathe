@@ -13,6 +13,9 @@ tuned, found in the file:
   buoyancy    the body's gravcomp (1 = neutral; above 1 floats; acts at the centre of mass: no righting moment)
   cg          the body's <inertial pos> x and z
   mass        its <inertial mass>
+  fins        each hinged fin's Kutta lift coefficient (fluidcoef 4): a child body with a hinge joint named fin_<name> and an ellipsoid
+              geom. The replay holds each hinge at the logged angle and MuJoCo's fluid model makes the force. It isn't a foil: lift is
+              weak below about 3 degrees and not linear (FINS.md)
 export-sim isn't possible: MuJoCo has no per-axis linear damping, no buoyancy force and doesn't apply the part of added
 mass that resists acceleration, so Strathe's model can't be written into it. For Strathe's own model inside MuJoCo,
 see calibration/mujoco_backend.py.
@@ -90,6 +93,9 @@ class MujocoAdapter:
                            and g.attrs.get("fluidshape") == "ellipsoid"]
         if any(not g for g in self.ellipsoids):
             raise SimFitError("every geom with fluidshape=\"ellipsoid\" on the vehicle needs a name, so it can be tuned")
+        self.fin_geoms = [g.attrs.get("name") for f in b.children if f.tag == "body" and any(j.tag == "joint" for j in f.children)
+                          and (f.attrs.get("name") or "").startswith("fin_") for g in f.children if g.tag == "geom"
+                          and g.attrs.get("fluidshape") == "ellipsoid" and g.attrs.get("name")]
         self.inertial = next((c for c in b.children if c.tag == "inertial"), None)
         # buoyancy: a child body named "buoyancy" at the centre of buoyancy carries it (righting moment), else the body
         floats = [c for c in b.children if c.tag == "body" and c.attrs.get("name") == "buoyancy"]
@@ -116,6 +122,7 @@ class MujocoAdapter:
                 out.append((f"{g}_{name}", group, f"{self.body_path}/geom[@name='{g}']/@fluidcoef#{i}"))
         if not self.ellipsoids and self.option is not None:
             out += [("water_density", "drag", "//option/@density"), ("water_viscosity", "drag", "//option/@viscosity")]
+        out += [(f"{g}_lift", "fins", f"//geom[@name='{g}']/@fluidcoef#3") for g in self.fin_geoms]
         out.append(("gravcomp", "buoyancy", f"{self.buoyancy_path}/@gravcomp"))
         if self.inertial is not None:
             if "pos" in self.inertial.attrs:
@@ -219,6 +226,13 @@ class MujocoAdapter:
         sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "strathe_reference_point")
         jnt = m.body_jntadr[bid]
         qa, va = m.jnt_qposadr[jnt], m.jnt_dofadr[jnt]
+        hinges = []
+        for j, name in enumerate(getattr(rows_by_window, "fins", ())):
+            h = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if h < 0:
+                raise SimFitError(f"the model has no hinge joint named {name}: each fin needs one, on a child body with an ellipsoid "
+                                  f"geom (FINS.md)")
+            hinges.append((j, m.jnt_qposadr[h], m.jnt_dofadr[h]))
         sub = int(round(self.dt / m.opt.timestep))
         if sub < 1 or abs(sub * m.opt.timestep - self.dt) > 1e-9 * max(1.0, self.dt):
             raise SimFitError(f"the logs' sample time ({self.dt:g} s) isn't a whole number of the model's timestep "
@@ -243,6 +257,8 @@ class MujocoAdapter:
             for k in range(n - 1):
                 F, Tq = T_FRD_FLU @ rows[k, 10:13], T_FRD_FLU @ rows[k, 13:16]
                 for _ in range(sub):
+                    for j, qadr, vadr in hinges:   # held at the logged angle: MuJoCo's fluid model makes the force
+                        d.qpos[qadr], d.qvel[vadr] = rows[k, 16 + j], 0.0
                     mujoco.mj_kinematics(m, d)  # the pose now (after mj_step it's the pose before the step)
                     R = d.xmat[bid].reshape(3, 3)
                     Fw, Tw = R @ F, R @ Tq

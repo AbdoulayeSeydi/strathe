@@ -210,6 +210,7 @@ class RunData:
     anchor_lin: Optional[np.ndarray] = None    # (N,3) each window's starting body velocity (state_smoother.py)
     controls: Optional[np.ndarray] = None      # (N,Actuators.width) logged fin angles and the like (fin_force.py, #97)
     servo: Optional[object] = None             # fin_force.Actuators when the fin angles are commanded, not measured
+    actuators: Optional[object] = None         # fin_force.Actuators: what controls' columns mean (simulators need this)
     sensor_scales: Optional[dict] = None       # {channel-axis: still RMS on the training runs} (measurements.py)
     n_samples: int = field(init=False)
 
@@ -357,6 +358,7 @@ def convert_run_dataframe(df: pd.DataFrame, filepath: str, dataset_config: Datas
         anchor_lin=None if channels is None else np.nan_to_num(real_nu[:, :3]),
         controls=controls,
         servo=servo,
+        actuators=act,
     )
 
 

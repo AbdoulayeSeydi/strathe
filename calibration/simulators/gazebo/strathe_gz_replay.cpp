@@ -14,6 +14,7 @@
 #include <gz/math/Quaternion.hh>
 #include <gz/math/Vector3.hh>
 #include <gz/sim/EntityComponentManager.hh>
+#include <gz/sim/Joint.hh>
 #include <gz/sim/Link.hh>
 #include <gz/sim/Model.hh>
 #include <gz/sim/Server.hh>
@@ -101,7 +102,7 @@ static void primitive(const sdf::Geometry &g, double &vol, std::string &type) {
 int main(int argc, char **argv) {
   for (int i = 1; i < argc; ++i)
     if (std::string(argv[i]) == "--features") {
-      printf("{\"simulator\": \"gazebo\", \"gz_sim\": \"%s\"}\n", GZ_SIM_VERSION_FULL);
+      printf("{\"simulator\": \"gazebo\", \"gz_sim\": \"%s\", \"fins\": true}\n", GZ_SIM_VERSION_FULL);
       return 0;
     }
   Args a = parse(argc, argv);
@@ -117,18 +118,29 @@ int main(int argc, char **argv) {
          std::to_string(step) + " s): set <max_step_size> so it divides it");
 
   // windows: win -> rows of 16 numbers (u v w p q r qx qy qz qw Fx Fy Fz Tx Ty Tz)
+  std::vector<std::string> finNames;
+  std::vector<sim::Entity> finJoints;
   std::map<int, std::vector<std::vector<double>>> wins;
   if (!a.info) {
     std::ifstream in(a.in);
     if (!in) fail("can't read " + a.in);
     std::string line;
     std::getline(in, line);
+    {  // a fin-steered vehicle's windows name each fin after the wrench: fin_<name>, the joint that turns it
+      std::stringstream hs(line);
+      std::string cell;
+      int col = 0;
+      while (std::getline(hs, cell, ',')) {
+        while (!cell.empty() && (cell.back() == '\r' || cell.back() == ' ')) cell.pop_back();
+        if (col++ >= 18) finNames.push_back(cell);
+      }
+    }
     while (std::getline(in, line)) {
       std::stringstream ss(line);
       std::string cell;
       std::vector<double> v;
       while (std::getline(ss, cell, ',')) v.push_back(atof(cell.c_str()));
-      if (v.size() != 18) fail("a row of " + a.in + " doesn't have 18 columns");
+      if (v.size() != 18 + finNames.size()) fail("a row of " + a.in + " doesn't have the header's columns");
       wins[(int)v[0]].push_back(std::vector<double>(v.begin() + 2, v.end()));
     }
   }
@@ -199,6 +211,11 @@ int main(int argc, char **argv) {
     sim::Model m(modelE);
     linkE = a.linkName.empty() ? m.CanonicalLink(ecm) : m.LinkByName(ecm, a.linkName);
     if (linkE == sim::kNullEntity) { err = "model has no link " + a.linkName; return; }
+    for (const auto &name : finNames) {
+      sim::Entity j = m.JointByName(ecm, name);
+      if (j == sim::kNullEntity) { err = "model has no joint " + name + ": each fin needs one (FINS.md)"; return; }
+      finJoints.push_back(j);
+    }
     sim::Link(linkE).EnableVelocityChecks(ecm, true);
     auto p = ecm.Component<sim::components::Pose>(linkE);
     if (p) linkInModel = p->Data();
@@ -208,6 +225,11 @@ int main(int argc, char **argv) {
     if (!rows || linkE == sim::kNullEntity) return;
     sim::Link link(linkE);
     const auto &r = (*rows)[std::min(k, rows->size() - 1)];
+    for (size_t i = 0; i < finJoints.size(); ++i) {   // held at the logged angle: LiftDrag makes the force from the real flow
+      sim::Joint j(finJoints[i]);
+      j.ResetPosition(ecm, {r[16 + i]});
+      j.ResetVelocity(ecm, {0.0});
+    }
     if (phase == RESET) {
       // the logged attitude (body FRD -> NED) as Gazebo's (link FLU -> ENU), at --depth
       math::Quaterniond qn(r[9], r[6], r[7], r[8]);  // w, x, y, z

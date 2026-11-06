@@ -68,6 +68,7 @@ def add_fit_arguments(ap) -> None:
                     help="no DVL: start each window from the state smoother with your Strathe calibration's physics, "
                          "without putting its values into the model (any simulator; --from-strathe does both)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
+    ap.add_argument("--spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     ap.add_argument("--finish", action="store_true",
                     help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
                          "score it and write the model and report as usual. Give the same command as the interrupted run")
@@ -108,7 +109,8 @@ def _strathe_own(results, runs_wins, params_file, mass) -> None:
     m = mass or doc.get("vehicle_mass_kg")
     if not m:
         raise SimFitError("give --compare-mass: the calibration doesn't record the vehicle's mass")
-    results["Strathe's own model"] = core.score(runs_wins, [[core.strathe_free_run(p, VehicleConstants(float(m)), run, a_, n)
+    act = getattr(runs_wins[0][0], "actuators", None) if runs_wins else None
+    results["Strathe's own model"] = core.score(runs_wins, [[core.strathe_free_run(p, VehicleConstants(float(m), actuators=act), run, a_, n)
                                                              for a_, n in wins] for run, wins in runs_wins])
 
 
@@ -188,7 +190,7 @@ def run_fit(adapter, a) -> int:
     os.makedirs(out, exist_ok=True)
     work = tempfile.mkdtemp(prefix=f"strathe_{adapter.sim}_")
     try:
-        train, held, split = core.load_runs(a.data, a.heldout_dates)
+        train, held, split = core.load_runs(a.data, a.heldout_dates, getattr(a, "spec", None))
         if not held:
             raise SimFitError("no held-out recordings: give --heldout-dates, or logs from at least two sessions")
         adapter.dt = train[0].dt
@@ -226,6 +228,8 @@ def run_fit(adapter, a) -> int:
         info = adapter.info()
         groups = tuple(a.fit or getattr(adapter, "default_groups", None) or adapter.groups)
         groups = tuple(g for g in groups if g in adapter.groups) if not a.fit else groups
+        if not a.fit and getattr((train or held)[0], "actuators", None) is not None and "fins" in adapter.groups and "fins" not in groups:
+            groups = (*groups, "fins")   # a fin vehicle's fins are what's being tuned first of all
         unknown = set(groups) - set(adapter.groups)
         if unknown:
             raise SimFitError(f"--fit {', '.join(sorted(unknown))}: the {adapter.label} model has "
@@ -432,7 +436,7 @@ def run_export(adapter, a) -> int:
     os.makedirs(out, exist_ok=True)
     work = tempfile.mkdtemp(prefix=f"strathe_{adapter.sim}_export_")
     try:
-        train, held, split = core.load_runs(data, heldout)
+        train, held, split = core.load_runs(data, heldout, getattr(a, "spec", None))
         adapter.dt = (train or held)[0].dt
         _calibration_delays(pfile, train + held)
         _physics_starts(train + held, params, mass, _calibration_noise(pfile, data))   # no DVL (#96): physics starts
