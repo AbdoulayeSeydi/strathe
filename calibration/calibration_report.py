@@ -579,6 +579,25 @@ def validation_section(v: dict) -> list:
     return L
 
 
+def fins_section(metrics: Optional[dict]) -> list:
+    """What the logs covered and how far to trust the fin values (#97)."""
+    fi = (metrics or {}).get("fins")
+    if not fi:
+        return []
+    L = ["## Fins\n"]
+    L += [line + "\n" for line in fi.get("plain", [])]
+    for why in (fi.get("held_why") or {}).values():
+        L.append(f"> ⚠️ {why.capitalize()}: their lift keeps its geometry value.\n")
+    for word in fi.get("few_manoeuvres", []):
+        n = ((fi.get("envelope") or {}).get("groups") or {}).get(word, {}).get("manoeuvres")
+        L.append(f"> ⚠️ Only {n} {word} manoeuvres. The fit can predict missions like these well while its fin value is well off: "
+                 f"on a simulated REMUS, survey lines alone got rudder lift 39% wrong. Log some deliberate turns or dives before "
+                 f"trusting it on other missions (FINS.md).\n")
+    L.append("Fin lift is found together with the turning and pitching inertia: if those are 20% off, so is the lift, while "
+             "predictions barely change. Treat the prediction as the result, not the fin value alone.\n")
+    return L
+
+
 def sensors_section(metrics: Optional[dict]) -> list:
     """What the vehicle's sensors could calibrate (#96): which sensors, each axis and what measured it, what was held
     and why, and each sensor's own held-out skill."""
@@ -669,7 +688,8 @@ def sensors_section(metrics: Optional[dict]) -> list:
 
 def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, steps, converged, water=None,
                  free_decay=None, diverged=None, validation=None, vehicle_note=None, seed=None, restarts=None,
-                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None, sensors=None, vehicle_type=None):
+                 whole_fit=None, current_rounds=False, split_note=None, fit_note=None, sensors=None, vehicle_type=None,
+                 fins=None):
     L = [f"# Calibration report: {name}\n", f"{datetime.now():%Y-%m-%d}\n"]
     if vehicle_type:
         L.append(f"**{vehicle_type}**\n")
@@ -697,6 +717,8 @@ def write_report(path, name, verdicts, gen_gap, pinned, implausible, ident, step
                  "them). The checks below still apply.\n")
     if sensors:
         L += sensors
+    if fins:
+        L += fins
     if converged is False:
         L.append("> ⚠️ The optimizer stopped before fully converging. The result is usable but may improve with a "
                  "longer run.\n")
@@ -862,7 +884,7 @@ def build_report(result_dir: str, spec_path: str = "vehicle_spec.yaml", identifi
                  ((metrics or {}).get("reproducibility") or {}).get("seed"), restart_costs(result_dir, metrics),
                  whole_fit_starts(result_dir), os.path.isdir(os.path.join(result_dir, "current_round1")),
                  ((metrics or {}).get("dataset") or {}).get("split_warning"), fit_note(metrics),
-                 sensors_section(metrics), banner(spec.raw))
+                 sensors_section(metrics), banner(spec.raw), fins_section(metrics))
     return {"report": out, "verdicts": verdicts, "pinned": pinned, "implausible": implausible,
             "generalization_ratio": gen_gap, "next_steps": steps, "vehicle_note": vehicle_note}
 

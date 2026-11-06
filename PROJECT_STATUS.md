@@ -3755,6 +3755,16 @@ type and ingest, calibration, every simulator, proof.
 - Refused, each with its fix: a description and logs that disagree, a servo in the thruster columns, a fin vehicle with no speed
   source (speed can't be inferred from turning a fin causes), glider calibration.
 
+**Fitting fins** (`fin_fit.py`, `tests/test_fin_calibration.py`):
+- `describe-vehicle --steering fin` writes a fin vehicle from a tape measure. Fin lift's limits come from the fins' shape (Helmbold's
+  form). Off-diagonal mass from the fins (strip theory) and the centre of gravity is worked out and held.
+- The fit records what the logs covered, and the report says predictions outside that aren't supported.
+- A group of fins that moved less than 2° keeps its geometry value. Under 20 manoeuvres, the report warns.
+- Surge and sway are never inferred on a fin vehicle: a fin's force goes as speed squared, so that would be circular.
+- **Tried and rejected: holding the inflow term.** On a simulated REMUS, survey-only training got rudder lift 39% wrong. Holding the
+  inflow at its true value still left it 27% wrong, so that isn't the cause, and holding it at the 0.7 guess made it 127% wrong with
+  far worse predictions. It stays free within its limits. Survey lines simply don't pin rudder lift down, so the fit says so.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

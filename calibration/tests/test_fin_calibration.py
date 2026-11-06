@@ -1,0 +1,177 @@
+"""A fin-steered vehicle through the whole calibration (#97): the fit finds fin lift, what it can't see is held, and the report
+says how far to trust it. Recovering a vehicle from an independent truth is stress/run_97.py's: this is the plumbing."""
+import json
+import os
+from dataclasses import replace
+
+import numpy as np
+import pandas as pd
+import pytest
+import yaml
+from scipy.spatial.transform import Rotation
+
+import fin_fit
+import steering
+import vehicle_describe as vd
+from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
+from optimizer import CalibrationConfig, initial_parameters, load_vehicle_spec
+from run_calibration import PipelineConfig, run_pipeline
+
+CAL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE = os.path.join(CAL, "templates", "vehicle_spec_fin_template.yaml")
+DATES = ("01-10-2026", "02-10-2026")
+SPEC = load_vehicle_spec(TEMPLATE)
+TRUTH = replace(initial_parameters(SPEC), fin_lift_slope_a=2.2, fin_lift_slope_b=3.6, cg_cb_offset_z=.02, net_buoyancy_z=0.0)
+
+
+def recording(seed, n=600, swing=(.15, .08), steps=30):
+    rng = np.random.default_rng(seed)
+    hold = max(n // steps, 1)
+    rud = np.repeat(rng.uniform(-swing[0], swing[0], n // hold + 1), hold)[:n]
+    ele = np.repeat(rng.uniform(-swing[1], swing[1], n // hold + 1), hold)[:n]
+    df = pd.DataFrame({"fin_rudder": rud, "fin_elevator": ele, "rpm": np.full(n, 1400.0)})
+    ctl, _ = steering.controls_from_frame(df, SPEC.vehicle.actuators)
+    rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
+    traj = TrajectoryInputs(nu0=np.array([1.3, 0, 0, 0, 0, 0.]), forces_torques=np.zeros((n, 6)), roll_pitch_series=rp, control_series=ctl)
+    nu = simulate_trajectory(TRUTH, SPEC.vehicle, SimulationConfig(dt=.1), traj).nu
+    q = Rotation.from_euler("xyz", np.c_[rp, np.cumsum(nu[:, 5]) * .1]).as_quat()
+    for i, c in enumerate(("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")):
+        df[c] = 0.0
+    for i, c in enumerate(("Bu", "Bv", "Bw", "Bp", "Bq", "Br")):
+        df[c] = nu[:, i]
+    for i, c in enumerate(("qx", "qy", "qz", "qw")):
+        df[c] = q[:, i]
+    return df
+
+
+def dataset(d, **kw):
+    d.mkdir(parents=True, exist_ok=True)
+    k = 0
+    for date in DATES:
+        for r in range(2):
+            recording(k + 1, **kw).to_csv(d / f"fin-{date}-run{r + 1}.csv", index=False)
+            k += 1
+    return d
+
+
+def calibrate(data, out, nfev=12, spec=TEMPLATE):
+    cc = CalibrationConfig(max_nfev=nfev, seed=3, initialization_strategy="fixed", ftol=1e-4, xtol=1e-4, gtol=1e-4,
+                           x0_override=initial_parameters(load_vehicle_spec(spec)).to_vector(), horizon_samples=50)
+    cfg = PipelineConfig(data_dir=str(data), spec_path=str(spec), output_dir=str(out), sampling_rate_hz=10.0, heldout_dates=[DATES[1]],
+                         heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0))
+    try:
+        return run_pipeline(cfg)
+    except Exception as e:
+        if "converge" not in str(e):
+            raise
+        return None
+
+
+@pytest.fixture(scope="module")
+def fitted(tmp_path_factory):
+    d = tmp_path_factory.mktemp("fin")
+    out = d / "out"
+    calibrate(dataset(d / "data"), out)
+    return out
+
+
+def test_the_fit_moves_fin_lift_toward_the_truth(fitted):
+    p = yaml.safe_load(open(fitted / "calibrated_parameters.yaml"))
+    start = initial_parameters(SPEC)
+    a, b = p["parameters"]["fin_lift_slope_a"], p["parameters"]["fin_lift_slope_b"]
+    assert abs(a - TRUTH.fin_lift_slope_a) < abs(start.fin_lift_slope_a - TRUTH.fin_lift_slope_a)
+    assert abs(b - TRUTH.fin_lift_slope_b) < abs(start.fin_lift_slope_b - TRUTH.fin_lift_slope_b)
+
+
+def test_outputs_say_what_kind_of_vehicle_it_is(fitted):
+    assert yaml.safe_load(open(fitted / "calibrated_parameters.yaml"))["vehicle_type"] == "fin"
+
+
+def test_metrics_record_what_the_logs_covered(fitted):
+    m = json.load(open(fitted / "metrics.json"))["fins"]
+    env = m["envelope"]
+    assert env["speed_mps"][0] > .3 and env["groups"]["steering"]["manoeuvres"] >= fin_fit.MIN_FIN_MANOEUVRES
+    assert not m["held"] and not m["few_manoeuvres"]
+
+
+def test_a_group_of_fins_that_barely_moved_keeps_its_geometry_value(tmp_path):
+    out = tmp_path / "o"
+    calibrate(dataset(tmp_path / "d", swing=(.15, .005)), out, nfev=6)
+    m = json.load(open(out / "metrics.json"))["fins"]
+    assert set(m["held"]) == {"fin_lift_slope_b", "fin_inflow_b"}
+    p = yaml.safe_load(open(out / "calibrated_parameters.yaml"))["parameters"]
+    assert p["fin_lift_slope_b"] == initial_parameters(SPEC).fin_lift_slope_b
+
+
+def test_few_manoeuvres_are_warned_about(tmp_path):
+    out = tmp_path / "o"
+    calibrate(dataset(tmp_path / "d", steps=4), out, nfev=4)
+    m = json.load(open(out / "metrics.json"))["fins"]
+    assert "steering" in m["few_manoeuvres"]
+
+
+def test_the_report_has_a_fins_section():
+    from calibration_report import fins_section
+    env = {"speed_mps": [1.2, 1.5], "turn_rate_rad_s": .1, "groups": {"steering": {"swing_deg": 5, "angle_deg": [-9, 9], "manoeuvres": 4}}}
+    L = "".join(fins_section({"fins": {"plain": fin_fit.envelope_words(env), "few_manoeuvres": ["steering"], "held_why": {"b": "the pitching fins moved only 1.0°"}, "envelope": env}}))
+    assert "Only 4 steering manoeuvres" in L and "aren't supported" in L and "keeps its geometry value" in L and "inertia" in L
+    assert fins_section({}) == []
+
+
+def test_a_fin_vehicle_with_no_speed_source_is_refused_before_the_fit():
+    with pytest.raises(steering.SteeringError, match="speed source"):
+        steering.check_speed_source(SPEC.raw, {"u": [], "v": [], "w": ["depth.d"]})
+
+
+def test_manoeuvres_are_counted_swings_not_noise():
+    t = np.arange(1000)
+    assert fin_fit.manoeuvres(np.sign(np.sin(t / 10))) > 20
+    assert fin_fit.manoeuvres(np.r_[np.zeros(500), np.ones(500)]) == 1
+    assert fin_fit.manoeuvres(np.zeros(100)) == 0
+
+
+def test_lift_slope_grows_with_aspect_ratio_and_stays_below_2pi():
+    s = [fin_fit.lift_slope(a) for a in (.5, 1, 2, 4, 20)]
+    assert s == sorted(s) and s[-1] < 2 * np.pi
+
+
+def test_held_couplings_follow_the_fins_and_the_centre_of_gravity():
+    act = SPEC.vehicle.actuators
+    v = fin_fit.held_couplings(act.fins, 1025.0, 30.0, .02)
+    assert v["Xq_dot"] == pytest.approx(.6) and v["Yp_dot"] == pytest.approx(-.6)
+    assert v["Yr_dot"] < 0 and "Xv_dot" not in v         # fins aft of the centre: sway and yaw oppose
+    assert set(v) <= {"Xq_dot", "Xw_dot", "Yp_dot", "Yr_dot", "Zq_dot", "Kr_dot"}
+
+
+def _args(**kw):
+    a = vd.build_parser().parse_args(["--mass", "30", "--length", "1.6", "--diameter", ".19", "--out", kw.pop("out")])
+    for k, v in kw.items():
+        setattr(a, k, v)
+    return a
+
+
+FIN_ARGS = dict(steering="fin", fins="cross", fin_x=-.7, fin_radius=.12, fin_area=.013, fin_span=.09, propeller_diameter=.14, kt0=.45)
+
+
+def test_describe_vehicle_writes_a_fin_vehicle_that_loads(tmp_path):
+    out = tmp_path / "s.yaml"
+    assert vd.run(_args(out=str(out), **FIN_ARGS)) == 0
+    s = load_vehicle_spec(str(out))
+    assert steering.steering_of(s.raw) == "fin" and len(s.vehicle.actuators.fins) == 4
+    t = s.flat_calibration_targets
+    assert t["fin_lift_slope_a"]["bounds"][0] < t["fin_lift_slope_a"]["initial_guess"] < t["fin_lift_slope_a"]["bounds"][1]
+    assert t["Yr_dot"]["bounds"][0] == t["Yr_dot"]["bounds"][1]       # held
+
+
+@pytest.mark.parametrize("change,word", [(dict(fins=None), "needs the fins"), (dict(fin_area=None), "--fin-area"), (dict(kt0=None), "--kt0")])
+def test_describe_vehicle_says_what_a_fin_vehicle_needs(tmp_path, change, word):
+    a = _args(out=str(tmp_path / "s.yaml"), **{**FIN_ARGS, **change})
+    with pytest.raises(vd.DescribeError, match=word):
+        vd.run(a)
+
+
+def test_a_hover_description_is_unchanged_by_the_new_options(tmp_path):
+    a = tmp_path / "a.yaml"
+    vd.run(_args(out=str(a)))
+    r = yaml.safe_load(open(a))
+    assert "fins" not in r and "steering" not in r["vehicle"]

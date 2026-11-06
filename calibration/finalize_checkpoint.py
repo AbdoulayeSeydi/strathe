@@ -86,6 +86,10 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
         held = [load_run(f, dc) for f in split.heldout_files]
     default = initial_parameters(spec)
     v = spec.vehicle
+    fin_info = None
+    if spec.vehicle.actuators is not None and spec.vehicle.actuators.fins:   # as the fit had it (fin_fit.py, #97)
+        import fin_fit
+        fin_info = fin_fit.setup(train, spec.vehicle.actuators, default, None)
     sensor_info, sensor_held = None, {}
     if train and train[0].channels is not None:
         sensor_info, horizon_samples, sensor_held = _sensor_setup(train, held, params, default, spec, data_dir,
@@ -145,6 +149,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
                             "timestamp_utc": datetime.now(timezone.utc).isoformat()},
         "success": False,
     }
+    if fin_info is not None:
+        metrics["fins"] = _jsonable(fin_info)
     if sensor_info is not None:
         from run_calibration import _jsonable
         metrics["sensor_suite"] = _jsonable(sensor_info)

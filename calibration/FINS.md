@@ -29,6 +29,15 @@ vehicle:
 
 ## Describe the fins
 
+`describe-vehicle` writes it from a tape measure:
+
+```bash
+python strathe.py describe-vehicle --mass 30.5 --length 1.6 --diameter 0.19 --steering fin --fins cross --fin-x -0.7 --fin-radius 0.12 --fin-area 0.0133 --fin-span 0.086 --propeller-diameter 0.14 --kt0 0.45 --kt1 -0.4 --out my_auv.yaml
+```
+
+Fin lift's limits come from the fins' shape. The off-diagonal mass the fins and centre of gravity make is worked out and held,
+because logs rarely separate it. By hand, the sections look like this:
+
 ```yaml
 fins:
   layout: cross       # cross | x | y3 | rudder_only | custom
@@ -95,6 +104,18 @@ Templates: `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yam
 | Description is fin, logs have no fin channels | Add a `fins:` block to the ingest spec |
 | Needs a speed source | Log a DVL or position fixes. A fin's force goes as speed squared, so speed can't be inferred from the turning it causes |
 | A glider | `strathe fin-check` reads a glider's rudder; calibration doesn't apply |
+
+## How far to trust a fit
+
+The report has a Fins section. It says what the logs covered: the speeds, fin angles and turning. **Predictions outside that range
+aren't supported.**
+
+- **Log some real manoeuvres.** Straight survey lines don't pin down a fin's lift. On a simulated REMUS, a fit trained only on survey
+  lines predicted more survey lines well, but its rudder lift was 39% off and its predictions of hard manoeuvres were poor. Under 20
+  manoeuvres per group of fins, the report warns. Deliberate turns and dives fix this.
+- **A group of fins that barely moved keeps its geometry value**, and the report says so.
+- **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
+  barely change. Treat the prediction as the result, not the fin value alone.
 
 ## How fins are modelled
 
