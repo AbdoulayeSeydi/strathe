@@ -50,6 +50,7 @@ def add_shared_arguments(ap, out_default: str) -> None:
     ap.add_argument("--compare-params", help="also score your Strathe calibration (calibrated_parameters.yaml)")
     ap.add_argument("--compare-mass", type=float, help="its vehicle mass, kg (default: the calibration's)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1), help="simulator runs at once")
+    ap.add_argument("--spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     ap.add_argument("--out", default=out_default, help="output folder")
 
 
@@ -68,7 +69,6 @@ def add_fit_arguments(ap) -> None:
                     help="no DVL: start each window from the state smoother with your Strathe calibration's physics, "
                          "without putting its values into the model (any simulator; --from-strathe does both)")
     ap.add_argument("--max-iterations", type=int, default=15, help="least-squares iterations (each: one Jacobian)")
-    ap.add_argument("--spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     ap.add_argument("--finish", action="store_true",
                     help="an interrupted fit: don't fit again, use its best point so far (the checkpoint in --out), then "
                          "score it and write the model and report as usual. Give the same command as the interrupted run")
@@ -146,7 +146,7 @@ def _compare_section(results) -> list:
 def _print_results(results) -> None:
     for name, r in results.items():
         hs = [f"{r[f'{h}s']['drift_median_m']:.2f}" for h in HORIZONS_S if f"{h}s" in r]
-        print(f"  {name:36s} drift {' / '.join(hs)} m")
+        print(f"  {name:36s} drift {' / '.join(hs)} m" if hs else f"  {name:36s} not scored: no held-out recording is long enough for a 60 s window")
 
 
 def _calibration_noise(pfile: str, data: str) -> dict:

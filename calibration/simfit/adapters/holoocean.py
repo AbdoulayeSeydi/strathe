@@ -289,6 +289,8 @@ class HolooceanAdapter:
         return ns["StratheFossen"]()
 
     def export_values(self, params, mass, info, train, rho):
+        from simfit.fin_models import require_actuators
+        require_actuators(params, getattr(train[0], "actuators", None) if train else None, "--spec")
         src = strathe_fossen_source(params, mass, self.ref, getattr(train[0], "actuators", None) if train else None)
         notes = ["HoloOcean's torpedo model has time constants and drag coefficients, not per-axis damping, so Strathe's "
                  "model goes in as its own Fossen class (strathe_fossen.py, same dynamics() interface), used with the "

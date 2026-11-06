@@ -37,6 +37,17 @@ CSV ingestion reads **one table per recording**. If your logs are one CSV per se
 rates (a common export), merge them onto one time base first; `../examples/dfki_tether/` does exactly
 that for a public dataset (motion capture + ArduSub telemetry) and is a worked example to copy.
 
+## A fin-steered vehicle
+
+| Your logs | Template |
+|---|---|
+| CSV with fin angles and rpm | `ingest_fin_csv.yaml` |
+| MOOS-IvP | `ingest_fin_moos.yaml` |
+| ROS bag, servo outputs | `ingest_fin_rosbag.yaml` |
+| The vehicle description | `vehicle_spec_fin_template.yaml`, or `strathe describe-vehicle --steering fin` |
+
+Read [`../FINS.md`](../FINS.md) first. `buoyancy_engine: {unit: litre}` lifts by seawater unless you give `water_density_kg_m3`.
+
 ## Your vehicle's description
 
 `vehicle_spec_template.yaml` describes the vehicle itself: its mass, and a first

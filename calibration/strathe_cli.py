@@ -1370,7 +1370,7 @@ def fit_stonefish_argv(args, data: str, out: str) -> list:
             argv += [flag, *value]
     for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
                         ("--compare-params", args.compare_params), ("--replay-tool", args.replay_tool),
-                        ("--from-strathe", args.from_strathe)):
+                        ("--from-strathe", args.from_strathe), ("--fin-spec", getattr(args, "fin_spec", None))):
         if value:
             argv += [flag, value if flag == "--buoyancy-part" else _tool(value) if flag == "--replay-tool" else _abs(value)]
     if args.compare_mass:
@@ -1423,7 +1423,7 @@ def export_stonefish_argv(args, out: str) -> list:
         if value:
             argv += [flag, *value]
     for flag, value in (("--buoyancy-part", args.buoyancy_part), ("--stonefish-data", args.stonefish_data),
-                        ("--data", args.data), ("--replay-tool", args.replay_tool)):
+                        ("--data", args.data), ("--replay-tool", args.replay_tool), ("--fin-spec", getattr(args, "fin_spec", None))):
         if value:
             argv += [flag, value if flag == "--buoyancy-part" else _tool(value) if flag == "--replay-tool" else _abs(value)]
     if args.mass:
@@ -1785,8 +1785,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "m from the robot's origin), e.g. your URDF's base_link")
     sf.add_argument("--heldout-dates", "--heldout-recordings", dest="heldout_dates", nargs="+", help=HELDOUT_HELP)
     sf.add_argument("--buoyancy-part", help="a buoyant box/cylinder/sphere part to resize so the net buoyancy fits")
-    sf.add_argument("--fit", nargs="+", choices=["drag", "added_mass", "buoyancy", "cg"],
-                    help="what to fit (default: all; added mass needs the patched Stonefish)")
+    sf.add_argument("--fit", nargs="+", choices=["drag", "added_mass", "buoyancy", "cg", "fins"],
+                    help="what to fit (default: all; added mass needs the patched Stonefish, fins a --spec)")
+    sf.add_argument("--spec", "--fin-spec", dest="fin_spec", help="a fin vehicle's description: says what its fin channels mean (FINS.md)")
     sf.add_argument("--axisymmetric", action="store_true", help="torpedo-shaped vehicle: one value across the hull")
     sf.add_argument("--hold", nargs="+", metavar="NAME=VALUE",
                     help="hold settings at values you measured, e.g. added_mass_x=10.6 (calibration/stonefish/README.md)")
@@ -1861,6 +1862,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="dates or recordings to score on (default: the calibration's)")
     ex.add_argument("--find", nargs="+", metavar="PKG=PATH", help="folders for $(find PKG) in ROS-style scenarios")
     ex.add_argument("--stonefish-data", help="Stonefish's data folder for meshes (default: the scenario's folder)")
+    ex.add_argument("--spec", "--fin-spec", dest="fin_spec", help="a fin vehicle's description: its fins' channels and areas (FINS.md)")
     ex.add_argument("--density-by-date", nargs="+", metavar="DATE=RHO",
                     help="water density per recording date, e.g. 27-03-2026=1000 for fresh water")
     ex.add_argument("--start-depth", type=float, default=3.0, help="depth the recordings are replayed at, m")

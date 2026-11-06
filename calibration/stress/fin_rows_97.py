@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import tempfile
 import time
@@ -266,6 +267,16 @@ MUTANTS = {"M-flip-moment": ("fin_force.py", "N += x * fy - y * fx", "N -= x * f
            "M-mass-transpose": ("dynamics_model.py", "M[i, j] = M[j, i] = getattr(params, name)", "M[i, j] = getattr(params, name)", "tests/test_mass_couplings.py"),
            "M-gazebo-sign": ("simfit/adapters/gazebo.py", "Ma[i, j] = Ma[j, i] = flip[i] * flip[j] * getattr(params, name)", "Ma[i, j] = Ma[j, i] = getattr(params, name)", "tests/test_mass_couplings.py"),
            "M-no-fin-check": ("data_ingestion.py", "if best < FIN_REVERSED_CORRELATION:", "if False:", "tests/test_steering.py"),
+           "M-export-area": ("simfit/fin_models.py", "* f.area_m2 / model_areas[f.name]", "", "tests/test_simfit_fins.py"),
+           "M-export-group": ("simfit/fin_models.py", "{f.name: (params.fin_lift_slope_b if f.group else params.fin_lift_slope_a) *", "{f.name: params.fin_lift_slope_a *", "tests/test_simfit_fins.py"),
+           "M-model-group": ("simfit/fin_models.py", "float(params.fin_lift_slope_b if f.group else params.fin_lift_slope_a)", "float(params.fin_lift_slope_a)", "tests/test_simfit_fins.py"),
+           "M-mujoco-flat-fin": ("simfit/fin_models.py", "roll = math.atan2(s[2], s[1])", "roll = math.atan2(s[2], s[1]) - math.pi / 2", "tests/test_simfit_fins.py"),
+           "M-export-drops-fins": ("simfit/fin_models.py", 'if act is None and (getattr(params, "fin_lift_slope_a", 0.0)', 'if False and (getattr(params, "fin_lift_slope_a", 0.0)', "tests/test_simfit_fins.py"),
+           "M-same-replay-path": ("simfit/replay_tool.py", 'd = tempfile.mkdtemp(prefix="replay_", dir=work_dir)', "d = work_dir", "tests/test_simfit_fins.py"),
+           "M-silent-replay": ("simfit/replay_tool.py", 'said = (r.stderr or "").strip() or (r.stdout or "").strip()', 'said = (r.stderr or "").strip()', "tests/test_simfit_fins.py"),
+           "M-mount-over-image": ("stonefish_fit.py", "if os.path.isdir(self.data_dir):", "if True:", "tests/test_simfit_fins.py"),
+           "M-finish-crash": ("finalize_checkpoint.py", '    if sensor_info is not None:\n        metrics["sensor_suite"]', '    if sensor_info is not None:\n        from run_calibration import _jsonable\n        metrics["sensor_suite"]', "tests/test_fin_calibration.py"),
+           "M-no-fin-scan": ("simfit/core.py", "    if not fins:\n        return x0\n", "    return x0\n", "tests/test_simfit_fins.py"),
            "M-no-guard": ("fin_fit.py", 'if g is not None and g["swing_deg"] < MIN_FIN_SWING_DEG:', "if False:", "tests/test_fin_calibration.py")}
 
 
@@ -283,12 +294,13 @@ def run_mutant(row: str) -> bool:
         applied = old in t
         open(p, "w", encoding="utf-8").write(t.replace(old, new, 1))
         r = subprocess.run([sys.executable, "-m", "pytest", tests, "-q", "-x", "-p", "no:cacheprovider"], cwd=dst, capture_output=True, text=True)
-    caught = r.returncode != 0
-    return record(F, row, "mutant", f, f"{old[:50]} broken", "tests", {"applied": applied, "caught": caught, "bars": _bars().BARS_HASH}, f"{tests} must fail", applied and caught, time.time() - t0)
+    caught = r.returncode == 1 and " failed" in r.stdout    # a test that failed: not one that couldn't start, which would prove nothing
+    return record(F, row, "mutant", f, f"{old[:50]} broken", "tests", {"applied": applied, "caught": caught, "exit": r.returncode, "bars": _bars().BARS_HASH}, f"{tests} must fail", applied and caught, time.time() - t0)
 
 
 def fast_rows() -> list:
-    return [*IDENTITIES, *FAULTS, "X-hover-with-fin-logs", "X-fin-with-hover-logs", "X-glider-calibration", "X-no-speed-source", "Z-specs", "Z-physics", *MUTANTS]
+    return [*IDENTITIES, *FAULTS, "X-hover-with-fin-logs", "X-fin-with-hover-logs", "X-glider-calibration", "X-no-speed-source", "Z-specs", "Z-physics", *MUTANTS,
+            *fast_rows_more()]
 
 
 def run_fast(pick) -> int:
@@ -314,6 +326,17 @@ def run_fast(pick) -> int:
     for row in MUTANTS:
         if pick(row):
             ok &= run_mutant(row)
+    for f in FORMATS:
+        if pick(f"LF-{f}"):
+            ok &= run_format(f)
+        for v in (PWM_VARIANTS if f in PWM_ONLY else VARIANTS):
+            if pick(f"LF-{f}-{v}"):
+                ok &= run_format(f, v)
+        if f not in PWM_ONLY and pick(f"LF-{f}-direction"):
+            ok &= run_direction(f)
+    for c in HOVER_BASE:
+        if pick(f"H-{c}"):
+            ok &= run_hover(c)
     return 0 if ok else 1
 
 
@@ -338,6 +361,14 @@ RECOVER.update({"P-source-commanded": dict(platform="remus100", commanded=True),
                 "P-speed-high": dict(platform="remus100", u0=2.5)})
 
 
+PARAMS = {"P-bias-roll": ("fin_bias_roll", .03, -.1, .1, {}), "P-bias-pitch": ("fin_bias_pitch", .03, -.1, .1, {}), "P-bias-yaw": ("fin_bias_yaw", .03, -.1, .1, {}),
+          "P-servo-T": ("fin_servo_T", .5, 0.0, 2.0, {"commanded": True}), "P-inflow-a": ("fin_inflow_a", .8, 0.0, 1.2, {}), "P-inflow-b": ("fin_inflow_b", .8, 0.0, 1.2, {}),
+          "P-drag0": ("fin_drag0", .05, 0.0, .3, {})}
+RECOVER.update({k: dict(platform="remus100", param=v[:4], **v[4]) for k, v in PARAMS.items()})
+RECOVER["P-position-fixes"] = dict(platform="remus100", fixes=True)   # no DVL: speed from a USBL's fixes at 1 Hz; RECOVER_NOISY, as velocity is estimated
+RECOVER["P-position-fixes-long"] = dict(platform="remus100", fixes=True, n=3000)   # added after P-position-fixes came back 11% off, to see what more data does: that row stands
+
+
 def _platform_spec(path: str, o: dict) -> dict:
     import vehicle_describe as vd
     s = PLATFORMS[o["platform"]]
@@ -350,6 +381,9 @@ def _platform_spec(path: str, o: dict) -> dict:
         spec["moving_mass"] = {"mass_kg": s["moving_mass"]}
     if s.get("buoyancy"):
         spec["buoyancy_engine"] = True
+    if o.get("param"):
+        name, _, lo, hi = o["param"]
+        spec["calibration_targets"].setdefault("fins", {})[name] = {"unit": "-", "initial_guess": (lo + hi) / 2 if lo >= 0 else 0.0, "bounds": [lo, hi], "bounds_rationale": "row", "source": "row", "confidence": "assumed"}
     open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
     return spec
 
@@ -363,8 +397,8 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
     from scipy.spatial.transform import Rotation
     s = load_vehicle_spec(spec_path)
     act = s.vehicle.actuators
-    P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b)
-    n, os_ = 500, os.path
+    P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b, **({o["param"][0]: o["param"][1]} if o.get("param") else {}))
+    n, os_ = o.get("n", 500), os.path
     k = 0
     for date in ("01-10-2026", "02-10-2026"):
         for run in (1, 2):
@@ -381,9 +415,9 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
             ctl, cmd = steering.controls_from_frame(df, act)
             if o.get("per_fin"):
                 for i, f in enumerate(act.fins):
-                    df[f"fin_{f.name}"] = ctl[:, i]
-                df = df.drop(columns=["fin_rudder", "fin_elevator"])
-            applied = servo_angles(act, ctl, 0.0, .1) if cmd else ctl
+                    df[f"{'fincmd' if o.get('commanded') else 'fin'}_{f.name}"] = ctl[:, i]
+                df = df.drop(columns=[c for c in df if c in ("fin_rudder", "fin_elevator", "fincmd_rudder", "fincmd_elevator")])
+            applied = servo_angles(act, ctl, P.fin_servo_T, .1) if cmd else ctl
             rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
             u0 = o.get("u0", 1.5)
             F = np.zeros((n, 6))
@@ -396,6 +430,11 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
                 df[c] = nu[:, i] + (rng.normal(0, _bars().GRADE[c] * o.get("noise", 0), n) if o.get("noise") else 0)
             for i, c in enumerate(("qx", "qy", "qz", "qw")):
                 df[c] = q[:, i]
+            if o.get("fixes"):
+                world = np.cumsum(Rotation.from_quat(q).apply(nu[:, :3]) * .1, axis=0)
+                for i, c in enumerate("ned"):
+                    df[f"pos_usbl_{c}"] = np.where(np.arange(n) % 10 == 0, world[:, i], np.nan)
+                df = df.drop(columns=["Bu", "Bv", "Bw"])
             df.to_csv(f"{out}/p-{date}-run{run}.csv", index=False)
 
 
@@ -413,13 +452,16 @@ def run_recover_row(row: str) -> bool:
     s = load_vehicle_spec(spec)
     start = initial_parameters(s)
     ta, tb = start.fin_lift_slope_a * 1.25, (start.fin_lift_slope_b or 3.0) * .8
+    if o.get("param"):   # one value's recovery: what's held must be what flew
+        ta, tb = start.fin_lift_slope_a, start.fin_lift_slope_b
     _own_truth(spec, d + "/data", o, ta, tb)
-    free = {"fin_lift_slope_a", "fin_lift_slope_b"} & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
+    wanted = {o["param"][0]} if o.get("param") else {"fin_lift_slope_a", "fin_lift_slope_b"}
+    free = wanted & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
     fixed = {n: float(getattr(start, n)) for n in start.param_names if n not in free}
     fixed = {k: v for k, v in fixed.items() if s.flat_calibration_targets[k]["bounds"][0] < s.flat_calibration_targets[k]["bounds"][1]}
     cc = CalibrationConfig(max_nfev=15, seed=3, initialization_strategy="fixed", ftol=1e-7, xtol=1e-7, gtol=1e-7, fixed_params=fixed, horizon_samples=50)
     cfg = PipelineConfig(data_dir=d + "/data", spec_path=spec, output_dir=d + "/fit", sampling_rate_hz=10.0, heldout_dates=["02-10-2026"], heldout_fraction=.5,
-                         calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), sensors=("velocity",))
+                         calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), sensors=("auto",) if o.get("fixes") else ("velocity",))
     try:
         run_pipeline(cfg)
     except Exception as e:
@@ -427,13 +469,15 @@ def run_recover_row(row: str) -> bool:
             return record(F, row, "recover", o["platform"], "own model", str(o), {"error": str(e)[:200], "bars": _bars().BARS_HASH}, "recover fin lift", False, time.time() - t0)
     p = yaml.safe_load(open(d + "/fit/calibrated_parameters.yaml"))["parameters"]
     errs = {}
+    if o.get("param"):
+        errs["param"] = abs(p[o["param"][0]] / o["param"][1] - 1)
     if "fin_lift_slope_a" in free:
         errs["a"] = abs(p["fin_lift_slope_a"] / ta - 1)
     if "fin_lift_slope_b" in free:
         errs["b"] = abs(p["fin_lift_slope_b"] / tb - 1)
-    bar = _bars().RECOVER_NOISY if o.get("noise") else _bars().RECOVER_CLEAN
+    bar = _bars().RECOVER_NOISY if o.get("noise") or o.get("fixes") else _bars().RECOVER_CLEAN
     return record(F, row, "recover", o["platform"], "Strathe's own model as the truth: plumbing, not physics", str(o), {**errs, "bars": _bars().BARS_HASH},
-                  f"fin lift within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
+                  f"{o['param'][0] if o.get('param') else 'fin lift'} within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
 
 
 def recover_rows() -> list:
@@ -530,3 +574,470 @@ def real_rows() -> list:
 def run_real(pick) -> int:
     ok = all([run_real_row(r) for r in REAL if pick(r)])
     return 0 if (run_fin_check_row() if pick("O-fin-check") else True) and ok else 1
+
+
+# ------------------------------------------------------------------ every log format: fin channels read as they were written
+FORMATS = ("csv", "px4", "moos", "lcm", "ardupilot", "rosbag")
+
+
+def _channels(n=400):
+    t = np.arange(n) / 10.0
+    return t, 10 * np.sin(t / 3), 4 * np.sin(t / 2 + 1)
+
+
+def _lf_spec(fmt, files, top):
+    s = {"vehicle": "x", "source": {"format": fmt, "files": files}, "resample_hz": 10.0, "session_date": {"from": "constant", "value": "2026-01-15"},
+         "skip_checks": ["fin_direction", "gyro_vs_orientation", "orientation_vs_position"]}
+    s.update(top)
+    return s
+
+
+def _deg(fn, **fins):
+    return {"fins": fins, "log": fn}
+
+
+# One logged value each way a lab can state it. `log` turns true degrees into what the log holds; `flip` is which fin channels log the
+# opposite way; `extra` adds a channel: (spec block, log column, its logged values from t, the prepared column, its true values from t).
+VARIANTS = {"source-measured": {"fins": {"source": "measured"}},
+            "unit-deg": _deg(lambda d: d, unit="deg"),
+            "unit-rad": _deg(np.radians, unit="rad"),
+            "unit-percent": _deg(lambda d: d * 5, unit="percent", full_scale_deg=20.0),
+            "unit-pwm": _deg(lambda d: 1500 + 10 * d, unit="pwm_us", pwm_us_per_deg=10.0),
+            "pwm-center": _deg(lambda d: 1480 + 10 * d, unit="pwm_us", pwm_center_us=1480.0, pwm_us_per_deg=10.0),
+            "pwm-reversed": _deg(lambda d: 1500 - 10 * d, unit="pwm_us", pwm_us_per_deg=-10.0),
+            "turns-port": {"fins": {"positive_turns": "port"}, "flip": ("rud",)},
+            "pitches-down": {"fins": {"positive_pitches": "nose_down"}, "flip": ("ele",)},
+            "rolls-starboard": {"fins": {"positive_rolls": "starboard"}, "aileron": 1},
+            "rolls-port": {"fins": {"positive_rolls": "port"}, "aileron": -1}}
+_WAVE = lambda t: np.sin(t / 5)   # noqa: E731
+for unit, k in (("rpm", 1.0), ("rad_s", 2 * np.pi / 60), ("rev_s", 1 / 60)):
+    VARIANTS[f"prop-{unit}"] = {"prop": unit, "prop_k": k}
+for unit, fn in (("deg", lambda a: a), ("rad", np.radians)):
+    VARIANTS[f"gimbal-{unit}"] = {"gimbal": unit, "gimbal_log": fn}
+for unit, k in (("m", 1.0), ("cm", 100.0), ("mm", 1000.0)):
+    VARIANTS[f"mass-{unit}"] = {"extra": ("moving_mass", {"unit": unit}, "mm", lambda t, k=k: .05 * _WAVE(t) * k, "moving_mass", lambda t: .05 * _WAVE(t))}
+VARIANTS["buoyancy-N"] = {"extra": ("buoyancy_engine", {"unit": "N"}, "bu", lambda t: 3 * _WAVE(t), "buoyancy_change", lambda t: 3 * _WAVE(t))}
+VARIANTS["buoyancy-litre"] = {"extra": ("buoyancy_engine", {"unit": "litre"}, "bu", lambda t: .3 * _WAVE(t), "buoyancy_change", lambda t: .3 * 1025 * 9.81 / 1000 * _WAVE(t))}
+VARIANTS["buoyancy-litre-fresh"] = {"extra": ("buoyancy_engine", {"unit": "litre", "water_density_kg_m3": 1000.0}, "bu", lambda t: .3 * _WAVE(t), "buoyancy_change", lambda t: .3 * 9.81 * _WAVE(t))}
+PWM_ONLY = ("ardupilot", "rosbag")   # these logs hold servo outputs, so only PWM ways of stating a fin apply
+PWM_VARIANTS = ("source-measured", "pwm-center", "pwm-reversed", "turns-port", "pitches-down")
+
+
+def format_rows() -> list:
+    return [f"LF-{f}" for f in FORMATS] + [f"LF-{f}-{v}" for f in FORMATS for v in (PWM_VARIANTS if f in PWM_ONLY else VARIANTS)] + [f"LF-{f}-direction" for f in FORMATS if f not in PWM_ONLY]
+
+
+def _ref(fmt, k):
+    return {"csv": k, "px4": f"fin.{k}", "lcm": f"FIN.{k}", "moos": f"F_{k.upper()}"}[fmt]
+
+
+def _write_direct(fmt, d, t, att, rates, vel, chan, top):
+    """A log in one of the formats that can hold any channel; returns its ingest spec."""
+    from format_writers import Topic, write_alog, write_lcm, write_ulog
+    bv = {"linear_unit": "m/s", "angular_unit": "rad/s"}
+    if fmt == "csv":
+        pd.DataFrame({"t": t, **att, **rates, **vel, **chan}).to_csv(os.path.join(d, "a.csv"), index=False)
+        s = _lf_spec("csv", os.path.join(d, "*.csv"), {"time": {"column": "t", "unit": "s"}, "body_velocity": {"columns": dict(u="u", v="v", w="w", p="p", q="q", r="r"), **bv},
+                     "orientation": {"quaternion": dict(x="qx", y="qy", z="qz", w="qw")}, **top})
+        s.pop("resample_hz")
+        return s
+    if fmt == "px4":
+        p = os.path.join(d, "a.ulg")
+        write_ulog(p, {"att": Topic(t, att), "gyr": Topic(t, rates), "vel": Topic(t, vel), "fin": Topic(t, chan)}, None)
+        return _lf_spec("px4", p, {"body_velocity": {"columns": dict(u="vel.u", v="vel.v", w="vel.w", p="gyr.p", q="gyr.q", r="gyr.r"), **bv},
+                        "orientation": {"quaternion": dict(x="att.qx", y="att.qy", z="att.qz", w="att.qw")}, **top})
+    if fmt == "moos":
+        p = os.path.join(d, "a.alog")
+        tm = t + 1.7e9
+        write_alog(p, {"a": Topic(tm, {"QX": att["qx"], "QY": att["qy"], "QZ": att["qz"], "QW": att["qw"]}), "g": Topic(tm, {"GP": rates["p"], "GQ": rates["q"], "GR": rates["r"]}),
+                       "v": Topic(tm, {"VU": vel["u"], "VV": vel["v"], "VW": vel["w"]}), "f": Topic(tm, {f"F_{k.upper()}": v for k, v in chan.items()})}, logstart=tm[0] - 2.0, sources={})
+        return _lf_spec("moos", p, {"body_velocity": {"columns": dict(u="VU", v="VV", w="VW", p="GP", q="GQ", r="GR"), **bv}, "orientation": {"quaternion": dict(x="QX", y="QY", z="QZ", w="QW")}, **top})
+    p = os.path.join(d, "lcmlog-a.00")
+    write_lcm(p, os.path.join(d, "types"), {"ATT": Topic(t, att), "GYR": Topic(t, {"rp": rates["p"], "rq": rates["q"], "rr": rates["r"]}), "VEL": Topic(t, vel), "FIN": Topic(t, chan)},
+              with_utime=True, receive_delay_s=0.0)
+    s = _lf_spec("lcm", p, {"body_velocity": {"columns": dict(u="VEL.u", v="VEL.v", w="VEL.w", p="GYR.rp", q="GYR.rq", r="GYR.rr"), **bv},
+                 "orientation": {"quaternion": dict(x="ATT.qx", y="ATT.qy", z="ATT.qz", w="ATT.qw")}, **top})
+    s["source"]["lcm_types"] = [os.path.join(d, "types", "*.lcm")]
+    return s
+
+
+def _write_servo(fmt, d, t, att, rates, vel, rud_log, ele_log, fins):
+    """ArduPilot and ROS log servo outputs, so the fins are PWM channels of a shipped template."""
+    n = len(t)
+    d_ = pd.DataFrame({"Bu": vel["u"], "Bv": vel["v"], "Bw": vel["w"], "Bp": rates["p"], "Bq": rates["q"], "Br": rates["r"], **att, **{f"pwm{i}": np.full(n, 1500.0) for i in range(1, 9)}})
+    d_["pwm1"], d_["pwm2"] = np.round(rud_log), np.round(ele_log)
+    s = yaml.safe_load(open(os.path.join(CAL, "templates", "ingest_ardupilot_bin.yaml" if fmt == "ardupilot" else "ingest_rosbag_mavros.yaml"), encoding="utf-8"))
+    cols = s["wrench"]["thrusters"]["pwm_columns"]
+    s.pop("wrench")
+    s["fins"] = {**fins, "channels": {"rudder": cols[0], "elevator": cols[1]}}
+    s["propeller"] = {"column": cols[2]}
+    s["skip_checks"] = ["fin_direction"] + list(s.get("skip_checks", []))
+    if fmt == "ardupilot":
+        from ardupilot_log_writer import write_bin
+        write_bin(os.path.join(d, "a.bin"), d_)
+        s["source"]["files"] = os.path.join(d, "*.bin")
+    else:
+        from test_ingest_bags_and_thrusters import write_bag
+        write_bag(os.path.join(d, "a.bag"), d_)
+        s["source"]["files"] = os.path.join(d, "*.bag")
+        tw = "/odom.twist.twist."
+        s["body_velocity"] = {"columns": {"u": tw + "linear.x", "v": tw + "linear.y", "w": tw + "linear.z", "p": tw + "angular.x", "q": tw + "angular.y", "r": tw + "angular.z"},
+                              "linear_unit": "m/s", "angular_unit": "rad/s"}
+        s["orientation"] = {"quaternion": {k: f"/odom.pose.pose.orientation.{k}" for k in "xyzw"}}
+    s["session_date"] = {"from": "constant", "value": "2026-01-15"}
+    return s
+
+
+def _prepared(tmp, s):
+    import glob
+    import data_ingestion as di
+    path = os.path.join(tmp, "s.yaml")
+    open(path, "w").write(yaml.safe_dump(s))
+    di.ingest(di.load_ingest_spec(path), os.path.join(tmp, "o"))
+    return pd.read_csv(sorted(glob.glob(os.path.join(tmp, "o", "**", "*.csv"), recursive=True))[0])
+
+
+def _signals(n=400):
+    t, rud, ele = _channels(n)
+    return (t, rud, ele, {"qx": 0 * t, "qy": 0 * t, "qz": 0 * t, "qw": 0 * t + 1}, {"p": 0 * t, "q": 0 * t, "r": .01 * np.sin(t / 3)}, {"u": 0 * t + 1.5, "v": 0 * t, "w": 0 * t})
+
+
+def run_format(fmt: str, variant: str = "") -> bool:
+    """One way of stating a channel, through one log format: the prepared recording must hold the true value, in SI units, signed
+    Strathe's way, however the log held it."""
+    R = _bars()
+    t0 = time.time()
+    t, rud, ele, att, rates, vel = _signals()
+    V = VARIANTS.get(variant, {})
+    row = f"LF-{fmt}-{variant}" if variant else f"LF-{fmt}"
+    servo = fmt in PWM_ONLY
+    fins = {"source": "commanded", **({"unit": "pwm_us", "pwm_us_per_deg": 10.0} if servo else {}), **V.get("fins", {})}
+    log = V.get("log") or ((lambda d: 1500 + 10 * d) if servo else (lambda d: d))
+    sign = lambda k: -1.0 if k in V.get("flip", ()) else 1.0   # noqa: E731
+    prefix = "fin_" if fins["source"] == "measured" else "fincmd_"
+    want = {prefix + "rudder": (np.radians(rud), True), prefix + "elevator": (np.radians(ele), True)}
+    with tempfile.TemporaryDirectory() as tmp:
+        d = os.path.join(tmp, "logs")
+        os.makedirs(d)
+        try:
+            if servo:
+                s = _write_servo(fmt, d, t, att, rates, vel, log(sign("rud") * rud), log(sign("ele") * ele), fins)
+            else:
+                rpm = 900 + 100 * _WAVE(t)
+                chan = {"rud": log(sign("rud") * rud), "ele": log(sign("ele") * ele), "rpm": rpm * V.get("prop_k", 1.0)}
+                top = {"fins": {**fins, "channels": {"rudder": _ref(fmt, "rud"), "elevator": _ref(fmt, "ele")}}, "propeller": {"column": _ref(fmt, "rpm"), "unit": V.get("prop", "rpm")}}
+                want["rpm"] = (rpm, False)
+                if "aileron" in V:
+                    ail = 3 * _WAVE(t)
+                    chan["ail"] = log(V["aileron"] * ail)
+                    top["fins"]["channels"]["aileron"] = _ref(fmt, "ail")
+                    want[prefix + "aileron"] = (np.radians(ail), True)
+                if "gimbal" in V:
+                    gy, gz = 5 * _WAVE(t), 7 * np.cos(t / 4)
+                    chan["gy"], chan["gz"] = V["gimbal_log"](gy), V["gimbal_log"](gz)
+                    top["gimbal"] = {"y": _ref(fmt, "gy"), "z": _ref(fmt, "gz"), "unit": V["gimbal"]}
+                    want["gimbal_y"], want["gimbal_z"] = (np.radians(gy), False), (np.radians(gz), False)
+                if "extra" in V:
+                    block, keys, col, logged, out_col, true = V["extra"]
+                    chan[col] = logged(t)
+                    top[block] = {"column": _ref(fmt, col), **keys}
+                    want[out_col] = (true(t), False)
+                s = _write_direct(fmt, d, t, att, rates, vel, chan, top)
+            out = _prepared(tmp, s)
+        except Exception as e:
+            return record(F, row, "log format", fmt, f"{variant or 'commanded fin angles and rpm'} through this format", "synthetic", {"error": f"{type(e).__name__}: {e}"[:220], "bars": R.BARS_HASH},
+                          "the true value in the prepared recording", False, time.time() - t0)
+    tt = np.arange(len(out)) / 10.0
+    worst_deg = worst_rel = 0.0
+    missing = [c for c in want if c not in out]
+    for c, (true, is_fin) in want.items():
+        if c not in out:
+            continue
+        e = np.abs(out[c].to_numpy() - np.interp(tt, t, true)).max()
+        if is_fin:
+            worst_deg = max(worst_deg, float(np.degrees(e)))
+        else:
+            worst_rel = max(worst_rel, float(e / np.abs(true).max()))
+    ok = not missing and worst_deg <= R.FORMAT_DEG and worst_rel <= R.FORMAT_REL
+    return record(F, row, "log format", fmt, f"{variant or 'commanded fin angles and rpm'} through this format", "synthetic", {"worst_deg": worst_deg, "worst_rel": worst_rel, "missing": missing, "bars": R.BARS_HASH},
+                  "the true value in the prepared recording", ok, time.time() - t0)
+
+
+def run_direction(fmt: str) -> bool:
+    """A rudder that turns the vehicle the wrong way is refused, and skip_checks: fin_direction lets the lab overrule that."""
+    R = _bars()
+    t0 = time.time()
+    t, rud, ele, att, rates, vel = _signals()
+    rates = {**rates, "r": -.05 * rud}
+    top = {"fins": {"source": "commanded", "channels": {"rudder": _ref(fmt, "rud"), "elevator": _ref(fmt, "ele")}}}
+    res = []
+    for skip in (False, True):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = os.path.join(tmp, "logs")
+            os.makedirs(d)
+            s = _write_direct(fmt, d, t, att, rates, vel, {"rud": rud, "ele": ele}, top)
+            s["skip_checks"] = [c for c in s["skip_checks"] if skip or c != "fin_direction"]
+            try:
+                _prepared(tmp, s)
+                res.append("wrote")
+            except Exception as e:
+                res.append("refused" if "fin" in str(e).lower() else f"{type(e).__name__}: {e}"[:160])
+    return record(F, f"LF-{fmt}-direction", "log format", fmt, "the wrong fin sign is refused, and skip_checks overrules it", "synthetic", {"without_skip": res[0], "with_skip": res[1], "bars": R.BARS_HASH},
+                  "refused, then written", res == ["refused", "wrote"], time.time() - t0)
+
+
+# ------------------------------------------------------------------ hover: nothing changed
+HOVER_BASE = {"dfki_dvl": "83ebd2ff1ab04831", "dfki_depth_hold": "5b9df3cc316c1384", "kth_dvl": "1119c53e07d3346e", "uri_dvl": "ff01459e3f2ee140", "tank_dvl": "e5f025deab482b15"}
+HOVER_NAMES = ("Ieff_roll Ieff_pitch Ieff_yaw Xu Yv Zw Kp Mq Nr Xuu Yvv Zww Kpp Mqq Nrr Xu_dot Yv_dot Zw_dot net_buoyancy_z cg_cb_offset_z "
+               "Xq_dot Zq_dot thruster_time_constant_s cg_cb_offset_x Zuw Muw Muq").split()
+
+
+def run_hover(case: str) -> bool:
+    import hashlib
+    import subprocess
+    W = os.path.expanduser("~/strathe_sensor_data")
+    uri = os.path.expanduser("~/strathe_uri_lab_v2/data/alpha_rise_spec.yaml")
+    data, spec, held, flags = {"dfki_dvl": (f"{W}/dfki/v", "vehicle_spec.yaml", "02-01-2025", ["--sensors", "velocity"]),
+                               "dfki_depth_hold": (f"{W}/dfki/d3", "vehicle_spec.yaml", "02-01-2025", ["--unseen", "hold"]),
+                               "kth_dvl": (f"{W}/marinarium/k96/v", "vehicle_spec.yaml", "30-10-2025", ["--sensors", "velocity"]),
+                               "uri_dvl": (f"{W}/real/uri_v", uri, "27-03-2026", ["--sensors", "velocity"]),
+                               "tank_dvl": (f"{W}/real/rV", "vehicle_spec.yaml", "14-02-2024", ["--sensors", "velocity"])}[case]
+    t0 = time.time()
+    o = os.path.join(_bars().WORK, f"H-{case}")
+    os.makedirs(os.path.dirname(o), exist_ok=True)
+    with open(o + ".log", "w") as f:
+        rc = subprocess.run([_bars().PY, "strathe_cli.py", "calibrate", "--data", data, "--spec", spec, "--name", case, "--out", o, "--max-nfev", "4", "--seed", "7", "--workers", "1",
+                             "--heldout-dates", held, *flags], cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+    p = yaml.safe_load(open(o + "/calibrated_parameters.yaml"))["parameters"]
+    z = {k: p[k] for k in HOVER_NAMES if p.get(k)}
+    got = hashlib.sha256(json.dumps(z, sort_keys=True).encode()).hexdigest()[:16]
+    return record(F, f"H-{case}", "hover", case, "a seeded real calibration, against the commit before fins", "real logs", {"hash": got, "base": HOVER_BASE[case], "exit": rc, "bars": _bars().BARS_HASH},
+                  "identical parameters", got == HOVER_BASE[case], time.time() - t0)
+
+
+# ------------------------------------------------------------------ every simulator: its own physics recovers its own fin lift
+
+
+SIM_MODEL = {"mass": 30.0, "x": -.7, "area": .02, "lift": 3.0}
+
+
+def _fin_set():
+    from fin_force import Actuators, Fin
+    x = SIM_MODEL["x"]
+    return Actuators(fins=(Fin("top", (x, 0, -.12), (0, 0, -1), SIM_MODEL["area"], .15, group=0, mix=(0, 0, 1), stall_rad=.5, limit_rad=.5),
+                           Fin("bottom", (x, 0, .12), (0, 0, 1), SIM_MODEL["area"], .15, group=0, mix=(0, 0, 1), stall_rad=.5, limit_rad=.5)), rho=1000.0)
+
+
+def _sim_spec(path: str) -> str:
+    r = _spec_raw()
+    r["fins"] = {"layout": "custom", "fins": [{"name": f.name, "position_m": list(f.position_m), "span_axis": list(f.span_axis), "area_m2": f.area_m2, "span_m": f.span_m,
+                                               "stall_deg": 28.0, "limit_deg": 28.0} for f in _fin_set().fins]}
+    r.pop("propeller")
+    open(path, "w").write(yaml.safe_dump(r, sort_keys=False))
+    return path
+
+
+def _sdf(lift: float, act=None) -> str:
+    from simfit import fin_models as fm
+    links, plugins = fm.sdf_fins(act or _fin_set(), "base_link", 1000.0)
+    plugins = re.sub(r"<cla>[^<]+</cla>", f"<cla>{lift:g}</cla>", plugins)
+    return f"""<?xml version="1.0"?>
+<sdf version="1.11"><world name="water">
+  <physics name="s" type="dart"><max_step_size>0.01</max_step_size><real_time_factor>0</real_time_factor></physics>
+  <gravity>0 0 0</gravity>
+  <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <model name="vehicle">
+      <link name="base_link"><inertial><pose>0 0 0 0 0 0</pose><mass>30</mass><inertia><ixx>1</ixx><iyy>10</iyy><izz>10</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>
+        <collision name="hull"><geometry><box><size>0.5 0.3 0.3</size></box></geometry></collision></link>
+{links}
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics"><link_name>base_link</link_name>
+        <xU>-5</xU><yV>-20</yV><zW>-20</zW><kP>-1</kP><mQ>-8</mQ><nR>-8</nR><xUabsU>-10</xUabsU><yVabsV>-60</yVabsV><zWabsW>-60</zWabsW><kPabsP>-1</kPabsP><mQabsQ>-4</mQabsQ><nRabsR>-4</nRabsR>
+      </plugin>
+{plugins}
+    </model>
+</world></sdf>
+"""
+
+
+def _scn(lift: float, act=None) -> str:
+    from simfit import fin_models as fm
+    return f"""<?xml version="1.0"?>
+<scenario>
+ <environment><ned latitude="40.0" longitude="3.0"/><ocean><water density="1000.0" jerlov="0.25"/><current type="uniform"><velocity xyz="0.0 0.0 0.0"/></current></ocean>
+  <atmosphere><sun azimuth="120.0" elevation="50.0"/></atmosphere></environment>
+ <materials><material name="Neutral" density="1000.0" restitution="0.5"/><friction_table><friction material1="Neutral" material2="Neutral" static="0.5" dynamic="0.2"/></friction_table></materials>
+ <looks><look name="gray" gray="0.3" roughness="0.4"/></looks>
+ <robot name="auv" fixed="false" self_collisions="false">
+  <base_link name="Vehicle" type="compound" physics="submerged">
+   <external_part name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.19279"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><mass value="30.0"/><cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/><compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/></external_part>
+  </base_link>
+{re.sub(r'lift_coeff="[^"]+"', f'lift_coeff="{lift:g}"', fm.stonefish_fins(act or _fin_set(), "Vehicle"))}
+  <world_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 20.0"/>
+ </robot>
+</scenario>
+"""
+
+
+def _mjcf(lift: float, act=None) -> str:
+    from simfit import fin_models as fm
+    body = fm.mjcf_fins(act or _fin_set()).replace('fluidcoef="0.5 0.25 1.5 2.0 0"', f'fluidcoef="0.5 0.25 1.5 {lift:g} 0"')
+    return f"""<mujoco model="fins"><option timestep="0.002" density="1000" viscosity="0.0009" integrator="implicitfast" gravity="0 0 0"/>
+  <worldbody><body name="auv" pos="0 0 -3"><freejoint/><inertial pos="0 0 0" mass="30" diaginertia="1 10 10"/>
+      <geom name="hull" type="ellipsoid" size="0.6 0.15 0.15" fluidshape="ellipsoid" fluidcoef="0.5 0.25 1.5 0 0" mass="0" contype="0" conaffinity="0"/>
+{body}
+    </body></worldbody></mujoco>
+"""
+
+
+SIMS = {"S-gazebo": ("gazebo", "world.sdf", _sdf, 4.0, "docker:strathe-gz-replay:fins", "fin_cla"),
+        "S-stonefish": ("stonefish", "auv.scn", _scn, 4.0, "docker:strathe-stonefish-replay:fins", "fin_lift"),
+        "S-mujoco": ("mujoco", "auv.xml", _mjcf, 2.0, None, "fin_top_geom_lift")}
+
+
+def _sim_args(sim: str, model: str, tool) -> list:
+    if sim == "gazebo":
+        return ["--sim", "gazebo", "--world", model, "--replay-tool", tool, "--start-depth", "20"]
+    if sim == "stonefish":
+        return ["--sim", "stonefish", "--scenario", model, "--robot", "auv", "--part", "Hull", "--stonefish-data", "/src/Tests/Data", "--replay-tool", tool, "--start-depth", "20"]
+    return ["--sim", "mujoco", "--model", model, "--body", "auv"]
+
+
+def _fly_engine(sim: str, model: str, tool, out_dir: str, ref_rows, spec_path: str):
+    """The engine flying the fin angles with its true lift: recordings it made itself, in Strathe's layout."""
+    from simfit.replay_tool import ReplayTool, tool_argv, write_windows
+    t0, names, rows = ref_rows
+    if sim == "mujoco":
+        from simfit.adapters.mujoco import MujocoAdapter
+        ad = MujocoAdapter(model, "auv")
+        ad.dt = .1
+        return ad.replay(ad.write_runnable(None, out_dir), rows, out_dir)
+    extra = (["--model-name", "vehicle", "--depth", "20"] if sim == "gazebo" else [])
+    if sim == "gazebo":
+        rt = ReplayTool(tool_argv(tool, "gazebo"), (0, 0, 0), .1, extra=extra, name="Gazebo")
+        return rt.run(model, rows, out_dir)
+    from stonefish_fit import Replay
+    rp = Replay(tool_argv(tool, "stonefish"), "/src/Tests/Data", "auv", (0, 0, 0))
+    return rp.run(model, rows, out_dir)
+
+
+def _sim_verdict(fit_yaml: str, true: float, label: str) -> dict:
+    """Both halves of SIM_RECOVER: every fitted fin lift lands near the truth, and unseen recordings drift less at 30 s."""
+    y = yaml.safe_load(open(fit_yaml))
+    found = {k: float(v) for k, v in (y.get("after") or {}).items() if re.search(r"lift|cla|CL_delta", k)}   # `after` also holds settings flags
+    held = y.get("heldout") or {}
+    drift = [(held.get(f"{label}, {w}") or {}).get("30s", {}).get("drift_median_m") for w in ("original", "calibrated by Strathe")]
+    err = max((abs(v / true - 1) for v in found.values()), default=None)
+    return {"true": true, "found": found, "err": err, "drift_30s_before": drift[0], "drift_30s_after": drift[1],
+            "ok": err is not None and err <= _bars().SIM_RECOVER and None not in drift and drift[1] < drift[0]}
+
+
+def run_sim(row: str) -> bool:
+    """Fly fin steps in the engine with its true lift, then fit-sim from twice that lift, on those recordings."""
+    import subprocess
+    from scipy.spatial.transform import Rotation
+    from simfit.core import FinRows
+    R = _bars()
+    sim, name, write, true, tool, knob = SIMS[row]
+    t0 = time.time()
+    d = os.path.join(R.WORK, row)
+    os.makedirs(d + "/data", exist_ok=True)
+    spec = _sim_spec(d + "/spec.yaml")
+    open(f"{d}/true_{name}", "w").write(write(true))
+    open(f"{d}/{name}", "w").write(write(2 * true))
+    fins = ("fin_top", "fin_bottom")
+    k = 0
+    try:
+        for date in ("01-10-2026", "02-10-2026"):
+            k += 1
+            rng = np.random.default_rng(k)
+            n = 900
+            ang = np.repeat(rng.uniform(-.25, .25, n // 25 + 1), 25)[:n]
+            rows = FinRows([np.c_[np.tile([1.5, 0, 0, 0, 0, 0, 0, 0, 0, 1.0], (n, 1)), np.tile([40.0, 0, 0, 0, 0, 0], (n, 1)), ang, -ang]])
+            rows.fins = fins
+            (V, Q), = _fly_engine(sim, f"{d}/true_{name}", tool, d + "/w", (0, fins, rows), spec)
+            ok = np.isfinite(V).all(axis=1)
+            m = int(ok.sum())
+            q = Q[:m]
+            rp = Rotation.from_quat(q).as_euler("xyz")
+            df = pd.DataFrame({"Fx": 40.0, "Fy": 0.0, "Fz": 0.0, "Tx": 0.0, "Ty": 0.0, "Tz": 0.0, **{c: V[:m, i] for i, c in enumerate(("Bu", "Bv", "Bw", "Bp", "Bq", "Br"))},
+                               **{c: q[:, i] for i, c in enumerate(("qx", "qy", "qz", "qw"))}, "fin_top": ang[:m], "fin_bottom": -ang[:m]})
+            df.to_csv(f"{d}/data/s-{date}-run1.csv", index=False)
+        args = _sim_args(sim, f"{d}/{name}", tool)
+        cmd = [R.PY, "strathe.py", "fit-sim", *args, "--data", d + "/data", "--heldout-dates", "02-10-2026", "--fit", "fins", "--reference-point", "0", "0", "0",
+               "--max-iterations", "6", "--out", d + "/fit", ("--fin-spec" if sim == "stonefish" else "--spec"), spec]
+        with open(d + "/fit.log", "w") as f:
+            rc = subprocess.run(cmd, cwd=os.path.dirname(CAL), stdout=f, stderr=subprocess.STDOUT).returncode
+        text = open(d + "/fit.log").read()
+        v = _sim_verdict(f"{d}/fit/{sim}_fit.yaml", true, {"gazebo": "Gazebo", "stonefish": "Stonefish", "mujoco": "MuJoCo"}[sim])
+    except Exception as e:
+        return record(F, row, "simulator", sim, "the engine recovers its own fin lift", "own flights", {"error": f"{type(e).__name__}: {e}"[:260], "bars": R.BARS_HASH}, "recover fin lift", False, time.time() - t0)
+    ok = v.pop("ok")
+    return record(F, row, "simulator", sim, "from twice the lift, on recordings the engine flew itself", "own flights", {**v, "exit": rc, "bars": R.BARS_HASH},
+                  f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", rc == 0 and ok, time.time() - t0)
+
+
+def run_holoocean_row() -> bool:
+    import subprocess
+    import fin_truth as T
+    R = _bars()
+    t0 = time.time()
+    if not T.available("holoocean"):
+        return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class", "not here", {"bars": R.BARS_HASH}, "NOT VERIFIED: the class isn't here", False)
+    d = os.path.join(R.WORK, "S-holoocean")
+    T.write_set("holoocean", d + "/data", "rich", train_s=240.0, held_s=120.0)
+    T.vehicle_spec("holoocean", d + "/spec.yaml")
+    json.dump({"name": "t", "package_name": "x", "world": "y", "main_agent": "auv0", "agents": [{"agent_name": "auv0", "agent_type": "TorpedoAUV", "fossen_model": "torpedo", "dynamics": {},
+                                                                                                 "actuator": {"CL_delta": 1.0}}]}, open(d + "/scn.json", "w"))
+    env = dict(os.environ, PYTHONPATH=T.HOLOOCEAN_SRC)
+    with open(d + "/fit.log", "w") as f:
+        rc = subprocess.run([R.PY, "strathe.py", "fit-sim", "--sim", "holoocean", "--scenario", d + "/scn.json", "--data", d + "/data", "--spec", d + "/spec.yaml", "--heldout-dates", T.HELD_DATE,
+                             "--fit", "fins", "--reference-point", "0", "0", "0", "--hz", "50", "--max-iterations", "6", "--out", d + "/out"], cwd=os.path.dirname(CAL), stdout=f, stderr=subprocess.STDOUT, env=env).returncode
+    if not os.path.exists(d + "/out/holoocean_fit.yaml"):
+        return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class, from twice the fin lift", "its own flights", {"exit": rc, "bars": R.BARS_HASH}, f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", False, time.time() - t0)
+    v = _sim_verdict(d + "/out/holoocean_fit.yaml", .5, "HoloOcean")
+    ok = v.pop("ok")
+    return record(F, "S-holoocean", "simulator", "holoocean", "the real Torpedo class, from twice the fin lift", "its own flights", {**v, "exit": rc, "bars": R.BARS_HASH},
+                  f"within {_bars().SIM_RECOVER:.0%}, and less drift unseen", rc == 0 and ok, time.time() - t0)
+
+
+def run_external_row() -> bool:
+    import subprocess
+    R = _bars()
+    t0 = time.time()
+    tool = os.path.join(CAL, "simulators", "example", "example_replay.py")
+    r = subprocess.run([R.PY, tool, "--features"], capture_output=True, text=True)
+    return record(F, "S-external", "simulator", "external", "the example tool says it takes fins (tests/test_simfit_fins.py runs it)", "-", {"features": r.stdout.strip()[:80], "bars": R.BARS_HASH}, '"fins": true', '"fins": true' in r.stdout, time.time() - t0)
+
+
+def run_refused_row() -> bool:
+    from simfit.core import SimFitError, FinRows
+    from simfit.replay_tool import ReplayTool
+    t = ReplayTool(["unused"], (0, 0, 0))
+    t._fins = False
+    rows = FinRows([np.zeros((2, 17))])
+    rows.fins = ("fin_a",)
+    try:
+        t.run("m", rows, tempfile.mkdtemp())
+        ok = False
+    except SimFitError as e:
+        ok = "doesn't take fin angles" in str(e)
+    return record(F, "S-refused", "simulator", "old tool", "a tool that doesn't take fins is refused", "-", {"bars": _bars().BARS_HASH}, "a refusal with its fix", ok)
+
+
+def run_sims(pick) -> int:
+    ok = True
+    for r in SIMS:
+        if pick(r):
+            ok &= run_sim(r)
+    for r, fn in (("S-holoocean", run_holoocean_row), ("S-external", run_external_row), ("S-refused", run_refused_row)):
+        if pick(r):
+            ok &= fn()
+    return 0 if ok else 1
+
+
+def fast_rows_more() -> list:
+    return format_rows() + [f"H-{c}" for c in HOVER_BASE]
+
+
+def sim_rows() -> list:
+    return ["S-holoocean", "S-gazebo", "S-stonefish", "S-mujoco", "S-external", "S-refused"]

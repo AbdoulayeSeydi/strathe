@@ -54,7 +54,7 @@ def mjcf_fins(act: Actuators) -> str:
         x, y, z = _flu(f.position_m)
         s = _flu(f.span_axis)
         chord = f.area_m2 / f.span_m
-        roll = math.atan2(s[2], s[1]) - math.pi / 2        # the ellipsoid's long axis along the span
+        roll = math.atan2(s[2], s[1])        # roll about x takes the ellipsoid's y, its long axis, onto the span; its thin axis is then across the flow
         out.append(f"""      <body name="fin_{f.name}" pos="{x:.6g} {y:.6g} {z:.6g}">
         <joint name="fin_{f.name}" type="hinge" axis="{s[0]:.6g} {s[1]:.6g} {s[2]:.6g}"/>
         <geom name="fin_{f.name}_geom" type="ellipsoid" size="{chord / 2:.6g} {f.span_m / 2:.6g} 0.004" euler="{math.degrees(roll):.6g} 0 0" mass="0.01"
@@ -75,3 +75,29 @@ def stonefish_fins(act: Actuators, link: str, mesh: str = "icosphere.obj", mater
    <link name="{link}"/>
   </actuator>""")
     return "\n".join(out)
+
+
+def require_actuators(params, act, flag: str) -> None:
+    """A fin calibration with no fins to put it on would be exported without its fins, and look fine. Stop instead."""
+    if act is None and (getattr(params, "fin_lift_slope_a", 0.0) or getattr(params, "fin_lift_slope_b", 0.0)):
+        from simfit.core import SimFitError
+        raise SimFitError(f"this calibration is of a fin vehicle, but nothing says what its fins are: give {flag} <vehicle description>, or its fins would be left out (FINS.md)")
+
+
+def lifts_for_export(act: Actuators, params, model_areas: dict, engine: str) -> dict:
+    """Each fin's lift slope in the engine's terms, by fin name. Both engines use lift = slope x area x dynamic pressure x angle, so a model
+    whose fin area differs from the description's has the slope scaled to keep the force Strathe fitted."""
+    missing = [f.name for f in act.fins if f.name not in model_areas]
+    if missing:
+        from simfit.core import SimFitError
+        raise SimFitError(f"the {engine} model has no fin for {', '.join(missing)}: each fin needs its own there (FINS.md), or `strathe convert-sim --spec` writes them")
+    return {f.name: (params.fin_lift_slope_b if f.group else params.fin_lift_slope_a) * f.area_m2 / model_areas[f.name] for f in act.fins}
+
+
+def fin_notes(params, what: str) -> list:
+    """What an export can't carry: the engine works these out from the flow itself."""
+    notes = [f"Fin lift carried into {what}, per fin. Not carried: how much of the flow angle each fin sees (inflow {params.fin_inflow_a:.2f}, {params.fin_inflow_b:.2f}): the engine "
+             f"uses the full flow angle, so a centred fin damps more there than in Strathe's model."]
+    if params.fin_bias_roll or params.fin_bias_pitch or params.fin_bias_yaw:
+        notes.append("Fin zero offsets not carried: set them on your fins' joints or commands.")
+    return notes

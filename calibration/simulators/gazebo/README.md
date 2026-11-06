@@ -110,3 +110,7 @@ converts, so nothing changes on your side. Checked against analytic steady state
 - 20 N forward gives 0.737 m/s;
 - 20 N to starboard gives +0.434 m/s;
 - 0.5 N·m of yaw gives +0.225 rad/s, turning clockwise seen from above.
+
+## Fin-steered vehicles
+
+Give `--spec` with your vehicle description: each fin is a link on a revolute joint `fin_<name>`, with a `LiftDrag` plugin. `--fit fins` tunes their `cla`; `export-sim` writes each fin its own. See [FINS.md](../../FINS.md).

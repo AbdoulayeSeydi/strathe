@@ -5,6 +5,9 @@ stress/run_97.py -- stress test of Fin Steer (PROJECT_STATUS.md #97): fin-steere
     python stress/run_97.py truth [ROW]   # independent truths: fit with the truth hidden, fly on unseen recordings (hours)
     python stress/run_97.py recover [ROW] # every layout and option through Strathe's own model (plumbing, labelled so)
     python stress/run_97.py real [ROW]    # OOI's REMUS logs (stress/prepare_ooi_97.py) and rudder checks
+    python stress/run_97.py truth-finish ROW   # a truth row whose fit is done: finalize its checkpoint
+    python stress/run_97.py sim [ROW]     # every simulator's own physics recovers its own fin lift (Docker, HOLOOCEAN_SRC)
+    python stress/run_97.py more [ROW]    # mass entries, vectored, all pairs, layout x source x engine, export, cross engine, the lab's journey
     python stress/run_97.py list
 
 The proof is a truth the fit never sees (stress/fin_truth.py): Prestero's REMUS, Fossen's remus100 and HoloOcean's Torpedo, flown closed
@@ -44,8 +47,12 @@ RECOVER_NOISY = 0.10     # the same at grade noise
 PATHS_AGREE = 1e-11      # fast, reference and oracle physics, relative
 SPEED_NO_FINS = 1.02     # hover's step against before fins
 SPEED_FOUR_FINS = 3.0    # four fins against none
+FORMAT_DEG = 0.06        # a logged fin angle through any log format, degrees: half of one PWM step at 10 us per degree
+FORMAT_REL = 1e-6        # the same for rpm, gimbal, moving mass and buoyancy, relative to the signal's size
+SIM_RECOVER = 0.15       # fit-sim from twice the true fin lift lands within this of it, and drifts less on unseen recordings
+EXPORT_EXACT = 1e-6      # the lift an export writes, against the lift the calibration found
 BARS = {"fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
-        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS}
+        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER, "export_exact": EXPORT_EXACT}
 BARS_HASH = hashlib.sha256(json.dumps(BARS, sort_keys=True).encode()).hexdigest()[:12]
 NFEV = 40
 
@@ -117,7 +124,8 @@ def judge_flight(v: dict) -> tuple:
     return ok, n
 
 
-def run_truth(row: tuple) -> bool:
+def run_truth(row: tuple, finish: bool = False) -> bool:
+    """finish: the fit is done and its checkpoint is there; only finalize it. A row's hours are in the fit, so a fault after it needn't cost them."""
     import fin_truth as T
     rid, engine, kind, o, bar, what = row
     t0 = time.time()
@@ -130,12 +138,13 @@ def run_truth(row: tuple) -> bool:
         if k in o:
             fly[k] = o[k]
     rate = o.get("rate", 10.0)
-    T.write_set(engine, data, kind, train_s=o.get("train_s", 900.0), rate=rate, **fly)
-    if o.get("noise"):
-        for i, f in enumerate(sorted(os.listdir(data))):
-            _noisy(os.path.join(data, f), o["noise"], 100 + i)
-    spec = T.vehicle_spec(engine, d + "/spec.yaml", o.get("inertia", 1.0), bool(o.get("thrust_free")), o.get("kt", 1.0))
-    flags = ["--sensors", "velocity"]
+    if not finish:
+        T.write_set(engine, data, kind, train_s=o.get("train_s", 900.0), rate=rate, **fly)
+        if o.get("noise"):
+            for i, f in enumerate(sorted(os.listdir(data))):
+                _noisy(os.path.join(data, f), o["noise"], 100 + i)
+    spec = d + "/spec.yaml" if finish else T.vehicle_spec(engine, d + "/spec.yaml", o.get("inertia", 1.0), bool(o.get("thrust_free")), o.get("kt", 1.0))
+    flags = ["--sensors", "velocity"] + (["--finish"] if finish else [])
     if "current" in o:
         import math
         v, b = o["current"]
@@ -159,10 +168,15 @@ def run_truth(row: tuple) -> bool:
     return record(F, rid, "truth", engine, what, kind, n, exp, ok, secs)
 
 
+def more_rows() -> list:
+    import fin_more_97
+    return fin_more_97.more_rows()
+
+
 def all_rows() -> list:
     """Every row, importable with no data (CI has none)."""
     import fin_rows_97 as R
-    return truth_rows() + R.fast_rows() + R.recover_rows() + R.real_rows()
+    return truth_rows() + R.fast_rows() + R.recover_rows() + R.real_rows() + R.sim_rows() + more_rows()
 
 
 def main(argv) -> int:
@@ -175,12 +189,19 @@ def main(argv) -> int:
         return 0
     if cmd == "truth":
         return 0 if all([run_truth(r) for r in TRUTH if pick(r[0])]) else 1
+    if cmd == "truth-finish":
+        return 0 if all([run_truth(r, finish=True) for r in TRUTH if pick(r[0])]) else 1
     if cmd == "fast":
         return R.run_fast(pick)
     if cmd == "recover":
         return R.run_recover(pick)
     if cmd == "real":
         return R.run_real(pick)
+    if cmd == "sim":
+        return R.run_sims(pick)
+    if cmd == "more":
+        import fin_more_97
+        return fin_more_97.run_more(pick)
     print(__doc__)
     return 2
 

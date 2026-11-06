@@ -3781,8 +3781,33 @@ type and ingest, calibration, every simulator, proof.
   agrees within about 0.4%. Stonefish's `Rudder`, commanded, within about 9% (sway 0.107 against 0.099, yaw -2.04 against -2.23).
 - HoloOcean's real `Torpedo` class runs on a Mac with no engine. `fit-sim` from a wrong fin lift (1.0, truth 0.5) took 30 s drift from 21.7 m to
   0.8 m and found 0.46. The 8% left is the description's propeller estimate.
-- MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: almost none below about 3°, and not linear. Recorded, not hidden.
+- MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian. (An earlier version of this line said almost no lift below about 3°. That was measured on a fin the generator had laid flat, and is withdrawn.)
 - Fit knobs: `fin_cla` (Gazebo), `fin_lift` (Stonefish), `CL_delta` (HoloOcean), each fin's Kutta lift (MuJoCo).
+
+**Export** (`simfit/fin_models.py`, `stonefish_export.carry_fins`):
+- `export-sim` into Gazebo or Stonefish left a fin vehicle's lift out and said nothing. Each fin now takes its group's fitted lift, scaled if the
+  model's fin area differs. A fin calibration with no description, or a fin the model lacks, is refused by name rather than dropped.
+
+**What the proof's rows found in the product, all fixed before the final run:**
+- `J-cli-fin`: a fin calibration that ran out of evaluations crashed while finishing and left no report. Hover never took that branch.
+- `S-gazebo`: a fin fit finished, then crashed writing its report: the lift knob's place was read as an XML path.
+- `S-stonefish`: `fit-stonefish`'s own parser refused `--fit fins`, and it and `export-stonefish` couldn't pass the description.
+- `S-stonefish`: a replay that reported on stdout gave "replay failed:" and nothing else.
+- `S-stonefish`: a `--stonefish-data` folder inside the Docker image was mounted over, hiding its meshes.
+- Reading the rows: a fin's `chord_axis` reached its mixing but not its force. A litre of buoyancy change lifted a flat 9.81 N, fresh water's.
+- Stonefish's comparison with Strathe's own model built the vehicle with no actuators.
+- `E-gazebo`: `export-sim` refused `--spec`, the option FINS.md gives it: it had been added to `fit-sim`'s parser only.
+- `C-cross-measured-mujoco`: every generated MuJoCo fin lay flat, so its hinge barely changed its lift. A cross turned about 430 times too little. S-mujoco had passed on those fins: it recovered a coefficient self-consistently, which is why a row needs real turning behind it.
+
+**A fit that started far off.** With MuJoCo's fins fixed, S-mujoco's vehicle went round in circles and its fit stuck at 3.44 (truth 2) from a start of 4: past the
+true lift, position error is periodic, so the cost is a rough plateau. `core.scan_fin_lift` now tries seven lifts first, on a deliberately uneven grid. Hover fits don't change.
+
+**A file-sharing fault, measured.** On Colima (virtiofs), a file rewritten at the same path with a new size reached a container at its old size in 8
+of 12 tries, cutting its last rows off. Same path and same size: 0 of 12 stale, and contents were right. New paths: 0 of 12. Container to host: 0
+of 6. Every product fit already writes to fresh folders, so no fit is affected; only a stress row reused one. Replays now get paths of their own.
+
+**One bar was committed late.** `SIM_RECOVER` was written before S-refused, S-external, S-holoocean and S-mujoco first ran, but committed after.
+Its value never changed, and those runs don't count: only the final run does. It's now in the hashed bars with the others.
 
 ## Honest open items
 

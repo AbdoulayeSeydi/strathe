@@ -51,6 +51,11 @@ the same results ([calibration/simulators/DOCKER.md](calibration/simulators/DOCK
 
 ## 3. Pick a template
 
+**Fins or a gimballed tail?** Read [calibration/FINS.md](calibration/FINS.md) first: your logs need fin angles and propeller rpm rather
+than forces, and a DVL or position fixes. The templates are `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yaml` and
+`vehicle_spec_fin_template.yaml`. The web page's calibrate card makes you choose hover or fin, and refuses a choice your description
+contradicts.
+
 Copy the closest one from [calibration/templates/](calibration/templates/README.md) next to your logs and change the
 column or topic names, units and frame. Each template's comments say what every line means.
 

@@ -8,6 +8,18 @@ A simulation and RL-training platform for studying how real-world communication 
 
 The published results are for the reference BlueROV2. Larger fleets are a planned next step.
 
+**Hover or fin?** Start by asking what steers your vehicle, not what shape it is:
+
+| What steers it | Say | Examples | Your logs need | Start here |
+|---|---|---|---|---|
+| Thrusters | `steering: hover` | BlueROV2, ALPHA RISE | Thruster commands or forces | [LAB_GUIDE.md](LAB_GUIDE.md) |
+| Fins and a propeller | `steering: fin` | REMUS, Iver, LAUV, Hugin, Autosub | Fin angles, propeller rpm, a DVL or position fixes | [FINS.md](calibration/FINS.md) |
+| A gimballed tail | `steering: vectored` | Bluefin, Dorado | Gimbal angles, propeller rpm, a DVL or position fixes | [FINS.md](calibration/FINS.md) |
+| Fins and steering thrusters | `steering: hybrid` | | Both | [FINS.md](calibration/FINS.md) |
+| A glider | `steering: glider` | Slocum | Rudder check only: `strathe fin-check` | [FINS.md](calibration/FINS.md) |
+
+Every command and report says which one it's on. Leave it out and it's hover, and Strathe says that too.
+
 **Every known limit is listed in one place: [LIMITS.md](LIMITS.md).** **Labs: start with [LAB_GUIDE.md](LAB_GUIDE.md)**: what to record, which template, which commands, what you get back.
 
 **What this answers:** when two underwater vehicles coordinate over a sparse, lossy acoustic link, each has to predict where its teammate is between messages. Does it matter whether that prediction uses a physics model calibrated against real vehicle logs, or generic textbook physics?

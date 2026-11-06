@@ -349,6 +349,7 @@ class BuoyancyColumn(BaseModel):
     model_config = {"extra": "forbid"}
     column: str
     unit: Literal["N", "litre"] = "N"
+    water_density_kg_m3: float = Field(default=1025.0, gt=0)   # litre: what a litre displaced lifts. Seawater unless you say
 
 
 class ExcludeRule(BaseModel):
@@ -781,7 +782,7 @@ def _actuator_channels(spec: IngestSpec, df, path: str, report: dict) -> tuple:
         cols.append(_col(df, spec.moving_mass.column, path) * {"m": 1.0, "cm": .01, "mm": .001}[spec.moving_mass.unit])
     if spec.buoyancy_engine is not None:
         names.append("buoyancy_change")
-        cols.append(_col(df, spec.buoyancy_engine.column, path) * {"N": 1.0, "litre": 9.81}[spec.buoyancy_engine.unit])
+        cols.append(_col(df, spec.buoyancy_engine.column, path) * {"N": 1.0, "litre": spec.buoyancy_engine.water_density_kg_m3 * 9.81 / 1000}[spec.buoyancy_engine.unit])
     return names, (np.stack(cols, 1) if cols else None)
 
 

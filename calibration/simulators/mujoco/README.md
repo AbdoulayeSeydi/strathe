@@ -51,3 +51,7 @@ To run Strathe's own calibrated model inside MuJoCo, see `calibration/mujoco_bac
 - The velocity is read back at the same point (a site Strathe adds in memory; your file isn't changed).
 - Frames are converted between north-east-down / forward-right-down and z-up / forward-left-up.
 - **Speed:** a 10 s window takes about 0.3 s.
+
+## Fin-steered vehicles
+
+Give `--spec` with your vehicle description: each fin is a child body on a hinge `fin_<name>`, with an ellipsoid geom. `--fit fins` tunes each one's Kutta lift. MuJoCo's fluid model isn't a foil: lift jumps by about 0.17 in lift coefficient at the smallest angle, then rises nearly linearly at about 2.6 per radian. See [FINS.md](../../FINS.md).

@@ -130,7 +130,7 @@ def actuators_from(raw: dict) -> Optional[Actuators]:
                              stall_rad=math.radians(float(f.get("stall_deg", fb.get("stall_deg", 20.0)))),
                              oswald=float(f.get("oswald", fb.get("oswald", .7))),
                              limit_rad=math.radians(float(f.get("limit_deg", fb.get("limit_deg", 30.0)))),
-                             sign=float(f.get("sign", 1.0))))
+                             sign=float(f.get("sign", 1.0)), chord_axis=_unit(f.get("chord_axis", (1.0, 0.0, 0.0)))))
         fins = tuple(built)
     prop = None
     pb = blocks.get("propeller")
@@ -138,7 +138,7 @@ def actuators_from(raw: dict) -> Optional[Actuators]:
         prop = Propeller(float(pb["diameter_m"]), float(pb["kt0"]), float(pb.get("kt1", 0.0)), float(pb.get("kq0", 0.0)),
                          float(pb.get("kq1", 0.0)), float(pb.get("wake", 1.0)), float(pb.get("thrust_deduction", 0.0)),
                          tuple(float(x) for x in pb.get("position_m", (0.0, 0.0, 0.0))), float(pb.get("spin", 1.0)),
-                         bool(pb.get("gimbal", False)))
+                         bool(pb.get("gimbal", False)), float(pb.get("max_rpm", 1500.0)))
     mm = blocks.get("moving_mass")
     servo = (fb or {}).get("servo") or {}
     rho = float((raw.get("environment") or {}).get("water_density_kg_m3", 1025.0))

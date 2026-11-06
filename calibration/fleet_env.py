@@ -162,6 +162,9 @@ class _MuJoCoTruth:
     """Adapter giving MuJoCoArenaCore the few accessors FleetSim reads."""
 
     def __init__(self, params, vehicle, sim_config):
+        if vehicle.actuators is not None:
+            raise ValueError("a fin-steered vehicle runs on the stand-in physics: MuJoCo here takes a wrench, and a fin's force depends "
+                             "on the flow (FINS.md)")
         from mujoco_backend import MuJoCoArenaCore
         self._core = MuJoCoArenaCore(params, vehicle, sim_config)
 
@@ -332,7 +335,14 @@ class FleetSim:
         Returns (obs list, shared reward, terminated, truncated, info)."""
         norm = [np.clip(np.asarray(a, dtype=float), -1.0, 1.0) for a in actions]
         taus = [a * self.cfg.action_bound for a in norm]
-        if self.cfg.thrusters is not None:
+        act = getattr(self.cores[0], "vehicle", None)
+        act = act.actuators if act is not None else None
+        if act is not None:   # a fin vehicle: each action asks its propeller and fins, not for a force
+            from fin_force import action_controls
+            for core, a in zip(self.cores, norm):
+                core.controls = action_controls(act, a)
+            taus = [np.zeros(6) for _ in norm]
+        elif self.cfg.thrusters is not None:
             taus = [self.cfg.thrusters.achievable_wrench(t) for t in taus]
         current_now = None
         if self._current is not None:

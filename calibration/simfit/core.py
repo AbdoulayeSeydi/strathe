@@ -277,6 +277,7 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
 
     x0 = knobs.x0()
     r0 = fun(x0)  # cached: least_squares' first evaluation reuses it
+    x0 = scan_fin_lift(lambda x: 0.5 * float(fun(x) @ fun(x)), x0, knobs.names(), lo, hi, log)
     res = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf", max_nfev=max_iterations, x_scale=1.0)
     out = {"x": res.x.tolist(), "names": knobs.names(), "values": knobs.values(res.x), "axis_scales": scale.tolist(),
            "start_cost": 0.5 * float(r0 @ r0),
@@ -284,6 +285,29 @@ def fit(simulate, train: list, knobs, work: str, workers: int = 4, max_iteration
     best["x"], best["cost"] = res.x, float(res.cost)
     save(complete=True, status=res.message)
     return out
+
+
+# not round numbers: nothing about a model makes a factor of two likely
+FIN_SCAN_FACTORS = (0.3, 0.42, 0.6, 0.85, 1.2, 1.7, 2.4)
+
+
+def scan_fin_lift(cost, x0, names, lo, hi, log=lambda s: None):
+    """Where to start a fit with fin lift in it. A vehicle that turns hard goes round in circles, so past the true lift the position error is
+    periodic and a local search stays where it starts (#97, S-mujoco: 3.44 from a start of 4, truth 2). A few lifts, tried first, find the valley.
+    Fin knobs are log factors, so a factor is an offset. No fin knob: nothing happens."""
+    fins = [i for i, n in enumerate(names) if "fin" in n.lower() or n == "CL_delta"]
+    if not fins:
+        return x0
+    best, best_c = np.array(x0, dtype=float), cost(x0)
+    for k in FIN_SCAN_FACTORS:
+        x = np.array(x0, dtype=float)
+        x[fins] = np.clip(x[fins] + math.log(k), lo[fins], hi[fins])
+        c = cost(x)
+        if c < best_c:
+            best, best_c = x, c
+    if not np.array_equal(best, x0):
+        log(f"  starting from fin lift x{math.exp(best[fins[0]] - x0[fins[0]]):.2f}, the best of {len(FIN_SCAN_FACTORS)} tried")
+    return best
 
 
 def finish_from_checkpoint(checkpoint: str, knobs, fingerprint: dict = None) -> dict:

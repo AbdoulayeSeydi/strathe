@@ -268,6 +268,13 @@ given here is refused with an explanation.
 95% CI), `--buoyancy -3`, and `--algorithm sac|td3` (the settings validated for
 one vehicle in PROJECT_STATUS.md #37). All are on the web form.
 
+## A fin-steered lab's journey
+
+The same steps, with three changes. `strathe describe-vehicle --steering fin` writes the fins; `templates/ingest_fin_csv.yaml` (or MOOS, ROS)
+names the fin and rpm channels; and the report's "Flying on its own" section is the one to read first. `strathe fin-check` is a quick first
+look at a log. The first line of every command, and the report's banner, say which kind of vehicle this is. Stress rows `J-cli-fin` and
+`J-web-fin` follow this path from nothing to a report ([FINS.md](FINS.md)).
+
 ## Scope limits a lab should know before starting
 
 The full list, with what to do about each, is in [`LIMITS.md`](../LIMITS.md). The short version:

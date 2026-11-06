@@ -57,6 +57,7 @@ class Propeller:
     position_m: tuple = (0.0, 0.0, 0.0)
     spin: float = 1.0           # +1: reaction torque rolls to starboard for forward thrust; -1 the other way
     gimbal: bool = False        # a vectored thruster: two angle columns follow rpm
+    max_rpm: float = 1500.0     # what a full action asks for in an experiment
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,23 @@ def actuator_wrench(act: Actuators, fins: tuple, params, v, c, sr: float, cr: fl
         Y -= dB * cp * sr
         Z -= dB * cp * cr
     return [X, Y, Z, K, M, N]
+
+
+def action_controls(act: Actuators, action) -> list:
+    """An experiment's action, six numbers in [-1, 1] (surge, sway, heave, roll, pitch, yaw), as this vehicle's controls: surge asks the
+    propeller, roll, pitch and yaw ask the fins (or gimbal) through the same mixing logs use. Sway and heave ask nothing of a fin vehicle."""
+    _, _, _, roll, pitch, yaw = (float(x) for x in action)
+    c = [max(-f.limit_rad, min(f.limit_rad, f.limit_rad * (f.mix[0] * roll + f.mix[1] * pitch + f.mix[2] * yaw))) for f in act.fins]
+    p = act.propeller
+    if p is not None:
+        c.append(float(action[0]) * p.max_rpm)
+        if p.gimbal:
+            c += [.3 * pitch, .3 * yaw]
+    if act.moving_mass is not None:
+        c.append(0.0)
+    if act.buoyancy_engine:
+        c.append(0.0)
+    return c
 
 
 def other_wrench(act: Actuators, nu, roll_pitch, controls, thrust_scale: float = 1.0):

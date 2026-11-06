@@ -399,10 +399,14 @@ class Arena(gym.Env):
         if backend == "stand_in":
             self._core = ArenaCore(params, vehicle, sim_config)
         elif backend == "mujoco":
+            if vehicle.actuators is not None:
+                raise ValueError("a fin-steered vehicle runs on the stand_in backend: MuJoCo here takes a wrench, and a fin's force "
+                                 "depends on the flow (FINS.md)")
             from mujoco_backend import MuJoCoArenaCore
             self._core = MuJoCoArenaCore(params, vehicle, sim_config)
         else:
             raise ValueError(f"backend must be 'stand_in' or 'mujoco', got {backend!r}")
+        self._actuators = vehicle.actuators
         self.backend = backend
         if disturbance is not None:
             disturbance.validate()
@@ -485,7 +489,11 @@ class Arena(gym.Env):
                           self.action_space.low, self.action_space.high)
         self._last_action = action  # available to any task that needs it (e.g. control-effort reward)
         tau = action * self._action_bound  # rescale [-1,1] -> real force/torque units
-        if self._thrusters is not None:
+        if self._actuators is not None:   # a fin vehicle: the action asks its propeller and fins, not for a force
+            from fin_force import action_controls
+            self._core.controls = action_controls(self._actuators, action)
+            tau = np.zeros(6)
+        elif self._thrusters is not None:
             tau = self._thrusters.achievable_wrench(tau)
         self._core.current_world = None if self._current is None else self._current.next()
         push = None if self._disturbance is None else self._disturbance.next()

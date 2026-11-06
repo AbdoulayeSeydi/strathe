@@ -253,13 +253,15 @@ def test_strathe_check_says_what_the_stonefish_build_supports(tmp_path):
         assert want in cli.stonefish_status(str(tool)), out
 
 
-def test_stonefish_runs_in_docker_with_its_folders_mounted(monkeypatch):
+def test_stonefish_runs_in_docker_with_its_folders_mounted(monkeypatch, tmp_path):
     """--replay-tool docker:IMAGE: nothing to build (PROJECT_STATUS.md #87)."""
     import shutil
     import sim_docker
-    data, world, work = (os.path.abspath(p) for p in ("/data", "/w/world.scn", "/work"))
+    data, world, work = str(tmp_path), *(os.path.abspath(p) for p in ("/w/world.scn", "/work"))
     r = SF.Replay(["docker:strathe-stonefish-replay"], data, "auv", (-0.76, 0.0, 0.0))
-    argv = r._argv(world, (work,))
+    with monkeypatch.context() as m:   # a real folder would get the real share check, and this machine needn't have Docker
+        m.setattr(sim_docker, "check_shared", lambda *a: None)
+        argv = r._argv(world, (work,))
     assert argv[:3] == ["docker", "run", "--rm"]
     for d in (data, os.path.dirname(world), work):  # on Windows D:\data is mounted at /d/data
         assert f"{d}:{sim_docker.inside(d)}" in argv

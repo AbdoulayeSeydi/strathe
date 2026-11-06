@@ -22,6 +22,15 @@ python strathe.py ingest --spec my_vehicle.yaml --out converted/            # or
 `python strathe.py check` says whether `pyulog` and `lcm` are installed. On the web page (`python strathe.py web`),
 "Convert logs" takes your spec, and "Calibrate a vehicle" takes it as the ingestion spec.
 
+## Fin-steered vehicles
+
+Every format here reads fin angles and propeller rpm. Add a `fins:` block and a `propeller:` block to the spec, and name the channels the
+way the rest of that spec does ([FINS.md](FINS.md)). Each way of stating a channel is tested through each format: degrees, radians, percent
+and PWM, measured or commanded, either sign, and rpm, gimbal, moving mass and buoyancy in each unit. ArduPilot and ROS logs hold servo
+outputs, so there the fins are PWM channels. `templates/ingest_fin_moos.yaml` and `ingest_fin_rosbag.yaml` are the starting points.
+
+A DUNE/IMC log isn't read directly: export it to CSV and use `templates/ingest_fin_csv.yaml`.
+
 ## Naming what to read
 
 Each format has its own way of naming a column. Every other part of the spec is the same as for CSV and bags:

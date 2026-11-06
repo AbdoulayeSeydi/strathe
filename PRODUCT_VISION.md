@@ -233,9 +233,9 @@ just what's missing but why it matters.
 
 ### A. Vehicle & physics generality
 
-2. **Torpedo AUV support** — see Part 1, Step 1. A second, comparably-sized
-   integration effort using HoloOcean's native Fossen customization.
-   Blocks any customer whose vehicle isn't hovering-style.
+2. **Torpedo AUV support** — built as Fin Steer (PROJECT_STATUS.md #97,
+   calibration/FINS.md): fin, vectored and hybrid vehicles, in every
+   simulator. How far it's proven is in LIMITS.md.
 3. **Thruster allocation/dynamics** — real PWM-to-thrust mapping (deadband,
    motor response lag, saturation, nonlinear thrust curve). This MVP
    always assumed clean, pre-computed net force/torque already existed in

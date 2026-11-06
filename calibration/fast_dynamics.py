@@ -206,6 +206,8 @@ class FastCore:
             self.R = [[float(x) for x in row] for row in orientation.as_matrix()]
         return self.state
 
+    controls = None   # a fin vehicle's fin angles and rpm for the next step (fin_force.action_controls)
+
     def step(self, tau):
         tau = [float(x) for x in self._lag.step(tau, self.params.thruster_time_constant_s, self._dt)]
         v = self.nu
@@ -223,12 +225,14 @@ class FastCore:
                 pos = [pos[i] + (R[i][0] * u + R[i][1] * vv + R[i][2] * w) * dt for i in range(3)]
                 if Vc is None:
                     R = _matmul3(R, _rotvec_matrix(v[3] * dt, v[4] * dt, v[5] * dt))
-                    vd = acc(v, tau, roll, pitch)
+                    vd = acc(v, tau, roll, pitch) if self.controls is None else self.dyn.acceleration_trig(
+                        v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch), None, self.controls)
                 else:
                     # current in body axes at the START of the sub-step (same R as the kinematics)
                     cb = [R[0][i] * Vc[0] + R[1][i] * Vc[1] + R[2][i] * Vc[2] for i in range(3)]
                     R = _matmul3(R, _rotvec_matrix(v[3] * dt, v[4] * dt, v[5] * dt))
-                    vd = self.dyn.acceleration_current(v, tau, roll, pitch, cb)
+                    vd = self.dyn.acceleration_trig(v, tau, math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch), cb,
+                                                    self.controls)
                 v = [v[i] + vd[i] * dt for i in range(6)]
         except (OverflowError, ValueError) as e:
             # math.sin/sqrt raise instead of returning inf/nan once a diverging

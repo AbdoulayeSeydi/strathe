@@ -252,3 +252,7 @@ calibration, position error after 10 / 30 / 60 s on the unseen mission):
   shows it.
 - **Odd fitted values** (drag far from the shape's, values at their limits) mean the logs don't pin them down.
   Manoeuvres at several speeds help.
+
+## Fin-steered vehicles
+
+Give `--spec` with your vehicle description: each fin is a `rudder` actuator `fin_<name>`. `--fit fins` tunes their `lift_coeff`; `export-stonefish --spec` writes each fin its own. See [FINS.md](../FINS.md).

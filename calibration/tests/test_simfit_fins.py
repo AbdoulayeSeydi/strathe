@@ -172,3 +172,157 @@ def test_stonefish_rudders_are_valid_and_tunable():
     assert len(ET.fromstring(f"<r>{text}</r>").findall("actuator")) == 4 and len(RUDDER_LIFT.findall(text)) == 1 + 3
     out = apply_part_settings(text, "none", PartSettings(fin_lift=7.5))
     assert out.count('lift_coeff="7.5"') == 4
+
+
+def test_gazebos_report_can_say_what_the_fin_fit_changed(tmp_path):
+    """#97: S-gazebo found the lift, then fit-sim died writing the report: the knob's place isn't an XML path."""
+    from simfit.adapters.gazebo import GazeboAdapter
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0)
+    world = tmp_path / "w.sdf"
+    world.write_text(f"""<?xml version="1.0"?><sdf version="1.11"><world name="w"><model name="v">
+      <link name="base_link"><inertial><mass>30</mass><inertia><ixx>1</ixx><iyy>1</iyy><izz>1</izz></inertia></inertial></link>{links}
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics"><link_name>base_link</link_name><xU>-5</xU></plugin>
+      {plugins}</model></world></sdf>""")
+    ad = GazeboAdapter(str(world), link="base_link")
+    said = "\n".join(ad.changes({"fin_cla": 1.5}))
+    assert "fin lift slope" in said and "1.5" in said
+
+
+def test_a_replay_that_only_spoke_on_stdout_is_still_heard():
+    from types import SimpleNamespace as N
+    from simfit.replay_tool import why_failed
+    assert why_failed(N(stderr="", stdout="[ERROR] no mesh", returncode=1)) == "[ERROR] no mesh"
+    assert "exit code 3" in why_failed(N(stderr="", stdout="", returncode=3))
+
+
+def test_a_data_folder_inside_the_image_isnt_mounted_over(tmp_path, monkeypatch):
+    import stonefish_fit as sf
+    monkeypatch.setattr(sf.sim_docker, "check_shared", lambda *a: None)
+    rp = sf.Replay(["docker:img"], "/not/on/this/host", "auv", (0, 0, 0))
+    argv = rp._argv(str(tmp_path / "a.scn"))
+    assert not any("/not/on/this/host:" in a for a in argv)
+
+
+def _gazebo_with_fins(tmp_path, area_scale=1.0):
+    from simfit.adapters.gazebo import GazeboAdapter
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0)
+    a = FULL.fins[0].area_m2
+    plugins = plugins.replace(f"<area>{a:.6g}</area>", f"<area>{a * area_scale:.6g}</area>")
+    world = tmp_path / "w.sdf"
+    world.write_text(f"""<?xml version="1.0"?><sdf version="1.11"><world name="w"><model name="v">
+      <link name="base_link"><inertial><mass>30</mass><inertia><ixx>1</ixx><iyy>1</iyy><izz>1</izz></inertia></inertial></link>{links}
+      <plugin filename="gz-sim-hydrodynamics-system" name="gz::sim::systems::Hydrodynamics"><link_name>base_link</link_name><xU>-5</xU></plugin>
+      {plugins}</model></world></sdf>""")
+    return GazeboAdapter(str(world), link="base_link")
+
+
+def _lifted(a=3.0, b=5.0):
+    from types import SimpleNamespace as N
+    return N(fin_lift_slope_a=a, fin_lift_slope_b=b, fin_inflow_a=.4, fin_inflow_b=.5, fin_bias_roll=0.0, fin_bias_pitch=0.0, fin_bias_yaw=0.0)
+
+
+def test_each_fin_gets_its_groups_lift_and_area_keeps_the_force():
+    """#97: export-sim left a fin vehicle's lift out and said nothing."""
+    p = _lifted()
+    full = fm.lifts_for_export(FULL, p, {f.name: f.area_m2 for f in FULL.fins}, "Gazebo")
+    assert all(full[f.name] == pytest.approx(5.0 if f.group else 3.0) for f in FULL.fins)
+    half = fm.lifts_for_export(FULL, p, {f.name: f.area_m2 / 2 for f in FULL.fins}, "Gazebo")
+    assert all(abs(half[k] - 2 * full[k]) < 1e-12 for k in full)
+
+
+def test_a_fin_the_model_lacks_is_refused_by_name():
+    from simfit.core import SimFitError
+    areas = {f.name: f.area_m2 for f in FULL.fins[1:]}
+    with pytest.raises(SimFitError, match=FULL.fins[0].name):
+        fm.lifts_for_export(FULL, _lifted(), areas, "Gazebo")
+
+
+def test_a_fin_calibration_with_no_fins_described_is_refused_not_dropped():
+    from simfit.core import SimFitError
+    with pytest.raises(SimFitError, match="--spec"):
+        fm.require_actuators(_lifted(), None, "--spec")
+    fm.require_actuators(_lifted(0.0, 0.0), None, "--spec")   # a hover calibration: nothing to say
+
+
+def test_gazebo_writes_each_fins_own_lift(tmp_path):
+    ad = _gazebo_with_fins(tmp_path)
+    f0, f1 = FULL.fins[0], next(f for f in FULL.fins if f.group != FULL.fins[0].group)
+    text = ad._edit({f"fin_cla:{f0.name}": 3.25, f"fin_cla:{f1.name}": 5.5})
+    import re
+    got = {re.search(r"fin_(.+?)_link</link_name>", m).group(1): re.search(r"<cla>([^<]+)", m).group(1) for m in re.findall(r"<plugin\b[^>]*LiftDrag.*?</plugin>", text, re.S)}
+    assert got[f0.name] == "3.25" and got[f1.name] == "5.5"
+    assert "lift slope" in "\n".join(ad.changes({f"fin_cla:{f0.name}": 3.25}))
+
+
+def test_stonefish_writes_each_fins_own_lift():
+    from stonefish_fit import PartSettings, apply_part_settings
+    text = fm.stonefish_fins(FULL, "Hull")
+    names = [f.name for f in FULL.fins]
+    out = apply_part_settings(text, "Nope", PartSettings(fin_lifts={f"fin_{names[0]}": 3.25, f"fin_{names[1]}": 5.5}))
+    import re
+    got = dict(re.findall(r'<actuator name="(fin_[^"]+)" type="rudder">\s*<specs lift_coeff="([^"]+)"', out))
+    assert got[f"fin_{names[0]}"] == "3.25" and got[f"fin_{names[1]}"] == "5.5"
+
+
+def test_stonefish_reads_each_rudders_area():
+    from stonefish_export import RUDDER_AREA
+    found = dict(RUDDER_AREA.findall(fm.stonefish_fins(FULL, "Hull")))
+    assert {f"fin_{f.name}" for f in FULL.fins} == set(found)
+    assert abs(float(found[f"fin_{FULL.fins[0].name}"]) - FULL.fins[0].area_m2) < 1e-9
+
+
+def test_no_two_replays_share_a_path(tmp_path):
+    from simfit.replay_tool import fresh_paths
+    assert fresh_paths(str(tmp_path)) != fresh_paths(str(tmp_path))
+
+
+def test_mujocos_fins_stand_along_their_spans():
+    """#97, C-cross-measured-mujoco: every generated fin lay flat, so its hinge barely changed its lift: a cross turned 430 times too little."""
+    mujoco = pytest.importorskip("mujoco")
+    xml = f"""<mujoco><worldbody><body name="auv"><freejoint/><inertial pos="0 0 0" mass="30" diaginertia="1 10 10"/>{fm.mjcf_fins(FULL)}</body></worldbody></mujoco>"""
+    m = mujoco.MjModel.from_xml_string(xml)
+    d = mujoco.MjData(m)
+    mujoco.mj_forward(m, d)
+    for f in FULL.fins:
+        R = d.geom_xmat[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"fin_{f.name}_geom")].reshape(3, 3)
+        span = np.array(fm._flu(f.span_axis))
+        assert abs(R[:, 1] @ span) == pytest.approx(1.0, abs=1e-9), f"{f.name}: its long axis isn't its span"
+        assert abs(R[:, 0] @ np.array([1.0, 0, 0])) == pytest.approx(1.0, abs=1e-9), f"{f.name}: its chord isn't along the flow"
+
+
+def test_a_generated_model_starts_each_fin_at_its_groups_lift():
+    p = _lifted(3.25, 5.5)
+    links, plugins = fm.sdf_fins(FULL, "base_link", 1000.0, params=p)
+    import re
+    got = {re.search(r"fin_(.+?)_link</link_name>", m).group(1): float(re.search(r"<cla>([^<]+)", m).group(1)) for m in re.findall(r"<plugin\b.*?</plugin>", plugins, re.S)}
+    assert all(got[f.name] == pytest.approx(5.5 if f.group else 3.25) for f in FULL.fins)
+
+
+def test_a_fit_starting_far_off_on_a_rough_cost_finds_the_valley():
+    """S-mujoco's cost: a clean valley at the true lift, a rough plateau past it, where a local search stays."""
+    from simfit import core
+    import math
+
+    def cost(x):
+        lift = 4.0 * math.exp(x[0])
+        return min((lift - 2.0) ** 2, 1.0) + (.05 * math.sin(40 * lift) if lift > 3 else 0.0)
+    x = core.scan_fin_lift(cost, np.array([0.0]), ["fin_cla"], np.array([-3.0]), np.array([3.0]))
+    assert 1.5 < 4.0 * math.exp(x[0]) < 2.6
+
+
+def test_the_scan_leaves_other_knobs_and_hover_fits_alone():
+    from simfit import core
+    calls = []
+    x0 = np.array([.1, 0.0])
+    assert core.scan_fin_lift(lambda x: calls.append(1) or 1.0, x0, ["Xu", "added_mass_x"], np.full(2, -3.), np.full(2, 3.)) is x0
+    assert not calls, "a hover fit must spend nothing on it"
+    x = core.scan_fin_lift(lambda x: abs(x[1] + .5), x0, ["Xu", "fin_lift"], np.full(2, -3.), np.full(2, 3.))
+    assert x[0] == .1 and x[1] != 0.0
+
+
+@pytest.mark.parametrize("command", ["fit", "export"])
+@pytest.mark.parametrize("sim", ["gazebo", "mujoco", "holoocean", "external"])
+def test_both_commands_take_the_vehicle_description_on_every_simulator(command, sim):
+    """#97, E-gazebo: export-sim refused --spec, the option FINS.md tells labs to give it."""
+    from simfit import cli
+    assert "--spec" in [o for a in cli.build_parser(command, sim)._actions for o in a.option_strings]
