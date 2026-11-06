@@ -579,7 +579,18 @@ def skill_vs_zero(model_rmse: np.ndarray, zero_rmse: np.ndarray) -> np.ndarray:
         return 1.0 - np.asarray(model_rmse, dtype=float) / np.asarray(zero_rmse, dtype=float)
 
 
-def residuals_for_run(
+def residuals_for_run(params: ParamsLike, run: RunData, vehicle: VehicleConstants, dof_scales: Optional[np.ndarray] = None, normalize_by_run_length: bool = True,
+                      simulate_fn: Optional[SimulateFn] = None, horizon_samples: Optional[int] = None) -> np.ndarray:
+    """What the optimizer minimizes for one recording: replay_residuals, and in a fin vehicle's second stage the model's own flights as well (fin_fit.py, #97)."""
+    r = replay_residuals(params, run, vehicle, dof_scales, normalize_by_run_length, simulate_fn, horizon_samples)
+    flights = run.__dict__.get("_flights")
+    if flights is None:
+        return r
+    from fin_fit import flight_residuals
+    return np.r_[r, flight_residuals(_coerce_params(params), run, vehicle, flights)]
+
+
+def replay_residuals(
     params: ParamsLike,
     run: RunData,
     vehicle: VehicleConstants,

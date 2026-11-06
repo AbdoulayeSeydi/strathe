@@ -239,3 +239,94 @@ def test_a_fin_fit_left_to_its_default_reports_the_window_it_used(tmp_path):
         if "converge" not in str(e):
             raise
     assert cc.horizon_samples == 20
+
+
+def _flight_run(tmp_path, **kw):
+    from objective import DatasetConfig, load_run
+    spec = load_vehicle_spec(TEMPLATE)
+    f = tmp_path / "fin-01-10-2026-run1.csv"
+    recording(1, **kw).to_csv(f, index=False)
+    dc = DatasetConfig(10.0, (0.0, 0.0, 0.0), None, None, sensors=("velocity",), actuators=spec.vehicle.actuators)
+    return load_run(str(f), dc), spec
+
+
+def test_flights_score_a_wrong_model_and_only_in_the_second_stage(tmp_path):
+    import fin_fit
+    from objective import residuals_for_run
+    run, spec = _flight_run(tmp_path)
+    p = TRUTH
+    plain = residuals_for_run(p, run, spec.vehicle, horizon_samples=20)
+    assert fin_fit.plan_flights([run]) > 0
+    both = residuals_for_run(p, run, spec.vehicle, horizon_samples=20)
+    assert len(both) > len(plain) and np.array_equal(both[:len(plain)], plain)
+    wrong = replace(p, fin_lift_slope_a=p.fin_lift_slope_a * 2)
+    worse = residuals_for_run(wrong, run, spec.vehicle, horizon_samples=20)[len(plain):]
+    # heading: this recording's roll and pitch are made up, its heading is the model's own
+    assert np.sum(worse[2::3] ** 2) > 2 * np.sum(both[len(plain):][2::3] ** 2)
+    fin_fit.clear_flights([run])
+    assert len(residuals_for_run(p, run, spec.vehicle, horizon_samples=20)) == len(plain)
+
+
+def test_a_flight_that_diverges_is_a_bad_score_not_a_crash(tmp_path, monkeypatch):
+    import fin_fit
+    import validation
+    run, spec = _flight_run(tmp_path)
+    fin_fit.plan_flights([run])
+    monkeypatch.setattr(validation, "free_run", lambda *a, **k: None)
+    r = fin_fit.flight_residuals(initial_parameters(spec), run, spec.vehicle, run.__dict__["_flights"])
+    assert np.isfinite(r).all() and np.abs(r).max() > 0
+
+
+def test_a_recording_too_short_to_fly_has_no_flights(tmp_path):
+    import fin_fit
+    run, _ = _flight_run(tmp_path)
+    short = replace(run, forces_torques=run.forces_torques[:30], roll_pitch=run.roll_pitch[:30], real_nu=run.real_nu[:30],
+                    orientation_quat=run.orientation_quat[:30], controls=run.controls[:30])
+    assert fin_fit.plan_flights([short]) == 0 and "_flights" not in short.__dict__
+
+
+def _stage_config(tmp_path, nfev=2):
+    cc = CalibrationConfig(max_nfev=nfev, seed=3, initialization_strategy="fixed", x0_override=initial_parameters(load_vehicle_spec(TEMPLATE)).to_vector())
+    return PipelineConfig(data_dir=str(dataset(tmp_path / "data")), spec_path=str(TEMPLATE), output_dir=str(tmp_path / "out"), sampling_rate_hz=10.0, heldout_dates=[DATES[1]],
+                          heldout_fraction=0.5, calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0))
+
+
+def test_the_second_stage_runs_even_when_the_first_ran_out_of_budget(tmp_path, monkeypatch):
+    import run_calibration as rc
+    seen = {}
+    real = rc.fin_flight_stage
+
+    def spy(config, spec, runs, first, info, stopped=None):
+        seen.update(first=first, stopped=stopped)
+        return real(config, spec, runs, first, info, stopped)
+    monkeypatch.setattr(rc, "fin_flight_stage", spy)
+    try:
+        run_pipeline(_stage_config(tmp_path, nfev=1))
+    except Exception as e:
+        if "converge" not in str(e):
+            raise
+    assert "stopped" in seen and (seen["first"] is not None or seen["stopped"] is not None)
+
+
+def test_the_second_stage_starts_its_checkpoint_afresh(tmp_path, monkeypatch):
+    """Its cost has flights in it, so it can't be compared with the first stage's: a shared best would keep the first stage's values."""
+    import run_calibration as rc
+    made = []
+    monkeypatch.setattr(rc, "make_checkpoint_callback", lambda p: made.append(p) or (lambda *a: None))
+    monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: cc)
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    cfg = _stage_config(tmp_path)
+    cfg.checkpoint_path = str(tmp_path / "checkpoint.yaml")
+    cfg.calibration_config.on_iteration = lambda *a: None
+    first = type("F", (), {"parameters": initial_parameters(load_vehicle_spec(TEMPLATE))})()
+    second = rc.fin_flight_stage(cfg, None, [], first, {"plain": []})
+    assert made == [cfg.checkpoint_path] and second.on_iteration is not cfg.calibration_config.on_iteration
+    assert second.max_nfev <= 25 and second.n_restarts == 1
+
+
+def test_a_budget_stopped_first_stage_with_nothing_to_fly_stops_as_it_would_have(tmp_path):
+    import run_calibration as rc
+    stopped = RuntimeError("budget")
+    with pytest.raises(RuntimeError, match="budget"):
+        rc.fin_flight_stage(_stage_config(tmp_path), None, [type("R", (), {"sample_rate_hz": 10.0, "orientation_quat": None, "n_samples": 5})()],
+                            None, {"plain": []}, stopped)

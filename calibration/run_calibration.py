@@ -164,6 +164,33 @@ AUTO_RESTART_EXACT = 1e-3   # a fit whose training error is below this fraction 
 AUTO_RESTARTS = 3         # up to this many more starting points when it doesn't
 
 
+def fin_flight_stage(config, loaded_spec, train_runs, first, fin_info: dict, stopped=None):
+    """A fin vehicle's second stage: on from the first stage's values, with the model's own flights in the objective (fin_fit.py). first: the first stage's
+    result, or None with stopped, its RestartsFailed, when it ran out of budget: it goes on from where it stopped, and a fit with nothing to fly stops as it would have."""
+    import fin_fit
+    from dataclasses import replace as _replace
+    count = fin_fit.plan_flights(train_runs)
+    fin_info["flights"] = count
+    if not count:
+        logger.warning("Fins: these recordings are too short to fly %.0f s, so the fit never saw the vehicle fly itself", fin_fit.FLIGHT_S)
+        fin_info["plain"].append(f"These recordings are too short to fly {fin_fit.FLIGHT_S:.0f} s, so the fit never saw the vehicle fly itself.")
+        if first is None:
+            raise stopped
+        return first
+    logger.info("Fins: fitting on, with %d flights of %.0f s scored as well", count, fin_fit.FLIGHT_S)
+    fin_info["plain"].append(f"After fitting short windows, the fit went on with {count} flights of {fin_fit.FLIGHT_S:.0f} s, where the model flies itself.")
+    cc = config.calibration_config
+    start = first.parameters.to_vector() if first is not None else min(stopped.restarts, key=lambda r: r.cost).x
+    # costs of the two stages can't be compared, so this stage's checkpoint starts afresh
+    second = _replace(cc, x0_override=start, n_restarts=1, initialization_strategy="fixed",
+                      max_nfev=min(cc.max_nfev, fin_fit.FLIGHT_MAX_NFEV) if cc.max_nfev else fin_fit.FLIGHT_MAX_NFEV,
+                      on_iteration=make_checkpoint_callback(config.checkpoint_path) if cc.on_iteration and config.checkpoint_path else cc.on_iteration)
+    try:
+        return calibrate_parallel(loaded_spec, train_runs, second, max_workers=config.max_workers) if config.parallel else calibrate(loaded_spec, train_runs, second)
+    finally:
+        fin_fit.clear_flights(train_runs)
+
+
 def fit_with_retry(loaded_spec, train_runs, cc: CalibrationConfig, default_params, vehicle,
                    checkpoint_path: Optional[str] = None) -> tuple:
     """calibrate(), and for a fit from one cold starting point, up to AUTO_RESTARTS more starts when the first fails.
@@ -915,15 +942,23 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
                 config.calibration_config.n_restarts, config.calibration_config.loss,
                 config.calibration_config.seed)
     t_cal = time.monotonic()
-    if config.parallel:
-        cal_result = calibrate_parallel(loaded_spec, train_runs, config.calibration_config,
-                                         max_workers=config.max_workers)
-    else:
-        cal_result, auto_restart = fit_with_retry(loaded_spec, train_runs, config.calibration_config,
-                                                  default_params, vehicle, config.checkpoint_path)
-    if sensor_info is not None and config.anchor_rounds > 1:
+    stopped = None
+    try:
+        if config.parallel:
+            cal_result = calibrate_parallel(loaded_spec, train_runs, config.calibration_config,
+                                             max_workers=config.max_workers)
+        else:
+            cal_result, auto_restart = fit_with_retry(loaded_spec, train_runs, config.calibration_config,
+                                                      default_params, vehicle, config.checkpoint_path)
+    except RestartsFailed as e:
+        if fin_info is None:
+            raise
+        cal_result, stopped = None, e
+    if sensor_info is not None and config.anchor_rounds > 1 and cal_result is not None:
         cal_result = sensor_anchor_rounds(config, loaded_spec, train_runs, heldout_runs, cal_result, vehicle,
                                           sensor_info)
+    if fin_info is not None:
+        cal_result = fin_flight_stage(config, loaded_spec, train_runs, cal_result, fin_info, stopped)
     calibration_s = time.monotonic() - t_cal
     logger.info("Calibration converged: %s (%d/%d restarts), cost=%.6g (%.2fs)",
                 cal_result.converged, cal_result.stability["n_converged"],

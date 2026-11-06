@@ -275,6 +275,8 @@ MUTANTS = {"M-flip-moment": ("fin_force.py", "N += x * fy - y * fx", "N -= x * f
            "M-same-replay-path": ("simfit/replay_tool.py", 'd = tempfile.mkdtemp(prefix="replay_", dir=work_dir)', "d = work_dir", "tests/test_simfit_fins.py"),
            "M-silent-replay": ("simfit/replay_tool.py", 'said = (r.stderr or "").strip() or (r.stdout or "").strip()', 'said = (r.stderr or "").strip()', "tests/test_simfit_fins.py"),
            "M-mount-over-image": ("stonefish_fit.py", "if os.path.isdir(self.data_dir):", "if True:", "tests/test_simfit_fins.py"),
+           "M-no-flight-stage": ("run_calibration.py", "    if fin_info is not None:\n        cal_result = fin_flight_stage(", "    if False:\n        cal_result = fin_flight_stage(", "tests/test_fin_calibration.py"),
+           "M-flights-unscored": ("objective.py", '    flights = run.__dict__.get("_flights")\n    if flights is None:', '    flights = None\n    if flights is None:', "tests/test_fin_calibration.py"),
            "M-finish-crash": ("finalize_checkpoint.py", '    if sensor_info is not None:\n        metrics["sensor_suite"]', '    if sensor_info is not None:\n        from run_calibration import _jsonable\n        metrics["sensor_suite"]', "tests/test_fin_calibration.py"),
            "M-no-fin-scan": ("simfit/core.py", "    if not fins:\n        return x0\n", "    return x0\n", "tests/test_simfit_fins.py"),
            "M-no-guard": ("fin_fit.py", 'if g is not None and g["swing_deg"] < MIN_FIN_SWING_DEG:', "if False:", "tests/test_fin_calibration.py")}

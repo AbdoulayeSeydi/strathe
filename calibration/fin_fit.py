@@ -12,8 +12,10 @@ it isn't held). The report says what the logs covered, and a group of fins that 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from dynamics_model import MASS_COUPLINGS
 from fin_force import Actuators, Fin
@@ -146,6 +148,77 @@ def few_manoeuvres(env: dict) -> list:
 # against 0.69. A stable vehicle lost nothing: Fossen's REMUS flew 30 s to 1.9 degrees, from 2.7. --prediction-horizon-s overrides it.
 FIN_WINDOW_S = 2.0
 FIN_MIN_WINDOW_SAMPLES = 5   # a slow log's window still needs a few samples to say anything
+
+
+# Windows alone aren't enough. Every window feeds the logged attitude back in, so no fit sees what its own pitch does: Prestero's 2 s fit beat his true values tenfold on
+# its training windows and still missed pitch by 4.2 degrees after 5 s of flying itself. So a second stage goes on from the first with flights in the objective: from
+# real states the model flies itself, on its own attitude, and its roll, pitch and heading are scored against the log. On his unseen recordings that took 5 s pitch to
+# 1.05 degrees, under the published values' 1.74, and held 30 s under his autopilot to 1.7 degrees, 1.5 degrees and 0.24 m at each flight's worst moment.
+FLIGHT_S = 10.0              # 5 s reached 1.87 degrees, 10 s 1.05: longer is what pins the unstable mode
+FLIGHT_SAMPLE_S = 0.5
+FLIGHT_MIN_SAMPLES = 5
+FLIGHT_MAX_NFEV = 25         # it starts from a fit, so it has refining to do, not searching
+FLIGHT_LOST = 10.0           # a flight that diverged, in the residual's scaled units
+
+
+@dataclass(frozen=True)
+class Flights:
+    """One recording's flights: where each starts, how long, every how many samples it's scored, and the logged attitude."""
+    starts: tuple
+    samples: int
+    every: int
+    logged: np.ndarray       # (N, 3) roll, pitch, yaw
+    scale: np.ndarray        # (3,) what assuming the attitude holds gets wrong over a flight, rad
+
+
+def _wrap(a):
+    return (a + np.pi) % (2 * np.pi) - np.pi
+
+
+def plan_flights(train_runs: list) -> int:
+    """Put a Flights on each training recording long enough to have one; objective.residuals_for_run then scores them. Returns how many flights."""
+    rate = train_runs[0].sample_rate_hz
+    n = max(FLIGHT_MIN_SAMPLES, int(round(FLIGHT_S * rate))) + 1
+    every = max(1, int(round(FLIGHT_SAMPLE_S * rate)))
+    plans, hold = [], []
+    for run in train_runs:
+        if run.orientation_quat is None or run.n_samples < n:
+            plans.append(None)
+            continue
+        logged = Rotation.from_quat(run.orientation_quat).as_euler("xyz")
+        starts = tuple(range(0, run.n_samples - n + 1, n - 1))
+        hold += [_wrap(logged[a + n - 1] - logged[a]) for a in starts]
+        plans.append((starts, logged))
+    if not hold:
+        return 0
+    scale = np.maximum(np.sqrt(np.mean(np.square(hold), axis=0)), 1e-3)
+    count = 0
+    for run, p in zip(train_runs, plans):
+        if p is not None:
+            run.__dict__["_flights"] = Flights(p[0], n, every, p[1], scale)
+            count += len(p[0])
+    return count
+
+
+def clear_flights(train_runs: list) -> None:
+    for run in train_runs:
+        run.__dict__.pop("_flights", None)
+
+
+def flight_residuals(params, run, vehicle, plan: Flights) -> np.ndarray:
+    """Each flight's attitude error through its length, in units of plan.scale, weighted so a recording's flights count as one unit per axis."""
+    from validation import free_run
+    n, k = plan.samples, plan.every
+    width = len(range(k, n, k)) * 3
+    out = []
+    for a in plan.starts:
+        got = free_run(params, vehicle, run, a, n)
+        if got is None:
+            out.append(np.full(width, FLIGHT_LOST))
+        else:
+            out.append(np.nan_to_num(_wrap(got[k::k] - plan.logged[a + k:a + n:k]) / plan.scale).ravel())
+    r = np.concatenate(out)
+    return r / math.sqrt(len(r) / 3)
 
 
 def window_samples(train_runs: list) -> int:
