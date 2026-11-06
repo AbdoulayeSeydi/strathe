@@ -42,4 +42,4 @@ consumer:state_smoother.py,B-set-nominal B-sigma-0.01,
 consumer:stonefish_export.py,exempt,"export-stonefish needs a Docker Stonefish; unmeasured speeds fall back to its speed grid (axis_speeds), covered when part 3 scores export-sim"
 consumer:validation.py,E-validation,
 consumer:simfit/sensors.py,FS-mujoco E-fit-sim FS-gazebo,
-consumer:fin_fit.py,exempt,"a fin vehicle needs a speed source, and #97 proves the no-DVL path through position fixes"
+consumer:fin_fit.py,exempt,"a fin vehicle needs a speed source: X-no-speed-source refuses one without, and P-position-fixes-long proves the no-DVL path through position fixes in #97"

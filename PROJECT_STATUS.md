@@ -3784,6 +3784,26 @@ type and ingest, calibration, every simulator, proof.
 - MuJoCo's fluid model gives lift with the right sign, but it isn't a foil: almost none below about 3°, and not linear. Recorded, not hidden.
 - Fit knobs: `fin_cla` (Gazebo), `fin_lift` (Stonefish), `CL_delta` (HoloOcean), each fin's Kutta lift (MuJoCo).
 
+**Export** (`simfit/fin_models.py`, `stonefish_export.carry_fins`):
+- `export-sim` into Gazebo or Stonefish left a fin vehicle's lift out and said nothing. Each fin now takes its group's fitted lift, scaled if the
+  model's fin area differs. A fin calibration with no description, or a fin the model lacks, is refused by name rather than dropped.
+
+**What the proof's rows found in the product, all fixed before the final run:**
+- `J-cli-fin`: a fin calibration that ran out of evaluations crashed while finishing and left no report. Hover never took that branch.
+- `S-gazebo`: a fin fit finished, then crashed writing its report: the lift knob's place was read as an XML path.
+- `S-stonefish`: `fit-stonefish`'s own parser refused `--fit fins`, and it and `export-stonefish` couldn't pass the description.
+- `S-stonefish`: a replay that reported on stdout gave "replay failed:" and nothing else.
+- `S-stonefish`: a `--stonefish-data` folder inside the Docker image was mounted over, hiding its meshes.
+- Reading the rows: a fin's `chord_axis` reached its mixing but not its force. A litre of buoyancy change lifted a flat 9.81 N, fresh water's.
+- Stonefish's comparison with Strathe's own model built the vehicle with no actuators.
+
+**A file-sharing fault, measured.** On Colima (virtiofs), a file rewritten at the same path with a new size reached a container at its old size in 8
+of 12 tries, cutting its last rows off. Same path and same size: 0 of 12 stale, and contents were right. New paths: 0 of 12. Container to host: 0
+of 6. Every product fit already writes to fresh folders, so no fit is affected; only a stress row reused one. Replays now get paths of their own.
+
+**One bar was committed late.** `SIM_RECOVER` was written before S-refused, S-external, S-holoocean and S-mujoco first ran, but committed after.
+Its value never changed, and those runs don't count: only the final run does. It's now in the hashed bars with the others.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

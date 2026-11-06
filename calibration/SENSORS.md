@@ -273,3 +273,8 @@ is a scale error, not noise, so give its `noise:` yourself.
 channel, weighed by their own noise, so say each one's. With a 0.17 m USBL and a 1.27 m GPS both left at the
 0.2 m default, the GPS was trusted 6× too much, and adding it lowered held-out skill from 0.993 to 0.960
 (B-redundant-position, known truth). Give the GPS `grade: gnss_f9p` or its `noise:`.
+
+## Fin-steered vehicles
+
+A fin's force goes as speed squared, so surge can't be inferred from the turning it causes: inference is off for these vehicles, and with no
+DVL or position fixes calibration is refused. Position fixes work, with more data than a DVL needs ([FINS.md](FINS.md)).

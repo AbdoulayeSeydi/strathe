@@ -55,6 +55,13 @@ It writes your vehicle for the other simulator from what your Stonefish model re
 - **A conversion is a starting point:** your Stonefish model's fins and mesh drag don't carry over one for one. Calibrate
   the converted model with `fit-sim`.
 
+## Fin-steered vehicles
+
+Give `--spec` with your vehicle description to `fit-sim`, `export-sim` and `convert-sim`. Each simulator's own physics makes the fin's force:
+Strathe sends the logged angles and doesn't apply the force itself. What a fin is in each one, what's tuned and what can't be carried:
+[`../FINS.md`](../FINS.md). A replay tool of your own says `"fins": true` in `--features` and reads `fin_<name>` columns
+([SIMULATOR_PROTOCOL.md](SIMULATOR_PROTOCOL.md)). A tool that doesn't is refused for a fin vehicle.
+
 ## Two ways to run each simulator
 You choose; each guide shows both.
 

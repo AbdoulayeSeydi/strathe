@@ -287,7 +287,7 @@ def all_rows(feature: str, rows: list) -> str:
 
 
 def render() -> str:
-    feats = {f: report._latest(load_rows(f)) for f in ("93", "94", "95", "96")}
+    feats = {f: report._latest(load_rows(f)) for f in ("93", "94", "95", "96", "97")}
     rows95 = {r["row"]: r for r in feats["95"]}
     try:
         import run_95
@@ -299,7 +299,8 @@ def render() -> str:
     for f, line in (("93", "Calibrate from one field day: whole recordings, or the last part of one, held out."),
                     ("94", "PX4 .ulg, MOOS-IvP .alog and LCM logs read directly, with no converter."),
                     ("95", "A vehicle description from a tape measure and a scale, or from any simulator model."),
-                    ("96", "Calibrate from the sensors the vehicle has: position fixes, depth, a DVL with gaps, or none.")):
+                    ("96", "Calibrate from the sensors the vehicle has: position fixes, depth, a DVL with gaps, or none."),
+                    ("97", "Fin-steered vehicles: fin force worked out in the physics, every simulator, the full mass matrix.")):
         rows = feats[f]
         ok = sum(_status(r, f)[0] in ("pass", "wrong", "old") for r in rows)
         bad = [r["row"] for r in rows if _status(r, f)[0] == "fail"]
@@ -396,10 +397,10 @@ footer {{ color: var(--muted); font-size: .82rem; border-top: 1px solid var(--ru
 <section id="rows"><p class="eyebrow">Every row</p><h2>The stress tests, row by row</h2>
 <p class="muted">The last result of each row; a row re-run after a fix replaces the earlier one. Rows kept on record
 from before a fix say which row shows it.</p>
-{"".join(f'<h3>#{f}. {E(report.TITLES[f])}</h3>' + all_rows(f, feats[f]) for f in ("96", "95", "93", "94"))}
+{"".join(f'<h3>#{f}. {E(report.TITLES[f])}</h3>' + all_rows(f, feats[f]) for f in ("97", "96", "95", "93", "94"))}
 </section>
 <footer>Written by <code>calibration/stress/page.py</code> from <code>stress/results_93.csv</code>, <code>_94</code> and
-<code>_95</code>, <code>_96</code>; the same rows as <code>STRESS_TEST_93_95.md</code>. Details: PROJECT_STATUS.md #93–#96.</footer>
+<code>_95</code>, <code>_96</code>, <code>_97</code>; the same rows as <code>STRESS_TEST_93_95.md</code>. Details: PROJECT_STATUS.md #93–#97.</footer>
 </main>
 """
 

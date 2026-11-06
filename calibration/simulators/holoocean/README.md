@@ -47,7 +47,8 @@ python strathe.py export-sim --sim holoocean --scenario my_scenario.json --calib
 
 **How the replay works:**
 - Each window starts from the logged state.
-- The propeller and fins are held at rest.
+- A hover vehicle's propeller and fins are held at rest. A fin vehicle's logged angles go into the class's own fins, matched by where they
+  stand; its propeller's force is in the logged thrust ([FINS.md](../../FINS.md)).
 - The logged thrust is added as M⁻¹·τ every step. This is exact, because the equations are linear in τ.
 - No frames to convert: Fossen's are Strathe's (north-east-down, forward-right-down).
 

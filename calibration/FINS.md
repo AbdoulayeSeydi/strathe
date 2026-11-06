@@ -103,6 +103,8 @@ Templates: `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yam
 | Logs have fin channels, description is hover | Say `steering: fin` and describe the fins, or leave the channels out of the ingest spec |
 | Description is fin, logs have no fin channels | Add a `fins:` block to the ingest spec |
 | Needs a speed source | Log a DVL or position fixes. A fin's force goes as speed squared, so speed can't be inferred from the turning it causes |
+| A fin calibration, with nothing to say what its fins are | Give `--spec` to `export-sim`: otherwise the fins would be left out of the model |
+| The model has no fin for one you described | Add it to the model, or let `convert-sim --spec` write them |
 | A glider | `strathe fin-check` reads a glider's rudder; calibration doesn't apply |
 
 ## Check a rudder without calibrating
@@ -123,6 +125,8 @@ aren't supported.**
   lines predicted more survey lines well, but its rudder lift was 39% off and its predictions of hard manoeuvres were poor. Under 20
   manoeuvres per group of fins, the report warns. Deliberate turns and dives fix this.
 - **A group of fins that barely moved keeps its geometry value**, and the report says so.
+- **No DVL? Log longer.** Position fixes can stand in for a DVL, but speed is then estimated. On a simulated REMUS with clean fixes at
+  1 Hz, 50 s of training left the rudder's lift 11% off; 5 minutes brought it to 2.4%.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
 - **Read "Flying on its own" first.** The fit's score feeds the logged pitch back in, which hides what the elevator does to depth.
@@ -130,8 +134,8 @@ aren't supported.**
 
 ## In your simulator
 
-`fit-sim` and `export-sim` take `--spec` with the vehicle description (`--fin-spec` for `fit-stonefish`). The fins go through the
-simulator's own physics: Strathe sends each fin's logged angle, and the propeller, gimbal, moving mass and buoyancy engine are already
+`fit-sim`, `export-sim`, `fit-stonefish`, `export-stonefish` and `convert-sim` all take `--spec` with the vehicle description. The fins go
+through the simulator's own physics: Strathe sends each fin's logged angle, and the propeller, gimbal, moving mass and buoyancy engine are already
 in the logged force.
 
 | Simulator | What a fin is there | What `fit-sim` tunes |
@@ -144,6 +148,16 @@ in the logged force.
 
 `convert-sim --spec` writes the fins into a converted model. Strathe's Docker images need rebuilding to take fin angles:
 `strathe setup-sim gazebo --docker`, or `stonefish`.
+
+**Exporting a calibration.** `export-sim` writes each fin's own lift, so rudders and elevators can differ, and scales it if the model's fin
+area differs from the description's. Each fin needs its own place in the model, named as above. What can't be carried is in the report:
+the engine uses the full flow angle rather than the fitted inflow, so a centred fin damps more there, and fin zero offsets stay on your
+joints or commands. A `fit-sim` from those values tunes one lift for all the fins. MuJoCo can't take an export; calibrate your MuJoCo model
+with `fit-sim`.
+
+**HoloOcean's fins are a cross.** Its class has four fins. Another layout is refused or goes fin by fin to the nearest, never two on one.
+
+**In Docker,** `--stonefish-data /src/Tests/Data` is the image's own folder of meshes, which generated fins use.
 
 **MuJoCo isn't a foil.** Its fluid model gives almost no lift below about 3° and isn't linear above that. Stonefish's `Rudder` drops
 lift to zero at stall and never uses `drag_coeff`.
