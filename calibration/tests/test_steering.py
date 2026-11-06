@@ -316,3 +316,22 @@ def test_the_report_opens_with_the_vehicle_type(tmp_path):
     p = tmp_path / "r.md"
     write_report(str(p), "x", [], None, [], [], None, [], True, vehicle_type="Vehicle type: FIN-STEERED")
     assert "**Vehicle type: FIN-STEERED**" in p.read_text()
+
+
+def test_the_web_form_makes_labs_choose_and_checks_the_choice(tmp_path):
+    import strathe_web as w
+    page = w.index_page() if hasattr(w, "index_page") else open(w.__file__, encoding="utf-8").read()
+    assert "name=steering required" in page and "Hover: thrusters steer it" in page and "Fin-steered: fins and a propeller" in page
+    w.steering_matches({"steering": "fin", "vehicle_spec": FIN_SPEC})
+    w.steering_matches({"steering": "hover", "vehicle_spec": ""})
+    with pytest.raises(ValueError, match="You chose hover"):
+        w.steering_matches({"steering": "hover", "vehicle_spec": FIN_SPEC})
+    with pytest.raises(ValueError, match="You chose fin"):
+        w.steering_matches({"steering": "fin", "vehicle_spec": ""})
+
+
+def test_the_web_form_describes_a_fin_vehicle():
+    import strathe_web as w
+    a = w.describe_vehicle_cli_args({"mass": "30", "length": "1.6", "diameter": ".19", "name": "x", "steering": "fin", "fins": "cross", "fin_x": "-.7",
+                                     "fin_radius": ".12", "fin_area": ".013", "fin_span": ".09", "propeller_diameter": ".14", "kt0": ".45"})
+    assert a[a.index("--steering") + 1] == "fin" and a[a.index("--fins") + 1] == "cross" and "--kt0" in a

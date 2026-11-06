@@ -5,6 +5,7 @@ stress/run_97.py -- stress test of Fin Steer (PROJECT_STATUS.md #97): fin-steere
     python stress/run_97.py truth [ROW]   # independent truths: fit with the truth hidden, fly on unseen recordings (hours)
     python stress/run_97.py recover [ROW] # every layout and option through Strathe's own model (plumbing, labelled so)
     python stress/run_97.py real [ROW]    # OOI's REMUS logs (stress/prepare_ooi_97.py) and rudder checks
+    python stress/run_97.py sim [ROW]     # every simulator's own physics recovers its own fin lift (Docker, HOLOOCEAN_SRC)
     python stress/run_97.py list
 
 The proof is a truth the fit never sees (stress/fin_truth.py): Prestero's REMUS, Fossen's remus100 and HoloOcean's Torpedo, flown closed
@@ -162,7 +163,7 @@ def run_truth(row: tuple) -> bool:
 def all_rows() -> list:
     """Every row, importable with no data (CI has none)."""
     import fin_rows_97 as R
-    return truth_rows() + R.fast_rows() + R.recover_rows() + R.real_rows()
+    return truth_rows() + R.fast_rows() + R.recover_rows() + R.real_rows() + R.sim_rows()
 
 
 def main(argv) -> int:
@@ -181,6 +182,8 @@ def main(argv) -> int:
         return R.run_recover(pick)
     if cmd == "real":
         return R.run_real(pick)
+    if cmd == "sim":
+        return R.run_sims(pick)
     print(__doc__)
     return 2
 

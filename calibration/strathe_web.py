@@ -640,7 +640,35 @@ def describe_vehicle_cli_args(form: dict) -> list:
                  _existing_file(thrusters, "Thrusters (your ingest spec)", (".yaml", ".yml"))]
     if form.get("hull_lift"):
         args += ["--hull-lift"]
+    if form.get("steering", "hover") not in ("", "hover"):
+        args += ["--steering", form["steering"]]
+    if form.get("fins"):
+        args += ["--fins", form["fins"]]
+    for key, flag, what, lo, hi in (("fin_x", "--fin-x", "The fins' place", -100, 100), ("fin_radius", "--fin-radius", "The fins' radius", 1e-3, 50),
+                                    ("fin_area", "--fin-area", "A fin's area", 1e-5, 100), ("fin_span", "--fin-span", "A fin's span", 1e-3, 50),
+                                    ("propeller_diameter", "--propeller-diameter", "The propeller's diameter", 1e-3, 20),
+                                    ("kt0", "--kt0", "The thrust coefficient", 1e-5, 10)):
+        if form.get(key, "").strip():
+            args += [flag, repr(_number(form[key], what, lo, hi))]
     return args
+
+
+def steering_matches(form: dict) -> None:
+    """The kind of vehicle chosen on the form, against the description given."""
+    chosen = form.get("steering", "")
+    spec = form.get("vehicle_spec", "").strip()
+    if not chosen:
+        return
+    import yaml
+    import steering
+    if spec:
+        raw = yaml.safe_load(open(os.path.expanduser(spec), encoding="utf-8")) or {}
+        said = steering.steering_of(raw)
+    else:
+        said = "hover"
+    if said != chosen:
+        raise ValueError(f"You chose {chosen}, but the vehicle description says {said}. Fix one of them: `steering:` under vehicle: "
+                         f"in the description, or the choice here (FINS.md).")
 
 
 def describe_stonefish_cli_args(form: dict) -> list:
@@ -810,6 +838,10 @@ plain-language report. About an hour on the reference dataset; the computer is k
 <label for=cal-name>Name for this calibration</label><input type=text id=cal-name name=name value="my_vehicle" required>
 <label for=cal-heldout>Held out to check the result (optional): dates like <code>16-02-2024</code>; with one session, recordings like <code>my_rov-16-02-2024-run7</code>, or one recording's last part, <code>my_rov-16-02-2024-run1::last30%</code>. Default: the latest 30% of dates, else of recordings, else the last 30% of the one recording (<code>calibration/ONE_SESSION.md</code>)</label>
 <input type=text id=cal-heldout name=heldout value="">
+<label for=cal-steer>What steers this vehicle? Thrusters: hover, even on a torpedo hull. Fins and a propeller, or a gimballed tail: fin-steered
+(calibration/FINS.md)</label><select id=cal-steer name=steering required><option value="">choose</option>
+<option value="hover">Hover: thrusters steer it</option><option value="fin">Fin-steered: fins and a propeller</option>
+<option value="vectored">Vectored: a gimballed tail</option><option value="hybrid">Hybrid: fins and steering thrusters</option></select>
 <label for=cal-spec>Vehicle description YAML, full path (default: the BlueROV2 Heavy; any other vehicle: write one from its mass and size with "Describe your vehicle" below, or copy calibration/templates/vehicle_spec_template.yaml; LAB_GUIDE.md step 4)</label>
 <input type=text id=cal-spec name=vehicle_spec value="">
 <label for=cal-rate>Sampling rate of the logs in Hz (optional; read from the conversion when there is one, else 10)</label>
@@ -1064,6 +1096,17 @@ checks the drag limits against what they can push)</label><input type=text id=dv
 <option value="gazebo">Gazebo (.sdf / .world)</option><option value="urdf">URDF</option>
 <option value="mujoco">MuJoCo (.xml)</option><option value="holoocean">HoloOcean scenario (.json)</option></select>
 <label><input type=checkbox id=dv-lift name=hull_lift> Torpedo: include the hull-lift terms</label>
+<label for=dv-steer>What steers it</label><select id=dv-steer name=steering><option value="hover">Hover: thrusters</option>
+<option value="fin">Fin-steered: fins and a propeller</option><option value="vectored">Vectored: a gimballed tail</option>
+<option value="hybrid">Hybrid: fins and steering thrusters</option></select>
+<label for=dv-fins>Fin layout (fin-steered, hybrid)</label><select id=dv-fins name=fins><option value="">none</option>
+<option value="cross">cross (+)</option><option value="x">x</option><option value="y3">three fins</option><option value="rudder_only">rudder only</option></select>
+<label for=dv-finx>Fins' place from the reference point, m, forward positive</label><input type=text id=dv-finx name=fin_x value="">
+<label for=dv-finr>Hull axis to a fin's centre, m</label><input type=text id=dv-finr name=fin_radius value="">
+<label for=dv-fina>One fin's area, m²</label><input type=text id=dv-fina name=fin_area value="">
+<label for=dv-fins2>One fin's span, root to tip, m</label><input type=text id=dv-fins2 name=fin_span value="">
+<label for=dv-prop>Propeller diameter, m (optional)</label><input type=text id=dv-prop name=propeller_diameter value="">
+<label for=dv-kt0>Its thrust coefficient at no forward speed (optional)</label><input type=text id=dv-kt0 name=kt0 value="">
 <label for=dv-name>Vehicle name</label><input type=text id=dv-name name=name value="my_vehicle" required>
 <button>Write the vehicle description</button></form></div>
 <div class=card><h2>Describe your vehicle from your Stonefish model</h2>
@@ -1300,6 +1343,7 @@ class StratheHandler(BaseHTTPRequestHandler):
 
     def _start(self, path, form) -> Optional[Job]:
         if path == "/jobs/calibrate":
+            steering_matches(form)
             ingest_spec = form.get("ingest_spec", "").strip()
             data = form.get("data", "").strip()
             name = cli.safe_name(form.get("name", "my_vehicle"))
