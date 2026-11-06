@@ -136,6 +136,11 @@ calibration_targets:
 
   added_mass_coupling:
     # surge-pitch and heave-pitch coupling; keep these small (they must keep the mass matrix positive-definite)
+    # Any of the mass matrix's 15 off-diagonal entries can go here: Xv_dot Xw_dot Xp_dot Xq_dot Xr_dot Yw_dot Yp_dot Yq_dot
+    # Yr_dot Zp_dot Zq_dot Zr_dot Kq_dot Kr_dot Mr_dot. Each is the matrix's own entry (rigid body plus added mass); Nv_dot
+    # is Yr_dot and Mw_dot is Zq_dot, because the matrix is symmetric. Ones you leave out are held at 0.
+    # A vehicle symmetric port to starboard can only have Xw_dot Xq_dot Zq_dot Yp_dot Yr_dot Kr_dot.
+    # For any other, add the line:  symmetry: none
     Xq_dot: {unit: kg, initial_guess: 0.0, bounds: [-0.5, 0.5],
              bounds_rationale: "exploratory, small", source: "assumed near-zero", confidence: assumed}
     Zq_dot: {unit: kg, initial_guess: 0.0, bounds: [-0.5, 0.5],

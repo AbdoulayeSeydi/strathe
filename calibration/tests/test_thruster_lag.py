@@ -103,13 +103,15 @@ def test_a_new_episode_starts_with_the_thrusters_stopped():
 
 
 def test_a_spec_without_thruster_dynamics_holds_no_lag(tmp_path):
+    from dynamics_model import MASS_COUPLINGS
     from optimizer import held_by_bounds, initial_parameters, load_vehicle_spec, parameter_bounds
     spec = load_vehicle_spec(os.path.join(CAL, "vehicle_spec.yaml"))
     p = initial_parameters(spec)
     assert p.thruster_time_constant_s == 0.0
     held = held_by_bounds(*parameter_bounds(spec), list(p.param_names))
     # held: the lag, and the torpedo-hull terms (#71) a BlueROV2 spec doesn't list
-    assert held == {"thruster_time_constant_s": 0.0, "cg_cb_offset_x": 0.0, "Zuw": 0.0, "Muw": 0.0, "Muq": 0.0}
+    assert held == {"thruster_time_constant_s": 0.0, "cg_cb_offset_x": 0.0, "Zuw": 0.0, "Muw": 0.0, "Muq": 0.0,
+                    **{n: 0.0 for _, _, n in MASS_COUPLINGS if n not in ("Xq_dot", "Zq_dot")}}
     raw = yaml.safe_load(open(os.path.join(CAL, "vehicle_spec.yaml"), encoding="utf-8"))
     raw["calibration_targets"].pop("thruster_dynamics", None)
     (tmp_path / "old_spec.yaml").write_text(yaml.safe_dump(raw))

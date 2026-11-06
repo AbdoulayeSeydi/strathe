@@ -251,10 +251,8 @@ just what's missing but why it matters.
    was hand-derived for one vehicle over the course of one long session; a
    real product needs these generated from basic specs, not hand-tuned
    per customer.
-7. **Off-diagonal added-mass generalization** — currently BlueROV2-specific
-   and shelved (confirmed not load-bearing for this vehicle specifically);
-   a different vehicle's real asymmetry would need different coupling
-   terms, decided systematically, not re-derived from scratch each time.
+7. **Off-diagonal added-mass generalization** — done (#97): all 15 entries of
+   the mass matrix, one builder, any vehicle can list the ones it needs.
 8. **Payload modeling** — payload changes mass, buoyancy, CG, and CB
    simultaneously; nothing propagates a payload change through all four
    together yet.

@@ -285,6 +285,7 @@ class HolooceanAdapter:
 
 def strathe_fossen_source(params, mass: float, ref) -> str:
     """A self-contained Fossen vehicle class with Strathe's calibrated model (no Strathe import needed)."""
+    from dynamics_model import MASS_COUPLINGS
     p = {k: float(getattr(params, k)) for k in params.__dataclass_fields__}
     r = [float(x) for x in ref]
     return f'''"""StratheFossen: a vehicle calibrated by Strathe (strathe export-sim --sim holoocean), as a Fossen class with
@@ -296,6 +297,7 @@ import math
 import numpy as np
 
 PARAMS = {json.dumps(p, indent=4)}
+COUPLINGS = {list(MASS_COUPLINGS)!r}
 MASS = {float(mass)!r}
 REF = np.array({r})
 G = 9.81
@@ -312,8 +314,8 @@ class StratheFossen:
         P = PARAMS
         M = np.diag([MASS + P["Xu_dot"], MASS + P["Yv_dot"], MASS + P["Zw_dot"], P["Ieff_roll"], P["Ieff_pitch"],
                      P["Ieff_yaw"]])
-        M[0, 4] = M[4, 0] = P["Xq_dot"]
-        M[2, 4] = M[4, 2] = P["Zq_dot"]
+        for i, j, name in COUPLINGS:
+            M[i, j] = M[j, i] = P.get(name, 0.0)
         self.M_ref = M
         J = np.block([[np.eye(3), -_skew(REF)], [np.zeros((3, 3)), np.eye(3)]])  # nu_ref = J nu_origin
         self.J = J

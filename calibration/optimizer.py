@@ -59,7 +59,9 @@ parameter; if it changes meaningfully, something else is going on.
 """
 from __future__ import annotations
 
+import itertools
 import json
+import logging
 import time
 from dataclasses import dataclass, fields as dataclass_fields
 from datetime import datetime, timezone
@@ -69,8 +71,10 @@ import numpy as np
 import yaml
 from scipy.optimize import least_squares
 
-from dynamics_model import CalibrationParameters, VehicleConstants
+from dynamics_model import CalibrationParameters, MASS_COUPLINGS, VehicleConstants, XZ_SYMMETRIC_COUPLINGS
 from objective import joint_residuals, mean_run_rmse, ParallelJointResiduals, RunData
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +100,15 @@ for _name, _unit, _what in (("cg_cb_offset_x", "m", "centre of gravity ahead of 
         "source": "default", "confidence": "assumed"}
 
 
+# the mass matrix's other off-diagonal entries (#97): held at 0 unless the spec lists them under added_mass_coupling
+for _i, _j, _name in MASS_COUPLINGS:
+    if _name not in ("Xq_dot", "Zq_dot"):
+        OPTIONAL_CALIBRATION_TARGETS[_name] = {
+            "unit": "kg or kg*m", "initial_guess": 0.0, "bounds": [0.0, 0.0],
+            "bounds_rationale": "not in this vehicle_spec.yaml: no such coupling (added_mass_coupling in the template)",
+            "source": "default", "confidence": "assumed"}
+
+
 def held_by_bounds(lb, ub, param_names) -> dict:
     """{name: value} for parameters whose bounds have zero width: held there, never fitted (a zero-width range
     can't be scaled or stepped). OPTIONAL_CALIBRATION_TARGETS a spec leaves out are such parameters."""
@@ -113,6 +126,8 @@ def _flatten_calibration_targets(raw_spec: dict) -> dict:
     flat = {}
     for section_name, section in raw_spec["calibration_targets"].items():
         for param_name, entry in section.items():
+            if section_name == "added_mass_coupling" and param_name == "symmetry":
+                continue   # not a value to fit: which couplings the vehicle may have (_check_mass_couplings)
             if param_name in flat:
                 raise ValueError(
                     f"Parameter {param_name!r} appears in multiple "
@@ -163,6 +178,41 @@ def _validate_flat_targets(flat: dict) -> None:
                                  f"reference: {{value: 6.3, source: \"CAD model\"}}")
 
 
+def _check_mass_couplings(raw: dict, flat: dict) -> None:
+    """A vehicle symmetric about its centre plane can't have couplings between its two halves: listing one is a mistake
+    unless the description says it isn't symmetric."""
+    section = raw["calibration_targets"].get("added_mass_coupling") or {}
+    symmetry = section.get("symmetry", "xz")
+    if symmetry not in ("xz", "none"):
+        raise ValueError(f"added_mass_coupling.symmetry: {symmetry!r} isn't xz (port and starboard mirror each other, the "
+                         f"default) or none")
+    if symmetry == "xz":
+        odd = [n for _, _, n in MASS_COUPLINGS if n not in XZ_SYMMETRIC_COUPLINGS
+               and (flat[n]["initial_guess"] or any(flat[n]["bounds"]))]
+        if odd:
+            raise ValueError(f"{', '.join(odd)}: only a vehicle that isn't symmetric port to starboard has these. Remove "
+                             f"them, or add `symmetry: none` under added_mass_coupling")
+
+
+def worst_mass_margin(flat: dict, mass_kg: float) -> float:
+    """The smallest eigenvalue the mass matrix, scaled to a unit diagonal, can reach inside the spec's limits: at or below 0,
+    some values inside them are non-physical, and a fit reaching those scores as a very bad fit (NonPhysicalMass). The
+    worst case has the smallest diagonal entries and each coupling at one end of its limits: the smallest eigenvalue is
+    concave in the entries, so it's at a corner of the box (the first 4096 corners, for more than 12 live couplings)."""
+    d = np.array([mass_kg + flat["Xu_dot"]["bounds"][0], mass_kg + flat["Yv_dot"]["bounds"][0],
+                  mass_kg + flat["Zw_dot"]["bounds"][0], flat["Ieff_roll"]["bounds"][0], flat["Ieff_pitch"]["bounds"][0],
+                  flat["Ieff_yaw"]["bounds"][0]], dtype=float)
+    s = 1 / np.sqrt(np.maximum(d, 1e-12))
+    live = [(i, j, flat[n]["bounds"]) for i, j, n in MASS_COUPLINGS if any(flat[n]["bounds"])]
+    worst = 1.0
+    for corner in itertools.islice(itertools.product(*[b for _, _, b in live]), 1 << 12):
+        M = np.diag(d)
+        for (i, j, _), v in zip(live, corner):
+            M[i, j] = M[j, i] = v
+        worst = min(worst, float(np.linalg.eigvalsh(M * np.outer(s, s))[0]))
+    return worst
+
+
 @dataclass
 class LoadedVehicleSpec:
     """
@@ -191,9 +241,14 @@ def load_vehicle_spec(yaml_path: str) -> LoadedVehicleSpec:
     for name, entry in OPTIONAL_CALIBRATION_TARGETS.items():
         flat.setdefault(name, dict(entry))
     _validate_flat_targets(flat)
+    _check_mass_couplings(raw, flat)
 
     vehicle = VehicleConstants(mass_kg=raw["fixed_parameters"]["mass_kg"]["value"])
     vehicle.validate()
+    if worst_mass_margin(flat, vehicle.mass_kg) <= 0:
+        logger.warning("Some values inside this description's limits make a non-physical mass matrix (the couplings under "
+                       "added_mass_coupling are large against the smallest masses and inertias). A fit that reaches them "
+                       "scores as a very bad fit; narrow the limits to stop it spending time there.")
 
     return LoadedVehicleSpec(raw=raw, flat_calibration_targets=flat, vehicle=vehicle)
 

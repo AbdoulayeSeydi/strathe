@@ -245,8 +245,10 @@ def export_settings(params, mass: float, measure: Callable, part: str, buoyancy_
         e.notes.append("Hull lift (Zuw, Muw, Muq) not carried: Stonefish has no hull-lift term.")
     if params.thruster_time_constant_s:
         e.notes.append(f"Thruster lag ({params.thruster_time_constant_s:.2f} s) not carried: set it on your thrusters.")
-    if params.Xq_dot or params.Zq_dot:
-        e.notes.append("Off-diagonal added mass (Xq_dot, Zq_dot) not carried: Stonefish's added mass is diagonal.")
+    from dynamics_model import MASS_COUPLINGS
+    coupled = [n for _, _, n in MASS_COUPLINGS if getattr(params, n)]
+    if coupled:
+        e.notes.append(f"Off-diagonal added mass ({', '.join(coupled)}) not carried: Stonefish's added mass is diagonal.")
     if not exact_damping:
         e.notes.append("Drag converted, not carried: Stonefish's mesh drag grows with speed cubed and couples the axes, "
                        "and its rotational drag comes from the same coefficients over the part's mesh. Stonefish built "

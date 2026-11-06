@@ -122,7 +122,7 @@ class TestCalibrationParametersBackwardCompatibility:
         assert params.Zq_dot == 0.0
         assert params.thruster_time_constant_s == 0.0  # #66: no thruster lag
         assert (params.cg_cb_offset_x, params.Zuw, params.Muw, params.Muq) == (0.0, 0.0, 0.0, 0.0)  # #71: no hull terms
-        assert len(params.to_vector()) == 27
+        assert len(params.to_vector()) == 40
 
 
 class TestSplitByGroupAutomaticDefault:
