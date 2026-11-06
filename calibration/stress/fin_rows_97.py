@@ -869,7 +869,7 @@ def _scn(lift: float, act=None) -> str:
  <looks><look name="gray" gray="0.3" roughness="0.4"/></looks>
  <robot name="auv" fixed="false" self_collisions="false">
   <base_link name="Vehicle" type="compound" physics="submerged">
-   <external_part name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.3"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><mass value="30.0"/><cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/><compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/></external_part>
+   <external_part name="Hull" type="sphere" physics="submerged" buoyant="true"><dimensions radius="0.19279"/><origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/><mass value="30.0"/><cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/><material name="Neutral"/><look name="gray"/><compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/></external_part>
   </base_link>
 {re.sub(r'lift_coeff="[^"]+"', f'lift_coeff="{lift:g}"', fm.stonefish_fins(act or _fin_set(), "Vehicle"))}
   <world_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 20.0"/>

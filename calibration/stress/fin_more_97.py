@@ -366,7 +366,7 @@ def _export_holoocean(t0: float) -> bool:
 
 
 # ------------------------------------------------------------------ one engine's vehicle in another
-# -first-turn was added after CV-gazebo failed on a steady turn, which a converted sphere doesn't hold: that row stands, and this asks the narrower question
+# -first-turn was added after CV-gazebo's steady turn failed on a test hull that wasn't neutrally buoyant; it asks the narrower question beside it
 CONVERTS = {"CV-gazebo": "gazebo", "CV-mujoco": "mujoco", "CV-gazebo-first-turn": "gazebo", "CV-mujoco-first-turn": "mujoco"}
 
 
