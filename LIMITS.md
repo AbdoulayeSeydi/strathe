@@ -85,6 +85,21 @@ Quick answers:
 | **The result can depend on where the fit starts** | The fit starts from a randomly perturbed point. A start that drifts to values where the vehicle is barely damped makes the long replay chaotic, and the fit stalls or wanders (#93). Strathe now catches that (a fit no better than its starting description, or one that ended on a rough cost) and tries up to 3 more starting points by itself; a fit that only ran out of budget on a smooth cost is finished from its best point instead, since it was still improving. An easy calibration lands in the same place every time (URI's baseline: 7 runs, each direction within 0.001 of mean skill); a hard one can land in different minima (URI with surfacings removed: +0.06 or +0.24 mean skill, 10.6 or 4.7 m of drift after 60 s, #76). Each calibration records its seed in `calibrated_parameters.yaml` and the report. On URI's data, the start with the lower training cost was the better one on unseen recordings every time (#79). | `strathe calibrate ... --restarts 3` starts from three points and keeps the lowest training cost; the report lists each start's cost. With `--estimate-current` that's the first round only, and the best round-1 start isn't always the best at the end (URI's B8, #79): `--restart-whole-fit` runs every round from each start and keeps the lowest final training cost. `--seed N` repeats a calibration exactly. |
 | **Long runs need the machine awake** | Long runs keep the machine awake themselves (#49), but closing a laptop lid still sleeps it. | Leave the lid open, or run on a desktop or server. |
 
+## Fin-steered vehicles
+
+| Limit | What it means | What to do |
+|---|---|---|
+| **Real proof is one vehicle** | The real logs behind Fin Steer are OOI's REMUS 600s, at about 1 Hz and mostly survey missions. Their fin full scale isn't in the logs, so 15° is assumed, and the fit's lift absorbs the difference. Other platforms are checked on published sizes and simulators only. | Treat a first fit on another platform as unproven until its "Flying on its own" section looks right. |
+| **Platform rows are plumbing** | P-, PW- and V- rows use Strathe's own model as the truth. They show the pipeline recovers what it was given, not that the physics is right. | The T- and O- rows are the ones that test physics. |
+| **No DVL takes more data** | P-position-fixes: clean 1 Hz fixes and 50 s of training left rudder lift 11% off, against a 10% bar. 5 minutes brought it to 2.4% (P-position-fixes-long). | Without a DVL, log at least 5 minutes of real manoeuvres. |
+| **Survey lines don't pin down fin lift** | A fit trained on survey lines predicts more of them well and hard manoeuvres badly. Past the logged speeds and angles, predictions aren't supported. | Log deliberate turns and dives. The report warns under 20 manoeuvres per group of fins. |
+| **Fin lift scales with inertia** | The fit finds lift and turning inertia together: 20% off on one moves the other as much, while predictions barely change. Lift is the effective fin-and-hull product. | Trust the predictions, not the lift as a measured value. |
+| **Layouts are presets or a custom list** | cross, x, y3, rudder_only. A vehicle with bow and stern planes is a `custom` list. | `layout: custom` with each fin's place and axis. |
+| **Gliders get a rudder check only** | Calibration needs a propeller's thrust. | `strathe fin-check`. |
+| **Each simulator's fins differ** | Stonefish's `Rudder` drops lift to zero at stall and never uses `drag_coeff`. MuJoCo's fluid model gives almost no lift below about 3° and isn't linear. Stonefish's added mass is diagonal, so off-diagonal entries are dropped from its export, and it says which. HoloOcean's class has four fins in a cross. | [FINS.md](calibration/FINS.md) says what each can carry. |
+| **An export can't carry everything** | The simulators use the full flow angle, not the fitted inflow, so a centred fin damps more there. Fin zero offsets stay on your joints or commands. MuJoCo takes no export. `fit-sim --from-strathe` tunes one lift for all fins. | Read the export's notes; `fit-sim` the model afterwards. |
+| **Fin vehicles can't run on the MuJoCo experiment backend** | It takes a wrench. `arena`, `fleet` and `train-fleet` run them on the stand-in physics. | Use the default engine. |
+
 ## Water current
 
 | Limit | What it means | What to do |
