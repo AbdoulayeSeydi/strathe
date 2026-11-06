@@ -317,17 +317,216 @@ def run_fast(pick) -> int:
     return 0 if ok else 1
 
 
+# ------------------------------------------------------------------ every layout and platform, through the whole product
+# Strathe's own model is the truth here, so these prove the plumbing, not the physics, and say so. Sizes are published or typical.
+PLATFORMS = {
+    "remus100": dict(mass=38.0, length=1.6, diameter=.19, fins=("cross", -.7, .13, .012, .09)),
+    "remus600": dict(mass=240.0, length=3.25, diameter=.324, fins=("y3", -1.4, .25, .05, .2)),
+    "iver": dict(mass=39.0, length=1.8, diameter=.147, fins=("cross", -.8, .12, .01, .08)),
+    "lauv": dict(mass=18.0, length=1.1, diameter=.15, fins=("cross", -.5, .11, .008, .07)),
+    "hugin": dict(mass=650.0, length=5.0, diameter=.75, fins=("cross", -2.3, .5, .15, .35)),
+    "autosub": dict(mass=2800.0, length=7.0, diameter=.9, fins=("cross", -3.2, .6, .3, .5)),
+    "tethys": dict(mass=110.0, length=2.3, diameter=.31, fins=("rudder_only", -1.0, .2, .03, .15), moving_mass=8.0, buoyancy=True),
+    "xtail": dict(mass=60.0, length=2.0, diameter=.2, fins=("x", -.9, .15, .02, .1)),
+}
+RECOVER = {f"P-platform-{k}": dict(platform=k) for k in PLATFORMS}
+RECOVER.update({f"P-layout-{k}": dict(platform="remus100", layout=k) for k in ("cross", "x", "y3", "rudder_only")})
+RECOVER.update({"P-source-commanded": dict(platform="remus100", commanded=True), "P-noise-grade": dict(platform="remus100", noise=1.0),
+                "P-per-fin-channels": dict(platform="remus100", per_fin=True), "P-hybrid": dict(platform="remus100", steering="hybrid"),
+                "P-fin-far-forward": dict(platform="remus100", fin_x=-.3), "P-fin-small": dict(platform="remus100", fin_area=.004),
+                "P-fin-large": dict(platform="remus100", fin_area=.03), "P-speed-low": dict(platform="remus100", u0=.5),
+                "P-speed-high": dict(platform="remus100", u0=2.5)})
+
+
+def _platform_spec(path: str, o: dict) -> dict:
+    import vehicle_describe as vd
+    s = PLATFORMS[o["platform"]]
+    layout, x, r, area, span = s["fins"]
+    layout = o.get("layout", layout)
+    spec, _ = vd.describe_hull(s["mass"], s["length"], diameter=s["diameter"], shape="torpedo", name=o["platform"], steering=o.get("steering", "fin"),
+                               fins={"layout": layout, "x_m": o.get("fin_x", x), "radius_m": r, "area_m2": o.get("fin_area", area), "span_m": span,
+                                     "limit_deg": 40.0, "stall_deg": 30.0, "servo": {"rate_limit_deg_s": 0}})
+    if s.get("moving_mass"):
+        spec["moving_mass"] = {"mass_kg": s["moving_mass"]}
+    if s.get("buoyancy"):
+        spec["buoyancy_engine"] = True
+    open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
+    return spec
+
+
+def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float) -> None:
+    from dataclasses import replace as rep
+    import steering
+    from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
+    from fin_force import servo_angles
+    from optimizer import initial_parameters, load_vehicle_spec
+    from scipy.spatial.transform import Rotation
+    s = load_vehicle_spec(spec_path)
+    act = s.vehicle.actuators
+    P = rep(initial_parameters(s), fin_lift_slope_a=truth_a, fin_lift_slope_b=truth_b)
+    n, os_ = 500, os.path
+    k = 0
+    for date in ("01-10-2026", "02-10-2026"):
+        for run in (1, 2):
+            k += 1
+            rng = np.random.default_rng(k)
+            rud = np.repeat(rng.uniform(-.2, .2, n // 15 + 1), 15)[:n]
+            ele = np.repeat(rng.uniform(-.12, .12, n // 15 + 1), 15)[:n]
+            cols = {"fincmd_rudder" if o.get("commanded") else "fin_rudder": rud, "fincmd_elevator" if o.get("commanded") else "fin_elevator": ele}
+            if act.moving_mass:
+                cols["moving_mass"] = .02 * np.sin(np.arange(n) / 30)
+            if act.buoyancy_engine:
+                cols["buoyancy_change"] = np.sin(np.arange(n) / 40)
+            df = pd.DataFrame(cols)
+            ctl, cmd = steering.controls_from_frame(df, act)
+            if o.get("per_fin"):
+                for i, f in enumerate(act.fins):
+                    df[f"fin_{f.name}"] = ctl[:, i]
+                df = df.drop(columns=["fin_rudder", "fin_elevator"])
+            applied = servo_angles(act, ctl, 0.0, .1) if cmd else ctl
+            rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
+            u0 = o.get("u0", 1.5)
+            F = np.zeros((n, 6))
+            F[:, 0] = abs(P.Xuu) * u0 * u0 + abs(P.Xu) * u0
+            nu = simulate_trajectory(P, s.vehicle, SimulationConfig(dt=.1), TrajectoryInputs(nu0=np.array([u0, 0, 0, 0, 0, 0.]), forces_torques=F, roll_pitch_series=rp, control_series=applied)).nu
+            q = Rotation.from_euler("xyz", np.c_[rp, np.cumsum(nu[:, 5]) * .1]).as_quat()
+            for i, c in enumerate(("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")):
+                df[c] = F[:, i]
+            for i, c in enumerate(("Bu", "Bv", "Bw", "Bp", "Bq", "Br")):
+                df[c] = nu[:, i] + (rng.normal(0, _bars().GRADE[c] * o.get("noise", 0), n) if o.get("noise") else 0)
+            for i, c in enumerate(("qx", "qy", "qz", "qw")):
+                df[c] = q[:, i]
+            df.to_csv(f"{out}/p-{date}-run{run}.csv", index=False)
+
+
+def run_recover_row(row: str) -> bool:
+    from dataclasses import fields
+    from optimizer import CalibrationConfig, initial_parameters, load_vehicle_spec
+    from run_calibration import PipelineConfig, run_pipeline
+    o = RECOVER[row]
+    t0 = time.time()
+    W = _bars().WORK
+    d = os.path.join(W, row)
+    os.makedirs(d + "/data", exist_ok=True)
+    spec = d + "/spec.yaml"
+    _platform_spec(spec, o)
+    s = load_vehicle_spec(spec)
+    start = initial_parameters(s)
+    ta, tb = start.fin_lift_slope_a * 1.25, (start.fin_lift_slope_b or 3.0) * .8
+    _own_truth(spec, d + "/data", o, ta, tb)
+    free = {"fin_lift_slope_a", "fin_lift_slope_b"} & {n for n in start.param_names if s.flat_calibration_targets[n]["bounds"][0] < s.flat_calibration_targets[n]["bounds"][1]}
+    fixed = {n: float(getattr(start, n)) for n in start.param_names if n not in free}
+    fixed = {k: v for k, v in fixed.items() if s.flat_calibration_targets[k]["bounds"][0] < s.flat_calibration_targets[k]["bounds"][1]}
+    cc = CalibrationConfig(max_nfev=15, seed=3, initialization_strategy="fixed", ftol=1e-7, xtol=1e-7, gtol=1e-7, fixed_params=fixed, horizon_samples=50)
+    cfg = PipelineConfig(data_dir=d + "/data", spec_path=spec, output_dir=d + "/fit", sampling_rate_hz=10.0, heldout_dates=["02-10-2026"], heldout_fraction=.5,
+                         calibration_config=cc, workers=1, torque_reference_offset_m=(0.0, 0.0, 0.0), sensors=("velocity",))
+    try:
+        run_pipeline(cfg)
+    except Exception as e:
+        if "converge" not in str(e):
+            return record(F, row, "recover", o["platform"], "own model", str(o), {"error": str(e)[:200], "bars": _bars().BARS_HASH}, "recover fin lift", False, time.time() - t0)
+    p = yaml.safe_load(open(d + "/fit/calibrated_parameters.yaml"))["parameters"]
+    errs = {}
+    if "fin_lift_slope_a" in free:
+        errs["a"] = abs(p["fin_lift_slope_a"] / ta - 1)
+    if "fin_lift_slope_b" in free:
+        errs["b"] = abs(p["fin_lift_slope_b"] / tb - 1)
+    bar = _bars().RECOVER_NOISY if o.get("noise") else _bars().RECOVER_CLEAN
+    return record(F, row, "recover", o["platform"], "Strathe's own model as the truth: plumbing, not physics", str(o), {**errs, "bars": _bars().BARS_HASH},
+                  f"fin lift within {bar:.0%}", bool(errs) and max(errs.values()) <= bar, time.time() - t0)
+
+
 def recover_rows() -> list:
-    return []
+    return list(RECOVER)
 
 
 def run_recover(pick) -> int:
-    return 0
+    return 0 if all([run_recover_row(r) for r in RECOVER if pick(r)]) else 1
+
+
+# ------------------------------------------------------------------ OOI's REMUS: real vehicles at sea
+# Bars fixed before any fit ran on these logs. The logs are 1 Hz, the fins' full scale and the vehicle's sizes are estimates, and the
+# propeller's scale is fitted, so these are looser than the flight bars, and flying must beat assuming it holds its course.
+REAL_FLY = {"heading_deg": 10.0, "pitch_deg": 3.0, "depth_m": 2.0}
+REAL = {"O-turns-same-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6264_R00006", 6), "fly", "train on the turning mission, fly another mission of the same vehicle"),
+        "O-turns-other-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "fly", "train on one REMUS, fly the other"),
+        "O-turns-years-later": (("CP05MOAS-A6264_R00008", 4), ("CP16MOAS-A6263_R00001", 6), "fly", "train in 2019, fly the other REMUS in 2024"),
+        "O-survey-only": (("CP05MOAS-A6263_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "warned", "survey lines only: must warn")}
+PREPARED = os.path.expanduser("~/strathe_fin_data/ooi_prepared")
+
+
+def remus600_spec(path: str) -> str:
+    import vehicle_describe as vd
+    spec, _ = vd.describe_hull(240.0, 3.25, diameter=.324, shape="torpedo", hull_lift=True, name="ooi_remus600", steering="fin",
+                               propeller={"diameter_m": .3, "kt0": .02, "position_m": [-1.6, 0, 0]},
+                               fins={"layout": "y3", "x_m": -1.4, "radius_m": .25, "area_m2": .05, "span_m": .2, "limit_deg": 20.0, "stall_deg": 20.0})
+    spec["calibration_targets"]["fins"]["thrust_scale"] = {"unit": "-", "initial_guess": 1.0, "bounds": [.2, 5.0], "bounds_rationale": "its propeller curve isn't published",
+                                                            "source": "estimated", "confidence": "assumed"}
+    open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
+    return path
+
+
+def _longest(folder: str, n: int) -> list:
+    """The recordings with the most turning, of a mission."""
+    import glob
+    fs = glob.glob(os.path.join(PREPARED, folder, "*.csv"))
+    return sorted(fs, key=lambda f: -float(pd.read_csv(f)["Br"].abs().sum()))[:n]
+
+
+def run_real_row(row: str) -> bool:
+    import re
+    import shutil
+    import subprocess
+    (train, nt), (held, nh), bar, what = REAL[row]
+    R = _bars()
+    t0 = time.time()
+    if not os.path.isdir(os.path.join(PREPARED, train)):
+        return record(F, row, "real", train, what, "not here", {"bars": R.BARS_HASH}, "the prepared OOI logs (stress/prepare_ooi_97.py)", False)
+    d = os.path.join(R.WORK, row)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d + "/data")
+    for f in _longest(train, nt) + _longest(held, nh):
+        shutil.copy(f, d + "/data")
+    dates = {re.search(r"(\d\d-\d\d-\d{4})", f).group(1) for f in _longest(held, nh)}
+    spec = remus600_spec(d + "/spec.yaml")
+    with open(d + "/fit.log", "w") as f:
+        rc = subprocess.run([R.PY, "strathe_cli.py", "calibrate", "--data", d + "/data", "--spec", spec, "--name", row, "--out", d + "/fit", "--sampling-rate-hz", "1",
+                             "--max-nfev", str(R.NFEV), "--seed", "7", "--workers", "2", "--heldout-dates", *sorted(dates), "--sensors", "velocity"],
+                            cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+    secs = time.time() - t0
+    vj = d + "/fit/validation/validation.json"
+    if not os.path.exists(vj):
+        return record(F, row, "real", train, what, held, {"exit": rc, "bars": R.BARS_HASH}, "a calibration and its validation", False, secs)
+    v = json.load(open(vj))
+    fr = v["fin_free_run"]
+    c, h = fr["calibrated"], fr["straight_on"]
+    n = {k: c[k]["median"] for k in REAL_FLY}
+    n.update({f"{k}_hold": h[k]["median"] for k in REAL_FLY}, windows=fr["windows"], diverged=fr["diverged"]["calibrated"], exit=rc, bars=R.BARS_HASH,
+             few=json.load(open(d + "/fit/metrics.json"))["fins"]["few_manoeuvres"])
+    if bar == "warned":
+        return record(F, row, "real", train, what, held, n, "too few manoeuvres flagged", bool(n["few"]), secs)
+    ok = all(n[k] is not None and n[k] <= REAL_FLY[k] for k in REAL_FLY) and not n["diverged"]
+    ok = ok and n["heading_deg"] <= n["heading_deg_hold"]
+    return record(F, row, "real", train, what, held, n, f"30 s median within {REAL_FLY}, and heading better than holding course", ok, secs)
+
+
+def run_fin_check_row() -> bool:
+    import glob
+    import fin_check
+    R = _bars()
+    out, ok = {}, True
+    for d in sorted(glob.glob(os.path.join(PREPARED, "*"))):
+        r = fin_check.check_folder(d, 1.0)["channels"]
+        out[os.path.basename(d)] = {k: v.get("correlation") for k, v in r.items()}
+        ok &= not any("problem" in v for v in r.values())
+    return record(F, "O-fin-check", "real", "all missions", "fin-check reads each mission's fin signs as right", "OOI REMUS", {**out, "bars": R.BARS_HASH},
+                  "no reversed fin on any mission", ok and bool(out))
 
 
 def real_rows() -> list:
-    return []
+    return [*REAL, "O-fin-check"]
 
 
 def run_real(pick) -> int:
-    return 0
+    ok = all([run_real_row(r) for r in REAL if pick(r)])
+    return 0 if (run_fin_check_row() if pick("O-fin-check") else True) and ok else 1
