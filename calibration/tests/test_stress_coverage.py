@@ -72,8 +72,10 @@ def test_what_other_matrices_owe_97_names_rows_that_exist():
 
 
 def _results_97():
+    """Each row's last result: a row run again after a fix replaces the earlier one, as in the report."""
+    import report
     from common import load_rows
-    return load_rows("97")
+    return report._latest(load_rows("97"))
 
 
 def test_97s_results_were_judged_by_the_bars_in_force():
