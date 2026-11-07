@@ -144,8 +144,9 @@ A fin fit runs in two stages, and takes longer than a hover fit because of it.
 2. **Flights.** The fit goes on from there with the model flying itself for 10 s at a time, on its own attitude, and scores its roll, pitch
    and heading against the log. Windows alone never show the fit what its own pitch does. Recordings shorter than 10 s can't do this,
    and the report says so.
-   This stage stops when a step gains less than 0.05%, or after `--max-nfev` steps (at most 100). A stable vehicle stops early; an unstable
-   one uses most of them. Its time grows with the length of the logs: about 30 evaluations a step, each flying every 10 s of the recordings.
+   This stage stops when it has converged, as the first does, or after `--max-nfev` steps (at most 100). A stable vehicle stops early; an
+   unstable one uses most of them. Its time grows with the length of the logs: about 30 evaluations a step, each flying every 10 s of the
+   recordings. On a 1.6 h real log that is about 25 minutes a step, so up to about 40 hours; a smaller `--max-nfev` trades accuracy for time.
 
 ### A vehicle that's unstable on its own
 

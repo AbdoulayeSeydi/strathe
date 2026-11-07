@@ -3852,8 +3852,12 @@ Bar committed before any such flight ran.
 **The second stage's budget was too short, and I found that on unseen flights.** With 25 steps, T-prestero-rich met its 5 s and autopilot bars (0.90 degrees of pitch at 5 s; 1.37 under the
 autopilot), but T-prestero-mixed, with 28 pitching manoeuvres to the other's 80, failed its autopilot row: 4.18 degrees, 3.95, 0.35 m, bar 2 degrees of pitch. Taking its values on for 60 more
 steps gave 1.55, 1.64 and 0.12 m (p90 6.57, 4.22, 0.71), and 0.57, 0.90, 0.03 m at 5 s, with cost 0.283 to 0.141. So the fit was out of budget, not out of data. The stage now has 100 steps,
-the CLI's default, and stops when a step gains under 0.05%, and #97's rows use 100 rather than 40, so they test what a lab gets. The bar didn't move, but the held-out autopilot flights did
+the CLI's default, and #97's rows use 100 rather than 40, so they test what a lab gets. The bar didn't move, but the held-out autopilot flights did
 choose this budget, so those rows are less independent than a bar on flights nobody looked at. The real rows and the other truths played no part in the choice.
+
+**And then the stage stopped itself too soon.** I'd also let it stop once a step gained under 0.05%, which the 60-step run hadn't tested. On the final rows one
+small step ended it at 18 steps (rich) and 20 (mixed), and T-prestero-mixed's autopilot row failed again: 4.29, 4.01, 0.35 m. The stage now stops as the first does, which is what the 60-step
+run used. I found this on the same held-out flights, so the disclosure above covers it too. The cost is time: on a long real log up to 100 steps is about 40 hours (`FINS.md`).
 
 **The own-model rows' recordings couldn't be flown.** `_own_truth` fed in a sine wave of roll and pitch, which a window fit doesn't mind. A flight has no right answer against it: with the second
 stage on, P-layout-cross and both position-fix rows ran the pitching fins' lift to its limit, 87% off (P-position-fixes-long passed at 2.4% and 1.4% before). The fin test suites skip that stage to

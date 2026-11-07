@@ -321,7 +321,7 @@ def test_the_second_stage_starts_its_checkpoint_afresh(tmp_path, monkeypatch):
     first = type("F", (), {"parameters": initial_parameters(load_vehicle_spec(TEMPLATE))})()
     second = rc.fin_flight_stage(cfg, None, [], first, {"plain": []}).cc
     assert made == [cfg.checkpoint_path] and second.on_iteration is not cfg.calibration_config.on_iteration
-    assert second.max_nfev <= fin_fit.FLIGHT_MAX_NFEV and second.n_restarts == 1 and second.ftol == fin_fit.FLIGHT_FTOL
+    assert second.max_nfev <= fin_fit.FLIGHT_MAX_NFEV and second.n_restarts == 1 and second.ftol == cfg.calibration_config.ftol
 
 
 def test_a_budget_stopped_first_stage_with_nothing_to_fly_stops_as_it_would_have(tmp_path):
