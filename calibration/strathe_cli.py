@@ -1560,8 +1560,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with no DVL: refit this many times in all with better starting velocities (default 2)")
     c.add_argument("--smoother-accel-sigma", type=float, default=None, help=argparse.SUPPRESS)
     c.add_argument("--prediction-horizon-s", type=float, default=None,
-                   help="score prediction windows of this length (default: whole recordings with a DVL, 10 s from "
-                        "the sensors)")
+                   help="score prediction windows of this length (default: whole recordings with a DVL, 2 s for a "
+                        "fin vehicle, 10 s from the sensors)")
     c.add_argument("--exclude-axes", nargs="+", choices=["p", "q"],
                    help="advanced: leave roll (p) / pitch (q) out of the fit (see run_calibration.py --help)")
     c.add_argument("--drag", choices=["free", "prior"], default="free",

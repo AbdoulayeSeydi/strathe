@@ -90,6 +90,8 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if spec.vehicle.actuators is not None and spec.vehicle.actuators.fins:   # as the fit had it (fin_fit.py, #97)
         import fin_fit
         fin_info = fin_fit.setup(train, spec.vehicle.actuators, default, None)
+        if horizon_samples is None and train and train[0].channels is None:
+            horizon_samples = fin_fit.window_samples(train)
     sensor_info, sensor_held = None, {}
     if train and train[0].channels is not None:
         sensor_info, horizon_samples, sensor_held = _sensor_setup(train, held, params, default, spec, data_dir,

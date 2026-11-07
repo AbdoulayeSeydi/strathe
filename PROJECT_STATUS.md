@@ -3830,6 +3830,45 @@ Its value never changed, and those runs don't count: only the final run does. It
 - ~~**The single-evaluation stall**~~ — caught and explained (#49): the machine was asleep. Long runs now keep the machine awake by themselves (`keep_awake.py`).
 - **The ~2.5%/tick angular-velocity decay** under Custom Dynamics (#15) remains a known residual.
 
+
+**Why an unstable vehicle failed, and what changed (6 Nov).** T-prestero-rich and -mixed failed their 30 s flights badly (74 and 60 degrees of heading). Four
+explanations, tested one at a time:
+
+- **Limits: no.** Mqq and Nrr limits made 4x wider left a fresh fit where it was (74.39 against 74.37 degrees).
+- **Off-diagonal mass: no.** Held at 0.53 against his 1.93, but the published values with 0.53 still fly 5 s to 1.52 degrees of pitch.
+- **The whole-recording objective: yes, for what the fit found.** A 900 s replay on logged fins can't follow a vehicle that doubles an error every 0.69 s, so it
+  rewarded a wrong one: cost 0.615 for the fit's nearly stable vehicle (doubling 16.7 s), 5.90 for the truth. At 2 s windows the truth wins, 0.160 against 0.361,
+  and the fit found doubling 0.76 s, Nrr -77 (truth -94), Mqq -205 (-188). Fossen's stable REMUS lost nothing: 1.9 degrees of heading at 30 s, from 2.68.
+- **Logged attitude: yes, for what it still missed.** Every window feeds the logged attitude back in, so the 2 s fit beat the truth tenfold on its training windows
+  (0.017 against 0.160) and still missed 5 s pitch by 4.21 degrees. A prototype that went on with 10 s flights on the model's own attitude reached 1.05 degrees, under
+  the published values' 1.74. So a fin fit now has two stages (`fin_fit.py`).
+
+A 2 s fit, a 5 s fit (2.61, 1.71, 0.03 m at 5 s) and that prototype are previews, on fits that aren't final rows. Bars didn't move.
+
+**30 s open loop can't be passed by anything.** T-prestero-floor-30s: his own equations, on the same 10 Hz fins, miss by 68 and 146 degrees. Those two rows stay failed.
+T-prestero-*-autopilot asks the question that's left: the model and the truth under one autopilot for 30 s, against FLY's numbers at each flight's worst moment.
+Bar committed before any such flight ran.
+
+**The second stage's budget was too short, and I found that on unseen flights.** With 25 steps, T-prestero-rich met its 5 s and autopilot bars (0.90 degrees of pitch at 5 s; 1.37 under the
+autopilot), but T-prestero-mixed, with 28 pitching manoeuvres to the other's 80, failed its autopilot row: 4.18 degrees, 3.95, 0.35 m, bar 2 degrees of pitch. Taking its values on for 60 more
+steps gave 1.55, 1.64 and 0.12 m (p90 6.57, 4.22, 0.71), and 0.57, 0.90, 0.03 m at 5 s, with cost 0.283 to 0.141. So the fit was out of budget, not out of data. The stage now has 100 steps,
+the CLI's default, and #97's rows use 100 rather than 40, so they test what a lab gets. The bar didn't move, but the held-out autopilot flights did
+choose this budget, so those rows are less independent than a bar on flights nobody looked at. The real rows and the other truths played no part in the choice.
+
+**And then the stage stopped itself too soon.** I'd also let it stop once a step gained under 0.05%, which the 60-step run hadn't tested. On the final rows one
+small step ended it at 18 steps (rich) and 20 (mixed), and T-prestero-mixed's autopilot row failed again: 4.29, 4.01, 0.35 m. The stage now stops as the first does, which is what the 60-step
+run used. I found this on the same held-out flights, so the disclosure above covers it too. The cost is time: on a long real log up to 100 steps is about 40 hours (`FINS.md`).
+
+**The own-model rows' recordings couldn't be flown.** `_own_truth` fed in a sine wave of roll and pitch, which a window fit doesn't mind. A flight has no right answer against it: with the second
+stage on, P-layout-cross and both position-fix rows ran the pitching fins' lift to its limit, 87% off (P-position-fixes-long passed at 2.4% and 1.4% before). The fin test suites skip that stage to
+stay quick, so they couldn't see this. The recordings are now the model flying itself, and the bars are unchanged: 29 of the 30 recovery rows pass. P-position-fixes still fails, at 20% on the pitching
+fins, on 1 Hz fixes and 100 s of training; with more data, P-position-fixes-long passes. What this shows for real logs is in `LIMITS.md`: a fin fit trusts the logged attitude.
+
+**Mistakes of mine on the way:** the first version of the second stage turned a converged fit into a failed one when it used its short budget, and would have
+kept the first stage's values in the checkpoint, as the two costs can't be compared. Five tests and a read of the checkpoint code caught these.
+
+**Gliders.** `fin-check` reads Slocum `dbd2asc` logs. Thirty full-rate logs from OOI gliders GL339, GL340 and GL376: rudder against turn rate +0.51, +0.49, +0.72,
+one sign on all three. Slocum's own convention wasn't found published, so the bar is agreement, not "positive means starboard".
 ---
 
 ## What's actually next

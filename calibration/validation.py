@@ -43,6 +43,8 @@ ORIENT_WINDOW_S = 10.0
 ORIENT_REPORT_S = (3, 10)
 RESPONSE_S = 1.0
 FIN_WINDOW_S = 30.0   # how long a fin vehicle flies itself before it's compared
+FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
+UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -456,6 +458,26 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
     return out
 
 
+def fin_stability(params, vehicle, speed: float) -> dict:
+    """How fast an error grows about straight flight with the fins centred: the largest eigenvalue over sway, heave, the rates, roll and pitch. A
+    vehicle that's unstable with its fins held can't be flown far open loop by any model, even a perfect one: Prestero's REMUS doubles an error
+    every 0.7 s, so logging its fins at 10 Hz alone sends it 129 degrees from itself in 30 s (#97)."""
+    from dynamics_model import compute_acceleration
+    ctl = [0.0] * vehicle.actuators.width
+
+    def f(x):
+        v = np.r_[speed, x[:5]]
+        a = compute_acceleration(params, vehicle, v, np.zeros(6), x[5], x[6], None, ctl)[0]
+        return np.r_[a[1:], x[2] + x[4] * math.tan(x[6]) * math.cos(x[5]), x[3] * math.cos(x[5]) - x[4] * math.sin(x[5])]
+    J, h = np.zeros((7, 7)), 1e-5
+    for i in range(7):
+        e = np.zeros(7)
+        e[i] = h
+        J[:, i] = (f(e) - f(-e)) / (2 * h)
+    growth = float(np.linalg.eigvals(J).real.max())
+    return {"speed_m_s": float(speed), "growth_per_s": growth, "doubling_s": math.log(2) / growth if growth > 1e-9 else None}
+
+
 def fin_steps(models: dict, runs: list, vehicle, act) -> dict:
     """Steps of the steering and pitching fins, and the turn or pitch rate each caused, real against the model."""
     from fin_fit import group_angle
@@ -714,6 +736,10 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     res["steps"] = steps["summary"]
     if vehicle.actuators is not None and vehicle.actuators.fins:
         res["fin_free_run"] = fin_free_run(models, runs, vehicle)
+        res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S)
+        speed = float(np.nanmedian(np.concatenate([r.real_nu[:, 0] for r in runs])))
+        if "calibrated" in models and np.isfinite(speed):
+            res["fin_stability"] = fin_stability(models["calibrated"], vehicle, speed)
         res["fin_steps"] = fin_steps(models, runs, vehicle, vehicle.actuators)
     if anchoring is not None:
         res["sensor_suite"] = {"anchoring": anchoring, "drift_against": res["trajectory"].get("against")}

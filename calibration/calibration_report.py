@@ -483,6 +483,9 @@ def _m(s, unit="", digits=2):
     return "n/a" if s is None or s.get("median") is None else f"{s['median']:.{digits}f}{unit}"
 
 
+UNSTABLE_DOUBLING_S = 6.0   # validation.py's
+
+
 def fin_flight_section(v: dict) -> list:
     """How a fin vehicle flew itself on recordings it never saw: the check that counts for one (#97)."""
     f = v.get("fin_free_run")
@@ -501,6 +504,20 @@ def fin_flight_section(v: dict) -> list:
         L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(f['default'][key], unit)} | "
                  f"{_m(f['straight_on'][key], unit)} |")
     L.append("")
+    stab = v.get("fin_stability") or {}
+    fast = stab.get("doubling_s") is not None and stab["doubling_s"] < UNSTABLE_DOUBLING_S
+    if fast:
+        L.append(f"> ⚠️ **As fitted, this vehicle is unstable with its fins held:** at {stab['speed_m_s']:.1f} m/s an error doubles every "
+                 f"{stab['doubling_s']:.1f} s. Over {win:g} s no model can follow it, even a perfect one, so the table above says little about this "
+                 f"calibration. Read the shorter flight below. If you believe the vehicle is stable, the fit is wrong: log more manoeuvres.\n")
+        s = v.get("fin_free_run_short") or {}
+        if s.get("windows"):
+            L += [f"Flying {s['window_s']:g} s, over {s['windows']} windows:\n", "| | Calibrated | Default physics | Assuming it holds course |", "|---|---|---|---|"]
+            for key, word, unit in (("heading_deg", "Heading", "°"), ("pitch_deg", "Pitch", "°"), ("depth_m", "Depth", " m")):
+                c = s["calibrated"][key]
+                if c["median"] is not None:
+                    L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(s['default'][key], unit)} | {_m(s['straight_on'][key], unit)} |")
+            L.append("")
     worse = [w for k, w in (("heading_deg", "heading"), ("pitch_deg", "pitch"), ("depth_m", "depth"))
              if f["calibrated"][k]["median"] is not None and f["straight_on"][k]["median"] is not None
              and f["calibrated"][k]["median"] >= f["straight_on"][k]["median"]]

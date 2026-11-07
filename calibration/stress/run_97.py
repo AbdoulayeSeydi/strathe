@@ -51,10 +51,16 @@ FORMAT_DEG = 0.06        # a logged fin angle through any log format, degrees: h
 FORMAT_REL = 1e-6        # the same for rpm, gimbal, moving mass and buoyancy, relative to the signal's size
 SIM_RECOVER = 0.15       # fit-sim from twice the true fin lift lands within this of it, and drifts less on unseen recordings
 EXPORT_EXACT = 1e-6      # the lift an export writes, against the lift the calibration found
-BARS = {"fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
-        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER, "export_exact": EXPORT_EXACT}
+FLY_UNSTABLE_S = 5.0     # Prestero's vehicle doubles an error every 0.7 s, so it can't be flown 30 s by any model: FLY's numbers at this horizon, and better than
+                         # the default and than holding course. Set after T-prestero-rich failed and before any result at this horizon was seen.
+FLY_AUTOPILOT_S = 30.0   # the flight an unstable vehicle really makes: the model and the truth under one autopilot, on the same orders, from real states. FLY's numbers,
+                         # on the median of each flight's WORST moment, not its end, and better than the default. Set before any flight of this kind was run.
+GLIDER_CORRELATION = 0.3 # a real Slocum's rudder against its turn rate, each glider: at least this size, and the same sign on all of them. Slocum's own
+                         # convention wasn't found published, so the bar is agreement. Set before any glider log was checked.
+BARS = {"fly_autopilot_s": FLY_AUTOPILOT_S, "glider_correlation": GLIDER_CORRELATION, "fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
+        "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER, "export_exact": EXPORT_EXACT, "fly_unstable_s": FLY_UNSTABLE_S}
 BARS_HASH = hashlib.sha256(json.dumps(BARS, sort_keys=True).encode()).hexdigest()[:12]
-NFEV = 40
+NFEV = 100     # the CLI's default: a row tests the fit a lab gets. It was 40, which capped an unstable vehicle's flight stage (PROJECT_STATUS.md #97)
 
 GRADE = {"Bu": .01, "Bv": .01, "Bw": .01, "Bp": .002, "Bq": .002, "Br": .002}   # a survey DVL and a fibre gyro, per sample
 

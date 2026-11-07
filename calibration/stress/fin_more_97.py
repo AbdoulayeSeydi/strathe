@@ -744,9 +744,114 @@ def run_experiments() -> bool:
     return record(F, "EX-all", "experiments", "arena, fleet, train-fleet", "a calibrated fin vehicle runs in each experiment; MuJoCo refuses", "-", {"said": r.stdout.strip().splitlines()[-1][:120], "bars": R.BARS_HASH}, "all pass", r.returncode == 0, time.time() - t0)
 
 
+# ------------------------------------------------------------------ an open-loop unstable truth, at a horizon that can be predicted
+SHORT = {"T-prestero-rich-5s": "T-prestero-rich", "T-prestero-mixed-5s": "T-prestero-mixed"}
+
+
+def run_short(row: str) -> bool:
+    """The calibration its truth row made, flying FLY_UNSTABLE_S on unseen recordings. Needs that row's fit."""
+    import glob
+    import fin_truth as T
+    import validation as VAL
+    from dynamics_model import CalibrationParameters
+    from objective import DatasetConfig, load_run
+    from optimizer import initial_parameters, load_vehicle_spec
+    R = _bars()
+    t0 = time.time()
+    d = os.path.join(R.WORK, SHORT[row])
+    f = d + "/fit/calibrated_parameters.yaml"
+    if not os.path.exists(f):
+        return record(F, row, "truth", "prestero", "needs its truth row's fit", "-", {"bars": R.BARS_HASH}, "a fit", False)
+    spec = load_vehicle_spec(d + "/spec.yaml")
+    p = yaml.safe_load(open(f))["parameters"]
+    fitted = CalibrationParameters(**{k: p[k] for k in p if k in CalibrationParameters.__dataclass_fields__})
+    dc = DatasetConfig(10.0, (0.0, 0.0, 0.0), None, None, sensors=("velocity",), actuators=spec.vehicle.actuators)
+    runs = [load_run(x, dc) for x in sorted(glob.glob(f"{d}/data/remus-{T.HELD_DATE}*.csv"))]
+    v = VAL.fin_free_run({"calibrated": fitted, "default": initial_parameters(spec)}, runs, spec.vehicle, window_s=R.FLY_UNSTABLE_S)
+    n = {m: {k: v[m][k]["median"] for k in R.FLY} for m in ("calibrated", "default", "straight_on")}
+    n["p90"] = {k: v["calibrated"][k]["p90"] for k in R.FLY}
+    c = n["calibrated"]
+    ok = all(c[k] is not None and c[k] <= R.FLY[k] for k in R.FLY) and c["heading_deg"] < min(n["default"]["heading_deg"], n["straight_on"]["heading_deg"]) and not v["diverged"]["calibrated"]
+    return record(F, row, "truth", "prestero", f"flying {R.FLY_UNSTABLE_S:g} s on unseen recordings: the horizon an unstable vehicle allows", "held-out", {**n, "windows": v["windows"], "bars": R.BARS_HASH},
+                  "FLY's numbers, and better than the default and holding course", ok, time.time() - t0)
+
+
+AUTOPILOT = {"T-prestero-rich-autopilot": "T-prestero-rich", "T-prestero-mixed-autopilot": "T-prestero-mixed"}
+FLOOR = "T-prestero-floor-30s"
+
+
+def _fitted(d: str):
+    from dynamics_model import CalibrationParameters
+    p = yaml.safe_load(open(d + "/fit/calibrated_parameters.yaml"))["parameters"]
+    return CalibrationParameters(**{k: p[k] for k in p if k in CalibrationParameters.__dataclass_fields__})
+
+
+def run_autopilot(row: str) -> bool:
+    """30 s of real flight: a calibrated model and the truth on one autopilot, from each unseen recording's real states, on orders neither was trained on. Needs the truth row's fit."""
+    import glob
+    import math
+    import fin_truth as T
+    from optimizer import initial_parameters, load_vehicle_spec
+    from scipy.spatial.transform import Rotation
+    R = _bars()
+    t0 = time.time()
+    d = os.path.join(R.WORK, AUTOPILOT[row])
+    if not os.path.exists(d + "/fit/calibrated_parameters.yaml"):
+        return record(F, row, "truth", "prestero", "needs its truth row's fit", "-", {"bars": R.BARS_HASH}, "a fit", False)
+    spec = load_vehicle_spec(d + "/spec.yaml")
+    models = {"calibrated": _fitted(d), "default": initial_parameters(spec)}
+    rng = np.random.default_rng(97)
+    wrap = lambda a: (a + np.pi) % (2 * np.pi) - np.pi
+    worst = {m: [] for m in models}
+    lost = {m: 0 for m in models}
+    S = R.FLY_AUTOPILOT_S
+    n = 0
+    for f in sorted(glob.glob(f"{d}/data/remus-{T.HELD_DATE}*.csv")):
+        df = pd.read_csv(f)
+        e = Rotation.from_quat(df[["qx", "qy", "qz", "qw"]].to_numpy()).as_euler("ZYX")[:, ::-1]
+        for a in range(0, len(df) - 1, int(S * 10)):
+            x0 = np.zeros(12)
+            x0[:6] = df.loc[a, ["Bu", "Bv", "Bw", "Bp", "Bq", "Br"]].to_numpy()
+            x0[8], x0[9:12] = 30.0, e[a]
+            yaw = e[a, 2]
+            orders = []
+            for k in (1, 2):
+                yaw += rng.uniform(-70, 70) * math.pi / 180
+                orders.append((S * k / 2, yaw, rng.uniform(-12, 12) * math.pi / 180, 1500.0 * rng.uniform(.75, 1.15)))
+            truth = T.fly_truth_on_autopilot(x0, orders)
+            n += 1
+            for m, p in models.items():
+                got = T.fly_model_on_autopilot(p, spec.vehicle, x0, orders)
+                if got is None:
+                    lost[m] += 1
+                    continue
+                worst[m].append((float(np.degrees(np.abs(wrap(got[:, 0] - truth[:, 0])).max())), float(np.degrees(np.abs(got[:, 1] - truth[:, 1]).max())), float(np.abs(got[:, 2] - truth[:, 2]).max())))
+    keys = ("heading_deg", "pitch_deg", "depth_m")
+    med = {m: dict(zip(keys, np.median(w, axis=0).tolist())) if w else None for m, w in worst.items()}
+    p90 = dict(zip(keys, np.percentile(worst["calibrated"], 90, axis=0).tolist())) if worst["calibrated"] else None
+    c, dflt = med["calibrated"], med["default"]
+    ok = c is not None and all(c[k] <= R.FLY[k] for k in keys) and not lost["calibrated"] and (dflt is None or c["heading_deg"] + c["pitch_deg"] < dflt["heading_deg"] + dflt["pitch_deg"])
+    return record(F, row, "truth", "prestero", f"{S:g} s under the vehicle's autopilot, against the truth under the same one", "held-out", {**med, "p90": p90, "flights": n, "lost": lost, "bars": R.BARS_HASH},
+                  "FLY's numbers on each flight's worst moment, and better than the default", ok, time.time() - t0)
+
+
+def run_floor() -> bool:
+    """The 30 s open-loop flight of T-prestero-rich can't be passed by any model: the truth itself, given the same logs, misses by more than the bar. A pass here means that's shown."""
+    import glob
+    import fin_truth as T
+    R = _bars()
+    t0 = time.time()
+    fs = sorted(glob.glob(f"{R.WORK}/T-prestero-rich/data/remus-{T.HELD_DATE}*.csv"))
+    if not fs:
+        return record(F, FLOOR, "truth", "prestero", "needs its truth row's recordings", "-", {"bars": R.BARS_HASH}, "recordings", False)
+    n = {"heading_deg": {os.path.basename(f): T.truth_against_itself(f, 30.0) for f in fs}, "bars": R.BARS_HASH}
+    return record(F, FLOOR, "truth", "prestero", "Prestero's own equations on the logged 10 Hz fins, 30 s open loop", "held-out", n, f"the truth itself misses by more than {R.FLY['heading_deg']} degrees",
+                  max(n["heading_deg"].values()) > R.FLY["heading_deg"], time.time() - t0)
+
+
 # ------------------------------------------------------------------ the run
 def more_rows() -> list:
-    return [*mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS, *[f"XS-{k}" for k in refusal_cases()], *[f"SV-{k}" for k in KEYS], *describe_rows(), "EX-all"]
+    return [*SHORT, *AUTOPILOT, FLOOR, *mass_rows(), *VECTORED, *pair_options(), *three_way_rows(), *EXPORTS, *CONVERTS, *JOURNEYS, *[f"XS-{k}" for k in refusal_cases()], *[f"SV-{k}" for k in KEYS], *describe_rows(), "EX-all"]
 
 
 def run_more(pick) -> int:
@@ -784,4 +889,12 @@ def run_more(pick) -> int:
             ok &= run_describe(r)
     if pick("EX-all"):
         ok &= run_experiments()
+    for r in SHORT:
+        if pick(r):
+            ok &= run_short(r)
+    for r in AUTOPILOT:
+        if pick(r):
+            ok &= run_autopilot(r)
+    if pick(FLOOR):
+        ok &= run_floor()
     return 0 if ok else 1
