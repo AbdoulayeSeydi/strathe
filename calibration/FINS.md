@@ -129,7 +129,7 @@ aren't supported.**
   manoeuvres per group of fins, the report warns. Deliberate turns and dives fix this.
 - **A group of fins that barely moved keeps its geometry value**, and the report says so.
 - **No DVL? Log longer.** Position fixes can stand in for a DVL, but speed is then estimated. On a simulated REMUS with clean fixes at
-  1 Hz, 50 s of training left the rudder's lift 11% off; 5 minutes brought it to 2.4%.
+  1 Hz, 100 s of training left the pitching fins' lift 20% off; 10 minutes brought it to 2.4%.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
