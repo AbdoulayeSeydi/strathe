@@ -390,10 +390,25 @@ def _platform_spec(path: str, o: dict) -> dict:
     return spec
 
 
+def _flown(P, vehicle, F, controls, nu0, dt: float) -> tuple:
+    """Velocities and attitude quaternions of the model flying itself. A fin fit's second stage scores flights against the logged attitude, so a recording's attitude
+    has to be one its physics could fly: fed a sine wave instead, these rows' fits ran the pitching fins' lift to its limit, 87% off, and #97 caught that."""
+    from objective import RunData
+    from scipy.spatial.transform import Rotation
+    from validation import free_run
+    n = len(F)
+    real = np.zeros((n, 6))
+    real[0] = nu0
+    run = RunData("own truth", F, np.zeros((n, 2)), real, nu0, dt, 1 / dt, orientation_quat=np.tile([0, 0, 0, 1.0], (n, 1)), controls=controls)
+    got = free_run(P, vehicle, run, 0, n, full=True)
+    if got is None:
+        raise ValueError("the model's own flight diverged, so it can't be a truth")
+    return got[1], Rotation.from_euler("xyz", got[0]).as_quat()
+
+
 def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float) -> None:
     from dataclasses import replace as rep
     import steering
-    from dynamics_model import SimulationConfig, TrajectoryInputs, simulate_trajectory
     from fin_force import servo_angles
     from optimizer import initial_parameters, load_vehicle_spec
     from scipy.spatial.transform import Rotation
@@ -420,12 +435,10 @@ def _own_truth(spec_path: str, out: str, o: dict, truth_a: float, truth_b: float
                     df[f"{'fincmd' if o.get('commanded') else 'fin'}_{f.name}"] = ctl[:, i]
                 df = df.drop(columns=[c for c in df if c in ("fin_rudder", "fin_elevator", "fincmd_rudder", "fincmd_elevator")])
             applied = servo_angles(act, ctl, P.fin_servo_T, .1) if cmd else ctl
-            rp = np.c_[.03 * np.sin(np.arange(n) / 40), .05 * np.sin(np.arange(n) / 60)]
             u0 = o.get("u0", 1.5)
             F = np.zeros((n, 6))
             F[:, 0] = abs(P.Xuu) * u0 * u0 + abs(P.Xu) * u0
-            nu = simulate_trajectory(P, s.vehicle, SimulationConfig(dt=.1), TrajectoryInputs(nu0=np.array([u0, 0, 0, 0, 0, 0.]), forces_torques=F, roll_pitch_series=rp, control_series=applied)).nu
-            q = Rotation.from_euler("xyz", np.c_[rp, np.cumsum(nu[:, 5]) * .1]).as_quat()
+            nu, q = _flown(P, s.vehicle, F, applied, np.array([u0, 0, 0, 0, 0, 0.]), .1)
             for i, c in enumerate(("Fx", "Fy", "Fz", "Tx", "Ty", "Tz")):
                 df[c] = F[:, i]
             for i, c in enumerate(("Bu", "Bv", "Bw", "Bp", "Bq", "Br")):

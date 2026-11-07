@@ -3855,6 +3855,11 @@ steps gave 1.55, 1.64 and 0.12 m (p90 6.57, 4.22, 0.71), and 0.57, 0.90, 0.03 m 
 the CLI's default, and stops when a step gains under 0.05%, and #97's rows use 100 rather than 40, so they test what a lab gets. The bar didn't move, but the held-out autopilot flights did
 choose this budget, so those rows are less independent than a bar on flights nobody looked at. The real rows and the other truths played no part in the choice.
 
+**The own-model rows' recordings couldn't be flown.** `_own_truth` fed in a sine wave of roll and pitch, which a window fit doesn't mind. A flight has no right answer against it: with the second
+stage on, P-layout-cross and both position-fix rows ran the pitching fins' lift to its limit, 87% off (P-position-fixes-long passed at 2.4% and 1.4% before). The fin test suites skip that stage to
+stay quick, so they couldn't see this. The recordings are now the model flying itself, and the bars are unchanged: 29 of the 30 recovery rows pass. P-position-fixes still fails, at 20% on the pitching
+fins, on 1 Hz fixes and 100 s of training; with more data, P-position-fixes-long passes. What this shows for real logs is in `LIMITS.md`: a fin fit trusts the logged attitude.
+
 **Mistakes of mine on the way:** the first version of the second stage turned a converged fit into a failed one when it used its short budget, and would have
 kept the first stage's values in the checkpoint, as the two costs can't be compared. Five tests and a read of the checkpoint code caught these.
 
