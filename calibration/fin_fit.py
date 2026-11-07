@@ -157,7 +157,8 @@ FIN_MIN_WINDOW_SAMPLES = 5   # a slow log's window still needs a few samples to 
 FLIGHT_S = 10.0              # 5 s reached 1.87 degrees, 10 s 1.05: longer is what pins the unstable mode
 FLIGHT_SAMPLE_S = 0.5
 FLIGHT_MIN_SAMPLES = 5
-FLIGHT_MAX_NFEV = 25         # it starts from a fit, so it has refining to do, not searching
+FLIGHT_MAX_NFEV = 100        # an unstable vehicle needs them: Prestero's manoeuvres-and-survey fit held 3.95 degrees of pitch under his autopilot after 25, 1.64 after 85
+FLIGHT_FTOL = 5e-4           # it stops once a good step gains under 0.05%: that fit was still gaining 0.2% a step at 85, and a long real log pays about 30 evaluations a step
 FLIGHT_LOST = 10.0           # a flight that diverged, in the residual's scaled units
 
 

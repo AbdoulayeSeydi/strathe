@@ -183,7 +183,7 @@ def fin_flight_stage(config, loaded_spec, train_runs, first, fin_info: dict, sto
     cc = config.calibration_config
     start = first.parameters.to_vector() if first is not None else min(stopped.restarts, key=lambda r: r.cost).x
     # costs of the two stages can't be compared, so this stage's checkpoint starts afresh
-    second = _replace(cc, x0_override=start, n_restarts=1, initialization_strategy="fixed",
+    second = _replace(cc, x0_override=start, n_restarts=1, initialization_strategy="fixed", ftol=fin_fit.FLIGHT_FTOL,
                       max_nfev=min(cc.max_nfev, fin_fit.FLIGHT_MAX_NFEV) if cc.max_nfev else fin_fit.FLIGHT_MAX_NFEV,
                       on_iteration=make_checkpoint_callback(config.checkpoint_path) if cc.on_iteration and config.checkpoint_path else cc.on_iteration)
     try:

@@ -60,7 +60,7 @@ GLIDER_CORRELATION = 0.3 # a real Slocum's rudder against its turn rate, each gl
 BARS = {"fly_autopilot_s": FLY_AUTOPILOT_S, "glider_correlation": GLIDER_CORRELATION, "fly": FLY, "turn_of_hold": TURN_OF_HOLD, "recover_clean": RECOVER_CLEAN, "recover_noisy": RECOVER_NOISY, "paths": PATHS_AGREE,
         "speed_no_fins": SPEED_NO_FINS, "speed_four_fins": SPEED_FOUR_FINS, "format_deg": FORMAT_DEG, "format_rel": FORMAT_REL, "sim_recover": SIM_RECOVER, "export_exact": EXPORT_EXACT, "fly_unstable_s": FLY_UNSTABLE_S}
 BARS_HASH = hashlib.sha256(json.dumps(BARS, sort_keys=True).encode()).hexdigest()[:12]
-NFEV = 40
+NFEV = 100     # the CLI's default: a row tests the fit a lab gets. It was 40, which capped an unstable vehicle's flight stage (PROJECT_STATUS.md #97)
 
 GRADE = {"Bu": .01, "Bv": .01, "Bw": .01, "Bp": .002, "Bq": .002, "Br": .002}   # a survey DVL and a fibre gyro, per sample
 
