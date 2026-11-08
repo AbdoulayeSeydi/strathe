@@ -3869,6 +3869,30 @@ kept the first stage's values in the checkpoint, as the two costs can't be compa
 
 **Gliders.** `fin-check` reads Slocum `dbd2asc` logs. Thirty full-rate logs from OOI gliders GL339, GL340 and GL376: rudder against turn rate +0.51, +0.49, +0.72,
 one sign on all three. Slocum's own convention wasn't found published, so the bar is agreement, not "positive means starboard".
+
+**The real REMUS 600 rows, and what they found.** The first real fits failed on pitch (16–35° after 30 s, held out), with the centre of gravity
+pulled from the description's 32 mm to under 1 mm. Four things were behind it, found in this order:
+- **The aileron was dropped.** OOI's fin message carries a third command beside rudder and elevator: the roll autopilot's, about 1.5% per
+  degree of roll. Each fin's own angle in the message is the three mixed exactly as the y3 preset mixes them (R² 0.99 to 1.00). The prepared
+  logs had left it out. `prepare_ooi_97.py` now keeps it, and ganged logs without an aileron warn once (`steering.NO_AILERON`). On its own it
+  didn't fix pitch.
+- **The small centre-of-gravity offset is real.** Regressing the logged roll and pitch balance on all six deployments, both axes want 1–4.5 mm,
+  not 32 mm (a describe-vehicle guess). The fit was right to leave the description.
+- **describe-vehicle's Muw limit used Zuw's guess, not its limits.** Its rationale is ±|Zuw| × length, but it took the guess (±210 here) where Zuw
+  may go to 8×. The logs want −239 to −253 and the fit sat at −210. Fixed in `vehicle_describe.py` and `stonefish_describe.py` (±1,679 here).
+- **The fins' full scale isn't published.** The fit sat at half the geometry's lift slope, its lower limit. For these logs the slope may now go to
+  a tenth, as the propeller's scale already could. With both, the training flights came to pitch 3.1° and depth 1.8 m.
+- **Each deployment has its own trim, and that was most of it.** At the same speed and pitch the four deployments held their pitch with the
+  elevator 4° apart. Validation now flies each held-out deployment at its own trim (`validation.retrim_by_deployment`, LIMITS.md). Preview
+  (stage 1 at 1,521 evaluations, not a final row): pitch 2.48°, 0.83°, 1.89° and depth 0.62, 0.49, 1.07 m held out, from 16.0°, 14.4°, 16.5°
+  without. Heading is 6.0°, 4.2°, 4.7° against holding course's 1.2°, 2.2°, 3.7°, so the bar that it beats holding course still fails: those
+  flights hardly turn.
+
+**What I looked at, so you can weigh it.** The three fly rows' held-out flights were scored many times while finding all this, and the
+re-trim's per-axis form was chosen after a first form (all three rates steady at once, which left the turning training files 204 samples)
+didn't move their pitch. So those rows are no longer an independent check. **O-turns-fresh-deployment** was added for that: the other REMUS in
+2016 (A6263 R00003), the same bars, committed before any of its flights was scored. Its logs did go into the balance regressions that found
+the Muw limit. No bar moved.
 ---
 
 ## What's actually next

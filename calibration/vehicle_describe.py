@@ -241,7 +241,10 @@ def describe_hull(mass: float, length: float, *, width: Optional[float] = None, 
         zuw = -0.5 * rho * D ** 2 * 1.2
         T["hull_lift"]["Zuw"].update({"initial_guess": round(zuw, 3), "bounds": [round(8 * zuw, 2), 0.0],
                                       "source": f"slender-body lift for a {D:.2f} m diameter", "confidence": "estimated"})
-        T["hull_lift"]["Muw"].update({"bounds": [round(-abs(zuw) * L, 2), round(abs(zuw) * L, 2)]})
+        # the lift's moment: Zuw anywhere in its limits, acting anywhere along the hull (not just its guess: that held the OOI REMUS 600s'
+        # pitch about 15% short of what their logs need, #97)
+        T["hull_lift"]["Muw"].update({"bounds": [round(-8 * abs(zuw) * L, 2), round(8 * abs(zuw) * L, 2)],
+                                      "bounds_rationale": "+-|Zuw| x length, over Zuw's limits"})
         notes.append(f"Slender hull ({L:.2f} m x {D:.2f} m): the hull-lift terms are included. Calibrate with and "
                      f"without them and keep them only if held-out skill improves (LIMITS.md).")
     else:

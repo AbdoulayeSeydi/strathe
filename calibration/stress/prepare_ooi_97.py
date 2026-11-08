@@ -21,7 +21,7 @@ from scipy.spatial.transform import Rotation
 
 SRC = os.path.expanduser("~/strathe_fin_data/ooi_extract")
 OUT = os.path.expanduser("~/strathe_fin_data/ooi_prepared")
-FULL_SCALE_DEG = 15.0   # unknown for these fins: the fit's lift absorbs it
+FULL_SCALE_DEG = 15.0   # unknown for these fins: the fit's lift slope takes it (its limits go down to 0.1x for these logs, fin_rows_97.remus600_spec)
 MIN_S, MAX_GAP_S = 120, 5
 
 

@@ -510,7 +510,10 @@ REAL_FLY = {"heading_deg": 10.0, "pitch_deg": 3.0, "depth_m": 2.0}
 REAL = {"O-turns-same-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6264_R00006", 6), "fly", "train on the turning mission, fly another mission of the same vehicle"),
         "O-turns-other-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "fly", "train on one REMUS, fly the other"),
         "O-turns-years-later": (("CP05MOAS-A6264_R00008", 4), ("CP16MOAS-A6263_R00001", 6), "fly", "train in 2019, fly the other REMUS in 2024"),
-        "O-survey-only": (("CP05MOAS-A6263_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "warned", "survey lines only: must warn")}
+        "O-survey-only": (("CP05MOAS-A6263_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "warned", "survey lines only: must warn"),
+        # Added with the re-trim, its bars the same, before any of its flights was scored: the rows above were looked at while
+        # finding the aileron, the Muw limit and the re-trim, so this one is the clean check (#97)
+        "O-turns-fresh-deployment": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00003", 6), "fly", "train in 2019, fly the other REMUS in 2016: a deployment no choice was made on")}
 PREPARED = os.path.expanduser("~/strathe_fin_data/ooi_prepared")
 
 
@@ -521,6 +524,10 @@ def remus600_spec(path: str) -> str:
                                fins={"layout": "y3", "x_m": -1.4, "radius_m": .25, "area_m2": .05, "span_m": .2, "limit_deg": 20.0, "stall_deg": 20.0})
     spec["calibration_targets"]["fins"]["thrust_scale"] = {"unit": "-", "initial_guess": 1.0, "bounds": [.2, 5.0], "bounds_rationale": "its propeller curve isn't published",
                                                             "source": "estimated", "confidence": "assumed"}
+    for k in ("fin_lift_slope_a", "fin_lift_slope_b"):   # the logs give fin angles in percent of a full scale that isn't published (15 deg assumed)
+        t = spec["calibration_targets"]["fins"][k]
+        t["bounds"] = [round(t["initial_guess"] * .1, 4), t["bounds"][1]]
+        t["bounds_rationale"] = "lift slope from aspect ratio, x0.1 to x1.5: the fins' full scale isn't published, and the slope takes it"
     open(path, "w").write(yaml.safe_dump(spec, sort_keys=False))
     return path
 

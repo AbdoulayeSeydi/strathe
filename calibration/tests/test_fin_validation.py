@@ -186,3 +186,53 @@ def test_the_report_says_when_a_flight_cant_be_followed():
     assert "unstable with its fins held" in said and "Flying 5 s" in said
     calm = "\n".join(fin_flight_section({"fin_free_run": run, "fin_stability": {"speed_m_s": 1.5, "doubling_s": None}}))
     assert "unstable" not in calm
+
+
+# ------------------------------------------------------------------ each deployment flown at its own trim
+from fin_force import Actuators, Fin
+from objective import RunData
+
+Y3 = Actuators(fins=(Fin("top", (-1.4, 0, -.25), (0, 0, -1), .05, .2, mix=(-1.0, 0.0, 1.0)),
+                     Fin("port", (-1.4, -.22, .12), (0, -.87, .5), .05, .2, mix=(-1.0, 1.0, -.5)),
+                     Fin("starboard", (-1.4, .22, .12), (0, .87, .5), .05, .2, mix=(-1.0, -1.0, -.5))))
+
+
+def _held(angles_deg, date="01-01-2030", n=200, turning=False):
+    """A run whose fins sit at roll, pitch and yaw angles (degrees, through the y3 mix), with steady rates unless it's turning."""
+    A = np.array([f.mix for f in Y3.fins])
+    ctl = np.tile(A @ np.radians(angles_deg), (n, 1)) + np.random.default_rng(1).normal(0, 1e-4, (n, 3))
+    nu = np.zeros((n, 6))
+    nu[:, 0] = 1.5
+    if turning:
+        nu[:, 5] = .1
+    q = np.tile([0, 0, 0, 1.0], (n, 1))
+    return RunData(f"f-{date}-run1.csv", np.zeros((n, 6)), np.zeros((n, 2)), nu, nu[0], 1.0, 1.0, date=date, orientation_quat=q, controls=ctl)
+
+
+def test_a_deployment_is_flown_at_its_own_trim():
+    per, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, -1, 0], "02-02-2031"), _held([.5, -3, .2], "03-03-2032")], Y3)
+    a, b = notes["02-02-2031"], notes["03-03-2032"]
+    assert a["retrimmed"] and a["pitch_deg"] == pytest.approx(-2, abs=.01) and a["roll_deg"] == pytest.approx(0, abs=.01)
+    assert per[0].fin_bias_pitch == pytest.approx(np.radians(-2), abs=1e-4)
+    assert b["roll_deg"] == pytest.approx(-.5, abs=.01) and b["pitch_deg"] == pytest.approx(0, abs=.01) and b["yaw_deg"] == pytest.approx(-.2, abs=.01)
+
+
+def test_the_trim_of_an_axis_comes_only_from_moments_that_axis_holds_steady():
+    """A deployment that turns the whole time has no steady yaw: its rudder trim isn't guessed, while its pitch trim still is."""
+    _, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, -1, 2], turning=True)], Y3)
+    n = notes["01-01-2030"]
+    assert n["yaw_deg"] is None and n["pitch_deg"] == pytest.approx(-2, abs=.01) and n["retrimmed"]
+
+
+def test_too_few_steady_samples_leave_the_fit_as_it_is():
+    per, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, 5, 0], n=val.MIN_TRIM_SAMPLES - 1)], Y3)
+    assert not notes["01-01-2030"]["retrimmed"] and per[0] == P
+
+
+def test_the_report_says_what_trim_each_deployment_was_flown_at():
+    s = {"median": 1.0, "p90": 2.0}
+    f = {"window_s": 30, "windows": 5, "diverged": {"calibrated": 0},
+         **{m: {k: s for k in ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")} for m in ("calibrated", "default", "straight_on")}}
+    txt = "\n".join(fin_flight_section({"fin_free_run": f, "fin_free_run_as_trained": f,
+                                        "fin_retrim": {"02-02-2031": {"retrimmed": True, "roll_deg": .1, "pitch_deg": -2.0, "yaw_deg": None}}}))
+    assert "own trim" in txt and "02-02-2031" in txt and "-2.00°" in txt and "Without re-trimming" in txt

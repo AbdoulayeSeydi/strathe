@@ -84,6 +84,9 @@ Other blocks: `gimbal: {y: ..., z: ..., unit: deg}`, `moving_mass: {column: ...,
 
 Prefer measured angles if you have them. Commanded ones go through the servo's end stops, lag and top speed.
 
+If your fin angles are a percent of a full scale you don't know, give your best guess and widen `fin_lift_slope_a` and `_b`'s lower limits:
+the slope takes the scale. OOI's REMUS 600 logs are like this, and their fit wanted fins weaker than half the geometry's estimate.
+
 If the autopilot also rolls the vehicle with its fins, log the `aileron` channel too, or each fin's own angle. Without it the roll
 command is taken as zero, and calibration warns: the fit then can't see what holds the roll, and makes up for it elsewhere. OOI's
 REMUS 600s log one, and their first real fits were run without it (#97).
@@ -136,6 +139,9 @@ aren't supported.**
   1 Hz, 100 s of training left the pitching fins' lift 20% off; 10 minutes brought it to 2.4%.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
+- **Each new deployment is flown at its own trim.** Re-ballasting moves the fin angles that hold a vehicle steady, so before a held-out
+  deployment is flown, the fit's fin biases are moved by how far its fins sat from the training's while each axis held steady. The report
+  says by how much, and shows the flight without it. A minute of steady, level flight on each deployment is enough for it.
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
 
