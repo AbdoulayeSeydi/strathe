@@ -168,6 +168,24 @@ def test_per_fin_channels_are_used_as_they_are_with_their_sign():
     assert c[0, 0] == -.2
 
 
+def test_ganged_logs_without_an_aileron_say_its_roll_command_is_taken_as_zero(caplog, monkeypatch):
+    monkeypatch.setattr(steering, "_said", set())
+    act = steering.actuators_from(raw())
+    with caplog.at_level("WARNING", logger="steering"):
+        steering.controls_from_frame(frame(fin_rudder=.1, fin_elevator=.1, rpm=1.), act)
+        steering.controls_from_frame(frame(fin_rudder=.1, fin_elevator=.1, rpm=1.), act)
+    said = [r.message for r in caplog.records if "aileron" in r.message]
+    assert len(said) == 1 and "taken as zero" in said[0]
+
+
+@pytest.mark.parametrize("cols", [dict(fin_rudder=.1, fin_elevator=.1, fin_aileron=.0, rpm=1.)])
+def test_an_aileron_or_per_fin_angles_need_no_warning(caplog, monkeypatch, cols):
+    monkeypatch.setattr(steering, "_said", set())
+    with caplog.at_level("WARNING", logger="steering"):
+        steering.controls_from_frame(frame(**cols), steering.actuators_from(raw()))
+    assert not [r for r in caplog.records if "aileron" in r.message]
+
+
 @pytest.mark.parametrize("cols,word", [
     (dict(rpm=1000.), "no fin angles"),
     (dict(fin_rudder=.1), "no rpm"),

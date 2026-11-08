@@ -84,6 +84,10 @@ Other blocks: `gimbal: {y: ..., z: ..., unit: deg}`, `moving_mass: {column: ...,
 
 Prefer measured angles if you have them. Commanded ones go through the servo's end stops, lag and top speed.
 
+If the autopilot also rolls the vehicle with its fins, log the `aileron` channel too, or each fin's own angle. Without it the roll
+command is taken as zero, and calibration warns: the fit then can't see what holds the roll, and makes up for it elsewhere. OOI's
+REMUS 600s log one, and their first real fits were run without it (#97).
+
 Templates: `ingest_fin_csv.yaml`, `ingest_fin_moos.yaml`, `ingest_fin_rosbag.yaml`.
 
 ## What ingestion checks
