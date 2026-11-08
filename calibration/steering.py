@@ -16,6 +16,7 @@ so positive turns to starboard, pitches the nose up and rolls to starboard), and
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional, Sequence
 
@@ -30,6 +31,13 @@ EXTRA_COLUMNS = ("rpm", "gimbal_y", "gimbal_z", "moving_mass", "buoyancy_change"
 WORDS = {"hover": "HOVER (thrusters steer it)", "fin": "FIN-STEERED (fins and a propeller)",
          "vectored": "VECTORED THRUST (a gimballed tail)", "hybrid": "HYBRID (fins and steering thrusters)",
          "glider": "GLIDER (rudder check only)"}
+
+
+NO_AILERON = ("these logs have no aileron channel, so the fins' roll command is taken as zero. If the autopilot rolls the vehicle "
+              "with its fins (OOI's REMUS 600s do), log it as fin_aileron, or log each fin's angle: without it the fit can't see what "
+              "holds the roll, and makes up for it elsewhere (#97)")
+_said = set()
+log = logging.getLogger(__name__)
 
 
 class SteeringError(ValueError):
@@ -186,6 +194,9 @@ def controls_from_frame(df, act: Actuators, where: str = "this recording") -> tu
                 raise SteeringError(f"{where}: fin channels {sorted(odd)} aren't rudder, elevator, aileron or a fin's name "
                                     f"({sorted(names)})")
             get = {k: df[chans[k]].to_numpy(dtype=float) if k in chans else np.zeros(n) for k in GANGED_CHANNELS}
+            if "aileron" not in chans and any(abs(f.mix[0]) > 1e-9 for f in act.fins) and NO_AILERON not in _said:
+                _said.add(NO_AILERON)
+                log.warning(NO_AILERON)
             cols += [f.mix[0] * get["aileron"] + f.mix[1] * get["elevator"] + f.mix[2] * get["rudder"] for f in act.fins]
     for name, need in (("rpm", act.propeller is not None), ("gimbal_y", bool(act.propeller and act.propeller.gimbal)),
                        ("gimbal_z", bool(act.propeller and act.propeller.gimbal)), ("moving_mass", act.moving_mass is not None),

@@ -4,7 +4,9 @@ rawdata.oceanobservatories.org, one file per mission. OOI data: credit the NSF a
 
 The state and fin messages are about 1 Hz and share their rows; the DVL's forward, starboard and vertical velocity is about 0.8 Hz and only
 reads near the bottom. Recordings are the stretches running at depth with DVL lock, gaps under 5 s filled, at least 120 s long, at 1 Hz.
-Rudder and elevator come as percent of full scale with the opposite sense to Strathe's, as fin_direction shows on these logs.
+Rudder, elevator and aileron come as percent of full scale with the opposite sense to Strathe's, as fin_direction shows on these logs.
+The aileron is the roll autopilot's (about 1.5% per degree of roll): each fin's own angle in the same message is the three mixed, as the y3
+preset mixes them, so leaving it out hides the roll control from the fit (#97).
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from scipy.spatial.transform import Rotation
 
 SRC = os.path.expanduser("~/strathe_fin_data/ooi_extract")
 OUT = os.path.expanduser("~/strathe_fin_data/ooi_prepared")
-FULL_SCALE_DEG = 15.0   # unknown for these fins: the fit's lift absorbs it
+FULL_SCALE_DEG = 15.0   # unknown for these fins: the fit's lift slope takes it (its limits go down to 0.1x for these logs, fin_rows_97.remus600_spec)
 MIN_S, MAX_GAP_S = 120, 5
 
 
@@ -42,7 +44,7 @@ def mission(path: str, out: str) -> int:
     psi = np.interp(grid, t, np.unwrap(np.radians(st[:, 6])))
     q_rate, p_rate = np.radians(it(8)), np.radians(it(9))
     r_rate = np.gradient(psi, grid)
-    rud, ele = -it(3, fm) / 100 * np.radians(FULL_SCALE_DEG), -it(2, fm) / 100 * np.radians(FULL_SCALE_DEG)
+    rud, ele, ail = (-it(c, fm) / 100 * np.radians(FULL_SCALE_DEG) for c in (3, 2, 4))
     ok = (gap <= MAX_GAP_S) & (rpm > 300) & (depth > 3)
     stem = os.path.basename(path)[:-4]
     day = dt.datetime.fromtimestamp(float(t[0]), dt.timezone.utc).strftime("%d-%m-%Y")
@@ -56,7 +58,7 @@ def mission(path: str, out: str) -> int:
                 qq = Rotation.from_euler("ZYX", np.c_[psi[s], pitch[s], roll[s]]).as_quat()
                 d = pd.DataFrame({"Fx": 0.0, "Fy": 0.0, "Fz": 0.0, "Tx": 0.0, "Ty": 0.0, "Tz": 0.0, "Bu": lin[s, 0], "Bv": lin[s, 1], "Bw": lin[s, 2],
                                   "Bp": p_rate[s], "Bq": q_rate[s], "Br": r_rate[s], "qx": qq[:, 0], "qy": qq[:, 1], "qz": qq[:, 2], "qw": qq[:, 3],
-                                  "fin_rudder": rud[s], "fin_elevator": ele[s], "rpm": rpm[s]})
+                                  "fin_rudder": rud[s], "fin_elevator": ele[s], "fin_aileron": ail[s], "rpm": rpm[s]})
                 runs += 1
                 d.to_csv(f"{out}/{stem.replace('_', '')}-{day}-run{runs}.csv", index=False)
             start = None

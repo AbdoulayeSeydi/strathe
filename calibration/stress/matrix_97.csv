@@ -111,6 +111,8 @@ const:FIN_WINDOW_S,T-prestero-rich T-fossen-rich,
 const:STALL_BAND_RAD,SV-stall_deg Z-physics,
 const:STALLED_CN,SV-stall_deg Z-physics,
 const:MIN_TURNING_RAD_S,X-no-speed-source XS-check_speed_source-1,"guards inferring surge, which a fin vehicle is refused: the rows prove the refusal"
+const:STEADY_RATE_RAD_S,O-turns-fresh-deployment O-turns-same-vehicle O-turns-other-vehicle O-turns-years-later,"which samples hold an axis steady, for each deployment's trim"
+const:MIN_TRIM_SAMPLES,O-turns-fresh-deployment O-turns-same-vehicle,"too few steady samples: no re-trim (tests/test_fin_validation.py)"
 engine:gazebo,S-gazebo E-gazebo CV-gazebo,
 engine:stonefish,S-stonefish E-stonefish,
 engine:holoocean,S-holoocean E-holoocean,

@@ -45,6 +45,8 @@ RESPONSE_S = 1.0
 FIN_WINDOW_S = 30.0   # how long a fin vehicle flies itself before it's compared
 FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
 UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
+STEADY_RATE_RAD_S = 0.01     # all three body rates under this: steady, straight flight, where the fins sit at the vehicle's trim
+MIN_TRIM_SAMPLES = 30        # fewer steady samples than this in a deployment, and its trim isn't estimated
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -417,15 +419,69 @@ def _real_sink(run, a: int, n: int) -> Optional[np.ndarray]:
     return path_from_velocity(lin, run.orientation_quat[a:a + n], run.dt)[:, 2]
 
 
-def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S) -> dict:
+def fin_trim(runs: list, actuators) -> tuple:
+    """(trim, steady samples per axis): for roll, pitch and yaw, each fin's mean angle while that axis's rate holds steady, whatever
+    the others do: the fin angles that hold the vehicle in that axis, which is what a fit's constant biases take up. A row is None
+    with fewer than MIN_TRIM_SAMPLES. Only the logged fin angles and body rates are used."""
+    k = len(actuators.fins)
+    trim, counts = [], []
+    for axis in (3, 4, 5):
+        got = []
+        for r in runs:
+            if r.controls is None:
+                continue
+            rate = r.real_nu[:, axis]
+            steady = np.isfinite(rate) & (np.abs(np.nan_to_num(rate, nan=1.0)) < STEADY_RATE_RAD_S)
+            a = np.asarray(r.controls, dtype=float)[steady, :k]
+            got.append(a[np.isfinite(a).all(axis=1)])
+        a = np.concatenate(got) if got else np.zeros((0, k))
+        trim.append(a.mean(axis=0) if len(a) >= MIN_TRIM_SAMPLES else None)
+        counts.append(len(a))
+    return trim, counts
+
+
+def retrim(params, trained, new, actuators):
+    """(params, (roll, pitch, yaw) bias change in rad): the fin biases moved so that the model's fins hold each axis where they held it
+    in training. A vehicle is re-ballasted between deployments, so the same vehicle at the same speed and pitch needs different fin
+    angles to hold it (OOI's REMUS 600s: elevator trims 4 degrees apart, #97). Each fin takes the biases through its mix, as
+    fin_force.prepare does; an axis without a trim on either side is left as it is."""
+    from dataclasses import replace
+    A = np.array([f.mix for f in actuators.fins], dtype=float)
+    d = np.zeros(3)
+    for j in range(3):
+        if trained[j] is not None and new[j] is not None:
+            d[j] = np.linalg.lstsq(A, np.asarray(trained[j]) - np.asarray(new[j]), rcond=None)[0][j]
+    return replace(params, fin_bias_roll=params.fin_bias_roll + float(d[0]), fin_bias_pitch=params.fin_bias_pitch + float(d[1]),
+                   fin_bias_yaw=params.fin_bias_yaw + float(d[2])), d
+
+
+def retrim_by_deployment(params, train_runs: list, runs: list, actuators) -> tuple:
+    """([params for each run], {deployment: what was done}): each held-out deployment (a recording date) flown at its own trim."""
+    trained, n_train = fin_trim(train_runs, actuators)
+    out, notes = [params] * len(runs), {}
+    for date in sorted({r.date or "" for r in runs}):
+        idx = [i for i, r in enumerate(runs) if (r.date or "") == date]
+        new, n = fin_trim([runs[i] for i in idx], actuators)
+        p, d = retrim(params, trained, new, actuators)
+        done = [t is not None and u is not None for t, u in zip(trained, new)]
+        for i in idx:
+            out[i] = p
+        notes[date or "undated"] = {"retrimmed": any(done), "steady_samples": n, "training_steady_samples": n_train,
+                                    **{f"{w}_deg": (round(math.degrees(float(x)), 3) if ok else None)
+                                       for w, x, ok in zip(("roll", "pitch", "yaw"), d, done)}}
+    return out, notes
+
+
+def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S, run_params: Optional[dict] = None) -> dict:
     """A fin vehicle flying itself from each window's real start, on the logged fin angles: heading, pitch, depth and turn rate at
     the end, against assuming it holds its heading and pitch and carries straight on. The fit's own score feeds the logged pitch
-    back in, which hides what the elevator does to depth, so this is the check that counts."""
+    back in, which hides what the elevator does to depth, so this is the check that counts. run_params: {model: [params for each
+    run]}, for a model flown at each deployment's own trim (retrim_by_deployment)."""
     keys = ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")
     errs = {m: {k: [] for k in keys} for m in (*models, "straight_on")}
     div = {m: 0 for m in models}
     windows = 0
-    for run in runs:
+    for i, run in enumerate(runs):
         n = int(round(window_s * run.sample_rate_hz)) + 1
         logged = Rotation.from_quat(run.orientation_quat).as_euler("xyz")
         for a in range(0, run.n_samples - n + 1, n - 1):
@@ -441,6 +497,8 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
                 speed = run.real_nu[a, 0] if np.isfinite(run.real_nu[a, 0]) else 0.0
                 hold["depth_m"].append(float(abs(sink[-1] + speed * math.sin(real[0, 1]) * window_s)))
             for m, p in models.items():
+                if run_params and m in run_params:
+                    p = run_params[m][i]
                 got = free_run(p, vehicle, run, a, n, full=True)
                 if got is None:
                     div[m] += 1
@@ -735,8 +793,13 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     steps = step_responses(models, runs, vehicle)
     res["steps"] = steps["summary"]
     if vehicle.actuators is not None and vehicle.actuators.fins:
-        res["fin_free_run"] = fin_free_run(models, runs, vehicle)
-        res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S)
+        train_runs = [load_run(f, dc) for f in split.train_files]
+        trimmed, res["fin_retrim"] = retrim_by_deployment(params, train_runs, runs, vehicle.actuators)
+        per = {"calibrated": trimmed} if any(v["retrimmed"] for v in res["fin_retrim"].values()) else None
+        res["fin_free_run"] = fin_free_run(models, runs, vehicle, run_params=per)
+        res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S, run_params=per)
+        if per:
+            res["fin_free_run_as_trained"] = fin_free_run(models, runs, vehicle)
         speed = float(np.nanmedian(np.concatenate([r.real_nu[:, 0] for r in runs])))
         if "calibrated" in models and np.isfinite(speed):
             res["fin_stability"] = fin_stability(models["calibrated"], vehicle, speed)
