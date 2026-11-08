@@ -539,6 +539,43 @@ def _longest(folder: str, n: int) -> list:
     return sorted(fs, key=lambda f: -float(pd.read_csv(f)["Br"].abs().sum()))[:n]
 
 
+def _shared_fit(rows: list) -> tuple:
+    """(folder, exit code): one calibration for fly rows that train on the same recordings, on those recordings and every sharing row's
+    held-out ones (each held out by its date). Made once, under a lock, so rows run in parallel wait for it rather than repeat it."""
+    import fcntl
+    import shutil
+    import subprocess
+    R = _bars()
+    train, nt = REAL[rows[0]][0]
+    d = os.path.join(R.WORK, f"O-shared-{train}-{nt}")
+    os.makedirs(d, exist_ok=True)
+    with open(d + "/lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=CAL, capture_output=True, text=True).stdout.strip()
+        if os.path.exists(d + "/DONE"):
+            rc_s, _, made_on = open(d + "/DONE").read().partition(" ")
+            if made_on.strip() == head:    # a fit made on other code isn't reused
+                return d, int(rc_s or 0)
+        shutil.rmtree(d + "/data", ignore_errors=True)
+        shutil.rmtree(d + "/fit", ignore_errors=True)
+        os.makedirs(d + "/data")
+        dates = set()
+        for f in _longest(train, nt):
+            shutil.copy(f, d + "/data")
+        for r in rows:
+            (held, nh) = REAL[r][1]
+            for f in _longest(held, nh):
+                shutil.copy(f, d + "/data")
+                dates.add(re.search(r"(\d\d-\d\d-\d{4})", f).group(1))
+        spec = remus600_spec(d + "/spec.yaml")
+        with open(d + "/fit.log", "w") as f:
+            rc = subprocess.run([R.PY, "strathe_cli.py", "calibrate", "--data", d + "/data", "--spec", spec, "--name", "O-shared", "--out", d + "/fit",
+                                 "--sampling-rate-hz", "1", "--max-nfev", str(R.NFEV), "--seed", "7", "--workers", "4", "--heldout-dates", *sorted(dates),
+                                 "--sensors", "velocity"], cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+        open(d + "/DONE", "w").write(f"{rc} {head}")
+        return d, rc
+
+
 def run_real_row(row: str) -> bool:
     import re
     import shutil
@@ -555,10 +592,26 @@ def run_real_row(row: str) -> bool:
         shutil.copy(f, d + "/data")
     dates = {re.search(r"(\d\d-\d\d-\d{4})", f).group(1) for f in _longest(held, nh)}
     spec = remus600_spec(d + "/spec.yaml")
-    with open(d + "/fit.log", "w") as f:
-        rc = subprocess.run([R.PY, "strathe_cli.py", "calibrate", "--data", d + "/data", "--spec", spec, "--name", row, "--out", d + "/fit", "--sampling-rate-hz", "1",
-                             "--max-nfev", str(R.NFEV), "--seed", "7", "--workers", "2", "--heldout-dates", *sorted(dates), "--sensors", "velocity"],
-                            cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+    sharing = [r for r, (t, _h, b, _w) in REAL.items() if b == "fly" and t == (train, nt)]
+    if bar == "fly" and len(sharing) > 1:
+        # the same training logs, spec and seed give the same fit: calibrate once, and validate each row on its own held-out flights
+        shared, rc = _shared_fit(sharing)
+        if os.path.isdir(shared + "/fit"):
+            shutil.copytree(shared + "/fit", d + "/fit", ignore=shutil.ignore_patterns("validation"))
+            mp = d + "/fit/metrics.json"    # validate on this row's held-out dates only: its data folder holds no others
+            m = json.load(open(mp))
+            m["dataset"]["heldout_dates"] = sorted(dates)
+            json.dump(m, open(mp, "w"), indent=2)
+            with open(d + "/fit.log", "w") as f:
+                f.write(f"calibration shared with {', '.join(sharing)}: {shared}\n")
+                f.flush()
+                rc = rc or subprocess.run([R.PY, "validation.py", "--result", d + "/fit", "--data-dir", d + "/data", "--spec", spec, "--no-plots"],
+                                          cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+    else:
+        with open(d + "/fit.log", "w") as f:
+            rc = subprocess.run([R.PY, "strathe_cli.py", "calibrate", "--data", d + "/data", "--spec", spec, "--name", row, "--out", d + "/fit", "--sampling-rate-hz", "1",
+                                 "--max-nfev", str(R.NFEV), "--seed", "7", "--workers", "2", "--heldout-dates", *sorted(dates), "--sensors", "velocity"],
+                                cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
     secs = time.time() - t0
     vj = d + "/fit/validation/validation.json"
     if not os.path.exists(vj):
