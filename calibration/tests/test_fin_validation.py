@@ -240,6 +240,16 @@ def test_an_axis_no_fin_moves_keeps_its_bias():
     assert notes["02-02-2031"]["roll_deg"] is None and per[0].fin_bias_roll == P.fin_bias_roll
 
 
+def test_a_deployment_flown_at_new_angles_of_attack_is_compared_only_where_training_flew():
+    """Where training never flew, the model's own moment is unknown and mustn't pass for a trim (OOI's 2024 REMUS, #97)."""
+    rows = lambda res, aoa_deg, n: np.c_[np.full(n, res), np.full(n, np.radians(aoa_deg))]
+    ref = rows(0.0, -5.0, 60)
+    here = np.r_[rows(.1, -5.0, 40), rows(5.0, -17.0, 200)]
+    gap, n = val.matched_gap(here, ref)
+    assert gap == pytest.approx(.1) and n == 40
+    assert np.isnan(val.matched_gap(rows(5.0, -17.0, 200), ref)[0])          # nothing alike: no trim
+
+
 def test_too_few_steady_samples_leave_the_fit_as_it_is():
     per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, n=val.MIN_TRIM_SAMPLES - 1, trim_deg=(2.0, 0.0))])
     assert not notes["01-01-2030"]["retrimmed"] and per[0] == P

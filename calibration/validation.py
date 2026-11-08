@@ -47,6 +47,8 @@ FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
 UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
 STEADY_RATE_RAD_S = 0.01     # an axis's body rate under this: that axis held steady, where a deployment's trim is compared
 MIN_TRIM_SAMPLES = 30        # fewer steady samples than this in a deployment, and its trim isn't estimated
+TRIM_AOA_BIN_RAD = math.radians(2.0)   # a deployment's trim is compared with training's only at angles of attack both flew at
+MIN_BIN_SAMPLES = 5          # samples each side needs in an angle-of-attack bin for it to count
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -450,8 +452,27 @@ def moment_residuals(params, vehicle, runs: list) -> list:
                 v = [v[k] + vd[k] * h for k in range(6)]
             for j in range(3):
                 if steady[i, j] and math.isfinite(v[3 + j]):
-                    out[j].append((v[3 + j] - rates[i + 1, j]) / run.dt)
-    return [np.asarray(o) for o in out]
+                    out[j].append(((v[3 + j] - rates[i + 1, j]) / run.dt, math.atan2(rl.real_nu[i, 2], rl.real_nu[i, 0])))
+    return [np.asarray(o, dtype=float).reshape(-1, 2) for o in out]
+
+
+def matched_gap(here: np.ndarray, ref: np.ndarray) -> tuple:
+    """(mean residual here less in training, samples compared): rows (residual, angle of attack), compared bin by bin
+    (TRIM_AOA_BIN_RAD) where both have MIN_BIN_SAMPLES, weighted by the smaller count; nan under MIN_TRIM_SAMPLES compared. The
+    model's pitch moment is only known at the angles of attack it trained at: OOI's 2024 REMUS flew to about 18 degrees, past
+    training's 14, where the model's moment falls about 3x short, and that read as a 4 degree trim (#97)."""
+    if not len(here) or not len(ref):
+        return float("nan"), 0
+    bins = lambda a: np.floor(a[:, 1] / TRIM_AOA_BIN_RAD).astype(int)
+    bh, br = bins(here), bins(ref)
+    num = den = 0.0
+    for k in set(bh.tolist()) & set(br.tolist()):
+        h, r = here[bh == k, 0], ref[br == k, 0]
+        if len(h) >= MIN_BIN_SAMPLES and len(r) >= MIN_BIN_SAMPLES:
+            w = min(len(h), len(r))
+            num += w * (h.mean() - r.mean())
+            den += w
+    return (num / den if den >= MIN_TRIM_SAMPLES else float("nan")), int(den)
 
 
 def retrim(params, vehicle, train_runs: list, runs: list) -> tuple:
@@ -467,9 +488,8 @@ def retrim(params, vehicle, train_runs: list, runs: list) -> tuple:
     n_train = [len(x) for x in ref]
     shifted = lambda d: replace(params, **{k: getattr(params, k) + float(x) for k, x in zip(names, d)})
     def gap(d):
-        here = moment_residuals(shifted(d), vehicle, runs)
-        return np.array([h.mean() - r.mean() if len(h) >= MIN_TRIM_SAMPLES and len(r) >= MIN_TRIM_SAMPLES else np.nan
-                         for h, r in zip(here, ref)]), [len(h) for h in here]
+        got = [matched_gap(h, r) for h, r in zip(moment_residuals(shifted(d), vehicle, runs), ref)]
+        return np.array([g for g, _ in got]), [n for _, n in got]
     d = np.zeros(3)
     g, n_here = gap(d)
     axes = [j for j in range(3) if np.isfinite(g[j])]

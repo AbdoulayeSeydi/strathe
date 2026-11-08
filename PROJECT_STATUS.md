@@ -3896,15 +3896,23 @@ the Muw limit. No bar moved.
 **The re-trim read manoeuvres as trim (fixed, #97 final run).** In the final run on 86887a3, T-fossen-rich failed its depth bar: 0.63 m against
 0.5 m, with 0.18 m without the re-trim. Its held-out flights have the same trim as training, but the raw fin angles that hold the vehicle differ
 with the manoeuvres, so #71's re-trim moved the elevator 0.42°. The re-trim now works through the fitted model: the biases move until the
-model's one-step prediction on each axis's steady samples is as far off as in training (`validation.moment_residuals`, `retrim`). That
-deployment now moves 0.04° and flies to 0.18 m (T-holoocean-rich 0.29 m, from 0.49 m). The failed row stays in the results. On the real rows' preview fit:
-2018 5.3° / 1.5° / 0.57 m, 2019 7.3° / 0.8° / 0.45 m, and **2024 fails**: 15.5° / 7.0° / 3.9 m (LIMITS.md).
+model's one-step prediction on each axis's steady samples is as far off as in training, compared only at angles of attack both flew
+(`validation.moment_residuals`, `matched_gap`, `retrim`). That row now moves 0.02° and flies to 0.16 m; T-holoocean-rich 0.29 m (from 0.49 m).
+The failed row stays in the results.
 
-**What I looked at.** Three forms were scored on the three real fly rows' held-out flights: this one, one leaving yaw alone, and one comparing
-only where pitch and speed matched training. The last two were dropped for doing worse there (2018 heading 10.4°; 2024 pitch 10.7°). This one
-was kept because it was built from the simulation defect, before any real score, and not tuned on them. The old raw-angle form scored better
-on 2024 (1.9° pitch), but its per-axis form was itself chosen on these flights and fails the simulation truth. O-turns-fresh-deployment is
-still unscored.
+**Why angle of attack.** Without it, OOI's 2024 deployment got a 4.2° elevator trim where its raw fin angles say about 2.8°, and failed pitch
+and depth (7.0°, 3.9 m). Checked on one-step residuals, not on flights: the fin mix is the same on every deployment, saturation is 0.1% of
+its steady samples, and the residual's slope on sin(pitch) matches 2018's. On u·w (the Munk moment) its slope is −0.070 against −0.010 to −0.021
+elsewhere, and its constant drops from +0.020 to −0.002: 2024 flew to u·w −0.56 (training −0.38), where the model's moment falls short.
+
+**Preview, stage-1 fit (not final rows):** 2018 4.7° / **3.41°** / 1.42 m (pitch fails), 2019 5.9° / 1.1° / 0.63 m, 2024 **18.8°** / 1.4° / 1.82 m
+(heading fails: a 1.6° rudder trim, and angle of attack doesn't drive yaw).
+
+**What I looked at.** Four forms were scored on the three real fly rows' held-out flights: the unmatched model form (2024 fails pitch and depth),
+one leaving yaw alone (2018 heading 10.4°: rudder offsets do change between deployments), one matching pitch and speed (2024 pitch 10.7°: steepness
+wasn't the cause) and this one. I stopped there, so 2018's pitch and 2024's heading stand as failures rather than being tuned further on the same
+flights. The raw-angle form scored 2024 better, but its own per-axis form was chosen on these flights and it fails the simulation truth.
+O-turns-fresh-deployment is still unscored.
 
 ---
 
