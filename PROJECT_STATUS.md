@@ -3893,6 +3893,19 @@ re-trim's per-axis form was chosen after a first form (all three rates steady at
 didn't move their pitch. So those rows are no longer an independent check. **O-turns-fresh-deployment** was added for that: the other REMUS in
 2016 (A6263 R00003), the same bars, committed before any of its flights was scored. Its logs did go into the balance regressions that found
 the Muw limit. No bar moved.
+**The re-trim read manoeuvres as trim (fixed, #97 final run).** In the final run on 86887a3, T-fossen-rich failed its depth bar: 0.63 m against
+0.5 m, with 0.18 m without the re-trim. Its held-out flights have the same trim as training, but the raw fin angles that hold the vehicle differ
+with the manoeuvres, so #71's re-trim moved the elevator 0.42°. The re-trim now works through the fitted model: the biases move until the
+model's one-step prediction on each axis's steady samples is as far off as in training (`validation.moment_residuals`, `retrim`). That
+deployment now moves 0.04° and flies to 0.18 m (T-holoocean-rich 0.29 m, from 0.49 m). The failed row stays in the results. On the real rows' preview fit:
+2018 5.3° / 1.5° / 0.57 m, 2019 7.3° / 0.8° / 0.45 m, and **2024 fails**: 15.5° / 7.0° / 3.9 m (LIMITS.md).
+
+**What I looked at.** Three forms were scored on the three real fly rows' held-out flights: this one, one leaving yaw alone, and one comparing
+only where pitch and speed matched training. The last two were dropped for doing worse there (2018 heading 10.4°; 2024 pitch 10.7°). This one
+was kept because it was built from the simulation defect, before any real score, and not tuned on them. The old raw-angle form scored better
+on 2024 (1.9° pitch), but its per-axis form was itself chosen on these flights and fails the simulation truth. O-turns-fresh-deployment is
+still unscored.
+
 ---
 
 ## What's actually next

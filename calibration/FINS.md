@@ -140,7 +140,8 @@ aren't supported.**
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
 - **Each new deployment is flown at its own trim.** Re-ballasting moves the fin angles that hold a vehicle steady, so before a held-out
-  deployment is flown, the fit's fin biases are moved by how far its fins sat from the training's while each axis held steady. The report
+  deployment is flown, the fit's fin biases are moved until the model holds each axis as well as it did in training, on that deployment's
+  steady samples. The model accounts for speed and attitude, so flying different manoeuvres doesn't count as a trim change. The report
   says by how much, and shows the flight without it. A minute of steady, level flight on each deployment is enough for it.
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.

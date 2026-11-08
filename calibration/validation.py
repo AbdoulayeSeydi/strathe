@@ -45,7 +45,7 @@ RESPONSE_S = 1.0
 FIN_WINDOW_S = 30.0   # how long a fin vehicle flies itself before it's compared
 FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
 UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
-STEADY_RATE_RAD_S = 0.01     # all three body rates under this: steady, straight flight, where the fins sit at the vehicle's trim
+STEADY_RATE_RAD_S = 0.01     # an axis's body rate under this: that axis held steady, where a deployment's trim is compared
 MIN_TRIM_SAMPLES = 30        # fewer steady samples than this in a deployment, and its trim isn't estimated
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
@@ -419,51 +419,87 @@ def _real_sink(run, a: int, n: int) -> Optional[np.ndarray]:
     return path_from_velocity(lin, run.orientation_quat[a:a + n], run.dt)[:, 2]
 
 
-def fin_trim(runs: list, actuators) -> tuple:
-    """(trim, steady samples per axis): for roll, pitch and yaw, each fin's mean angle while that axis's rate holds steady, whatever
-    the others do: the fin angles that hold the vehicle in that axis, which is what a fit's constant biases take up. A row is None
-    with fewer than MIN_TRIM_SAMPLES. Only the logged fin angles and body rates are used."""
-    k = len(actuators.fins)
-    trim, counts = [], []
-    for axis in (3, 4, 5):
-        got = []
-        for r in runs:
-            if r.controls is None:
+def moment_residuals(params, vehicle, runs: list) -> list:
+    """For roll, pitch and yaw, the model's one-step prediction of the rate less the logged next rate, over the step (rad/s per s), on
+    each sample where that axis's rate holds steady, whatever the others do: the logged state, attitude, forces and fins fed in and
+    held over the step, the fit's own teacher-forced Euler substeps. A model right for the vehicle leaves these near zero on any
+    manoeuvre; a vehicle re-ballasted since leaves a steady offset, which the fins' biases take up."""
+    from fast_dynamics import FastDynamics
+    acc = FastDynamics(params, vehicle).acceleration_trig
+    out = [[], [], []]
+    for run in runs:
+        if run.n_samples < 2:
+            continue
+        rl = _lagged(run, params)
+        cfg = SimulationConfig(dt=run.dt)
+        sub, h = cfg.n_substeps, cfg.sub_dt
+        rates = run.real_nu[:, 3:6]
+        ok = np.isfinite(rates[:-1]) & np.isfinite(rates[1:])
+        steady = ok & (np.abs(np.nan_to_num(rates[:-1], nan=1.0)) < STEADY_RATE_RAD_S)
+        for i in np.flatnonzero(steady.any(axis=1)):
+            v = start_velocity(rl, i)
+            roll, pitch = (float(x) for x in rl.roll_pitch[i])
+            if not (np.all(np.isfinite(v)) and math.isfinite(roll) and math.isfinite(pitch)):
                 continue
-            rate = r.real_nu[:, axis]
-            steady = np.isfinite(rate) & (np.abs(np.nan_to_num(rate, nan=1.0)) < STEADY_RATE_RAD_S)
-            a = np.asarray(r.controls, dtype=float)[steady, :k]
-            got.append(a[np.isfinite(a).all(axis=1)])
-        a = np.concatenate(got) if got else np.zeros((0, k))
-        trim.append(a.mean(axis=0) if len(a) >= MIN_TRIM_SAMPLES else None)
-        counts.append(len(a))
-    return trim, counts
+            sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
+            cb = None if rl.current_body is None else rl.current_body[i].tolist()
+            tau, ctl = rl.forces_torques[i].tolist(), control_at(rl, i)
+            v = v.tolist()
+            for _ in range(sub):
+                vd = acc(v, tau, cp * sr, cp * cr, sp, 1.0, cb, ctl)
+                v = [v[k] + vd[k] * h for k in range(6)]
+            for j in range(3):
+                if steady[i, j] and math.isfinite(v[3 + j]):
+                    out[j].append((v[3 + j] - rates[i + 1, j]) / run.dt)
+    return [np.asarray(o) for o in out]
 
 
-def retrim(params, trained, new, actuators):
-    """(params, (roll, pitch, yaw) bias change in rad): the fin biases moved so that the model's fins hold each axis where they held it
-    in training. A vehicle is re-ballasted between deployments, so the same vehicle at the same speed and pitch needs different fin
-    angles to hold it (OOI's REMUS 600s: elevator trims 4 degrees apart, #97). Each fin takes the biases through its mix, as
-    fin_force.prepare does; an axis without a trim on either side is left as it is."""
+def retrim(params, vehicle, train_runs: list, runs: list) -> tuple:
+    """(params, (roll, pitch, yaw) bias change in rad, steady samples here, in training): the fin biases moved so that the model's
+    steady moment residual on these runs matches its residual in training. A vehicle is re-ballasted between deployments, so the same
+    vehicle needs different fin angles to hold it (OOI's REMUS 600s: elevator trims 4 degrees apart, #97). The model explains
+    what speed, attitude and depth change, so a deployment flown differently but trimmed the same keeps its biases (comparing raw fin
+    angles took a change of manoeuvre for a change of trim: T-fossen-rich, #97). An axis with fewer than MIN_TRIM_SAMPLES steady
+    samples on either side, or that the biases can't move, keeps its bias. Two Newton steps on a finite-difference Jacobian."""
     from dataclasses import replace
-    A = np.array([f.mix for f in actuators.fins], dtype=float)
+    names = ("fin_bias_roll", "fin_bias_pitch", "fin_bias_yaw")
+    ref = moment_residuals(params, vehicle, train_runs)
+    n_train = [len(x) for x in ref]
+    shifted = lambda d: replace(params, **{k: getattr(params, k) + float(x) for k, x in zip(names, d)})
+    def gap(d):
+        here = moment_residuals(shifted(d), vehicle, runs)
+        return np.array([h.mean() - r.mean() if len(h) >= MIN_TRIM_SAMPLES and len(r) >= MIN_TRIM_SAMPLES else np.nan
+                         for h, r in zip(here, ref)]), [len(h) for h in here]
     d = np.zeros(3)
-    for j in range(3):
-        if trained[j] is not None and new[j] is not None:
-            d[j] = np.linalg.lstsq(A, np.asarray(trained[j]) - np.asarray(new[j]), rcond=None)[0][j]
-    return replace(params, fin_bias_roll=params.fin_bias_roll + float(d[0]), fin_bias_pitch=params.fin_bias_pitch + float(d[1]),
-                   fin_bias_yaw=params.fin_bias_yaw + float(d[2])), d
+    g, n_here = gap(d)
+    axes = [j for j in range(3) if np.isfinite(g[j])]
+    eps = math.radians(0.5)
+    for _ in range(2):
+        if not axes:
+            break
+        J = np.zeros((3, 3))
+        for k in axes:
+            e = np.zeros(3)
+            e[k] = eps
+            J[:, k] = (gap(d + e)[0] - g) / eps
+        sub = J[np.ix_(axes, axes)]
+        live = [a for a, col in zip(axes, np.abs(sub).max(axis=0)) if col > 1e-9]
+        if len(live) < len(axes):
+            axes = live
+            continue
+        d[axes] -= np.linalg.lstsq(sub, g[axes], rcond=None)[0]
+        g = gap(d)[0]
+    done = [j in axes for j in range(3)]
+    d = np.where(done, d, 0.0)
+    return shifted(d), d, done, n_here, n_train
 
 
-def retrim_by_deployment(params, train_runs: list, runs: list, actuators) -> tuple:
+def retrim_by_deployment(params, vehicle, train_runs: list, runs: list) -> tuple:
     """([params for each run], {deployment: what was done}): each held-out deployment (a recording date) flown at its own trim."""
-    trained, n_train = fin_trim(train_runs, actuators)
     out, notes = [params] * len(runs), {}
     for date in sorted({r.date or "" for r in runs}):
         idx = [i for i, r in enumerate(runs) if (r.date or "") == date]
-        new, n = fin_trim([runs[i] for i in idx], actuators)
-        p, d = retrim(params, trained, new, actuators)
-        done = [t is not None and u is not None for t, u in zip(trained, new)]
+        p, d, done, n, n_train = retrim(params, vehicle, train_runs, [runs[i] for i in idx])
         for i in idx:
             out[i] = p
         notes[date or "undated"] = {"retrimmed": any(done), "steady_samples": n, "training_steady_samples": n_train,
@@ -794,7 +830,7 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     res["steps"] = steps["summary"]
     if vehicle.actuators is not None and vehicle.actuators.fins:
         train_runs = [load_run(f, dc) for f in split.train_files]
-        trimmed, res["fin_retrim"] = retrim_by_deployment(params, train_runs, runs, vehicle.actuators)
+        trimmed, res["fin_retrim"] = retrim_by_deployment(params, vehicle, train_runs, runs)
         per = {"calibrated": trimmed} if any(v["retrimmed"] for v in res["fin_retrim"].values()) else None
         res["fin_free_run"] = fin_free_run(models, runs, vehicle, run_params=per)
         res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S, run_params=per)
