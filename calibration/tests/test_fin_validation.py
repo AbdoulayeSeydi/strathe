@@ -189,43 +189,69 @@ def test_the_report_says_when_a_flight_cant_be_followed():
 
 
 # ------------------------------------------------------------------ each deployment flown at its own trim
-from fin_force import Actuators, Fin
 from objective import RunData
+from test_fin_pipeline import N
+from dynamics_model import SimulationConfig, TrajectoryInputs, VehicleConstants, simulate_trajectory
+from fin_force import Actuators, Fin
 
-Y3 = Actuators(fins=(Fin("top", (-1.4, 0, -.25), (0, 0, -1), .05, .2, mix=(-1.0, 0.0, 1.0)),
-                     Fin("port", (-1.4, -.22, .12), (0, -.87, .5), .05, .2, mix=(-1.0, 1.0, -.5)),
-                     Fin("starboard", (-1.4, .22, .12), (0, .87, .5), .05, .2, mix=(-1.0, -1.0, -.5))))
-
-
-def _held(angles_deg, date="01-01-2030", n=200, turning=False):
-    """A run whose fins sit at roll, pitch and yaw angles (degrees, through the y3 mix), with steady rates unless it's turning."""
-    A = np.array([f.mix for f in Y3.fins])
-    ctl = np.tile(A @ np.radians(angles_deg), (n, 1)) + np.random.default_rng(1).normal(0, 1e-4, (n, 3))
-    nu = np.zeros((n, 6))
-    nu[:, 0] = 1.5
-    if turning:
-        nu[:, 5] = .1
-    q = np.tile([0, 0, 0, 1.0], (n, 1))
-    return RunData(f"f-{date}-run1.csv", np.zeros((n, 6)), np.zeros((n, 2)), nu, nu[0], 1.0, 1.0, date=date, orientation_quat=q, controls=ctl)
+# the test vehicle's rudder and elevator, mixed so the fins' biases reach them (fin_force.prepare)
+MIXED = VehicleConstants(mass_kg=30.0, actuators=Actuators(fins=(Fin("r", (-.8, 0, 0), (0, 0, 1), .03, .2, group=0, mix=(0., 0., 1.)),
+                                                                  Fin("s", (-.8, 0, 0), (0, 1, 0), .03, .2, group=1, mix=(0., 1., 0.)))))
 
 
-def test_a_deployment_is_flown_at_its_own_trim():
-    per, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, -1, 0], "02-02-2031"), _held([.5, -3, .2], "03-03-2032")], Y3)
+def _deployment(seed, date="01-01-2030", n=N, trim_deg=(0.0, 0.0)):
+    """A recording of the test vehicle: fin steps from seed, half of them centred so axes hold steady between. trim_deg (pitch, yaw):
+    re-ballasted by that much, so it flies the same with its fins logged that far off, as an autopilot holds a re-ballasted vehicle."""
+    rng = np.random.default_rng(seed)
+    blocks = rng.uniform(-.15, .15, (n // 20 + 1, 2)) * (rng.random((n // 20 + 1, 1)) < .5)
+    ctl = np.repeat(blocks, 20, axis=0)[:n]
+    t = np.arange(n)
+    rp = np.c_[.05 * np.sin(t / 30 + seed), .1 * np.sin(t / 50 + seed)]
+    F = np.tile([25., 0, 0, 0, 0, 0], (n, 1))
+    nu0 = np.array([1.5, 0, 0, 0, 0, 0.])
+    params = P
+    nu = simulate_trajectory(params, MIXED, SimulationConfig(dt=.1), TrajectoryInputs(nu0=nu0, forces_torques=F, roll_pitch_series=rp,
+                                                                                  control_series=ctl)).nu
+    q = Rotation.from_euler("xyz", np.c_[rp, np.zeros(n)]).as_quat()
+    logged = ctl - np.radians([trim_deg[1], trim_deg[0]])     # rudder, elevator
+    return RunData(f"f-{date}-run1.csv", F, rp, nu, nu0, .1, 10.0, date=date, orientation_quat=q, controls=logged)
+
+
+def test_a_deployment_flown_differently_keeps_its_trim():
+    """Other manoeuvres need other fin angles to hold the vehicle; the model explains that, so the biases stay (T-fossen-rich, #97)."""
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031")])
+    n = notes["02-02-2031"]
+    assert n["retrimmed"] and min(n["steady_samples"][1:]) >= val.MIN_TRIM_SAMPLES
+    assert abs(n["pitch_deg"]) < .05 and abs(n["yaw_deg"]) < .05
+
+
+def test_a_reballasted_deployment_is_flown_at_its_own_trim():
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031", trim_deg=(2.0, -1.0)),
+                                                                     _deployment(11, "03-03-2032")])
     a, b = notes["02-02-2031"], notes["03-03-2032"]
-    assert a["retrimmed"] and a["pitch_deg"] == pytest.approx(-2, abs=.01) and a["roll_deg"] == pytest.approx(0, abs=.01)
-    assert per[0].fin_bias_pitch == pytest.approx(np.radians(-2), abs=1e-4)
-    assert b["roll_deg"] == pytest.approx(-.5, abs=.01) and b["pitch_deg"] == pytest.approx(0, abs=.01) and b["yaw_deg"] == pytest.approx(-.2, abs=.01)
+    assert a["pitch_deg"] == pytest.approx(2.0, abs=.1) and a["yaw_deg"] == pytest.approx(-1.0, abs=.1)
+    assert per[0].fin_bias_pitch == pytest.approx(np.radians(2.0), abs=np.radians(.1))
+    assert abs(b["pitch_deg"]) < .05 and abs(b["yaw_deg"]) < .05
 
 
-def test_the_trim_of_an_axis_comes_only_from_moments_that_axis_holds_steady():
-    """A deployment that turns the whole time has no steady yaw: its rudder trim isn't guessed, while its pitch trim still is."""
-    _, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, -1, 2], turning=True)], Y3)
-    n = notes["01-01-2030"]
-    assert n["yaw_deg"] is None and n["pitch_deg"] == pytest.approx(-2, abs=.01) and n["retrimmed"]
+def test_an_axis_no_fin_moves_keeps_its_bias():
+    """The test vehicle has a rudder and an elevator and nothing that rolls it: its roll bias can't be trimmed, so it isn't guessed."""
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031")])
+    assert notes["02-02-2031"]["roll_deg"] is None and per[0].fin_bias_roll == P.fin_bias_roll
+
+
+def test_a_deployment_flown_at_new_angles_of_attack_is_compared_only_where_training_flew():
+    """Where training never flew, the model's own moment is unknown and mustn't pass for a trim (OOI's 2024 REMUS, #97)."""
+    rows = lambda res, aoa_deg, n: np.c_[np.full(n, res), np.full(n, np.radians(aoa_deg))]
+    ref = rows(0.0, -5.0, 60)
+    here = np.r_[rows(.1, -5.0, 40), rows(5.0, -17.0, 200)]
+    gap, n = val.matched_gap(here, ref)
+    assert gap == pytest.approx(.1) and n == 40
+    assert np.isnan(val.matched_gap(rows(5.0, -17.0, 200), ref)[0])          # nothing alike: no trim
 
 
 def test_too_few_steady_samples_leave_the_fit_as_it_is():
-    per, notes = val.retrim_by_deployment(P, [_held([0, -3, 0])], [_held([0, 5, 0], n=val.MIN_TRIM_SAMPLES - 1)], Y3)
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, n=val.MIN_TRIM_SAMPLES - 1, trim_deg=(2.0, 0.0))])
     assert not notes["01-01-2030"]["retrimmed"] and per[0] == P
 
 
