@@ -262,3 +262,38 @@ def test_the_report_says_what_trim_each_deployment_was_flown_at():
     txt = "\n".join(fin_flight_section({"fin_free_run": f, "fin_free_run_as_trained": f,
                                         "fin_retrim": {"02-02-2031": {"retrimmed": True, "roll_deg": .1, "pitch_deg": -2.0, "yaw_deg": None}}}))
     assert "own trim" in txt and "02-02-2031" in txt and "-2.00°" in txt and "Without re-trimming" in txt
+
+
+def test_windows_where_the_vehicle_turned_are_scored_on_their_own(monkeypatch):
+    """OOI's REMUS rows fly mostly straight lines, where holding course is hard to beat; where it turned, holding course is wrong (#97)."""
+    r = flown()
+    res = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)
+    t = res["turning"]
+    turned = [h for h in _hold_headings(r, 10.0) if h > val.TURNED_DEG]
+    assert t["turned_deg"] == val.TURNED_DEG and t["windows"] == len(turned)
+    assert 0 < len(turned) < res["windows"]          # some windows turned, some didn't
+    assert t["straight_on"]["median"] > val.TURNED_DEG and t["calibrated"]["median"] < t["straight_on"]["median"]
+    monkeypatch.setattr(val, "TURNED_DEG", 0.0)        # every window that turned at all
+    every = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)["turning"]
+    assert every["windows"] == res["windows"] and every["calibrated"]["n"] == every["straight_on"]["n"]
+    monkeypatch.setattr(val, "TURNED_DEG", 1e6)
+    none = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)["turning"]
+    assert none["windows"] == 0 and none["calibrated"]["median"] is None
+
+
+def _hold_headings(r, window_s):
+    n = int(round(window_s * r.sample_rate_hz)) + 1
+    yaw = Rotation.from_quat(r.orientation_quat).as_euler("xyz")[:, 2]
+    return [float(np.degrees(abs((yaw[a + n - 1] - yaw[a] + np.pi) % (2 * np.pi) - np.pi))) for a in range(0, r.n_samples - n + 1, n - 1)]
+
+
+def test_the_report_says_how_it_flew_where_the_vehicle_turned():
+    f = {"window_s": 30.0, "windows": 50, "diverged": {"calibrated": 0},
+         "calibrated": {"heading_deg": _summ(6.), "pitch_deg": _summ(1.), "depth_m": _summ(.2), "turn_rate_rad_s": _summ(.01)},
+         "default": {"heading_deg": _summ(20.), "pitch_deg": _summ(5.), "depth_m": _summ(2.), "turn_rate_rad_s": _summ(.05)},
+         "straight_on": {"heading_deg": _summ(1.), "pitch_deg": _summ(4.), "depth_m": _summ(1.), "turn_rate_rad_s": _summ(.02)},
+         "turning": {"turned_deg": 30.0, "windows": 12, "calibrated": _summ(8.), "straight_on": _summ(60.)}}
+    L = "".join(fin_flight_section({"fin_free_run": f}))
+    assert "really turned (12 windows" in L and "8.00°" in L and "60.00°" in L
+    f["turning"] = {"turned_deg": 30.0, "windows": 0, "calibrated": {"median": None}, "straight_on": {"median": None}}
+    assert "really turned" not in "".join(fin_flight_section({"fin_free_run": f}))

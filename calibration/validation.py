@@ -528,6 +528,12 @@ def retrim_by_deployment(params, vehicle, train_runs: list, runs: list) -> tuple
     return out, notes
 
 
+# Holding course is hard to beat on a straight line: an autopilot logged the fins that kept it there, and any model flying them open loop
+# drifts. Where the vehicle really turned, holding course is the wrong answer and the model has to earn its keep: windows whose logged
+# heading changed by more than this are scored on their own (#97: OOI's REMUS rows fly mostly straight, and lost to holding course there).
+TURNED_DEG = 30.0
+
+
 def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S, run_params: Optional[dict] = None) -> dict:
     """A fin vehicle flying itself from each window's real start, on the logged fin angles: heading, pitch, depth and turn rate at
     the end, against assuming it holds its heading and pitch and carries straight on. The fit's own score feeds the logged pitch
@@ -535,6 +541,7 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
     run]}, for a model flown at each deployment's own trim (retrim_by_deployment)."""
     keys = ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")
     errs = {m: {k: [] for k in keys} for m in (*models, "straight_on")}
+    turning = {m: [] for m in (*models, "straight_on")}     # heading, on windows where the vehicle really turned
     div = {m: 0 for m in models}
     windows = 0
     for i, run in enumerate(runs):
@@ -547,6 +554,8 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
             r_end = run.real_nu[a + n - 1, 5]
             hold = errs["straight_on"]
             hold["heading_deg"].append(float(np.degrees(abs(_wrap(real[-1, 2] - real[0, 2])))))
+            turned = hold["heading_deg"][-1] > TURNED_DEG
+            got_all = {}
             hold["pitch_deg"].append(float(np.degrees(abs(_wrap(real[-1, 1] - real[0, 1])))))
             hold["turn_rate_rad_s"].append(float(abs(r_end - run.real_nu[a, 5])))
             if sink is not None:
@@ -562,13 +571,20 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
                 rpy, vel, z = got
                 e = errs[m]
                 e["heading_deg"].append(float(np.degrees(abs(_wrap(rpy[-1, 2] - real[-1, 2])))))
+                got_all[m] = e["heading_deg"][-1]
                 e["pitch_deg"].append(float(np.degrees(abs(_wrap(rpy[-1, 1] - real[-1, 1])))))
                 e["turn_rate_rad_s"].append(float(abs(vel[-1, 5] - r_end)))
                 if sink is not None:
                     e["depth_m"].append(float(abs(z[-1] - sink[-1])))
+            if turned and len(got_all) == len(models):      # the same windows for every model and for holding course
+                for m, h in got_all.items():
+                    turning[m].append(h)
+                turning["straight_on"].append(hold["heading_deg"][-1])
     out = {"window_s": window_s, "windows": windows, "diverged": div}
     for m, by in errs.items():
         out[m] = {k: _summary(v) for k, v in by.items()}
+    out["turning"] = {"turned_deg": TURNED_DEG, "windows": len(turning["straight_on"]),
+                      **{m: _summary(v) for m, v in turning.items()}}
     return out
 
 

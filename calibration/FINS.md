@@ -149,6 +149,9 @@ aren't supported.**
   says by how much, and shows the flight without it. A minute of steady, level flight on each deployment is enough for it.
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
+  On straight lines, assuming the vehicle holds its course is hard to beat: an autopilot logged the fins that held the line, and any
+  model flown open loop on them drifts a little. So the report also gives heading on the windows where the vehicle really turned
+  (heading changed by more than 30°), where holding course is the wrong answer.
 
 ### How a fin fit works
 

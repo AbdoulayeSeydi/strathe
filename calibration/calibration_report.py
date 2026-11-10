@@ -530,6 +530,11 @@ def fin_flight_section(v: dict) -> list:
                 if c["median"] is not None:
                     L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(s['default'][key], unit)} | {_m(s['straight_on'][key], unit)} |")
             L.append("")
+    t = f.get("turning") or {}
+    if t.get("windows") and (t.get("calibrated") or {}).get("median") is not None:
+        L.append(f"Where the vehicle really turned ({t['windows']} windows whose heading changed by more than {t['turned_deg']:g}°), heading was "
+                 f"{t['calibrated']['median']:.2f}° ({t['calibrated']['p90']:.2f}°), against {t['straight_on']['median']:.2f}° assuming it holds course. "
+                 f"On straight lines holding course is hard to beat; here it's the wrong answer.\n")
     worse = [w for k, w in (("heading_deg", "heading"), ("pitch_deg", "pitch"), ("depth_m", "depth"))
              if f["calibrated"][k]["median"] is not None and f["straight_on"][k]["median"] is not None
              and f["calibrated"][k]["median"] >= f["straight_on"][k]["median"]]

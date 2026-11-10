@@ -3938,6 +3938,16 @@ logs knowing which bars expect a warning; any value from 0.9° to 1.7° gives th
 mixed and the real turning mission not). The 5 s heading above is a held-out number, and it informed the decision to change the measure. The
 warning doesn't change any fit: what's held still depends only on how far the fins moved. Both failed rows stay in the results.
 
+**Holding course beat the model on straight lines; turning rows added (#97 final run).** Every OOI fly row met its heading, pitch and
+depth bars or came close, but lost on "heading better than holding course": 2018 6.49° against 1.18°, 2019 7.98° against 2.15°. Their
+held-out missions are mostly survey lines, where the autopilot logged the fins that held the line, and the model, flown open loop on those
+fins, drifts: its 5 s heading is about 1° and grows steadily to 30 s. One explanation tested: the re-trim matches yaw at angle of attack, which
+doesn't drive yaw; matching yaw at sideslip instead was scored on scratch copies (2018 8.92°, 2019 5.75°, T-fossen-rich 1.50°, T-holoocean-rich
+2.23°: no consistent gain) and not kept. The fly rows' bar stays and they stay failed. **O-turning-*** rows ask the question where holding
+course is the wrong answer: the same flights, only the windows whose heading changed by more than 30° (`validation.TURNED_DEG`), bars fixed
+before any was scored (heading at most 10°, no worse than holding course there, at least 10 such windows). They were added after seeing the
+fly rows lose to holding course, which is why they exist; none of their numbers had been looked at.
+
 ---
 
 ## What's actually next

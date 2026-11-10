@@ -514,6 +514,12 @@ REAL = {"O-turns-same-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6264_
         # Added with the re-trim, its bars the same, before any of its flights was scored: the rows above were looked at while
         # finding the aileron, the Muw limit and the re-trim, so this one is the clean check (#97)
         "O-turns-fresh-deployment": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00003", 6), "fly", "train in 2019, fly the other REMUS in 2016: a deployment no choice was made on")}
+# The fly rows lost to holding course: OOI's held-out missions are mostly straight lines, where an autopilot logged the fins that held
+# the line and any model flown open loop on them drifts. These ask the question where holding course is the wrong answer: the same
+# flights, only the 30 s windows whose logged heading changed by more than validation.TURNED_DEG (30°). Bars fixed before any of
+# them was scored: the real heading bar, no worse than holding course on those windows, and at least TURNING_MIN_WINDOWS of them (#97).
+TURNING_MIN_WINDOWS = 10
+TURNING = {f"O-turning-{r[len('O-turns-'):]}": r for r in REAL if r.startswith("O-turns-")}
 PREPARED = os.path.expanduser("~/strathe_fin_data/ooi_prepared")
 
 
@@ -629,6 +635,25 @@ def run_real_row(row: str) -> bool:
     return record(F, row, "real", train, what, held, n, f"30 s median within {REAL_FLY}, and heading better than holding course", ok, secs)
 
 
+def run_turning_row(row: str) -> bool:
+    """A fly row's own flights, scored only where the vehicle turned. It reads that row's validation, so the fly row runs first."""
+    base = TURNING[row]
+    (train, _nt), _held, _bar, what = REAL[base]
+    R = _bars()
+    vj = os.path.join(R.WORK, base, "fit", "validation", "validation.json")
+    if not os.path.exists(vj):
+        return record(F, row, "real", train, f"{what}: where it turned", "turning", {"bars": R.BARS_HASH}, f"{base}'s validation", False)
+    t = json.load(open(vj))["fin_free_run"].get("turning") or {}
+    c, h = t.get("calibrated") or {}, t.get("straight_on") or {}
+    n = {"windows": t.get("windows", 0), "turned_deg": t.get("turned_deg"), "heading_deg": c.get("median"), "heading_deg_p90": c.get("p90"),
+         "heading_deg_hold": h.get("median"), "bars": R.BARS_HASH}
+    ok = (n["windows"] >= TURNING_MIN_WINDOWS and n["heading_deg"] is not None and n["heading_deg"] <= REAL_FLY["heading_deg"]
+          and n["heading_deg"] <= n["heading_deg_hold"])
+    return record(F, row, "real", train, f"{what}: where it turned", "turning", n,
+                  f"on at least {TURNING_MIN_WINDOWS} windows turning over {t.get('turned_deg')}°: 30 s median heading <= {REAL_FLY['heading_deg']}° and "
+                  f"no worse than holding course", ok)
+
+
 def run_fin_check_row() -> bool:
     import glob
     import fin_check
@@ -672,11 +697,12 @@ def run_glider_rows(pick) -> bool:
 
 
 def real_rows() -> list:
-    return [*REAL, "O-fin-check", *[f"O-glider-{g[-5:]}" for g in GLIDERS], "O-glider-agree"]
+    return [*REAL, *TURNING, "O-fin-check", *[f"O-glider-{g[-5:]}" for g in GLIDERS], "O-glider-agree"]
 
 
 def run_real(pick) -> int:
     ok = all([run_real_row(r) for r in REAL if pick(r)])
+    ok = all([run_turning_row(r) for r in TURNING if pick(r)]) and ok
     ok = (run_fin_check_row() if pick("O-fin-check") else True) and ok
     return 0 if run_glider_rows(pick) and ok else 1
 

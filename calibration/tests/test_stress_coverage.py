@@ -91,3 +91,28 @@ def test_97s_failing_rows_are_written_down():
     limits = open(os.path.join(os.path.dirname(HERE), "..", "LIMITS.md"), encoding="utf-8").read()
     missing = [r["row"] for r in _results_97() if r["passed"] != "pass" and r["row"] not in limits]
     assert not missing, f"failing rows with no LIMITS.md entry: {missing}"
+
+
+def test_97s_turning_rows_judge_only_the_windows_that_turned(tmp_path, monkeypatch):
+    import json
+    import fin_rows_97 as R
+    import run_97
+    monkeypatch.setattr(run_97, "WORK", str(tmp_path))
+    got = []
+    monkeypatch.setattr(R, "record", lambda *a, **k: got.append(a) or a[8])
+    row, base = "O-turning-same-vehicle", R.TURNING["O-turning-same-vehicle"]
+    assert not R.run_turning_row(row) and "validation" in got[-1][7]          # its fly row hasn't run
+    v = tmp_path / base / "fit" / "validation"
+    v.mkdir(parents=True)
+
+    def write(windows, model, hold):
+        t = {"turned_deg": 30.0, "windows": windows, "calibrated": {"median": model, "p90": model}, "straight_on": {"median": hold, "p90": hold}}
+        (v / "validation.json").write_text(json.dumps({"fin_free_run": {"turning": t}}))
+    write(12, 8.0, 60.0)
+    assert R.run_turning_row(row)
+    write(R.TURNING_MIN_WINDOWS - 1, 8.0, 60.0)
+    assert not R.run_turning_row(row)
+    write(12, R.REAL_FLY["heading_deg"] + 1, 60.0)
+    assert not R.run_turning_row(row)
+    write(12, 8.0, 7.0)
+    assert not R.run_turning_row(row)
