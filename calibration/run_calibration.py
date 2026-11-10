@@ -178,6 +178,19 @@ def fin_flight_stage(config, loaded_spec, train_runs, first, fin_info: dict, sto
         if first is None:
             raise stopped
         return first
+    moving = fin_fit.flights_at_speed(train_runs, loaded_spec.vehicle.actuators if loaded_spec is not None else None)
+    fin_info["flights_at_speed"] = moving
+    if moving < fin_fit.MIN_FLIGHTS_AT_SPEED:
+        fin_fit.clear_flights(train_runs)
+        logger.warning("Fins: only %d of the %d flights of %.0f s were flown at speed (over %.1f m/s; %d needed), so the fit keeps its short-window values: "
+                       "flights where the fins have no authority would fit the hull to what the fins can't explain",
+                       moving, count, fin_fit.FLIGHT_S, fin_fit.MIN_SPEED_MPS, fin_fit.MIN_FLIGHTS_AT_SPEED)
+        fin_info["plain"].append(f"Only {moving} of the {count} flights of {fin_fit.FLIGHT_S:.0f} s were flown at speed (over {fin_fit.MIN_SPEED_MPS:g} m/s; "
+                                 f"{fin_fit.MIN_FLIGHTS_AT_SPEED} needed), so the fit kept its short-window values. Logs with more time at speed let it check "
+                                 f"the vehicle flying itself.")
+        if first is None:
+            raise stopped
+        return first
     logger.info("Fins: fitting on, with %d flights of %.0f s scored as well", count, fin_fit.FLIGHT_S)
     fin_info["plain"].append(f"After fitting short windows, the fit went on with {count} flights of {fin_fit.FLIGHT_S:.0f} s, where the model flies itself.")
     cc = config.calibration_config
@@ -937,6 +950,8 @@ def run_pipeline(config: PipelineConfig) -> CalibrationReport:
         for s, why in fin_info["held_why"].items():
             logger.warning("Fins: %s: their lift keeps its geometry value", why)
         for word in fin_info["few_manoeuvres"]:
+            if {"steering": "a", "pitching": "b"}.get(word) in fin_info["held_why"]:
+                continue
             logger.warning("Fins: few %s manoeuvres in these logs: the fit can predict missions like these while its fin "
                            "value is well off (FINS.md)", word)
     if sensor_mode:

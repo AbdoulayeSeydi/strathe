@@ -3914,6 +3914,30 @@ wasn't the cause) and this one. I stopped there, so 2018's pitch and 2024's head
 flights. The raw-angle form scored 2024 better, but its own per-axis form was chosen on these flights and it fails the simulation truth.
 O-turns-fresh-deployment is still unscored.
 
+**A slow log's second stage fitted the hull to flights the fins couldn't fly (fixed, #97 final run).** T-prestero-slow failed its heading
+bar in the final run: 8.82° against 5° (pitch 0.31°, depth 0.23 m passed). It passed on 6 Nov (3.03°), before the flight stage existed. Its
+training log is 900 s at 0.26 m/s, with 59 s over 0.3 m/s, where `fin_fit` counts the fins as having authority: 5 of its 89 flights of 10 s
+were flown there. Its second stage drove surge added mass to 0 and roll, heave and pitch damping to their limits. Checked on scratch copies,
+all scored on its held-out flights: the 6 Nov first-stage values give 3.00° under today's validation; today's fit with the steering inflow put
+back at 0.69 gives 29.5°, so that term alone wasn't the cause (I said it was before checking, and was wrong; the flight stage converged at 56 of
+100 steps, so its budget wasn't the cause either). The fix: the second stage runs only with at least `MIN_FLIGHTS_AT_SPEED` (20) flights
+flown at speed; otherwise the fit keeps its first stage and the report says why. Every other truth row and O-survey-only had all their
+flights at speed (89 of 89; 464 of 464), so their fits don't change. **What I looked at:** the floor of 20 reuses `MIN_FIN_MANOEUVRES`, but it
+was chosen after seeing this row's held-out result, so T-prestero-slow's rerun isn't an independent check of it. The failed row stays in the
+results.
+
+**The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
+so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
+flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
+barely moved (1.7° and 1.1°, under 2°), so the fit held them and the report said so, but `few_manoeuvres`, the list a script reads, left held
+groups out, and the row reads that list. Two changes: a manoeuvre now counts only when the vehicle answers it, its rotation swinging the flow
+angle at its fins (rate × lever arm ÷ speed) past ±1° (`MIN_RESPONSE_DEG`), and held groups are listed too (the report still warns once per
+group). A fixed rate (0.05 rad/s, a standard-rate turn) was tried first: it also flagged the real turning mission, whose REMUS 600 is twice
+the length and turns more slowly, so the angle at the fins is the measure. **What I looked at:** the threshold was picked on the rows' training
+logs knowing which bars expect a warning; any value from 0.9° to 1.7° gives the same flags on all #97 training logs (survey rows flagged, rich,
+mixed and the real turning mission not). The 5 s heading above is a held-out number, and it informed the decision to change the measure. The
+warning doesn't change any fit: what's held still depends only on how far the fins moved. Both failed rows stay in the results.
+
 ---
 
 ## What's actually next

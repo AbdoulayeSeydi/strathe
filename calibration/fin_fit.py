@@ -24,6 +24,12 @@ COUPLING_NAMES = {(i, j): n for i, j, n in MASS_COUPLINGS}
 MIN_FIN_SWING_DEG = 2.0        # a group of fins moved less than this (standard deviation, at speed) tells nothing about its lift
 MIN_SPEED_MPS = 0.3            # under this the fins have no authority: those samples say nothing about them
 MIN_FIN_MANOEUVRES = 20        # fewer swings of a group of fins from one side to the other, and its value isn't pinned down
+MIN_RESPONSE_DEG = 1.0         # a manoeuvre counts when the vehicle answers it: its rotation, at the fins, swings the flow's angle from past +1°
+    # to past -1° (r*l/U for steering, q*l/U for pitching, l the fins' lever arm). Counting fin swings alone isn't enough: an autopilot
+    # holding an unstable vehicle on survey lines swings its fins all the time while the vehicle hardly turns. Prestero's survey fins swung
+    # 22 and 45 times and his vehicle answered 13 and 22 (#97). Any threshold from 0.9° to 1.7° separated every #97 training log this way;
+    # it was chosen on their training data, knowing which rows' bars expect a warning (PROJECT_STATUS.md #97)
+RESPONSE_AXIS = {"steering": 5, "pitching": 4}
 
 
 def lift_slope(aspect_ratio: float) -> float:
@@ -94,6 +100,19 @@ def manoeuvres(a: np.ndarray) -> int:
     return int(np.sum(side[1:] != side[:-1]))
 
 
+def responses(angle: np.ndarray) -> int:
+    """How many times the flow angle a rotation makes at the fins (radians) swings from past +MIN_RESPONSE_DEG to past -MIN_RESPONSE_DEG, or back."""
+    t = math.radians(MIN_RESPONSE_DEG)
+    side = np.where(angle > t, 1, np.where(angle < -t, -1, 0))
+    side = side[side != 0]
+    return int(np.sum(side[1:] != side[:-1]))
+
+
+def pinned(g: dict) -> int:
+    """A group's manoeuvres the vehicle answered: its fins' swings, but no more than its rate's (logs from before #97's final run have none)."""
+    return min(g["manoeuvres"], g.get("responses", g["manoeuvres"]))
+
+
 def group_angle(run, idx: list) -> np.ndarray:
     """A group of fins' common angle: each fin signed by the first's, averaged."""
     c = run.controls[:, idx]
@@ -117,9 +136,13 @@ def envelope(runs: list, act: Actuators) -> dict:
             continue
         parts = [group_angle(r, idx)[m] for r, m in zip(runs, masks)]
         a = np.concatenate(parts) if parts else np.zeros(0)
+        lever = float(np.mean([abs(act.fins[i].position_m[0]) for i in idx]))
+        rates = [np.nan_to_num(np.asarray(r.real_nu[m, RESPONSE_AXIS[word]], dtype=float)) * lever
+                 / np.maximum(np.nan_to_num(np.asarray(r.real_nu[m, 0], dtype=float)), MIN_SPEED_MPS) for r, m in zip(runs, masks)]
         out["groups"][word] = {"swing_deg": round(float(np.degrees(np.std(a))), 2) if len(a) else 0.0,
                                "angle_deg": [round(float(np.degrees(x)), 2) for x in np.percentile(a, [1, 99])] if len(a) else None,
-                               "manoeuvres": int(sum(manoeuvres(p) for p in parts))}
+                               "manoeuvres": int(sum(manoeuvres(p) for p in parts)),
+                               "responses": int(sum(responses(w) for w in rates))}
     r = np.concatenate([x.real_nu[m, 5] for x, m in zip(runs, masks)])
     q = np.concatenate([x.real_nu[m, 4] for x, m in zip(runs, masks)])
     out["turn_rate_rad_s"] = round(float(np.percentile(np.abs(r), 99)), 4) if len(r) else 0.0
@@ -138,8 +161,9 @@ def held_groups(env: dict) -> dict:
 
 
 def few_manoeuvres(env: dict) -> list:
-    return [w for w, g in (env.get("groups") or {}).items() if g["manoeuvres"] < MIN_FIN_MANOEUVRES
-            and g["swing_deg"] >= MIN_FIN_SWING_DEG]
+    """Every group of fins these logs don't pin down: too few manoeuvres the vehicle answered, or fins that barely moved (held_groups:
+    those are held, and listed here too, so whoever reads this list sees every group)."""
+    return [w for w, g in (env.get("groups") or {}).items() if pinned(g) < MIN_FIN_MANOEUVRES or g["swing_deg"] < MIN_FIN_SWING_DEG]
 
 
 # A fin vehicle's fit replays short windows, not whole recordings (#97). Many fin vehicles are unstable with their fins held, and a real one is flown by its
@@ -201,6 +225,29 @@ def plan_flights(train_runs: list) -> int:
     return count
 
 
+# A flight says something about the fins only at speed: under MIN_SPEED_MPS they have no authority, and fitting flights flown there fits the hull to
+# what the fins can't explain. Prestero's REMUS at 0.26 m/s had 59 s at speed in 900 s of logs: 89 flights planned, about 5 at speed. Its second stage drove
+# the hull's surge added mass, roll damping and heave and pitch damping to their limits, and 30 s heading went from 3.0 degrees after the first stage to 8.8
+# (T-prestero-slow, #97). Every other truth row had 900 s at speed and 89 flights there. 20 is the same floor as MIN_FIN_MANOEUVRES; it was chosen after
+# seeing that held-out result, so it is disclosed as such (PROJECT_STATUS.md #97).
+MIN_FLIGHTS_AT_SPEED = 20
+
+
+def flights_at_speed(train_runs: list, act) -> int:
+    """How many of the planned flights (plan_flights) were flown at speed: most of their samples above MIN_SPEED_MPS."""
+    count = 0
+    for run in train_runs:
+        plan = run.__dict__.get("_flights")
+        if plan is None:
+            continue
+        if act is not None:
+            moving = _moving(run, act)
+        else:
+            moving = np.nan_to_num(np.asarray(run.real_nu[:, 0], dtype=float)) > MIN_SPEED_MPS
+        count += sum(1 for a in plan.starts if moving[a:a + plan.samples].mean() > 0.5)
+    return count
+
+
 def clear_flights(train_runs: list) -> None:
     for run in train_runs:
         run.__dict__.pop("_flights", None)
@@ -255,6 +302,7 @@ def envelope_words(env: dict) -> list:
     for word, g in env.get("groups", {}).items():
         if g.get("angle_deg"):
             w.append(f"The {word} fins moved between {g['angle_deg'][0]:.1f}° and {g['angle_deg'][1]:.1f}° in {g['manoeuvres']} "
-                     f"manoeuvres.")
+                     f"manoeuvres" + (f", and the vehicle answered {g['responses']} times (its {'turning' if word == 'steering' else 'pitching'} swinging the "
+                                      f"flow at its fins past ±{MIN_RESPONSE_DEG:g}°)." if "responses" in g else "."))
     w.append("Predictions outside this range aren't supported by these logs.")
     return w

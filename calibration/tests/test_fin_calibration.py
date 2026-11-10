@@ -6,6 +6,8 @@ from dataclasses import replace
 
 import numpy as np
 import pandas as pd
+import math
+
 import pytest
 import yaml
 from scipy.spatial.transform import Rotation
@@ -91,7 +93,22 @@ def test_metrics_record_what_the_logs_covered(fitted):
     m = json.load(open(fitted / "metrics.json"))["fins"]
     env = m["envelope"]
     assert env["speed_mps"][0] > .3 and env["groups"]["steering"]["manoeuvres"] >= fin_fit.MIN_FIN_MANOEUVRES
-    assert not m["held"] and not m["few_manoeuvres"]
+    assert all("responses" in g for g in env["groups"].values())
+    # this fixture's vehicle answers about 19 of its 28 steering swings: just under the floor, and warned as it should be
+    assert not m["held"] and m["few_manoeuvres"] == fin_fit.few_manoeuvres(env)
+
+
+def test_well_answered_manoeuvres_are_not_warned_about(tmp_path):
+    from objective import DatasetConfig, load_run
+    dc = DatasetConfig(10.0, (0.0, 0.0, 0.0), None, None, sensors=("velocity",), actuators=SPEC.vehicle.actuators)
+    runs = []
+    for k in range(3):
+        f = tmp_path / f"fin-01-10-2026-run{k + 1}.csv"
+        recording(k + 1, n=1200, steps=40).to_csv(f, index=False)
+        runs.append(load_run(str(f), dc))
+    env = fin_fit.envelope(runs, SPEC.vehicle.actuators)
+    assert all(fin_fit.pinned(g) >= fin_fit.MIN_FIN_MANOEUVRES for g in env["groups"].values())
+    assert fin_fit.few_manoeuvres(env) == []
 
 
 def test_a_group_of_fins_that_barely_moved_keeps_its_geometry_value(tmp_path):
@@ -108,6 +125,44 @@ def test_few_manoeuvres_are_warned_about(tmp_path):
     calibrate(dataset(tmp_path / "d", steps=4), out, nfev=4)
     m = json.load(open(out / "metrics.json"))["fins"]
     assert "steering" in m["few_manoeuvres"]
+
+
+def test_a_manoeuvre_counts_only_when_the_vehicle_answers_it():
+    """An autopilot holding an unstable vehicle swings its fins while the vehicle hardly turns (T-prestero-survey, #97)."""
+    t = math.radians(fin_fit.MIN_RESPONSE_DEG)
+    assert fin_fit.responses(np.array([2 * t, -2 * t, 2 * t, -2 * t])) == 3
+    assert fin_fit.responses(np.array([.5 * t, -.5 * t] * 50)) == 0          # wiggles under the threshold say nothing
+    assert fin_fit.responses(np.array([2 * t, .1 * t, -2 * t])) == 1           # crossing through the dead band still counts once
+    chatter = {"manoeuvres": 40, "responses": 3, "swing_deg": 5.0}
+    assert fin_fit.pinned(chatter) == 3 and fin_fit.pinned({"manoeuvres": 7, "swing_deg": 5.0}) == 7      # older logs have no responses
+    env = {"groups": {"steering": chatter, "pitching": {"manoeuvres": 40, "responses": 40, "swing_deg": 5.0}}}
+    assert fin_fit.few_manoeuvres(env) == ["steering"]
+
+
+def test_held_groups_are_in_the_warning_list_but_warned_once():
+    """O-survey-only's fins barely moved: held, and so listed with the groups the logs don't pin down (#97)."""
+    from calibration_report import fins_section
+    g = {"steering": {"manoeuvres": 119, "responses": 0, "swing_deg": 1.7, "angle_deg": [-8.6, 3.9]},
+         "pitching": {"manoeuvres": 62, "responses": 0, "swing_deg": 1.1, "angle_deg": [-1.0, 3.2]}}
+    env = {"speed_mps": [1.4, 1.6], "turn_rate_rad_s": .05, "groups": g}
+    assert fin_fit.few_manoeuvres(env) == ["steering", "pitching"]
+    held = fin_fit.held_groups(env)
+    assert set(held) == {"a", "b"}
+    L = "".join(fins_section({"fins": {"plain": fin_fit.envelope_words(env), "few_manoeuvres": fin_fit.few_manoeuvres(env), "held_why": held, "envelope": env}}))
+    assert L.count("keeps its geometry value") == 2 and "Only" not in L and "answered 0 times" in L
+
+
+def test_the_answer_is_measured_at_the_fins_so_a_bigger_vehicle_counts_alike(tmp_path):
+    """The same flow angle at the fins: a vehicle twice as long turns half as fast for it (r*l/U)."""
+    run, spec = _flight_run(tmp_path)
+    act = spec.vehicle.actuators
+    env = fin_fit.envelope([run], act)
+    big = replace(run, real_nu=run.real_nu.copy())
+    big.real_nu[:, 3:6] /= 2
+    longer = replace(act, fins=tuple(replace(f, position_m=(2 * f.position_m[0], f.position_m[1], f.position_m[2])) for f in act.fins))
+    env2 = fin_fit.envelope([big], longer)
+    assert all(env2["groups"][w]["responses"] == env["groups"][w]["responses"] for w in env["groups"])
+    assert env["groups"]["steering"]["responses"] > 0
 
 
 def test_the_report_has_a_fins_section():
@@ -315,6 +370,7 @@ def test_the_second_stage_starts_its_checkpoint_afresh(tmp_path, monkeypatch):
     monkeypatch.setattr(rc, "make_checkpoint_callback", lambda p: made.append(p) or (lambda *a: None))
     monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: type("R", (), {"cc": cc, "n_iterations": 1})())
     monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: fin_fit.MIN_FLIGHTS_AT_SPEED)
     cfg = _stage_config(tmp_path)
     cfg.checkpoint_path = str(tmp_path / "checkpoint.yaml")
     cfg.calibration_config.on_iteration = lambda *a: None
@@ -343,6 +399,7 @@ def test_a_flight_stage_that_uses_its_budget_keeps_the_fit_and_says_so(tmp_path,
         raise RestartsFailed(1, [stop])
     monkeypatch.setattr(rc, "calibrate", out_of_budget)
     monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: fin_fit.MIN_FLIGHTS_AT_SPEED)
     run, spec = _flight_run(tmp_path)
     first = type("F", (), {"parameters": initial_parameters(spec)})()
     info = {"plain": []}
@@ -361,8 +418,56 @@ def test_when_neither_stage_converged_the_fit_finishes_from_its_checkpoint(tmp_p
         raise RestartsFailed(1, [stop])
     monkeypatch.setattr(rc, "calibrate", out_of_budget)
     monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 3)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: fin_fit.MIN_FLIGHTS_AT_SPEED)
     with pytest.raises(RestartsFailed):
         rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], None, {"plain": []}, RestartsFailed(1, [stop]))
+
+
+def test_only_flights_flown_at_speed_count(tmp_path):
+    """A flight where the fins have no authority says nothing about them (T-prestero-slow, #97)."""
+    run, spec = _flight_run(tmp_path)
+    act = spec.vehicle.actuators
+    planned = fin_fit.plan_flights([run])
+    plan = run.__dict__["_flights"]
+    assert planned > 1 and fin_fit.flights_at_speed([run], act) == planned
+    slow = replace(run, real_nu=run.real_nu.copy())
+    slow.real_nu[:, 0] = fin_fit.MIN_SPEED_MPS / 2
+    slow.__dict__["_flights"] = plan
+    assert fin_fit.flights_at_speed([slow], act) == 0
+    half = replace(run, real_nu=run.real_nu.copy())
+    half.real_nu[plan.starts[0]:plan.starts[0] + plan.samples, 0] = 0.0      # the first flight only, flown slowly
+    half.__dict__["_flights"] = plan
+    assert fin_fit.flights_at_speed([half], act) == planned - 1
+    assert fin_fit.flights_at_speed([replace(run)], act) == 0      # nothing planned on it
+
+
+def test_too_few_flights_at_speed_keep_the_first_stage_and_say_so(tmp_path, monkeypatch):
+    import run_calibration as rc
+    called, cleared = [], []
+    monkeypatch.setattr(rc, "calibrate", lambda *a: called.append(a))
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 89)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: fin_fit.MIN_FLIGHTS_AT_SPEED - 1)
+    monkeypatch.setattr("fin_fit.clear_flights", lambda runs: cleared.append(runs))
+    run, spec = _flight_run(tmp_path)
+    first = type("F", (), {"parameters": initial_parameters(spec)})()
+    info = {"plain": []}
+    assert rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], first, info) is first
+    assert not called and cleared == [[run]] and info["flights_at_speed"] == fin_fit.MIN_FLIGHTS_AT_SPEED - 1
+    assert "flown at speed" in info["plain"][-1] and "kept its short-window values" in info["plain"][-1]
+    with pytest.raises(RuntimeError, match="budget"):       # a first stage out of budget stops as it would with nothing to fly
+        rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], None, {"plain": []}, RuntimeError("budget"))
+
+
+def test_enough_flights_at_speed_run_the_second_stage(tmp_path, monkeypatch):
+    import run_calibration as rc
+    called = []
+    monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: called.append(cc) or type("R", (), {"cc": cc, "n_iterations": 1})())
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 89)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: fin_fit.MIN_FLIGHTS_AT_SPEED)
+    run, spec = _flight_run(tmp_path)
+    info = {"plain": []}
+    rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], type("F", (), {"parameters": initial_parameters(spec)})(), info)
+    assert len(called) == 1 and info["flight_stage"]["converged"] and info["flights_at_speed"] == fin_fit.MIN_FLIGHTS_AT_SPEED
 
 
 def test_flights_split_across_workers_give_the_same_residuals(tmp_path):

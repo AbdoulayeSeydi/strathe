@@ -652,8 +652,12 @@ def fins_section(metrics: Optional[dict]) -> list:
     L += [line + "\n" for line in fi.get("plain", [])]
     for why in (fi.get("held_why") or {}).values():
         L.append(f"> ⚠️ {why.capitalize()}: their lift keeps its geometry value.\n")
+    held = fi.get("held_why") or {}
     for word in fi.get("few_manoeuvres", []):
-        n = ((fi.get("envelope") or {}).get("groups") or {}).get(word, {}).get("manoeuvres")
+        if {"steering": "a", "pitching": "b"}.get(word) in held:      # already said: those fins are held
+            continue
+        g = ((fi.get("envelope") or {}).get("groups") or {}).get(word, {})
+        n = min(g["manoeuvres"], g.get("responses", g["manoeuvres"])) if "manoeuvres" in g else None
         L.append(f"> ⚠️ Only {n} {word} manoeuvres. The fit can predict missions like these well while its fin value is well off: "
                  f"on a simulated REMUS, survey lines alone got rudder lift 39% wrong. Log some deliberate turns or dives before "
                  f"trusting it on other missions (FINS.md).\n")

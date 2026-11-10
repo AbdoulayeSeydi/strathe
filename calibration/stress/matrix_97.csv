@@ -113,6 +113,8 @@ const:STALLED_CN,SV-stall_deg Z-physics,
 const:MIN_TURNING_RAD_S,X-no-speed-source XS-check_speed_source-1,"guards inferring surge, which a fin vehicle is refused: the rows prove the refusal"
 const:STEADY_RATE_RAD_S,O-turns-fresh-deployment O-turns-same-vehicle O-turns-other-vehicle O-turns-years-later T-fossen-rich,"which samples hold an axis steady, for each deployment's trim; a deployment flown differently but trimmed the same keeps its biases (T-fossen-rich)"
 const:MIN_TRIM_SAMPLES,O-turns-fresh-deployment O-turns-same-vehicle,"too few steady samples: no re-trim (tests/test_fin_validation.py)"
+const:MIN_FLIGHTS_AT_SPEED,T-prestero-slow T-fossen-slow,"too few flights at speed: the fit keeps its first stage (tests/test_fin_calibration.py); T-prestero-slow had 5 of 89, every other row all of them"
+const:MIN_RESPONSE_DEG,O-survey-only T-prestero-survey T-fossen-survey T-prestero-rich,"a manoeuvre counts when the vehicle answers it; survey rows must warn, T-prestero-rich must not (tests/test_fin_calibration.py)"
 engine:gazebo,S-gazebo E-gazebo CV-gazebo,
 engine:stonefish,S-stonefish E-stonefish,
 engine:holoocean,S-holoocean E-holoocean,
