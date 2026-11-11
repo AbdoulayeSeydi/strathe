@@ -3926,6 +3926,14 @@ flights at speed (89 of 89; 464 of 464), so their fits don't change. **What I lo
 was chosen after seeing this row's held-out result, so T-prestero-slow's rerun isn't an independent check of it. The failed row stays in the
 results.
 
+**The slow-log fix didn't pass the row (correction, #97 final run).** Rerun on the merged code (0768cfe), the guard fired as designed (5 of 89
+flights at speed, first stage kept), and T-prestero-slow still failed: 30 s heading 10.4° (10.9° without re-trimming), bar 5°. The 3.00°
+above came from a 6 Nov first-stage fit made on older code (976 steps); today's first stage converges in 24 steps to cost 0.0132, and the 6 Nov
+values score 0.439 on today's objective, so it isn't stopping early: on 59 s at speed, with the vehicle answering no steering manoeuvre
+(`responses` 0), 2 s windows fit far better and still don't say how it flies itself for 30 s. I quoted the 3.00° as the expected result
+without rerunning it, and was wrong. The guard stays (it stops the second stage making things worse, 8.82° there), the row stays failed, and
+LIMITS.md says what it needs: minutes at survey speed, with turns.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
