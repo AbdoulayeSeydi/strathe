@@ -497,7 +497,7 @@ class IngestSpec(BaseModel):
     depth: Union[DepthSpec, list[DepthSpec], None] = None
     accelerometer: Optional[AccelerometerSpec] = None
     skip_checks: list[Literal["force_direction", "orientation_vs_position", "gyro_vs_orientation", "accelerometer",
-                              "depth_vs_position", "depth_vs_thrust", "heading_vs_position", "fin_direction"]] = []  # escape hatch, says so
+                              "depth_vs_position", "depth_vs_thrust", "dvl_vs_depth", "heading_vs_position", "fin_direction"]] = []  # escape hatch, says so
     exclude_samples: list[ExcludeRule] = []
     min_segment_s: float = Field(default=10.0, gt=0)  # with exclude_samples: shorter pieces are discarded
 
