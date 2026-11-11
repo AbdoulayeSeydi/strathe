@@ -504,13 +504,22 @@ def fin_flight_section(v: dict) -> list:
         L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(f['default'][key], unit)} | "
                  f"{_m(f['straight_on'][key], unit)} |")
     L.append("")
+    dvl = v.get("dvl_vs_depth") or {}
+    if dvl.get("warning"):
+        L.append(f"> ⚠️ **The DVL and the depth sensor disagree on these recordings:** {dvl['warning']}. Each window starts from the DVL's "
+                 f"velocity, so its flights start wrong too.\n")
     trims = {d: t for d, t in (v.get("fin_retrim") or {}).items() if t.get("retrimmed")}
     if trims:
         said = "; ".join(f"{d}: " + ", ".join(f"{w} {t[f'{w}_deg']:+.2f}°" for w in ("roll", "pitch", "yaw") if t.get(f"{w}_deg") is not None)
                          for d, t in sorted(trims.items()))
         L.append(f"Each unseen deployment was flown at its own trim. A vehicle is re-ballasted between deployments, so the fin angles that "
-                 f"hold it steady move; the fit's fin biases were moved by the difference from training ({said}). Only the logged fin "
-                 f"angles and rates went into this, never the attitude or depth scored above.\n")
+                 f"hold it steady move. Each recording's fin biases were moved until the model, flying itself "
+                 f"{next(iter(trims.values())).get('window_s', 10):g} s at a time on the logged fins, ended as often above the deployment's logged "
+                 f"roll, pitch and heading as below, on that deployment's other recordings only, so no recording was scored at a trim its own "
+                 f"flights set (median change, {said}).\n")
+        few = sorted(d for d, t in (v.get("fin_retrim") or {}).items() if t.get("recordings") and t["recordings"] > t.get("trimmed_recordings", 0))
+        if few:
+            L.append(f"Some recordings kept the fit's trim ({', '.join(few)}): their deployment's other recordings gave too few flights to set one.\n")
         a = (v.get("fin_free_run_as_trained") or {}).get("calibrated") or {}
         if a:
             L.append("Without re-trimming: " + ", ".join(f"{w} {a[k]['median']:.2f}{u}" for k, w, u in
@@ -530,6 +539,11 @@ def fin_flight_section(v: dict) -> list:
                 if c["median"] is not None:
                     L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(s['default'][key], unit)} | {_m(s['straight_on'][key], unit)} |")
             L.append("")
+    t = f.get("turning") or {}
+    if t.get("windows") and (t.get("calibrated") or {}).get("median") is not None:
+        L.append(f"Where the vehicle really turned ({t['windows']} windows whose heading changed by more than {t['turned_deg']:g}°), heading was "
+                 f"{t['calibrated']['median']:.2f}° ({t['calibrated']['p90']:.2f}°), against {t['straight_on']['median']:.2f}° assuming it holds course. "
+                 f"On straight lines holding course is hard to beat; here it's the wrong answer.\n")
     worse = [w for k, w in (("heading_deg", "heading"), ("pitch_deg", "pitch"), ("depth_m", "depth"))
              if f["calibrated"][k]["median"] is not None and f["straight_on"][k]["median"] is not None
              and f["calibrated"][k]["median"] >= f["straight_on"][k]["median"]]
@@ -652,8 +666,12 @@ def fins_section(metrics: Optional[dict]) -> list:
     L += [line + "\n" for line in fi.get("plain", [])]
     for why in (fi.get("held_why") or {}).values():
         L.append(f"> ⚠️ {why.capitalize()}: their lift keeps its geometry value.\n")
+    held = fi.get("held_why") or {}
     for word in fi.get("few_manoeuvres", []):
-        n = ((fi.get("envelope") or {}).get("groups") or {}).get(word, {}).get("manoeuvres")
+        if {"steering": "a", "pitching": "b"}.get(word) in held:      # already said: those fins are held
+            continue
+        g = ((fi.get("envelope") or {}).get("groups") or {}).get(word, {})
+        n = min(g["manoeuvres"], g.get("responses", g["manoeuvres"])) if "manoeuvres" in g else None
         L.append(f"> ⚠️ Only {n} {word} manoeuvres. The fit can predict missions like these well while its fin value is well off: "
                  f"on a simulated REMUS, survey lines alone got rudder lift 39% wrong. Log some deliberate turns or dives before "
                  f"trusting it on other missions (FINS.md).\n")

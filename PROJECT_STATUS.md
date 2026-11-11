@@ -3914,6 +3914,73 @@ wasn't the cause) and this one. I stopped there, so 2018's pitch and 2024's head
 flights. The raw-angle form scored 2024 better, but its own per-axis form was chosen on these flights and it fails the simulation truth.
 O-turns-fresh-deployment is still unscored.
 
+**A slow log's second stage fitted the hull to flights the fins couldn't fly (fixed, #97 final run).** T-prestero-slow failed its heading
+bar in the final run: 8.82° against 5° (pitch 0.31°, depth 0.23 m passed). It passed on 6 Nov (3.03°), before the flight stage existed. Its
+training log is 900 s at 0.26 m/s, with 59 s over 0.3 m/s, where `fin_fit` counts the fins as having authority: 5 of its 89 flights of 10 s
+were flown there. Its second stage drove surge added mass to 0 and roll, heave and pitch damping to their limits. Checked on scratch copies,
+all scored on its held-out flights: the 6 Nov first-stage values give 3.00° under today's validation; today's fit with the steering inflow put
+back at 0.69 gives 29.5°, so that term alone wasn't the cause (I said it was before checking, and was wrong; the flight stage converged at 56 of
+100 steps, so its budget wasn't the cause either). The fix: the second stage runs only with at least `MIN_FLIGHTS_AT_SPEED` (20) flights
+flown at speed; otherwise the fit keeps its first stage and the report says why. Every other truth row and O-survey-only had all their
+flights at speed (89 of 89; 464 of 464), so their fits don't change. **What I looked at:** the floor of 20 reuses `MIN_FIN_MANOEUVRES`, but it
+was chosen after seeing this row's held-out result, so T-prestero-slow's rerun isn't an independent check of it. The failed row stays in the
+results.
+
+**The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
+so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
+flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
+barely moved (1.7° and 1.1°, under 2°), so the fit held them and the report said so, but `few_manoeuvres`, the list a script reads, left held
+groups out, and the row reads that list. Two changes: a manoeuvre now counts only when the vehicle answers it, its rotation swinging the flow
+angle at its fins (rate × lever arm ÷ speed) past ±1° (`MIN_RESPONSE_DEG`), and held groups are listed too (the report still warns once per
+group). A fixed rate (0.05 rad/s, a standard-rate turn) was tried first: it also flagged the real turning mission, whose REMUS 600 is twice
+the length and turns more slowly, so the angle at the fins is the measure. **What I looked at:** the threshold was picked on the rows' training
+logs knowing which bars expect a warning; any value from 0.9° to 1.7° gives the same flags on all #97 training logs (survey rows flagged, rich,
+mixed and the real turning mission not). The 5 s heading above is a held-out number, and it informed the decision to change the measure. The
+warning doesn't change any fit: what's held still depends only on how far the fins moved. Both failed rows stay in the results.
+
+**Holding course beat the model on straight lines; turning rows added (#97 final run).** Every OOI fly row met its heading, pitch and
+depth bars or came close, but lost on "heading better than holding course": 2018 6.49° against 1.18°, 2019 7.98° against 2.15°. Their
+held-out missions are mostly survey lines, where the autopilot logged the fins that held the line, and the model, flown open loop on those
+fins, drifts: its 5 s heading is about 1° and grows steadily to 30 s. One explanation tested: the re-trim matches yaw at angle of attack, which
+doesn't drive yaw; matching yaw at sideslip instead was scored on scratch copies (2018 8.92°, 2019 5.75°, T-fossen-rich 1.50°, T-holoocean-rich
+2.23°: no consistent gain) and not kept. The fly rows' bar stays and they stay failed. **O-turning-*** rows ask the question where holding
+course is the wrong answer: the same flights, only the windows whose heading changed by more than 30° (`validation.TURNED_DEG`), bars fixed
+before any was scored (heading at most 10°, no worse than holding course there, at least 10 such windows). They were added after seeing the
+fly rows lose to holding course, which is why they exist; none of their numbers had been looked at.
+
+
+**The re-trim set the rudder wrong: a new one, from each deployment's other recordings (#97 final run).** Why the fly rows drifted:
+heading over 30 s moves about 8° per degree of rudder trim on these vehicles, and the re-trim set it from one-step moment residuals on
+1 Hz samples holding steady (about 400 per deployment for yaw), which can't place it that finely. Flying the same fit with the rudder trim
+moved by hand (diagnostic only, scratchpad): 2018 flew straightest about 1° below its re-trim's value, 2019 about 0.7° below, 2024 about
+1.5° below (the re-trim had put 2024's at +2.56°; with no re-trim at all its heading was 4.08°, with it 16.10°). The new re-trim sets the
+fin biases so the model, flying itself 10 s at a time on the logged fins, ends as often above the logged roll, pitch and heading as below,
+two Gauss-Newton steps; each recording's from the deployment's other recordings only (`validation.retrim_by_deployment`, `TRIM_WINDOW_S`,
+`MIN_TRIM_WINDOWS`). From the preserved fit, 30 s medians (heading / pitch / depth), new against old: 2018 2.91° / 2.66° / 1.62 m against
+6.49° / 2.43° / 1.86 m; 2019 2.58° / 3.20° / 1.54 m against 7.98° / 3.66° / 1.65 m; 2024 7.28° / 2.81° / 2.26 m against 16.10° / 2.80° /
+2.44 m. Holding course is 1.18°, 2.15° and 3.73°, so each still loses that bar, and 2019's pitch is over 3°. On the simulator rows the new
+form moves the fins at most 0.15°: T-fossen-rich 1.47° / 0.34° / 0.18 m, T-fossen-mixed 1.44° / 0.15° / 0.08 m, T-fossen-survey 1.17° /
+0.14° / 0.13 m, T-fossen-slow 1.56° / 0.15° / 0.04 m, T-holoocean-rich 2.66° / 0.65° / 0.31 m (was 1.50°: each of its two recordings is
+trimmed from the other alone), all within their bars. Forms tried and not kept: the same with all recordings (leaving none out) scored
+slightly better and was rejected because a recording would set its own trim; yaw alone, keeping the old roll and pitch, was worse on all
+three; adding net buoyancy to the trim changed depth by under 0.1 m.
+
+**2024: a cross current, and a DVL that reads vertical speed wrongly (#97 final run).** Two things the fit can't know about the 2024
+deployment, found by comparing its logs with the others' (inputs only, no scores). Its DVL's vertical speed, turned to the world, ran 1.5
+times its depth sensor's rate (slope 0.67, scatter 0.14 m/s; 0.96–1.01 and 0.03–0.05 m/s on the other five missions), and depth was being
+scored against that DVL integrated: the prepared logs now carry the depth sensor (`depth_pressure`, `stress/prepare_ooi_97.py`), validation
+scores depth against a logged depth sensor whenever there is one (`validation.logged_depth`), and a new check warns (`dvl_vs_depth`,
+SENSORS.md; ingest and the report). That moved 2024's depth from 2.26 to 2.15 m. And it flew its lines almost all one way through a cross
+current: bottom-tracking, its DVL read it sliding sideways at +0.32, +0.19 and +0.05 m/s on three heading bands, which a DVL rotated on its
+mount wouldn't do (the same reading on every heading). The real rows calibrate as in still water. Estimating each held-out recording's
+current afterwards with the existing fit (`estimate_current.py`, horizontal part) took 2024 to 3.93° / 2.96° / 1.89 m, but read 0.5–0.7
+m/s currents into 2018 and moved its pitch from 2.66° to 4.70°: a drag error along the path looks like a current to a still-water fit. It
+isn't used; calibrating the real rows with `--estimate-current` from the start is the remedy (LIMITS.md) and wasn't run (about 3–4 days
+for the shared fit). Also tried on scratch copies and not kept: turning the DVL by its apparent 10.8° (the current explains that reading),
+and taking vertical speed from the depth sensor (2024 depth 1.99 m, but 2018's heading went from 2.91° to 5.38°). **What I looked at:** all
+of this was found on the three fly rows' held-out flights, which had already been scored, so they no longer check it independently; the
+recorded failures stay in the results, and O-turns-fresh-deployment, still unscored, is the clean check. The DVL check's band (0.8–1.25)
+was set from these six missions.
 ---
 
 ## What's actually next

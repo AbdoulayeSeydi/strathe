@@ -5,6 +5,8 @@ rawdata.oceanobservatories.org, one file per mission. OOI data: credit the NSF a
 The state and fin messages are about 1 Hz and share their rows; the DVL's forward, starboard and vertical velocity is about 0.8 Hz and only
 reads near the bottom. Recordings are the stretches running at depth with DVL lock, gaps under 5 s filled, at least 120 s long, at 1 Hz.
 Rudder, elevator and aileron come as percent of full scale with the opposite sense to Strathe's, as fin_direction shows on these logs.
+The depth sensor goes in as depth_pressure: a velocity fit doesn't read it, and validation scores depth against it rather than the DVL's
+velocity integrated (the 2024 mission's DVL read vertical speed 1.5 times its depth sensor's rate, #97).
 The aileron is the roll autopilot's (about 1.5% per degree of roll): each fin's own angle in the same message is the three mixed, as the y3
 preset mixes them, so leaving it out hides the roll control from the fit (#97).
 """
@@ -58,7 +60,8 @@ def mission(path: str, out: str) -> int:
                 qq = Rotation.from_euler("ZYX", np.c_[psi[s], pitch[s], roll[s]]).as_quat()
                 d = pd.DataFrame({"Fx": 0.0, "Fy": 0.0, "Fz": 0.0, "Tx": 0.0, "Ty": 0.0, "Tz": 0.0, "Bu": lin[s, 0], "Bv": lin[s, 1], "Bw": lin[s, 2],
                                   "Bp": p_rate[s], "Bq": q_rate[s], "Br": r_rate[s], "qx": qq[:, 0], "qy": qq[:, 1], "qz": qq[:, 2], "qw": qq[:, 3],
-                                  "fin_rudder": rud[s], "fin_elevator": ele[s], "fin_aileron": ail[s], "rpm": rpm[s]})
+                                  "fin_rudder": rud[s], "fin_elevator": ele[s], "fin_aileron": ail[s], "rpm": rpm[s],
+                                  "depth_pressure": depth[s]})
                 runs += 1
                 d.to_csv(f"{out}/{stem.replace('_', '')}-{day}-run{runs}.csv", index=False)
             start = None

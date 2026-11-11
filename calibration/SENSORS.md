@@ -215,6 +215,7 @@ what to fix; `skip_checks:` turns it into a warning for logs you know are right.
 | `accelerometer` | g declared as m/s² (reads 1 at rest), a frame or mount error (gravity not along the orientation's down; a ROS IMU reads +9.81 on z at rest, which is right) |
 | `depth_vs_position` | a depth sign flipped against a position fix's vertical, or the wrong unit |
 | `depth_vs_thrust` | with depth as the only vertical sensor: a flipped sign, from depth falling when the thrusters push down (correlation −0.4 or lower refuses, −0.2 to −0.4 warns). It needs 60 s and 0.5 m of depth change to judge |
+| `dvl_vs_depth` | a DVL whose vertical speed, turned to the world, disagrees with the depth sensor's rate: outside 0.8–1.25 times it warns (never refuses), and validation's report says so too. Its mount's angles or its vertical reading are off, or the depth's unit is. On OOI's REMUS 600s the depth rate was 0.96–1.01 times the DVL's on five missions and 0.67 times on the 2024 one; the band was set from those six (#97) |
 | depth rate | depth changing faster than 5 m/s: a wrong unit, or not a depth |
 | position outliers | fixes the vehicle couldn't reach at `max_speed_mps` from the last good one are dropped. Over 20% dropped is refused (two systems mixed, or the wrong unit). The tolerance comes from the kind of fix (`noise_m:` to set it) |
 | `heading_vs_position` | with no DVL: a mirrored or offset heading, from the fixes against the thrust |

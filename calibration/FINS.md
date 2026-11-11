@@ -133,19 +133,28 @@ aren't supported.**
 
 - **Log some real manoeuvres.** Straight survey lines don't pin down a fin's lift. On a simulated REMUS, a fit trained only on survey
   lines predicted more survey lines well, but its rudder lift was 39% off and its predictions of hard manoeuvres were poor. Under 20
-  manoeuvres per group of fins, the report warns. Deliberate turns and dives fix this.
+  manoeuvres per group of fins, the report warns. A manoeuvre counts only when the vehicle answers it: its own turning or pitching has
+  to swing the flow at its fins past ±1° (rate × the fins' lever arm ÷ speed), so an autopilot that keeps an unstable vehicle on a line,
+  moving its fins all the time, doesn't count as manoeuvring. Fins that barely moved are held and listed in the same warning
+  (`few_manoeuvres` in `metrics.json`). Deliberate turns and dives fix this.
 - **A group of fins that barely moved keeps its geometry value**, and the report says so.
 - **No DVL? Log longer.** Position fixes can stand in for a DVL, but speed is then estimated. On a simulated REMUS with clean fixes at
   1 Hz, 100 s of training left the pitching fins' lift 20% off; 10 minutes brought it to 2.4%.
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
 - **Each new deployment is flown at its own trim.** Re-ballasting moves the fin angles that hold a vehicle steady, so before a held-out
-  deployment is flown, the fit's fin biases are moved until the model holds each axis as well as it did in training, on that deployment's
-  steady samples, compared only at angles of attack training also flew. The model accounts for speed and attitude, so flying different
-  manoeuvres doesn't count as a trim change. The report
-  says by how much, and shows the flight without it. A minute of steady, level flight on each deployment is enough for it.
+  recording is flown, the fit's fin biases are moved until the model, flying itself 10 s at a time on the logged fins, ends as often
+  above the logged roll, pitch and heading as below. That trim comes from the deployment's other recordings only, so no recording is
+  scored at a trim its own flights set; a recording with no other recording of its deployment (or under 10 such flights) keeps the
+  fit's. The model accounts for speed, attitude and manoeuvres, so flying differently doesn't count as a trim change. The report says by
+  how much, and shows the flight without it. Log at least two recordings on each deployment.
+- **Depth is scored against your depth sensor** when your logs have one (a `depth_` column), even if the fit used the DVL alone, and
+  the report warns when the DVL's vertical speed and the depth sensor's rate disagree (`dvl_vs_depth`, SENSORS.md).
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
+  On straight lines, assuming the vehicle holds its course is hard to beat: an autopilot logged the fins that held the line, and any
+  model flown open loop on them drifts a little. So the report also gives heading on the windows where the vehicle really turned
+  (heading changed by more than 30°), where holding course is the wrong answer.
 
 ### How a fin fit works
 
@@ -156,6 +165,8 @@ A fin fit runs in two stages, and takes longer than a hover fit because of it.
 2. **Flights.** The fit goes on from there with the model flying itself for 10 s at a time, on its own attitude, and scores its roll, pitch
    and heading against the log. Windows alone never show the fit what its own pitch does. Recordings shorter than 10 s can't do this,
    and the report says so.
+   Only flights flown at speed (over 0.3 m/s for most of their 10 s) count: below it the fins have no authority, and fitting those flights
+   fits the hull to what the fins can't explain. With fewer than 20 at speed the fit keeps the first stage's values and the report says so.
    This stage stops when it has converged, as the first does, or after `--max-nfev` steps (at most 100). A stable vehicle stops early; an
    unstable one uses most of them. Its time grows with the length of the logs: about 30 evaluations a step, each flying every 10 s of the
    recordings. On a 1.6 h real log that is about 25 minutes a step, so up to about 40 hours; a smaller `--max-nfev` trades accuracy for time.

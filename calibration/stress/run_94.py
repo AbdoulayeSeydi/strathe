@@ -279,7 +279,7 @@ def sensor_spec(case: str, col) -> dict:
     if case == "skips":
         s["depth"] = {"column": col("dep")}
         s["accelerometer"] = {"x": col("ax"), "y": col("ay"), "z": col("az")}
-        s["skip_checks"] = ["gyro_vs_orientation", "accelerometer", "depth_vs_position", "depth_vs_thrust", "heading_vs_position"]
+        s["skip_checks"] = ["gyro_vs_orientation", "accelerometer", "depth_vs_position", "depth_vs_thrust", "dvl_vs_depth", "heading_vs_position"]
     return s
 
 

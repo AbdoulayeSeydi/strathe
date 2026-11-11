@@ -497,7 +497,7 @@ class IngestSpec(BaseModel):
     depth: Union[DepthSpec, list[DepthSpec], None] = None
     accelerometer: Optional[AccelerometerSpec] = None
     skip_checks: list[Literal["force_direction", "orientation_vs_position", "gyro_vs_orientation", "accelerometer",
-                              "depth_vs_position", "depth_vs_thrust", "heading_vs_position", "fin_direction"]] = []  # escape hatch, says so
+                              "depth_vs_position", "depth_vs_thrust", "dvl_vs_depth", "heading_vs_position", "fin_direction"]] = []  # escape hatch, says so
     exclude_samples: list[ExcludeRule] = []
     min_segment_s: float = Field(default=10.0, gt=0)  # with exclude_samples: shorter pieces are discarded
 
@@ -1255,6 +1255,8 @@ def _sensor_checks(spec: IngestSpec, out: pd.DataFrame, t, R, gyro_logged: bool,
         if not down_cols:   # nothing vertical to compare with: the thrust says which way is down
             checks.setdefault("depth_vs_thrust", {})[dc] = si.depth_vs_thrust(
                 t, out[dc].to_numpy(), R, out[["Fx", "Fy", "Fz"]].to_numpy())
+        if {"Bu", "Bv", "Bw"} <= set(out.columns):
+            checks.setdefault("dvl_vs_depth", {})[dc] = si.dvl_vs_depth(t, out[dc].to_numpy(), R, out[["Bu", "Bv", "Bw"]].to_numpy())
     for p in spec.positions():
         if p.use != "calibrate":
             continue

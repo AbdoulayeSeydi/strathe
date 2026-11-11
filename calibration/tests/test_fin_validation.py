@@ -199,60 +199,78 @@ MIXED = VehicleConstants(mass_kg=30.0, actuators=Actuators(fins=(Fin("r", (-.8, 
                                                                   Fin("s", (-.8, 0, 0), (0, 1, 0), .03, .2, group=1, mix=(0., 1., 0.)))))
 
 
-def _deployment(seed, date="01-01-2030", n=N, trim_deg=(0.0, 0.0)):
-    """A recording of the test vehicle: fin steps from seed, half of them centred so axes hold steady between. trim_deg (pitch, yaw):
-    re-ballasted by that much, so it flies the same with its fins logged that far off, as an autopilot holds a re-ballasted vehicle."""
+def _deployment(seed, date="01-01-2030", n=1200, trim_deg=(0.0, 0.0), run=1):
+    """A recording of the test vehicle flying itself on fin steps from seed, its attitude its own (so a model flying it from any sample
+    follows it exactly). trim_deg (pitch, yaw): re-ballasted by that much, so its fins are logged that far off for the same flight, as an
+    autopilot holds a re-ballasted vehicle."""
     rng = np.random.default_rng(seed)
     blocks = rng.uniform(-.15, .15, (n // 20 + 1, 2)) * (rng.random((n // 20 + 1, 1)) < .5)
     ctl = np.repeat(blocks, 20, axis=0)[:n]
-    t = np.arange(n)
-    rp = np.c_[.05 * np.sin(t / 30 + seed), .1 * np.sin(t / 50 + seed)]
     F = np.tile([25., 0, 0, 0, 0, 0], (n, 1))
-    nu0 = np.array([1.5, 0, 0, 0, 0, 0.])
-    params = P
-    nu = simulate_trajectory(params, MIXED, SimulationConfig(dt=.1), TrajectoryInputs(nu0=nu0, forces_torques=F, roll_pitch_series=rp,
-                                                                                  control_series=ctl)).nu
-    q = Rotation.from_euler("xyz", np.c_[rp, np.zeros(n)]).as_quat()
+    nu = np.tile([1.5, 0, 0, 0, 0, 0.], (n, 1))
+    q = Rotation.from_euler("xyz", np.zeros((n, 3))).as_quat()
+    r = RunData(f"f-{date}-run{run}.csv", F, np.zeros((n, 2)), nu, nu[0], .1, 10.0, date=date, orientation_quat=q, controls=ctl)
+    rpy, vel, _ = val.free_run(P, MIXED, r, 0, n, full=True)
     logged = ctl - np.radians([trim_deg[1], trim_deg[0]])     # rudder, elevator
-    return RunData(f"f-{date}-run1.csv", F, rp, nu, nu0, .1, 10.0, date=date, orientation_quat=q, controls=logged)
+    return replace(r, real_nu=vel, roll_pitch=rpy[:, :2], orientation_quat=Rotation.from_euler("xyz", rpy).as_quat(), controls=logged)
 
 
 def test_a_deployment_flown_differently_keeps_its_trim():
     """Other manoeuvres need other fin angles to hold the vehicle; the model explains that, so the biases stay (T-fossen-rich, #97)."""
-    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031")])
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(9, "02-02-2031"), _deployment(10, "02-02-2031", run=2)])
     n = notes["02-02-2031"]
-    assert n["retrimmed"] and min(n["steady_samples"][1:]) >= val.MIN_TRIM_SAMPLES
+    assert n["retrimmed"] and n["trimmed_recordings"] == 2 and n["flights"] >= 2 * val.MIN_TRIM_WINDOWS
     assert abs(n["pitch_deg"]) < .05 and abs(n["yaw_deg"]) < .05
 
 
 def test_a_reballasted_deployment_is_flown_at_its_own_trim():
-    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031", trim_deg=(2.0, -1.0)),
-                                                                     _deployment(11, "03-03-2032")])
+    runs = [_deployment(9, "02-02-2031", trim_deg=(2.0, -1.0)), _deployment(10, "02-02-2031", trim_deg=(2.0, -1.0), run=2),
+            _deployment(11, "03-03-2032"), _deployment(12, "03-03-2032", run=2)]
+    per, notes = val.retrim_by_deployment(P, MIXED, runs)
     a, b = notes["02-02-2031"], notes["03-03-2032"]
     assert a["pitch_deg"] == pytest.approx(2.0, abs=.1) and a["yaw_deg"] == pytest.approx(-1.0, abs=.1)
     assert per[0].fin_bias_pitch == pytest.approx(np.radians(2.0), abs=np.radians(.1))
     assert abs(b["pitch_deg"]) < .05 and abs(b["yaw_deg"]) < .05
 
 
+def test_no_recording_is_flown_at_a_trim_its_own_flights_set():
+    """Each recording's trim comes from its deployment's other recordings: one re-ballasted alone is flown at the others' trim (#97)."""
+    runs = [_deployment(9, "02-02-2031", trim_deg=(2.0, 0.0)), _deployment(10, "02-02-2031", run=2), _deployment(11, "02-02-2031", run=3)]
+    per, notes = val.retrim_by_deployment(P, MIXED, runs)
+    got = notes["02-02-2031"]["per_recording_deg"]
+    assert abs(got["f-02-02-2031-run1.csv"][1]) < .1           # from the two that weren't re-ballasted: its own 2 degrees unseen
+    for other in ("f-02-02-2031-run2.csv", "f-02-02-2031-run3.csv"):
+        assert .5 < got[other][1] < 1.5                          # from it and the other one: in between
+
+
 def test_an_axis_no_fin_moves_keeps_its_bias():
     """The test vehicle has a rudder and an elevator and nothing that rolls it: its roll bias can't be trimmed, so it isn't guessed."""
-    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, "02-02-2031")])
-    assert notes["02-02-2031"]["roll_deg"] is None and per[0].fin_bias_roll == P.fin_bias_roll
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(9, "02-02-2031"), _deployment(10, "02-02-2031", run=2)])
+    assert notes["02-02-2031"]["roll_deg"] is None and all(p.fin_bias_roll == P.fin_bias_roll for p in per)
 
 
-def test_a_deployment_flown_at_new_angles_of_attack_is_compared_only_where_training_flew():
-    """Where training never flew, the model's own moment is unknown and mustn't pass for a trim (OOI's 2024 REMUS, #97)."""
-    rows = lambda res, aoa_deg, n: np.c_[np.full(n, res), np.full(n, np.radians(aoa_deg))]
-    ref = rows(0.0, -5.0, 60)
-    here = np.r_[rows(.1, -5.0, 40), rows(5.0, -17.0, 200)]
-    gap, n = val.matched_gap(here, ref)
-    assert gap == pytest.approx(.1) and n == 40
-    assert np.isnan(val.matched_gap(rows(5.0, -17.0, 200), ref)[0])          # nothing alike: no trim
-
-
-def test_too_few_steady_samples_leave_the_fit_as_it_is():
-    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(4)], [_deployment(9, n=val.MIN_TRIM_SAMPLES - 1, trim_deg=(2.0, 0.0))])
+def test_a_lone_recording_keeps_the_fits_trim():
+    """With no other recording of its deployment there's nothing to set its trim from but its own flights, so it isn't re-trimmed."""
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(9, trim_deg=(2.0, 0.0))])
     assert not notes["01-01-2030"]["retrimmed"] and per[0] == P
+
+
+def test_too_few_flights_leave_the_fit_as_it_is():
+    short = int(val.TRIM_WINDOW_S * 10) * (val.MIN_TRIM_WINDOWS - 1) // 2 + 1
+    per, notes = val.retrim_by_deployment(P, MIXED, [_deployment(9, n=short, trim_deg=(2.0, 0.0)), _deployment(10, n=short, trim_deg=(2.0, 0.0), run=2)])
+    assert not notes["01-01-2030"]["retrimmed"] and per == [P, P]
+
+
+def test_depth_is_scored_against_the_logged_depth_sensor(tmp_path):
+    """A velocity fit loads no sensors, but its recordings' depth sensor is the independent reference: OOI's 2024 REMUS's DVL read its
+    vertical speed 1.5 times its depth sensor's (#97)."""
+    r = flown()
+    path = tmp_path / "f-01-01-2030-run1.csv"
+    pd.DataFrame({"depth_pressure": 10 + np.arange(r.n_samples) * .01}).to_csv(path, index=False)
+    got = val._real_sink(replace(r, filepath=str(path)), 5, 11)
+    assert got == pytest.approx(np.arange(11) * .01)
+    assert val.logged_depth(replace(r, filepath=str(tmp_path / "none.csv"))) is None
+    assert not np.allclose(val._real_sink(r, 5, 11), got)       # without one, the DVL's velocity, integrated
 
 
 def test_the_report_says_what_trim_each_deployment_was_flown_at():
@@ -260,5 +278,63 @@ def test_the_report_says_what_trim_each_deployment_was_flown_at():
     f = {"window_s": 30, "windows": 5, "diverged": {"calibrated": 0},
          **{m: {k: s for k in ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")} for m in ("calibrated", "default", "straight_on")}}
     txt = "\n".join(fin_flight_section({"fin_free_run": f, "fin_free_run_as_trained": f,
-                                        "fin_retrim": {"02-02-2031": {"retrimmed": True, "roll_deg": .1, "pitch_deg": -2.0, "yaw_deg": None}}}))
+                                        "fin_retrim": {"02-02-2031": {"retrimmed": True, "roll_deg": .1, "pitch_deg": -2.0, "yaw_deg": None,
+                                                                      "recordings": 3, "trimmed_recordings": 2, "window_s": 10.0}}}))
     assert "own trim" in txt and "02-02-2031" in txt and "-2.00°" in txt and "Without re-trimming" in txt
+    assert "other recordings only" in txt and "kept the fit's trim (02-02-2031)" in txt
+
+
+def test_windows_where_the_vehicle_turned_are_scored_on_their_own(monkeypatch):
+    """OOI's REMUS rows fly mostly straight lines, where holding course is hard to beat; where it turned, holding course is wrong (#97)."""
+    r = flown()
+    res = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)
+    t = res["turning"]
+    turned = [h for h in _hold_headings(r, 10.0) if h > val.TURNED_DEG]
+    assert t["turned_deg"] == val.TURNED_DEG and t["windows"] == len(turned)
+    assert 0 < len(turned) < res["windows"]          # some windows turned, some didn't
+    assert t["straight_on"]["median"] > val.TURNED_DEG and t["calibrated"]["median"] < t["straight_on"]["median"]
+    monkeypatch.setattr(val, "TURNED_DEG", 0.0)        # every window that turned at all
+    every = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)["turning"]
+    assert every["windows"] == res["windows"] and every["calibrated"]["n"] == every["straight_on"]["n"]
+    monkeypatch.setattr(val, "TURNED_DEG", 1e6)
+    none = val.fin_free_run({"calibrated": P}, [r], V, window_s=10.0)["turning"]
+    assert none["windows"] == 0 and none["calibrated"]["median"] is None
+
+
+def _hold_headings(r, window_s):
+    n = int(round(window_s * r.sample_rate_hz)) + 1
+    yaw = Rotation.from_quat(r.orientation_quat).as_euler("xyz")[:, 2]
+    return [float(np.degrees(abs((yaw[a + n - 1] - yaw[a] + np.pi) % (2 * np.pi) - np.pi))) for a in range(0, r.n_samples - n + 1, n - 1)]
+
+
+def test_the_report_says_how_it_flew_where_the_vehicle_turned():
+    f = {"window_s": 30.0, "windows": 50, "diverged": {"calibrated": 0},
+         "calibrated": {"heading_deg": _summ(6.), "pitch_deg": _summ(1.), "depth_m": _summ(.2), "turn_rate_rad_s": _summ(.01)},
+         "default": {"heading_deg": _summ(20.), "pitch_deg": _summ(5.), "depth_m": _summ(2.), "turn_rate_rad_s": _summ(.05)},
+         "straight_on": {"heading_deg": _summ(1.), "pitch_deg": _summ(4.), "depth_m": _summ(1.), "turn_rate_rad_s": _summ(.02)},
+         "turning": {"turned_deg": 30.0, "windows": 12, "calibrated": _summ(8.), "straight_on": _summ(60.)}}
+    L = "".join(fin_flight_section({"fin_free_run": f}))
+    assert "really turned (12 windows" in L and "8.00°" in L and "60.00°" in L
+    f["turning"] = {"turned_deg": 30.0, "windows": 0, "calibrated": {"median": None}, "straight_on": {"median": None}}
+    assert "really turned" not in "".join(fin_flight_section({"fin_free_run": f}))
+
+
+def test_a_dvl_that_disagrees_with_the_depth_sensor_is_said():
+    """OOI's 2024 REMUS: its depth sensor's rate 0.67 times its DVL's vertical speed, against about 1 on its other missions (#97)."""
+    import sensor_ingest as si
+    n = 600
+    t = np.arange(n, dtype=float)
+    R = np.tile(np.eye(3), (n, 1, 1))
+    w = .3 * np.sin(t / 40)
+    v = np.c_[np.full(n, 1.5), np.zeros(n), w]
+    depth = 10 + np.cumsum(w)
+    good = si.dvl_vs_depth(t, depth, R, v)
+    assert good["slope"] == pytest.approx(1.0, abs=.05) and "warning" not in good
+    bad = si.dvl_vs_depth(t, depth, R, np.c_[v[:, :2], 1.5 * w])
+    assert bad["slope"] == pytest.approx(1 / 1.5, abs=.05) and "DVL" in bad["warning"]
+    assert "note" in si.dvl_vs_depth(t, np.full(n, 10.0), R, v)          # no vertical motion: nothing to compare
+    s = {"median": 1.0, "p90": 2.0}
+    f = {"window_s": 30, "windows": 5, "diverged": {"calibrated": 0},
+         **{m: {k: s for k in ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")} for m in ("calibrated", "default", "straight_on")}}
+    assert "disagree" in "\n".join(fin_flight_section({"fin_free_run": f, "dvl_vs_depth": bad}))
+    assert "disagree" not in "\n".join(fin_flight_section({"fin_free_run": f, "dvl_vs_depth": good}))
