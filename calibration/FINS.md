@@ -166,7 +166,7 @@ A fin fit runs in two stages, and takes longer than a hover fit because of it.
    and heading against the log. Windows alone never show the fit what its own pitch does. Recordings shorter than 10 s can't do this,
    and the report says so.
    Only flights flown at speed (over 0.3 m/s for most of their 10 s) count: below it the fins have no authority, and fitting those flights
-   fits the hull to what the fins can't explain. With fewer than 20 at speed the fit keeps the first stage's values and the report says so.
+   fits the hull to what the fins can't explain. With fewer than 20 at speed, and fewer than half the flights planned, the fit keeps the first stage's values and the report says so.
    This stage stops when it has converged, as the first does, or after `--max-nfev` steps (at most 100). A stable vehicle stops early; an
    unstable one uses most of them. Its time grows with the length of the logs: about 30 evaluations a step, each flying every 10 s of the
    recordings. On a 1.6 h real log that is about 25 minutes a step, so up to about 40 hours; a smaller `--max-nfev` trades accuracy for time.
