@@ -3934,6 +3934,14 @@ values score 0.439 on today's objective, so it isn't stopping early: on 59 s at 
 without rerunning it, and was wrong. The guard stays (it stops the second stage making things worse, 8.82° there), the row stays failed, and
 LIMITS.md says what it needs: minutes at survey speed, with turns.
 
+**The slow-log guard also stopped short logs flown at speed (fixed, #97 final run).** P-platform-remus100 failed its recovery bar on
+0768cfe: fin lift `b` 4.3% off against 2% (it passed on 7 Nov, before the guard). Its four 50 s recordings plan 8 flights of 10 s, all 8 at
+speed, and the floor of 20 kept its first stage. What the guard protects against is slow flights outnumbering those at speed, so the second
+stage now also runs when at least half the planned flights (`MIN_SHARE_AT_SPEED`) were flown at speed. T-prestero-slow (5 of 89) still keeps its
+first stage. The queue was paused when this was found; P-platform-lauv had also failed by then. Both rows, and any recover row run on 0768cfe,
+are rerun on the fix, and their 0768cfe failures stay in the results. **What I looked at:** the share of a half was chosen after seeing
+P-platform-remus100's result.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
