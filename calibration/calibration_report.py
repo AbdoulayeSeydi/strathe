@@ -504,13 +504,22 @@ def fin_flight_section(v: dict) -> list:
         L.append(f"| {word} | {c['median']:.2f}{unit} ({c['p90']:.2f}{unit}) | {_m(f['default'][key], unit)} | "
                  f"{_m(f['straight_on'][key], unit)} |")
     L.append("")
+    dvl = v.get("dvl_vs_depth") or {}
+    if dvl.get("warning"):
+        L.append(f"> ⚠️ **The DVL and the depth sensor disagree on these recordings:** {dvl['warning']}. Each window starts from the DVL's "
+                 f"velocity, so its flights start wrong too.\n")
     trims = {d: t for d, t in (v.get("fin_retrim") or {}).items() if t.get("retrimmed")}
     if trims:
         said = "; ".join(f"{d}: " + ", ".join(f"{w} {t[f'{w}_deg']:+.2f}°" for w in ("roll", "pitch", "yaw") if t.get(f"{w}_deg") is not None)
                          for d, t in sorted(trims.items()))
         L.append(f"Each unseen deployment was flown at its own trim. A vehicle is re-ballasted between deployments, so the fin angles that "
-                 f"hold it steady move; the fit's fin biases were moved by the difference from training ({said}). Only the logged fin "
-                 f"angles and rates went into this, never the attitude or depth scored above.\n")
+                 f"hold it steady move. Each recording's fin biases were moved until the model, flying itself "
+                 f"{next(iter(trims.values())).get('window_s', 10):g} s at a time on the logged fins, ended as often above the deployment's logged "
+                 f"roll, pitch and heading as below, on that deployment's other recordings only, so no recording was scored at a trim its own "
+                 f"flights set (median change, {said}).\n")
+        few = sorted(d for d, t in (v.get("fin_retrim") or {}).items() if t.get("recordings") and t["recordings"] > t.get("trimmed_recordings", 0))
+        if few:
+            L.append(f"Some recordings kept the fit's trim ({', '.join(few)}): their deployment's other recordings gave too few flights to set one.\n")
         a = (v.get("fin_free_run_as_trained") or {}).get("calibrated") or {}
         if a:
             L.append("Without re-trimming: " + ", ".join(f"{w} {a[k]['median']:.2f}{u}" for k, w, u in

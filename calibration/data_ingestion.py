@@ -1255,6 +1255,8 @@ def _sensor_checks(spec: IngestSpec, out: pd.DataFrame, t, R, gyro_logged: bool,
         if not down_cols:   # nothing vertical to compare with: the thrust says which way is down
             checks.setdefault("depth_vs_thrust", {})[dc] = si.depth_vs_thrust(
                 t, out[dc].to_numpy(), R, out[["Fx", "Fy", "Fz"]].to_numpy())
+        if {"Bu", "Bv", "Bw"} <= set(out.columns):
+            checks.setdefault("dvl_vs_depth", {})[dc] = si.dvl_vs_depth(t, out[dc].to_numpy(), R, out[["Bu", "Bv", "Bw"]].to_numpy())
     for p in spec.positions():
         if p.use != "calibrate":
             continue

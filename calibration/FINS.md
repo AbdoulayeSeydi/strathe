@@ -143,10 +143,13 @@ aren't supported.**
 - **Fin lift and inertia are found together.** If the description's turning inertia is 20% off, so is the lift, while predictions
   barely change. Treat the prediction as the result, not the fin value alone.
 - **Each new deployment is flown at its own trim.** Re-ballasting moves the fin angles that hold a vehicle steady, so before a held-out
-  deployment is flown, the fit's fin biases are moved until the model holds each axis as well as it did in training, on that deployment's
-  steady samples, compared only at angles of attack training also flew. The model accounts for speed and attitude, so flying different
-  manoeuvres doesn't count as a trim change. The report
-  says by how much, and shows the flight without it. A minute of steady, level flight on each deployment is enough for it.
+  recording is flown, the fit's fin biases are moved until the model, flying itself 10 s at a time on the logged fins, ends as often
+  above the logged roll, pitch and heading as below. That trim comes from the deployment's other recordings only, so no recording is
+  scored at a trim its own flights set; a recording with no other recording of its deployment (or under 10 such flights) keeps the
+  fit's. The model accounts for speed, attitude and manoeuvres, so flying differently doesn't count as a trim change. The report says by
+  how much, and shows the flight without it. Log at least two recordings on each deployment.
+- **Depth is scored against your depth sensor** when your logs have one (a `depth_` column), even if the fit used the DVL alone, and
+  the report warns when the DVL's vertical speed and the depth sensor's rate disagree (`dvl_vs_depth`, SENSORS.md).
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.
   That section has the model fly itself for 30 s on the logged fin angles, on recordings it never saw.
   On straight lines, assuming the vehicle holds its course is hard to beat: an autopilot logged the fins that held the line, and any

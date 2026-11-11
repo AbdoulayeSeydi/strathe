@@ -57,6 +57,10 @@ STATIC_ACCEL_SPREAD = 0.5
 DEPTH_THRUST_FLIPPED = -0.4
 DEPTH_THRUST_DOUBT = -0.2
 DEPTH_THRUST_MIN_S = 60.0
+# A DVL's vertical speed, turned to the world, against a depth sensor's rate: they should agree. On OOI's REMUS 600 missions the depth
+# rate was 0.96-1.01 times the DVL's on five, and 0.67 times on the sixth (2024, #97): outside this band, say so. Set from those six.
+DVL_DEPTH_SLOPE = (0.8, 1.25)
+DVL_DEPTH_MIN_RANGE_MPS = 0.1     # the depth rate must swing this much (p95 - p5) for the comparison to mean anything
 DEPTH_THRUST_MIN_RANGE_M = 0.5
 
 
@@ -330,6 +334,34 @@ def depth_vs_thrust(t: np.ndarray, depth: np.ndarray, R: np.ndarray, force_body:
     elif best <= DEPTH_THRUST_DOUBT:
         out["warning"] = (f"depth tends to fall when the thrusters push down (correlation {best:+.2f}): check depth "
                           f"positive: down|up")
+    return out
+
+
+def dvl_vs_depth(t: np.ndarray, depth: np.ndarray, R: np.ndarray, body_velocity: np.ndarray) -> dict:
+    """A DVL's velocity turned to the world by the logged attitude: its down speed against the depth sensor's rate (both smoothed over
+    1 s), as depth rate = slope x DVL down + offset. A slope off 1 is a DVL reading vertical speed wrongly (its mount's angles, its
+    scale, or noise), or a depth sensor's wrong unit. A warning, not a refusal: Strathe scores depth against the depth sensor."""
+    rate = 1.0 / float(np.median(np.diff(t))) if len(t) > 1 else 0.0
+    if rate <= 0:
+        return {"note": "too few samples to compare the DVL with the depth sensor"}
+    k = max(1, int(round(rate)))
+    smooth = lambda x: np.convolve(x, np.ones(k) / k, mode="same")
+    ok = np.isfinite(depth) & np.all(np.isfinite(body_velocity), axis=1)
+    if ok.sum() < 60:
+        return {"note": "too few samples with both the DVL and the depth sensor to compare them"}
+    dd = np.gradient(smooth(np.interp(t, t[ok], depth[ok])), t)
+    down = smooth(np.einsum("nij,nj->ni", R, np.nan_to_num(body_velocity))[:, 2])
+    a, b = down[ok], dd[ok]
+    if np.percentile(b, 95) - np.percentile(b, 5) < DVL_DEPTH_MIN_RANGE_MPS:
+        return {"note": f"the depth rate swings under {DVL_DEPTH_MIN_RANGE_MPS:g} m/s: too little vertical motion to compare the DVL with it"}
+    da = a - a.mean()
+    slope = float(np.dot(da, b - b.mean()) / max(np.dot(da, da), 1e-12))
+    out = {"slope": round(slope, 3), "rms_difference_mps": round(float(np.sqrt(np.mean((a - b) ** 2))), 4), "samples": int(ok.sum())}
+    lo, hi = DVL_DEPTH_SLOPE
+    if not lo <= slope <= hi:
+        out["warning"] = (f"the depth sensor's rate is {slope:.2f} times the DVL's vertical speed (turned to the world by the logged "
+                          f"attitude), against about 1: the DVL reads vertical speed wrongly (check its mount's angles), or the depth's "
+                          f"unit is wrong. Depth is scored against the depth sensor")
     return out
 
 

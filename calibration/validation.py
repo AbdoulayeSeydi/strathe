@@ -45,10 +45,8 @@ RESPONSE_S = 1.0
 FIN_WINDOW_S = 30.0   # how long a fin vehicle flies itself before it's compared
 FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
 UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
-STEADY_RATE_RAD_S = 0.01     # an axis's body rate under this: that axis held steady, where a deployment's trim is compared
-MIN_TRIM_SAMPLES = 30        # fewer steady samples than this in a deployment, and its trim isn't estimated
-TRIM_AOA_BIN_RAD = math.radians(2.0)   # a deployment's trim is compared with training's only at angles of attack both flew at
-MIN_BIN_SAMPLES = 5          # samples each side needs in an angle-of-attack bin for it to count
+TRIM_WINDOW_S = 10.0         # a deployment's trim: the fin offsets with which the model holds attitude over flights this long, as the vehicle did
+MIN_TRIM_WINDOWS = 10        # fewer of those flights in a deployment's other recordings, and a recording keeps the fit's trim
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -407,6 +405,29 @@ def step_responses(models: dict, runs: list, vehicle) -> dict:
     return {"summary": summary, "detail": out}
 
 
+_LOGGED_DEPTH: dict = {}
+
+
+def logged_depth(run) -> Optional[np.ndarray]:
+    """A depth sensor's readings (depth_<name>, m down) from the recording's own file, when the fit didn't load its sensors (the
+    velocity objective): depth is then scored against the vehicle's own depth sensor, not the DVL's velocity integrated. OOI's 2024
+    REMUS's DVL read its vertical speed about 1.5 times its depth sensor's (#97). None without one, or if its rows aren't the run's."""
+    path = getattr(run, "filepath", None)
+    if not path:
+        return None
+    if path not in _LOGGED_DEPTH:
+        _LOGGED_DEPTH[path] = None
+        try:
+            import pandas as pd
+            cols = sorted(c for c in pd.read_csv(path, nrows=0).columns if c.startswith("depth_"))
+            if cols:
+                _LOGGED_DEPTH[path] = pd.read_csv(path, usecols=[cols[0]])[cols[0]].to_numpy(dtype=float)
+        except (OSError, ValueError):
+            pass
+    d = _LOGGED_DEPTH[path]
+    return d if d is not None and len(d) == run.n_samples else None
+
+
 def _real_sink(run, a: int, n: int) -> Optional[np.ndarray]:
     """How far the vehicle really sank over a window: from a depth sensor, else from its logged velocity. None if neither reads."""
     for ch in run.channels or []:
@@ -415,116 +436,92 @@ def _real_sink(run, a: int, n: int) -> Optional[np.ndarray]:
             if np.isfinite(d[[0, -1]]).all():
                 return d - d[0]
             return None
+    logged = logged_depth(run)
+    if logged is not None:
+        d = logged[a:a + n]
+        return d - d[0] if np.isfinite(d[[0, -1]]).all() else None
     lin = run.real_nu[a:a + n, :3]
     if not np.isfinite(lin).all():
         return None
     return path_from_velocity(lin, run.orientation_quat[a:a + n], run.dt)[:, 2]
 
 
-def moment_residuals(params, vehicle, runs: list) -> list:
-    """For roll, pitch and yaw, the model's one-step prediction of the rate less the logged next rate, over the step (rad/s per s), on
-    each sample where that axis's rate holds steady, whatever the others do: the logged state, attitude, forces and fins fed in and
-    held over the step, the fit's own teacher-forced Euler substeps. A model right for the vehicle leaves these near zero on any
-    manoeuvre; a vehicle re-ballasted since leaves a steady offset, which the fins' biases take up."""
-    from fast_dynamics import FastDynamics
-    acc = FastDynamics(params, vehicle).acceleration_trig
-    out = [[], [], []]
-    for run in runs:
-        if run.n_samples < 2:
+def attitude_drift(params, vehicle, run, window_s: float = TRIM_WINDOW_S) -> tuple:
+    """((3,) sum over the recording's window_s flights of the model's roll, pitch and heading at the end less the logged ones, rad;
+    flights flown): the model flying itself from each window's real start on the logged fins, as fin_free_run flies it."""
+    n = int(round(window_s * run.sample_rate_hz)) + 1
+    logged = Rotation.from_quat(run.orientation_quat).as_euler("xyz")
+    total, count = np.zeros(3), 0
+    for a in range(0, run.n_samples - n + 1, n - 1):
+        got = free_run(params, vehicle, run, a, n)
+        if got is None:
             continue
-        rl = _lagged(run, params)
-        cfg = SimulationConfig(dt=run.dt)
-        sub, h = cfg.n_substeps, cfg.sub_dt
-        rates = run.real_nu[:, 3:6]
-        ok = np.isfinite(rates[:-1]) & np.isfinite(rates[1:])
-        steady = ok & (np.abs(np.nan_to_num(rates[:-1], nan=1.0)) < STEADY_RATE_RAD_S)
-        for i in np.flatnonzero(steady.any(axis=1)):
-            v = start_velocity(rl, i)
-            roll, pitch = (float(x) for x in rl.roll_pitch[i])
-            if not (np.all(np.isfinite(v)) and math.isfinite(roll) and math.isfinite(pitch)):
-                continue
-            sr, cr, sp, cp = math.sin(roll), math.cos(roll), math.sin(pitch), math.cos(pitch)
-            cb = None if rl.current_body is None else rl.current_body[i].tolist()
-            tau, ctl = rl.forces_torques[i].tolist(), control_at(rl, i)
-            v = v.tolist()
-            for _ in range(sub):
-                vd = acc(v, tau, cp * sr, cp * cr, sp, 1.0, cb, ctl)
-                v = [v[k] + vd[k] * h for k in range(6)]
-            for j in range(3):
-                if steady[i, j] and math.isfinite(v[3 + j]):
-                    out[j].append(((v[3 + j] - rates[i + 1, j]) / run.dt, math.atan2(rl.real_nu[i, 2], rl.real_nu[i, 0])))
-    return [np.asarray(o, dtype=float).reshape(-1, 2) for o in out]
+        total += _wrap(got[-1] - logged[a + n - 1])
+        count += 1
+    return total, count
 
 
-def matched_gap(here: np.ndarray, ref: np.ndarray) -> tuple:
-    """(mean residual here less in training, samples compared): rows (residual, angle of attack), compared bin by bin
-    (TRIM_AOA_BIN_RAD) where both have MIN_BIN_SAMPLES, weighted by the smaller count; nan under MIN_TRIM_SAMPLES compared. The
-    model's pitch moment is only known at the angles of attack it trained at: OOI's 2024 REMUS flew to about 18 degrees, past
-    training's 14, where the model's moment falls about 3x short, and that read as a 4 degree trim (#97)."""
-    if not len(here) or not len(ref):
-        return float("nan"), 0
-    bins = lambda a: np.floor(a[:, 1] / TRIM_AOA_BIN_RAD).astype(int)
-    bh, br = bins(here), bins(ref)
-    num = den = 0.0
-    for k in set(bh.tolist()) & set(br.tolist()):
-        h, r = here[bh == k, 0], ref[br == k, 0]
-        if len(h) >= MIN_BIN_SAMPLES and len(r) >= MIN_BIN_SAMPLES:
-            w = min(len(h), len(r))
-            num += w * (h.mean() - r.mean())
-            den += w
-    return (num / den if den >= MIN_TRIM_SAMPLES else float("nan")), int(den)
+TRIM_NAMES = ("fin_bias_roll", "fin_bias_pitch", "fin_bias_yaw")
 
 
-def retrim(params, vehicle, train_runs: list, runs: list) -> tuple:
-    """(params, (roll, pitch, yaw) bias change in rad, steady samples here, in training): the fin biases moved so that the model's
-    steady moment residual on these runs matches its residual in training. A vehicle is re-ballasted between deployments, so the same
-    vehicle needs different fin angles to hold it (OOI's REMUS 600s: elevator trims 4 degrees apart, #97). The model explains
-    what speed, attitude and depth change, so a deployment flown differently but trimmed the same keeps its biases (comparing raw fin
-    angles took a change of manoeuvre for a change of trim: T-fossen-rich, #97). An axis with fewer than MIN_TRIM_SAMPLES steady
-    samples on either side, or that the biases can't move, keeps its bias. Two Newton steps on a finite-difference Jacobian."""
+def _shifted(params, d):
     from dataclasses import replace
-    names = ("fin_bias_roll", "fin_bias_pitch", "fin_bias_yaw")
-    ref = moment_residuals(params, vehicle, train_runs)
-    n_train = [len(x) for x in ref]
-    shifted = lambda d: replace(params, **{k: getattr(params, k) + float(x) for k, x in zip(names, d)})
-    def gap(d):
-        got = [matched_gap(h, r) for h, r in zip(moment_residuals(shifted(d), vehicle, runs), ref)]
-        return np.array([g for g, _ in got]), [n for _, n in got]
-    d = np.zeros(3)
-    g, n_here = gap(d)
-    axes = [j for j in range(3) if np.isfinite(g[j])]
+    return replace(params, **{k: getattr(params, k) + float(x) for k, x in zip(TRIM_NAMES, d)})
+
+
+def _drift_and_slope(params, vehicle, runs: list) -> tuple:
+    """Per recording: (drift sum (3,), flights, d drift / d bias (3, 3)), by finite differences of 0.5 degrees."""
     eps = math.radians(0.5)
-    for _ in range(2):
-        if not axes:
-            break
-        J = np.zeros((3, 3))
-        for k in axes:
-            e = np.zeros(3)
-            e[k] = eps
-            J[:, k] = (gap(d + e)[0] - g) / eps
-        sub = J[np.ix_(axes, axes)]
-        live = [a for a, col in zip(axes, np.abs(sub).max(axis=0)) if col > 1e-9]
-        if len(live) < len(axes):
-            axes = live
-            continue
-        d[axes] -= np.linalg.lstsq(sub, g[axes], rcond=None)[0]
-        g = gap(d)[0]
-    done = [j in axes for j in range(3)]
-    d = np.where(done, d, 0.0)
-    return shifted(d), d, done, n_here, n_train
+    base = [attitude_drift(params, vehicle, r) for r in runs]
+    moved = [[attitude_drift(_shifted(params, np.eye(3)[k] * eps), vehicle, r)[0] for r in runs] for k in range(3)]
+    return [(g, c, np.stack([(moved[k][i] - g) / eps for k in range(3)], axis=1)) for i, (g, c) in enumerate(base)]
 
 
-def retrim_by_deployment(params, vehicle, train_runs: list, runs: list) -> tuple:
-    """([params for each run], {deployment: what was done}): each held-out deployment (a recording date) flown at its own trim."""
+def _solve(lin: list, use: list) -> tuple:
+    """(bias change (3,), axes moved): the change that zeroes the summed drift over recordings `use`, on the axes the biases move."""
+    G = sum(lin[i][0] for i in use)
+    J = sum(lin[i][2] for i in use)
+    axes = [k for k in range(3) if np.abs(J[:, k]).max() > 1e-6 * max(np.abs(J).max(), 1e-12)]
+    d = np.zeros(3)
+    if axes:
+        d[axes] = -np.linalg.lstsq(J[:, axes], G, rcond=None)[0]
+    return d, axes
+
+
+def retrim_by_deployment(params, vehicle, runs: list) -> tuple:
+    """([params for each run], {deployment: what was done}): each held-out recording flown at its deployment's own trim. A vehicle
+    is re-ballasted between deployments, so the same vehicle needs different fin angles to hold it (OOI's REMUS 600s: elevator trims
+    4 degrees apart, #97). The trim is the fin biases with which the model, flying itself TRIM_WINDOW_S at a time on the logged fins,
+    ends as often above the logged roll, pitch and heading as below. Each recording's comes from its deployment's OTHER recordings,
+    so no recording is scored at a trim its own flights set; with fewer than MIN_TRIM_WINDOWS of those flights, it keeps the fit's.
+    Two Gauss-Newton steps, the second from all the deployment's recordings. A first form matched one-step moment residuals on samples
+    holding steady: at 1 Hz it read OOI's 2024 deployment's rudder trim 1.2 degrees past this, and sent its 30 s flights 16 degrees off
+    in heading (#97). An axis the biases can't move keeps its bias."""
     out, notes = [params] * len(runs), {}
     for date in sorted({r.date or "" for r in runs}):
         idx = [i for i, r in enumerate(runs) if (r.date or "") == date]
-        p, d, done, n, n_train = retrim(params, vehicle, train_runs, [runs[i] for i in idx])
-        for i in idx:
-            out[i] = p
-        notes[date or "undated"] = {"retrimmed": any(done), "steady_samples": n, "training_steady_samples": n_train,
-                                    **{f"{w}_deg": (round(math.degrees(float(x)), 3) if ok else None)
-                                       for w, x, ok in zip(("roll", "pitch", "yaw"), d, done)}}
+        group = [runs[i] for i in idx]
+        lin = _drift_and_slope(params, vehicle, group) if len(group) > 1 else []
+        flights = [c for _g, c, _J in lin]
+        first, _ = _solve(lin, range(len(group))) if lin else (np.zeros(3), [])
+        lin2 = _drift_and_slope(_shifted(params, first), vehicle, group) if lin else []
+        per, moved = {}, set()
+        for j, i in enumerate(idx):
+            others = [k for k in range(len(group)) if k != j]
+            if not lin or sum(flights[k] for k in others) < MIN_TRIM_WINDOWS:
+                continue
+            d, axes = _solve(lin2, others)
+            d = np.where([k in axes for k in range(3)], first + d, 0.0)
+            out[i] = _shifted(params, d)
+            per[os.path.basename(runs[i].filepath)] = [round(math.degrees(float(x)), 3) for x in d]
+            moved |= set(axes)
+        trims = np.array(list(per.values())) if per else np.zeros((0, 3))
+        notes[date or "undated"] = {"retrimmed": bool(per), "recordings": len(group), "trimmed_recordings": len(per),
+                                    "flights": int(sum(flights)), "window_s": TRIM_WINDOW_S, "per_recording_deg": per,
+                                    **{f"{w}_deg": (round(float(np.median(trims[:, k])), 3) if per and k in moved else None)
+                                       for k, w in enumerate(("roll", "pitch", "yaw"))},
+                                    **{f"{w}_spread_deg": (round(float(np.ptp(trims[:, k])), 3) if per and k in moved else None)
+                                       for k, w in enumerate(("roll", "pitch", "yaw"))}}
     return out, notes
 
 
@@ -586,6 +583,26 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
     out["turning"] = {"turned_deg": TURNED_DEG, "windows": len(turning["straight_on"]),
                       **{m: _summary(v) for m, v in turning.items()}}
     return out
+
+
+def dvl_against_depth(runs: list) -> Optional[dict]:
+    """sensor_ingest.dvl_vs_depth over the held-out recordings that log a depth sensor and a DVL, run end to end. None without both."""
+    import sensor_ingest as si
+    t, d, R, v, t0 = [], [], [], [], 0.0
+    for r in runs:
+        depth = logged_depth(r)
+        if depth is None:
+            depth = next((np.asarray(ch.values[:, 0], dtype=float) for ch in (r.channels or []) if ch.kind == "depth"), None)
+        if depth is None or not np.isfinite(r.real_nu[:, 2]).any():
+            continue
+        t.append(t0 + np.arange(r.n_samples) * r.dt)
+        t0 = t[-1][-1] + 1000.0      # far apart, so smoothing and the rate never span two recordings
+        d.append(depth)
+        R.append(Rotation.from_quat(r.orientation_quat).as_matrix())
+        v.append(r.real_nu[:, :3])
+    if not t:
+        return None
+    return si.dvl_vs_depth(np.concatenate(t), np.concatenate(d), np.concatenate(R), np.concatenate(v))
 
 
 def fin_stability(params, vehicle, speed: float) -> dict:
@@ -865,8 +882,7 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     steps = step_responses(models, runs, vehicle)
     res["steps"] = steps["summary"]
     if vehicle.actuators is not None and vehicle.actuators.fins:
-        train_runs = [load_run(f, dc) for f in split.train_files]
-        trimmed, res["fin_retrim"] = retrim_by_deployment(params, vehicle, train_runs, runs)
+        trimmed, res["fin_retrim"] = retrim_by_deployment(params, vehicle, runs)
         per = {"calibrated": trimmed} if any(v["retrimmed"] for v in res["fin_retrim"].values()) else None
         res["fin_free_run"] = fin_free_run(models, runs, vehicle, run_params=per)
         res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S, run_params=per)
@@ -876,6 +892,7 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
         if "calibrated" in models and np.isfinite(speed):
             res["fin_stability"] = fin_stability(models["calibrated"], vehicle, speed)
         res["fin_steps"] = fin_steps(models, runs, vehicle, vehicle.actuators)
+        res["dvl_vs_depth"] = dvl_against_depth(runs)
     if anchoring is not None:
         res["sensor_suite"] = {"anchoring": anchoring, "drift_against": res["trajectory"].get("against")}
     plt = _plt() if plots else None
