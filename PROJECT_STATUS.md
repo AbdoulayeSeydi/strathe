@@ -3706,7 +3706,7 @@ the coverage gate (42 variables found in the code, each with a row).
 - **A bug the IM rows found:** finishing a fit from its checkpoint didn't know `--unseen`, so any fit out of budget crashed. Fixed, with a test in both modes.
 - **K-1 stays a failure.** Four starts ended at the same cost, and no window length reaches its sway bar (LIMITS).
 
-### 97. Fin Steer: fin-steered AUVs (2026-11-05, in progress)
+### 97. Fin Steer: fin-steered AUVs (2026-11-05 to 2026-11-12, final run done)
 
 **Why.** Most survey AUVs steer with fins. A fin's force depends on speed squared and the water's angle to it, so it can't
 be a logged force: it has to be computed in the physics. Plan in order: audit fixes, general added mass, fin physics, vehicle
@@ -4000,6 +4000,43 @@ re-trim, flow or steady start, gave 6.06° heading and 19.79° pitch on the same
 windows turned over 30° (10 needed), at 19.9° heading against 51.8° holding course (bar 10°). This is the one heading result on a
 deployment no choice was made on, and its margin is 0.08°. Fin calibration's heading claim rests on it: one vehicle type, 1 Hz,
 one clean deployment.
+
+**The real rows on the merged code, and the final count (12 Nov).** The heading fixes merged as 528de7e and 63d8759. The four
+O-turns rows and five O-turning rows were scored again on 63d8759 from the preserved shared fit (the fit didn't change). The numbers
+match the product check above:
+
+| Row | Heading, model against holding course | Pitch | Depth | Row |
+|---|---|---|---|---|
+| O-turns-same-vehicle (2018) | 0.75° / 1.18° | 2.65° | 1.57 m | pass |
+| O-turns-other-vehicle (2019) | 1.49° / 2.15° | 3.18° | 1.51 m | fails pitch |
+| O-turns-years-later (2024) | 3.50° / 3.73° | 2.88° | 2.12 m | fails depth |
+| O-turns-fresh-deployment (2016) | 0.91° / 0.92° | 3.20° | 1.71 m | fails pitch |
+| O-turns-unseen (2019, the clean check) | 1.27° / 1.35° | 2.55° | 1.24 m | pass |
+
+- **O-turns-unseen's score stands for the merged code.** It was scored at cc37ebe, and cc37ebe..63d8759 changes only report
+  wording, FINS.md and a test.
+- **Every turning row fails** (bar: 10 windows turned over 30°, heading ≤10°): same vehicle 23 windows at 17.6°; other vehicle 5 at
+  7.1°; years later 9 at 4.6°; fresh deployment 8 at 14.2°; unseen 7 at 19.9°.
+- **What the pitch and depth misses probably are:** the fixes trimmed only the turning plane. There's no elevator trim from level
+  flights, no per-deployment buoyancy, and no vertical flow. Both pitch misses fly the other REMUS (A6263), and A6263 also turns
+  about 30% more per degree of rudder.
+
+T-prestero-long finished at 11:42: heading 109°, pitch 10.7°, depth 1.33 m. 40 minutes of training doesn't overcome the vehicle's
+instability (the LIMITS row on unstable vehicles).
+
+**Final count: 357 of 401 rows pass, and 44 fail.** Every failure is in LIMITS.md, which `test_97s_failing_rows_are_written_down`
+enforces.
+
+| Group | Passing |
+|---|---|
+| Independent truths (T-) | 14 of 29; 14 failures are Prestero's unstable vehicle flown open loop for 30 s, and T-prestero-slow is the slow-log row |
+| Real OOI REMUS (O-) | 8 of 16 |
+| Recovery (P-) | 14 of 30 |
+| Recovery with noise (PW-) | 31 of 35; the P- and PW- failures are mostly the short-log first stage, plus P-position-fixes |
+| Cross-engine (CV-) | 3 of 4; CV-mujoco-first-turn fails |
+| All other groups (C, D, E, EX, F, H, J, LF, M, MC, S, SV, V, W, X, XS, Z) | All pass |
+
+Fin calibration isn't sold at full price on this: its heading beats holding course on one unseen real deployment, by 0.08°.
 
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was

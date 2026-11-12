@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-04 15:27. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-12 11:44. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -183,7 +183,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #94. PX4, MOOS-IvP and LCM logs, read directly
 
-**424 of 424 rows pass** (483 variables found in the code, each with a row).
+**424 of 424 rows pass** (603 variables found in the code, each with a row).
 
 
 ### Every real recording through each format, against the CSV route
@@ -682,7 +682,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #95. Vehicle spec from basic measurements, or from any simulator model
 
-**146 of 154 rows pass** (46 variables found in the code, each with a row).
+**146 of 154 rows pass** (73 variables found in the code, each with a row).
 
 
 ### Inputs, each varied
@@ -881,7 +881,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #96. Calibrate from what the vehicle measures: no DVL needed
 
-**266 of 275 rows pass** (43 variables found in the code, each with a row).
+**266 of 275 rows pass** (44 variables found in the code, each with a row).
 
 ### The reference BlueROV2 tank (held-out days, against the hidden motion-capture velocity)
 
@@ -1296,4 +1296,525 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | FS-real-U1-dvl | fit-sim = mujoco, real sensors | the same fit-sim from URI's DVL, against Strathe's DVL fit: does the gap come from the sensors? | URI ALPHA RISE | ✅ | {"exit": 0, "fit_sim_seconds": 886.6, "held_out": ["27-03-2026"], "strathe_from_the_same_sensors": {"skill": [0.8018, 0.1139, 0.3037, -0.0041, -0.1306, -0.0452]... | 15 min |
 | FS-real-U1-starts | fit-sim = mujoco, real sensors | fit-sim from uri_nodvl's sensors (no DVL) against Strathe's calibration from the same sensors, both against the hidden truth, fit-sim starting its windows from the calibration's physics (--starts-from) | URI ALPHA RISE | ✅ | {"exit": 0, "fit_sim_seconds": 989.3, "held_out": ["27-03-2026"], "strathe_from_the_same_sensors": {"skill": [0.7394, -0.1539, 0.3635, -0.0005, -0.166, -0.1756]... | 17 min |
 | FS-real-D3-starts | fit-sim = mujoco, real sensors | fit-sim from d3's sensors (no DVL) against Strathe's calibration from the same sensors, both against the hidden truth, fit-sim starting its windows from the calibration's physics (--starts-from) | DFKI BlueROV2 | ✅ | {"exit": 0, "fit_sim_seconds": 422.5, "held_out": ["02-01-2025"], "strathe_from_the_same_sensors": {"skill": [0.269, -1.3859, 0.2822, -0.0975, 0.0039, 0.2848], ... | 8 min |
+
+## #97. Fin Steer: fin-steered vehicles, every simulator, the full mass matrix
+
+**357 of 401 rows pass** (133 variables found in the code, each with a row).
+
+
+### Independent truth: Prestero's REMUS, Fossen's REMUS and HoloOcean's class, flown unseen
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| T-fossen-rich | truth = fossen | Fossen's remus100, manoeuvres | rich | ✅ | {"heading_deg": 1.4669210061439777, "pitch_deg": 0.33986748410601963, "depth_m": 0.17534626273253973, "heading_deg_p90": 9.00544221681248, "pitch_deg_p90": 0.43... | 7 min |
+| T-holoocean-rich | truth = holoocean | HoloOcean's Torpedo class, manoeuvres | rich | ✅ | {"heading_deg": 2.65583336192973, "pitch_deg": 0.6473155918277597, "depth_m": 0.31008874876754466, "heading_deg_p90": 14.195399664997405, "pitch_deg_p90": 0.878... | 8 min |
+| T-prestero-rich | truth = prestero | Prestero's REMUS, manoeuvres | rich | ❌ | {"heading_deg": 122.4399077141964, "pitch_deg": 10.82489337633394, "depth_m": 1.829032098701253, "heading_deg_p90": 144.88478531937457, "pitch_deg_p90": 28.0755... | 7 min |
+| T-fossen-mixed | truth = fossen | manoeuvres and survey lines | mixed | ✅ | {"heading_deg": 1.4411498590694487, "pitch_deg": 0.1479226266154976, "depth_m": 0.07872263439774896, "heading_deg_p90": 8.730572350361879, "pitch_deg_p90": 0.27... | 7 min |
+| T-prestero-mixed | truth = prestero | manoeuvres and survey lines | mixed | ❌ | {"heading_deg": 123.97969407035285, "pitch_deg": 8.854880535729736, "depth_m": 1.4772529656362454, "heading_deg_p90": 164.62900521716745, "pitch_deg_p90": 28.09... | 7 min |
+| T-fossen-survey | truth = fossen | survey lines only: must warn | survey | ✅ | {"heading_deg": 1.171812873845738, "pitch_deg": 0.1434475891793664, "depth_m": 0.1342207842235088, "heading_deg_p90": 7.558901883381562, "pitch_deg_p90": 0.3034... | 6 min |
+| T-prestero-slow | truth = prestero | a slow vehicle | rich | ❌ | {"heading_deg": 10.395822875505697, "pitch_deg": 0.47852128816252865, "depth_m": 0.6240020222833202, "heading_deg_p90": 22.834501742262017, "pitch_deg_p90": 0.8... | 87 min |
+| T-prestero-survey | truth = prestero | survey lines only: must warn | survey | ✅ | {"heading_deg": 118.43725253023544, "pitch_deg": 7.329284293123019, "depth_m": 1.3562003280737183, "heading_deg_p90": 162.8112278802341, "pitch_deg_p90": 23.760... | 6 min |
+| T-fossen-slow | truth = fossen | a slow vehicle | rich | ✅ | {"heading_deg": 1.5607407926579442, "pitch_deg": 0.14597252072609146, "depth_m": 0.03644491794400406, "heading_deg_p90": 10.529387907640189, "pitch_deg_p90": 0.... | 6 min |
+| T-prestero-fast | truth = prestero | a fast vehicle | rich | ❌ | {"heading_deg": 53.28466885338099, "pitch_deg": 10.0922432537476, "depth_m": 5.081372636250579, "heading_deg_p90": 153.190928082484, "pitch_deg_p90": 25.4411483... | 6 min |
+| T-fossen-fast | truth = fossen | a fast vehicle | rich | ✅ | {"heading_deg": 1.3793845360540549, "pitch_deg": 0.47389734037607767, "depth_m": 0.39314767739076034, "heading_deg_p90": 11.771477153448197, "pitch_deg_p90": 0.... | 6 min |
+| T-prestero-rate-5 | truth = prestero | logged at 5 Hz | rich | ❌ | {"heading_deg": 123.25655027131866, "pitch_deg": 11.255150121014541, "depth_m": 1.5693505031624508, "heading_deg_p90": 163.0361755346828, "pitch_deg_p90": 24.63... | 6 min |
+| T-prestero-rate-2 | truth = prestero | logged at 2 Hz | rich | ❌ | {"heading_deg": 113.35011332360331, "pitch_deg": 10.623680480973947, "depth_m": 1.3310255334233503, "heading_deg_p90": 163.1072608035552, "pitch_deg_p90": 28.07... | 378 min |
+| T-fossen-noise-grade | truth = fossen | survey-grade sensor noise | rich | ✅ | {"heading_deg": 1.4164969598468755, "pitch_deg": 0.4156609905882477, "depth_m": 0.2476644285791591, "heading_deg_p90": 8.99416027235063, "pitch_deg_p90": 0.5539... | 146 min |
+| T-prestero-rate-1 | truth = prestero | logged at 1 Hz, as OOI's REMUS | rich | ❌ | {"heading_deg": 70.86288829388782, "pitch_deg": 5.647189899287787, "depth_m": 1.2211775924199813, "heading_deg_p90": 160.86220693229794, "pitch_deg_p90": 19.349... | 542 min |
+| T-prestero-inertia-1.2 | truth = prestero | inertia 20% high in the description | rich | ❌ | {"heading_deg": 116.76777845868418, "pitch_deg": 10.203844485636843, "depth_m": 0.7905996631618755, "heading_deg_p90": 145.8120331409547, "pitch_deg_p90": 25.35... | 213 min |
+| T-prestero-noise-grade | truth = prestero | survey-grade sensor noise | rich | ❌ | {"heading_deg": 96.60450854480553, "pitch_deg": 7.218376611666681, "depth_m": 1.0249965068283085, "heading_deg_p90": 171.12104413144726, "pitch_deg_p90": 23.283... | 638 min |
+| T-prestero-inertia-0.8 | truth = prestero | inertia 20% low in the description | rich | ❌ | {"heading_deg": 111.60871403304785, "pitch_deg": 10.421006712926264, "depth_m": 1.2462918158473317, "heading_deg_p90": 139.2917633939384, "pitch_deg_p90": 28.85... | 257 min |
+| T-fossen-current | truth = fossen | a 0.2 m/s current, given to the fit | rich | ✅ | {"heading_deg": 1.7545029537971883, "pitch_deg": 0.18454106628419004, "depth_m": 0.28198691267741105, "heading_deg_p90": 10.25360935154872, "pitch_deg_p90": 0.3... | 173 min |
+| T-prestero-noise-3x | truth = prestero | three times that noise | rich | ❌ | {"heading_deg": 93.88031470827742, "pitch_deg": 5.0386974271004465, "depth_m": 2.6244681823509364, "heading_deg_p90": 164.95074602591237, "pitch_deg_p90": 16.69... | 775 min |
+| T-prestero-short | truth = prestero | 5 minutes of training | rich | ❌ | {"heading_deg": 79.21220775868339, "pitch_deg": 10.277592663283691, "depth_m": 1.9197518045770048, "heading_deg_p90": 158.68913225316695, "pitch_deg_p90": 29.89... | 360 min |
+| T-prestero-thrust-unknown | truth = prestero | propeller curve 50% off, scale fitted | rich | ❌ | {"heading_deg": 101.11439792487043, "pitch_deg": 10.503092267116234, "depth_m": 0.9135741317538233, "heading_deg_p90": 155.69258448863025, "pitch_deg_p90": 29.1... | 758 min |
+| T-prestero-thrust-wrong | truth = prestero | propeller curve 50% off, not fitted | rich | ❌ | {"heading_deg": 97.19689930053073, "pitch_deg": 10.544843759601285, "depth_m": 1.0280880683150582, "heading_deg_p90": 157.47856452800482, "pitch_deg_p90": 28.90... | 730 min |
+| T-prestero-rich-5s | truth = prestero | flying 5 s on unseen recordings: the horizon an unstable vehicle allows | held-out | ✅ | {"calibrated": {"heading_deg": 1.5677157915671385, "pitch_deg": 0.7430980604959341, "depth_m": 0.05476142032668685}, "default": {"heading_deg": 6.07619317518639... | 0 min |
+| T-prestero-mixed-5s | truth = prestero | flying 5 s on unseen recordings: the horizon an unstable vehicle allows | held-out | ✅ | {"calibrated": {"heading_deg": 0.5554818611253938, "pitch_deg": 0.8889385196821087, "depth_m": 0.032984234574678445}, "default": {"heading_deg": 6.0761931751863... | 0 min |
+| T-prestero-rich-autopilot | truth = prestero | 30 s under the vehicle's autopilot, against the truth under the same one | held-out | ✅ | {"calibrated": {"heading_deg": 1.4459393618280654, "pitch_deg": 1.2209935463775543, "depth_m": 0.17694596982409472}, "default": {"heading_deg": 17.6238743378962... | 1 min |
+| T-prestero-mixed-autopilot | truth = prestero | 30 s under the vehicle's autopilot, against the truth under the same one | held-out | ✅ | {"calibrated": {"heading_deg": 1.63672364948417, "pitch_deg": 1.6214542348271568, "depth_m": 0.12605705535518297}, "default": {"heading_deg": 17.62387433789626,... | 1 min |
+| T-prestero-floor-30s | truth = prestero | Prestero's own equations on the logged 10 Hz fins, 30 s open loop | held-out | ✅ | {"heading_deg": {"remus-02-10-2026-run1.csv": 67.85537366814665, "remus-02-10-2026-run2.csv": 146.3269420617527}, "bars": "b0e3157797d7"} | 0 min |
+| T-prestero-long | truth = prestero | 40 minutes of training | rich | ❌ | {"heading_deg": 108.92583741771324, "pitch_deg": 10.708837378206528, "depth_m": 1.3321592746939674, "heading_deg_p90": 156.12408447002764, "pitch_deg_p90": 28.8... | 1556 min |
+
+### Real: OOI's REMUS 600 logs
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| O-survey-only | real = CP05MOAS-A6263_R00008 | survey lines only: must warn | CP05MOAS-A6263_R00009 | ✅ | {"heading_deg": 2.9116534256427875, "pitch_deg": 3.0150800421719683, "depth_m": 3.154194701163494, "heading_deg_hold": 2.1522622187806943, "pitch_deg_hold": 0.7... | 25 min |
+| O-fin-check | real = all missions | fin-check reads each mission's fin signs as right | OOI REMUS | ✅ | {"CP05MOAS-A6263_R00003": {"aileron": null, "elevator": 0.68, "rudder": null}, "CP05MOAS-A6263_R00008": {"aileron": null, "elevator": 0.665, "rudder": 0.793}, "... | 0 min |
+| O-glider-GL339 | real = CP05MOAS-GL339 | rudder against turn rate, full-rate logs | OOI glider | ✅ | {"correlation": 0.507, "lag_s": 4.28, "rate_deg_s_per_deg": 0.0201, "against": "turn", "swing_deg": 9.3, "recordings": 10, "bars": "b0e3157797d7"} | 0 min |
+| O-glider-GL340 | real = CP05MOAS-GL340 | rudder against turn rate, full-rate logs | OOI glider | ✅ | {"correlation": 0.493, "lag_s": 4.28, "rate_deg_s_per_deg": 0.0296, "against": "turn", "swing_deg": 11.3, "recordings": 10, "bars": "b0e3157797d7"} | 0 min |
+| O-glider-GL376 | real = CP05MOAS-GL376 | rudder against turn rate, full-rate logs | OOI glider | ✅ | {"correlation": 0.724, "lag_s": 4.42, "rate_deg_s_per_deg": 0.0398, "against": "turn", "swing_deg": 6.8, "recordings": 10, "bars": "b0e3157797d7"} | 0 min |
+| O-glider-agree | real = all gliders | the rudder's sign is the same on every glider | OOI glider | ✅ | {"CP05MOAS-GL339": 0.507, "CP05MOAS-GL340": 0.493, "CP05MOAS-GL376": 0.724, "bars": "b0e3157797d7"} | 0 min |
+| O-turns-same-vehicle | real = CP05MOAS-A6264_R00008 | train on the turning mission, fly another mission of the same vehicle | CP05MOAS-A6264_R00006 | ✅ | {"heading_deg": 0.7537844988808714, "pitch_deg": 2.6536655238150426, "depth_m": 1.5727318852806915, "heading_deg_hold": 1.175700470733235, "pitch_deg_hold": 0.5... | 20 min |
+| O-turns-other-vehicle | real = CP05MOAS-A6264_R00008 | train on one REMUS, fly the other | CP05MOAS-A6263_R00009 | ❌ | {"heading_deg": 1.4941973221001557, "pitch_deg": 3.181195234132651, "depth_m": 1.5130201333259254, "heading_deg_hold": 2.1522622187806943, "pitch_deg_hold": 0.7... | 19 min |
+| O-turns-years-later | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS in 2024 | CP16MOAS-A6263_R00001 | ❌ | {"heading_deg": 3.497017439658147, "pitch_deg": 2.875052655322913, "depth_m": 2.1176715046107653, "heading_deg_hold": 3.726957665006937, "pitch_deg_hold": 1.824... | 51 min |
+| O-turns-fresh-deployment | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS in 2016: a deployment no choice was made on | CP05MOAS-A6263_R00003 | ❌ | {"heading_deg": 0.9106378181646589, "pitch_deg": 3.1969536200054134, "depth_m": 1.7069688092393083, "heading_deg_hold": 0.9236278631300335, "pitch_deg_hold": 0.... | 41 min |
+| O-turning-same-vehicle | real = CP05MOAS-A6264_R00008 | train on the turning mission, fly another mission of the same vehicle: where it turned | turning | ❌ | {"windows": 23, "turned_deg": 30.0, "heading_deg": 17.55591355993983, "heading_deg_p90": 42.03320021781021, "heading_deg_hold": 125.24955995601663, "bars": "b0e... | 0 min |
+| O-turning-other-vehicle | real = CP05MOAS-A6264_R00008 | train on one REMUS, fly the other: where it turned | turning | ❌ | {"windows": 5, "turned_deg": 30.0, "heading_deg": 7.1489367171427975, "heading_deg_p90": 35.741539892160915, "heading_deg_hold": 59.18209749837901, "bars": "b0e... | 0 min |
+| O-turning-years-later | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS in 2024: where it turned | turning | ❌ | {"windows": 9, "turned_deg": 30.0, "heading_deg": 4.584314796823758, "heading_deg_p90": 12.685536974383565, "heading_deg_hold": 51.782685241522714, "bars": "b0e... | 0 min |
+| O-turning-fresh-deployment | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS in 2016: a deployment no choice was made on: where it turned | turning | ❌ | {"windows": 8, "turned_deg": 30.0, "heading_deg": 14.2326936326156, "heading_deg_p90": 27.46011601155772, "heading_deg_hold": 53.92217721176178, "bars": "b0e315... | 0 min |
+| O-turning-unseen | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS two months earlier: kept unscored for the heading fix: where it turned | turning | ❌ | {"windows": 7, "turned_deg": 30.0, "heading_deg": 19.889228066958346, "heading_deg_p90": 26.902217203752027, "heading_deg_hold": 51.815012711318644, "bars": "b0... | 0 min |
+| O-turns-unseen | real = CP05MOAS-A6264_R00008 | train in 2019, fly the other REMUS two months earlier: kept unscored for the heading fix | CP05MOAS-A6263_R00008 | ✅ | {"heading_deg": 1.273723187687749, "pitch_deg": 2.5467315390855148, "depth_m": 1.2362348627855373, "heading_deg_hold": 1.3524327493355437, "pitch_deg_hold": 0.5... | 20 min |
+
+### Each simulator's own physics recovers its own fin lift
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| S-holoocean | simulator = holoocean | the real Torpedo class, from twice the fin lift | its own flights | ✅ | {"true": 0.5, "found": {"CL_delta": 0.45965758589989375}, "err": 0.0806848282002125, "drift_30s_before": 21.739, "drift_30s_after": 0.787, "exit": 0, "bars": "b... | 2 min |
+| S-gazebo | simulator = gazebo | from twice the lift, on recordings the engine flew itself | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.996666507072812}, "err": 0.0008333732317969966, "drift_30s_before": 0.251, "drift_30s_after": 0.007, "exit": 0, "bars": "b0... | 3 min |
+| S-stonefish | simulator = stonefish | from twice the lift, on recordings the engine flew itself | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.9999677272567027}, "err": 8.068185824328111e-06, "drift_30s_before": 0.13, "drift_30s_after": 0.0, "exit": 0, "bars": "b0e... | 1 min |
+| S-external | simulator = external | the example tool says it takes fins (tests/test_simfit_fins.py runs it) | - | ✅ | {"features": "{\"simulator\": \"fake\", \"version\": \"1.0\", \"fins\": true}", "bars": "b0e3157797d7"} | 0 min |
+| S-refused | simulator = old tool | a tool that doesn't take fins is refused | - | ✅ | {"bars": "b0e3157797d7"} | 0 min |
+| S-mujoco | simulator = mujoco | from twice the lift, on recordings the engine flew itself | own flights | ✅ | {"true": 2.0, "found": {"fin_top_geom_lift": 1.9989940152205192, "fin_bottom_geom_lift": 1.9989940152205128}, "err": 0.0005029923897436062, "drift_30s_before": ... | 1 min |
+
+### Layout x angle source x simulator
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| C-cross-measured-stonefish | layout x source x engine = stonefish | cross, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.6534884354995865}, "err": 0.08662789112510338, "drift_30s_before": 6.909, "drift_30s_after": 6.409, "exit": 0, "bars": "b0... | 2 min |
+| C-cross-measured-gazebo | layout x source x engine = gazebo | cross, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.984596465789441}, "err": 0.003850883552639739, "drift_30s_before": 0.65, "drift_30s_after": 0.023, "exit": 0, "bars": "b0e3... | 3 min |
+| C-cross-measured-holoocean | layout x source x engine = holoocean | cross, measured: as S-holoocean; the class's fins take the angles after the lag | its own flights | ✅ | {"bars": "b0e3157797d7"} | 3 min |
+| C-cross-measured-mujoco | layout x source x engine = mujoco | cross, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_starboard_geom_lift": 1.999999995911566, "fin_bottom_geom_lift": 1.9999999977382807, "fin_port_geom_lift": 2.000000001856754, "fin_... | 3 min |
+| C-cross-commanded-stonefish | layout x source x engine = stonefish | cross, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.6534966521893866}, "err": 0.08662583695265336, "drift_30s_before": 6.909, "drift_30s_after": 6.409, "exit": 0, "bars": "b0... | 1 min |
+| C-cross-commanded-gazebo | layout x source x engine = gazebo | cross, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.993920090572077}, "err": 0.0015199773569807284, "drift_30s_before": 0.649, "drift_30s_after": 0.012, "exit": 0, "bars": "b0... | 5 min |
+| C-cross-commanded-mujoco | layout x source x engine = mujoco | cross, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_starboard_geom_lift": 1.9999999830605018, "fin_bottom_geom_lift": 1.999999999843275, "fin_port_geom_lift": 1.9999999852103123, "fin... | 4 min |
+| C-cross-commanded-holoocean | layout x source x engine = holoocean | cross, commanded: as S-holoocean; the class's fins take the angles after the lag | its own flights | ✅ | {"bars": "b0e3157797d7"} | 4 min |
+| C-x-measured-stonefish | layout x source x engine = stonefish | x, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.488650943691528}, "err": 0.12783726407711804, "drift_30s_before": 9.544, "drift_30s_after": 8.905, "exit": 0, "bars": "b0e... | 0 min |
+| C-x-measured-holoocean | layout x source x engine = holoocean | x: refused, or each fin goes to its own class fin | - | ✅ | {"refused": true, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-x-measured-gazebo | layout x source x engine = gazebo | x, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.987657767984304}, "err": 0.0030855580039239605, "drift_30s_before": 1.044, "drift_30s_after": 0.033, "exit": 0, "bars": "b0... | 2 min |
+| C-x-commanded-stonefish | layout x source x engine = stonefish | x, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.4862835695601166}, "err": 0.12842910760997084, "drift_30s_before": 9.544, "drift_30s_after": 8.905, "exit": 0, "bars": "b0... | 1 min |
+| C-x-measured-mujoco | layout x source x engine = mujoco | x, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_lower_starboard_geom_lift": 2.000000002924473, "fin_lower_port_geom_lift": 1.999999997864524, "fin_upper_port_geom_lift": 2.0000000... | 2 min |
+| C-x-commanded-holoocean | layout x source x engine = holoocean | x: refused, or each fin goes to its own class fin | - | ✅ | {"refused": true, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-x-commanded-gazebo | layout x source x engine = gazebo | x, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.9961464271880804}, "err": 0.0009633932029798897, "drift_30s_before": 1.015, "drift_30s_after": 0.029, "exit": 0, "bars": "b... | 3 min |
+| C-y3-measured-stonefish | layout x source x engine = stonefish | y3, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.7932664425573304}, "err": 0.05168338936066741, "drift_30s_before": 8.059, "drift_30s_after": 7.404, "exit": 0, "bars": "b0... | 0 min |
+| C-x-commanded-mujoco | layout x source x engine = mujoco | x, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_lower_starboard_geom_lift": 1.999999995679234, "fin_lower_port_geom_lift": 2.000000000466862, "fin_upper_port_geom_lift": 1.9999999... | 3 min |
+| C-y3-measured-holoocean | layout x source x engine = holoocean | y3: refused, or each fin goes to its own class fin | - | ✅ | {"refused": true, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-y3-measured-gazebo | layout x source x engine = gazebo | y3, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.9873367563042366}, "err": 0.0031658109239408594, "drift_30s_before": 0.995, "drift_30s_after": 0.026, "exit": 0, "bars": "b... | 2 min |
+| C-y3-measured-mujoco | layout x source x engine = mujoco | y3, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_top_geom_lift": 2.0000004710276404, "fin_port_geom_lift": 2.000000552165739, "fin_starboard_geom_lift": 2.000000531169617}, "err": ... | 1 min |
+| C-y3-commanded-stonefish | layout x source x engine = stonefish | y3, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.7932246684144597}, "err": 0.05169383289638507, "drift_30s_before": 8.059, "drift_30s_after": 7.404, "exit": 0, "bars": "b0... | 0 min |
+| C-y3-commanded-holoocean | layout x source x engine = holoocean | y3: refused, or each fin goes to its own class fin | - | ✅ | {"refused": true, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-y3-commanded-gazebo | layout x source x engine = gazebo | y3, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.983577813690328}, "err": 0.004105546577418018, "drift_30s_before": 0.949, "drift_30s_after": 0.02, "exit": 0, "bars": "b0e3... | 2 min |
+| C-rudder_only-measured-stonefish | layout x source x engine = stonefish | rudder_only, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.999988531189229}, "err": 2.8672026927134553e-06, "drift_30s_before": 0.277, "drift_30s_after": 0.274, "exit": 0, "bars": "... | 1 min |
+| C-y3-commanded-mujoco | layout x source x engine = mujoco | y3, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_top_geom_lift": 2.000000416870547, "fin_port_geom_lift": 2.0000004443216812, "fin_starboard_geom_lift": 2.0000003125022436}, "err":... | 2 min |
+| C-rudder_only-measured-holoocean | layout x source x engine = holoocean | rudder_only: refused, or each fin goes to its own class fin | - | ✅ | {"refused": false, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-rudder_only-measured-gazebo | layout x source x engine = gazebo | rudder_only, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.9971597621374495}, "err": 0.0007100594656376247, "drift_30s_before": 0.444, "drift_30s_after": 0.005, "exit": 0, "bars": "b... | 4 min |
+| C-rudder_only-measured-mujoco | layout x source x engine = mujoco | rudder_only, measured: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_bottom_geom_lift": 2.050352107476318, "fin_top_geom_lift": 2.0503521074622872}, "err": 0.0251760537381589, "drift_30s_before": 1.77... | 2 min |
+| C-rudder_only-commanded-stonefish | layout x source x engine = stonefish | rudder_only, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_lift": 3.9999881480766146}, "err": 2.9629808463438323e-06, "drift_30s_before": 0.277, "drift_30s_after": 0.274, "exit": 0, "bars": ... | 1 min |
+| C-rudder_only-commanded-holoocean | layout x source x engine = holoocean | rudder_only: refused, or each fin goes to its own class fin | - | ✅ | {"refused": false, "distinct": true, "bars": "b0e3157797d7"} | 0 min |
+| C-rudder_only-commanded-gazebo | layout x source x engine = gazebo | rudder_only, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 4.0, "found": {"fin_cla": 3.9961753900295767}, "err": 0.0009561524926058329, "drift_30s_before": 0.475, "drift_30s_after": 0.003, "exit": 0, "bars": "b... | 4 min |
+| C-rudder_only-commanded-mujoco | layout x source x engine = mujoco | rudder_only, commanded: the engine recovers its own fin lift | own flights | ✅ | {"true": 2.0, "found": {"fin_bottom_geom_lift": 2.04938972007572, "fin_top_geom_lift": 2.049389720095771}, "err": 0.02469486004788557, "drift_30s_before": 1.769... | 2 min |
+
+### Export into each simulator
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| E-stonefish | export = stonefish | each fin's fitted lift is in the exported model | own flights | ✅ | {"exit": 0, "worst_relative": 2.8757196623985237e-10, "fitted": {"starboard": 5.998861228530208, "bottom": 5.68591720836489, "port": 5.998861228530208, "top": 5... | 5 min |
+| E-gazebo | export = gazebo | each fin's fitted lift is in the exported model | own flights | ✅ | {"exit": 0, "worst_relative": 3.599118780783783e-10, "fitted": {"starboard": 3.9742979787991777, "bottom": 2.5526667790812647, "port": 3.9742979787991777, "top"... | 12 min |
+| E-mujoco-refused | export = mujoco | MuJoCo refuses, and says how to calibrate instead | own flights | ✅ | {"exit": 2, "said": "ns (OOI's REMUS 600s do), log it as fin_aileron, or log each fin's angle: without it the fit can't see what holds the roll, and makes up fo... | 12 min |
+| E-holoocean | export = holoocean | Strathe's fin physics goes in as the class | its own flights | ✅ | {"calibrate": 0, "exit": 0, "class_has_fins": true, "bars": "b0e3157797d7"} | 29 min |
+| E-no-description-refused | export = gazebo | a fin calibration with no description is refused, not exported without fins | own flights | ✅ | {"exit": 2, "said": "\u274c these logs have fin channels: give --spec, the vehicle description with the fins (FINS.md)\n", "bars": "b0e3157797d7"} | 13 min |
+| E-missing-fin-refused | export = gazebo | a fin the model lacks is refused by name | own flights | ✅ | {"exit": 2, "said": " autopilot rolls the vehicle with its fins (OOI's REMUS 600s do), log it as fin_aileron, or log each fin's angle: without it the fit can't ... | 11 min |
+
+### One simulator's vehicle in another
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| CV-gazebo | cross engine = gazebo | the same rudder turns it the same way after conversion | - | ✅ | {"stonefish_yaw_rate": 0.1085407224, "gazebo_yaw_rate": 0.10873259297777778, "bars": "b0e3157797d7"} | 0 min |
+| CV-gazebo-first-turn | cross engine = gazebo | the same rudder starts the same turn after conversion | - | ✅ | {"stonefish_peak_yaw_rate": 0.193369916, "gazebo_peak_yaw_rate": 0.322320689, "bars": "b0e3157797d7"} | 0 min |
+| CV-mujoco | cross engine = mujoco | the same rudder turns it the same way after conversion | - | ✅ | {"stonefish_yaw_rate": 0.1085407224, "mujoco_yaw_rate": 0.005815897221966969, "bars": "b0e3157797d7"} | 0 min |
+| CV-mujoco-first-turn | cross engine = mujoco | the same rudder starts the same turn after conversion | - | ❌ | {"stonefish_peak_yaw_rate": 0.193369916, "mujoco_peak_yaw_rate": -0.298380429508274, "bars": "b0e3157797d7"} | 0 min |
+
+### The lab's journey, from nothing to a report
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| J-web-fin | lab journey = web | the form makes labs choose, and refuses a choice the description contradicts | - | ✅ | {"page": 200, "chooser": true, "wrong_choice": 400, "refused": true, "bars": "b0e3157797d7"} | 0 min |
+| J-web-hover | lab journey = web | the form makes labs choose, and refuses a choice the description contradicts | - | ✅ | {"page": 200, "chooser": true, "wrong_choice": 400, "refused": true, "bars": "b0e3157797d7"} | 0 min |
+| J-cli-hover | lab journey = cli | from nothing to a report, on the shipped templates; the type is said first and in the report | - | ✅ | {"exit": 0, "said_first": true, "report_says": true, "flying_section": true, "tail": "", "bars": "b0e3157797d7"} | 11 min |
+| J-cli-fin | lab journey = cli | from nothing to a report, on the shipped templates; the type is said first and in the report | - | ✅ | {"exit": 0, "said_first": true, "report_says": true, "flying_section": true, "tail": "", "bars": "b0e3157797d7"} | 13 min |
+
+### Platforms and one value at a time, on Strathe's own model (plumbing, not physics)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| P-platform-remus100 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100'} | ❌ | {"a": 0.012483504840697712, "b": 0.04297363563196965, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-remus600 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600'} | ✅ | {"a": 0.007319244170087447, "b": 0.006978202504094755, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-iver | recover = iver | Strathe's own model as the truth: plumbing, not physics | {'platform': 'iver'} | ✅ | {"a": 0.004229180005997479, "b": 0.016928549657145187, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-lauv | recover = lauv | Strathe's own model as the truth: plumbing, not physics | {'platform': 'lauv'} | ❌ | {"a": 0.025145630816419517, "b": 0.056577385592286866, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-hugin | recover = hugin | Strathe's own model as the truth: plumbing, not physics | {'platform': 'hugin'} | ✅ | {"a": 0.002344411786433409, "b": 0.003983658585972272, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-autosub | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub'} | ✅ | {"a": 0.0019080927744755671, "b": 0.0027247310287112914, "bars": "b0e3157797d7"} | 1 min |
+| P-platform-tethys | recover = tethys | Strathe's own model as the truth: plumbing, not physics | {'platform': 'tethys'} | ❌ | {"a": 0.035818038045018485, "bars": "b0e3157797d7"} | 0 min |
+| P-platform-xtail | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail'} | ✅ | {"a": 0.001891610265878807, "bars": "b0e3157797d7"} | 0 min |
+| P-layout-x | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'x'} | ✅ | {"a": 8.429622867145437e-05, "bars": "b0e3157797d7"} | 0 min |
+| P-layout-cross | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'cross'} | ❌ | {"a": 0.012483504840697712, "b": 0.04297363563196965, "bars": "b0e3157797d7"} | 1 min |
+| P-layout-y3 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'y3'} | ✅ | {"a": 0.005956873161234499, "b": 0.003075594289138839, "bars": "b0e3157797d7"} | 0 min |
+| P-layout-rudder_only | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'rudder_only'} | ❌ | {"a": 0.048219329051112925, "bars": "b0e3157797d7"} | 0 min |
+| P-source-commanded | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'commanded': True} | ❌ | {"a": 0.012483504840697712, "b": 0.04297363563196965, "bars": "b0e3157797d7"} | 1 min |
+| P-noise-grade | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'noise': 1.0} | ✅ | {"a": 0.010472083874200289, "b": 0.050493269421761466, "bars": "b0e3157797d7"} | 1 min |
+| P-per-fin-channels | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'per_fin': True} | ❌ | {"a": 0.012483503187375566, "b": 0.04297363185194869, "bars": "b0e3157797d7"} | 0 min |
+| P-hybrid | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'steering': 'hybrid'} | ❌ | {"a": 0.012483504840697712, "b": 0.04297363563196965, "bars": "b0e3157797d7"} | 1 min |
+| P-fin-far-forward | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'fin_x': -0.3} | ❌ | {"a": 0.038482070043692085, "b": 0.1306590634239282, "bars": "b0e3157797d7"} | 1 min |
+| P-fin-small | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'fin_area': 0.004} | ❌ | {"a": 0.013832983206604199, "b": 0.053758707423141594, "bars": "b0e3157797d7"} | 0 min |
+| P-fin-large | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'fin_area': 0.03} | ❌ | {"a": 0.01737081441797239, "b": 0.07651418615423888, "bars": "b0e3157797d7"} | 1 min |
+| P-speed-low | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'u0': 0.5} | ✅ | {"a": 0.0017198171856752653, "b": 0.00808439873937683, "bars": "b0e3157797d7"} | 0 min |
+| P-bias-roll | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_bias_roll', 0.03, -0.1, 0.1)} | ✅ | {"param": 0.007811499423557411, "bars": "b0e3157797d7"} | 0 min |
+| P-bias-pitch | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_bias_pitch', 0.03, -0.1, 0.1)} | ✅ | {"param": 0.01931177901149317, "bars": "b0e3157797d7"} | 0 min |
+| P-speed-high | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'u0': 2.5} | ❌ | {"a": 0.034671841811062865, "b": 0.0649803329625458, "bars": "b0e3157797d7"} | 1 min |
+| P-bias-yaw | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_bias_yaw', 0.03, -0.1, 0.1)} | ✅ | {"param": 0.005812239959798182, "bars": "b0e3157797d7"} | 0 min |
+| P-inflow-a | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_inflow_a', 0.8, 0.0, 1.2)} | ✅ | {"param": 0.00719579600089626, "bars": "b0e3157797d7"} | 0 min |
+| P-servo-T | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_servo_T', 0.5, 0.0, 2.0), 'commanded': True} | ❌ | {"param": 0.03474052057081556, "bars": "b0e3157797d7"} | 0 min |
+| P-drag0 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_drag0', 0.05, 0.0, 0.3)} | ❌ | {"param": 0.02504199293130882, "bars": "b0e3157797d7"} | 0 min |
+| P-inflow-b | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'param': ('fin_inflow_b', 0.8, 0.0, 1.2)} | ❌ | {"param": 0.040102257034141386, "bars": "b0e3157797d7"} | 0 min |
+| P-position-fixes | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'fixes': True} | ❌ | {"a": 0.027405338166480275, "b": 0.29175173868704696, "bars": "b0e3157797d7"} | 2 min |
+| P-position-fixes-long | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'fixes': True, 'n': 3000} | ✅ | {"a": 0.002940910832579302, "b": 0.024300728992658893, "bars": "b0e3157797d7"} | 11 min |
+
+### All pairs of variables
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| PW-00 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600', 'layout': 'y3', 'commanded': False, 'noise': 0.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.05} | ✅ | {"a": 0.007319243119859875, "b": 0.0069782011674622835, "bars": "b0e3157797d7"} | 0 min |
+| PW-01 | recover = hugin | Strathe's own model as the truth: plumbing, not physics | {'platform': 'hugin', 'layout': 'cross', 'commanded': True, 'noise': 0.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.3} | ✅ | {"a": 0.003541166510808602, "b": 0.007018798190643105, "bars": "b0e3157797d7"} | 1 min |
+| PW-03 | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub', 'layout': 'rudder_only', 'commanded': False, 'noise': 1.0, 'u0': 1.5, 'per_fin': False, 'fin_area': 0.6} | ✅ | {"a": 0.05530783377730275, "bars": "b0e3157797d7"} | 0 min |
+| PW-02 | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail', 'layout': 'x', 'commanded': True, 'noise': 1.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.01} | ✅ | {"a": 0.06554551121979335, "bars": "b0e3157797d7"} | 1 min |
+| PW-05 | recover = iver | Strathe's own model as the truth: plumbing, not physics | {'platform': 'iver', 'layout': 'y3', 'commanded': False, 'noise': 0.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.005} | ✅ | {"a": 0.00954669979314593, "b": 0.007186173671714147, "bars": "b0e3157797d7"} | 1 min |
+| PW-04 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'cross', 'commanded': False, 'noise': 1.0, 'u0': 0.5, 'per_fin': False, 'fin_area': 0.012} | ❌ | {"a": 0.11015982877442054, "b": 0.10597544413147197, "bars": "b0e3157797d7"} | 2 min |
+| PW-07 | recover = lauv | Strathe's own model as the truth: plumbing, not physics | {'platform': 'lauv', 'layout': 'rudder_only', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.016} | ✅ | {"a": 3.320978007259612e-05, "bars": "b0e3157797d7"} | 0 min |
+| PW-06 | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub', 'layout': 'rudder_only', 'commanded': True, 'noise': 1.0, 'u0': 2.5, 'per_fin': True, 'fin_area': 0.3} | ✅ | {"a": 0.02269648064751839, "bars": "b0e3157797d7"} | 1 min |
+| PW-08 | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail', 'layout': 'x', 'commanded': False, 'noise': 0.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.02} | ✅ | {"a": 0.005480241211571535, "bars": "b0e3157797d7"} | 0 min |
+| PW-11 | recover = tethys | Strathe's own model as the truth: plumbing, not physics | {'platform': 'tethys', 'layout': 'x', 'commanded': False, 'noise': 1.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.06} | ✅ | {"a": 0.0015752784109583917, "bars": "b0e3157797d7"} | 0 min |
+| PW-10 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600', 'layout': 'y3', 'commanded': True, 'noise': 1.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.1} | ✅ | {"a": 0.01682159923612403, "b": 0.02128439120993042, "bars": "b0e3157797d7"} | 1 min |
+| PW-12 | recover = iver | Strathe's own model as the truth: plumbing, not physics | {'platform': 'iver', 'layout': 'x', 'commanded': True, 'noise': 1.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.02} | ✅ | {"a": 0.004157302168286359, "bars": "b0e3157797d7"} | 0 min |
+| PW-09 | recover = tethys | Strathe's own model as the truth: plumbing, not physics | {'platform': 'tethys', 'layout': 'cross', 'commanded': True, 'noise': 0.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.015} | ❌ | {"a": 0.006880246694221159, "b": 0.021616876735696122, "bars": "b0e3157797d7"} | 2 min |
+| PW-13 | recover = hugin | Strathe's own model as the truth: plumbing, not physics | {'platform': 'hugin', 'layout': 'rudder_only', 'commanded': False, 'noise': 1.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.075} | ✅ | {"a": 0.038042858825557246, "bars": "b0e3157797d7"} | 1 min |
+| PW-14 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'x', 'commanded': True, 'noise': 0.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.024} | ✅ | {"a": 0.00115006736608958, "bars": "b0e3157797d7"} | 0 min |
+| PW-16 | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub', 'layout': 'y3', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.15} | ❌ | {"a": 0.02079453845502588, "b": 0.029771719836093613, "bars": "b0e3157797d7"} | 0 min |
+| PW-15 | recover = lauv | Strathe's own model as the truth: plumbing, not physics | {'platform': 'lauv', 'layout': 'cross', 'commanded': False, 'noise': 1.0, 'u0': 1.5, 'per_fin': False, 'fin_area': 0.004} | ✅ | {"a": 0.014191696549492594, "b": 0.08845777372616803, "bars": "b0e3157797d7"} | 0 min |
+| PW-17 | recover = hugin | Strathe's own model as the truth: plumbing, not physics | {'platform': 'hugin', 'layout': 'x', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.15} | ✅ | {"a": 0.0007418723777464775, "bars": "b0e3157797d7"} | 0 min |
+| PW-20 | recover = tethys | Strathe's own model as the truth: plumbing, not physics | {'platform': 'tethys', 'layout': 'rudder_only', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': False, 'fin_area': 0.03} | ✅ | {"a": 0.007115771476360666, "bars": "b0e3157797d7"} | 0 min |
+| PW-18 | recover = lauv | Strathe's own model as the truth: plumbing, not physics | {'platform': 'lauv', 'layout': 'y3', 'commanded': False, 'noise': 0.0, 'u0': 2.5, 'per_fin': True, 'fin_area': 0.008} | ✅ | {"a": 0.0025415446116276996, "b": 0.008859506853672983, "bars": "b0e3157797d7"} | 1 min |
+| PW-21 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600', 'layout': 'cross', 'commanded': False, 'noise': 0.0, 'u0': 0.5, 'per_fin': False, 'fin_area': 0.025} | ✅ | {"a": 0.005681720208428498, "b": 0.00016934825302239442, "bars": "b0e3157797d7"} | 0 min |
+| PW-19 | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail', 'layout': 'cross', 'commanded': False, 'noise': 1.0, 'u0': 1.5, 'per_fin': False, 'fin_area': 0.04} | ✅ | {"a": 0.007848548640147945, "b": 0.05469930738472972, "bars": "b0e3157797d7"} | 2 min |
+| PW-22 | recover = iver | Strathe's own model as the truth: plumbing, not physics | {'platform': 'iver', 'layout': 'cross', 'commanded': True, 'noise': 1.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.01} | ✅ | {"a": 0.09098177161589982, "b": 0.0014083428453335323, "bars": "b0e3157797d7"} | 2 min |
+| PW-23 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'y3', 'commanded': True, 'noise': 1.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.006} | ✅ | {"a": 0.0015573295452235847, "b": 0.033346860508879916, "bars": "b0e3157797d7"} | 1 min |
+| PW-24 | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail', 'layout': 'rudder_only', 'commanded': False, 'noise': 0.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.04} | ✅ | {"a": 0.0003604713140438198, "bars": "b0e3157797d7"} | 0 min |
+| PW-25 | recover = lauv | Strathe's own model as the truth: plumbing, not physics | {'platform': 'lauv', 'layout': 'x', 'commanded': True, 'noise': 0.0, 'u0': 2.5, 'per_fin': True, 'fin_area': 0.016} | ✅ | {"a": 0.0009677132386591847, "bars": "b0e3157797d7"} | 0 min |
+| PW-26 | recover = tethys | Strathe's own model as the truth: plumbing, not physics | {'platform': 'tethys', 'layout': 'y3', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': False, 'fin_area': 0.015} | ✅ | {"a": 0.011849522167071136, "b": 0.019027960332393845, "bars": "b0e3157797d7"} | 0 min |
+| PW-29 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600', 'layout': 'x', 'commanded': True, 'noise': 0.0, 'u0': 0.5, 'per_fin': True, 'fin_area': 0.1} | ✅ | {"a": 0.0035348585804306776, "bars": "b0e3157797d7"} | 0 min |
+| PW-28 | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub', 'layout': 'x', 'commanded': True, 'noise': 1.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.15} | ✅ | {"a": 0.0010703758657515383, "bars": "b0e3157797d7"} | 0 min |
+| PW-27 | recover = remus600 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus600', 'layout': 'rudder_only', 'commanded': True, 'noise': 1.0, 'u0': 2.5, 'per_fin': False, 'fin_area': 0.05} | ✅ | {"a": 0.027605842861628593, "bars": "b0e3157797d7"} | 1 min |
+| PW-31 | recover = iver | Strathe's own model as the truth: plumbing, not physics | {'platform': 'iver', 'layout': 'rudder_only', 'commanded': False, 'noise': 1.0, 'u0': 1.5, 'per_fin': False, 'fin_area': 0.005} | ✅ | {"a": 0.009504288472893307, "bars": "b0e3157797d7"} | 0 min |
+| PW-32 | recover = hugin | Strathe's own model as the truth: plumbing, not physics | {'platform': 'hugin', 'layout': 'y3', 'commanded': False, 'noise': 1.0, 'u0': 2.5, 'per_fin': True, 'fin_area': 0.3} | ✅ | {"a": 0.007060836767790346, "b": 0.006411114724145683, "bars": "b0e3157797d7"} | 0 min |
+| PW-30 | recover = remus100 | Strathe's own model as the truth: plumbing, not physics | {'platform': 'remus100', 'layout': 'rudder_only', 'commanded': True, 'noise': 1.0, 'u0': 0.5, 'per_fin': False, 'fin_area': 0.012} | ❌ | {"a": 0.10806889962954758, "bars": "b0e3157797d7"} | 1 min |
+| PW-33 | recover = xtail | Strathe's own model as the truth: plumbing, not physics | {'platform': 'xtail', 'layout': 'y3', 'commanded': False, 'noise': 0.0, 'u0': 1.5, 'per_fin': True, 'fin_area': 0.01} | ✅ | {"a": 0.0038044544032276306, "b": 0.0023798494145352844, "bars": "b0e3157797d7"} | 0 min |
+| PW-34 | recover = autosub | Strathe's own model as the truth: plumbing, not physics | {'platform': 'autosub', 'layout': 'cross', 'commanded': False, 'noise': 1.0, 'u0': 2.5, 'per_fin': True, 'fin_area': 0.3} | ✅ | {"a": 0.00587609726641336, "b": 0.005098570758257592, "bars": "b0e3157797d7"} | 0 min |
+
+### Vectored tails
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| V-dorado | vectored = dorado | Strathe's own model as the truth: plumbing, not physics | own model | ✅ | {"true": 1.2, "found": 1.1999995528222156, "err": 3.726481536681092e-07, "bars": "b0e3157797d7"} | 0 min |
+| V-bluefin | vectored = bluefin | Strathe's own model as the truth: plumbing, not physics | own model | ✅ | {"true": 1.2, "found": 1.1999995828359098, "err": 3.4763674183757587e-07, "bars": "b0e3157797d7"} | 0 min |
+| V-small | vectored = small | Strathe's own model as the truth: plumbing, not physics | own model | ✅ | {"true": 1.2, "found": 1.1999998708362405, "err": 1.0763646618450196e-07, "bars": "b0e3157797d7"} | 0 min |
+
+### Each mass matrix entry
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| MC-Xv_dot | mass entry = Xv_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.2468117378230585e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Xw_dot | mass entry = Xw_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 4.540927632070814e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Xp_dot | mass entry = Xp_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 3.2743867098015015e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Xr_dot | mass entry = Xr_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.9431227021010125e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Xq_dot | mass entry = Xq_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 3.320646256367519e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Yw_dot | mass entry = Yw_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.6808576767799902e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Yp_dot | mass entry = Yp_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 4.36249052963763e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Yq_dot | mass entry = Yq_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 3.5258725038526387e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Yr_dot | mass entry = Yr_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 3.1330494465048485e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Zp_dot | mass entry = Zp_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.712941045929808e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Zq_dot | mass entry = Zq_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.7198604879793713e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Zr_dot | mass entry = Zr_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.332551251007245e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Kq_dot | mass entry = Kq_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 3.5212590178035973e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Mr_dot | mass entry = Mr_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 2.71457923676372e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+| MC-Kr_dot | mass entry = Kr_dot | its own two cells, every path, and the symmetry gate | computed | ✅ | {"cells": true, "worst_relative": 4.1196445998818994e-16, "gate": true, "bars": "b0e3157797d7"} | 0 min |
+
+### Every description key, singly
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| SV-stall_deg | one key = stall_deg | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [4.704433720673663, 0.0878906281110794], "oracle_worst": 0.0, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-span_m | one key = span_m | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [86.5076905571346, 14.160485061435727], "oracle_worst": 1.2459333051292853e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-area_m2 | one key = area_m2 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [26.67857483745949, 250.24564671932634], "oracle_worst": 1.0525325744054277e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-rate_limit_deg_s | one key = rate_limit_deg_s | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.1832595714594046, 0.13089969389957473], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-limit_deg | one key = limit_deg | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.31687552159989174, 0.19470247396028867], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-oswald | one key = oswald | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [12.358241508162081, 4.9432966032648356], "oracle_worst": 9.233227539250142e-16, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-chord_axis | one key = chord_axis | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [1.3028631128217416, 4.357375049677309], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-position_m | one key = position_m | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [7.930462469652873, 9.315812548014119], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-span_axis | one key = span_axis | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [5.932280382369807, 8.706284543978748], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-group | one key = group | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.17446021764944675], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-sign | one key = sign | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.2], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.diameter_m | one key = propeller.diameter_m | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [16.600609889599685, 578.9203776829378], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.kt1 | one key = propeller.kt1 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [15.224623508376176, 15.224623508376178], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.kt0 | one key = propeller.kt0 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [19.735623066413563, 19.735623066413567], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.kq0 | one key = propeller.kq0 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.8682496200000003, 0.6201783000000001], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.kq1 | one key = propeller.kq1 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.39868605000000024, 0.39868605000000024], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.thrust_deduction | one key = propeller.thrust_deduction | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [2.255499779018695, 3.383249668528041], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.wake | one key = propeller.wake | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [5.074874502792063, 1.6916248342640188], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.spin | one key = propeller.spin | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.9391271400000005], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.gimbal | one key = propeller.gimbal | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [Infinity], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.position_m | one key = propeller.position_m | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.407348695289965, 1.0170130031583113], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-moving_mass.axis | one key = moving_mass.axis | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.5474568600000005], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-propeller.max_rpm | one key = propeller.max_rpm | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [300.0, 300.0], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-moving_mass.mass_kg | one key = moving_mass.mass_kg | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.3845912400000002, 1.3460693400000001], "oracle_worst": 1.041072829392639e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+| SV-water_density_kg_m3 | one key = water_density_kg_m3 | each value changes the physics, and agrees with the independent fin | computed | ✅ | {"moved": [0.9151470694596711, 0.18302941389192995], "oracle_worst": 1.0670996501274553e-15, "error": null, "bars": "b0e3157797d7"} | 0 min |
+
+### describe-vehicle's options
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| D--fin-x | describe option = --fin-x | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--fin-radius | describe option = --fin-radius | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--fin-span | describe option = --fin-span | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--fin-limit | describe option = --fin-limit | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--fin-area | describe option = --fin-area | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--fin-stall | describe option = --fin-stall | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--propeller-diameter | describe option = --propeller-diameter | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--kt0 | describe option = --kt0 | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D-steering-hover | describe option = --steering | hover | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D-steering-fin | describe option = --steering | fin | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D--kt1 | describe option = --kt1 | given: it lands in the description, and the description loads | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D-steering-vectored | describe option = --steering | vectored | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D-steering-hybrid | describe option = --steering | hybrid | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+| D-fins-cross | describe option = --fins | cross | - | ✅ | {"exit": 0, "bars": "b0e3157797d7"} | 0 min |
+| D-fins-rudder_only | describe option = --fins | rudder_only | - | ✅ | {"exit": 0, "bars": "b0e3157797d7"} | 0 min |
+| D-fins-x | describe option = --fins | x | - | ✅ | {"exit": 0, "bars": "b0e3157797d7"} | 0 min |
+| D-fins-y3 | describe option = --fins | y3 | - | ✅ | {"exit": 0, "bars": "b0e3157797d7"} | 0 min |
+
+### The web card
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| W-describe | web card = describe | every fin field of the card reaches the description | - | ✅ | {"exit": 0, "said": "", "bars": "b0e3157797d7"} | 0 min |
+
+### Every way of stating a channel, per log format
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| LF-csv | log format = csv | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-source-measured | log format = csv | source-measured through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-unit-deg | log format = csv | unit-deg through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-unit-rad | log format = csv | unit-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-unit-percent | log format = csv | unit-percent through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-unit-pwm | log format = csv | unit-pwm through this format | synthetic | ✅ | {"worst_deg": 3.935936418311102e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-pwm-center | log format = csv | pwm-center through this format | synthetic | ✅ | {"worst_deg": 3.935936418311102e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-pwm-reversed | log format = csv | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 3.935936418311102e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-turns-port | log format = csv | turns-port through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-pitches-down | log format = csv | pitches-down through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-rolls-starboard | log format = csv | rolls-starboard through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-rolls-port | log format = csv | rolls-port through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-prop-rpm | log format = csv | prop-rpm through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-prop-rad_s | log format = csv | prop-rad_s through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 3.4106113083713383e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-prop-rev_s | log format = csv | prop-rev_s through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 3.4106113083713383e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-gimbal-deg | log format = csv | gimbal-deg through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1529719527101761e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-gimbal-rad | log format = csv | gimbal-rad through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-mass-m | log format = csv | mass-m through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-mass-cm | log format = csv | mass-cm through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-mass-mm | log format = csv | mass-mm through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-buoyancy-N | log format = csv | buoyancy-N through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.4803241752968042e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-buoyancy-litre | log format = csv | buoyancy-litre through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 5.888761295032163e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-buoyancy-litre-fresh | log format = csv | buoyancy-litre-fresh through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 4.526985245555976e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-csv-direction | log format = csv | the wrong fin sign is refused, and skip_checks overrules it | synthetic | ✅ | {"without_skip": "refused", "with_skip": "wrote", "bars": "b0e3157797d7"} | 0 min |
+| LF-px4 | log format = px4 | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-source-measured | log format = px4 | source-measured through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-unit-deg | log format = px4 | unit-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-unit-rad | log format = px4 | unit-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-unit-percent | log format = px4 | unit-percent through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-unit-pwm | log format = px4 | unit-pwm through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-pwm-center | log format = px4 | pwm-center through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-pwm-reversed | log format = px4 | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-turns-port | log format = px4 | turns-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-pitches-down | log format = px4 | pitches-down through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-rolls-starboard | log format = px4 | rolls-starboard through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-rolls-port | log format = px4 | rolls-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-prop-rpm | log format = px4 | prop-rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-prop-rad_s | log format = px4 | prop-rad_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-prop-rev_s | log format = px4 | prop-rev_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-gimbal-deg | log format = px4 | gimbal-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-gimbal-rad | log format = px4 | gimbal-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-mass-m | log format = px4 | mass-m through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-mass-cm | log format = px4 | mass-cm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-mass-mm | log format = px4 | mass-mm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-buoyancy-N | log format = px4 | buoyancy-N through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.4803241752968042e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-buoyancy-litre | log format = px4 | buoyancy-litre through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 5.888761295032163e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-buoyancy-litre-fresh | log format = px4 | buoyancy-litre-fresh through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 3.017990163703984e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-px4-direction | log format = px4 | the wrong fin sign is refused, and skip_checks overrules it | synthetic | ✅ | {"without_skip": "refused", "with_skip": "wrote", "bars": "b0e3157797d7"} | 0 min |
+| LF-moos | log format = moos | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-source-measured | log format = moos | source-measured through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-unit-deg | log format = moos | unit-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-unit-rad | log format = moos | unit-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-unit-percent | log format = moos | unit-percent through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-unit-pwm | log format = moos | unit-pwm through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-pwm-center | log format = moos | pwm-center through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-pwm-reversed | log format = moos | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-turns-port | log format = moos | turns-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-pitches-down | log format = moos | pitches-down through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-rolls-starboard | log format = moos | rolls-starboard through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-rolls-port | log format = moos | rolls-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-prop-rpm | log format = moos | prop-rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-prop-rad_s | log format = moos | prop-rad_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-prop-rev_s | log format = moos | prop-rev_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-gimbal-deg | log format = moos | gimbal-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-gimbal-rad | log format = moos | gimbal-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-mass-m | log format = moos | mass-m through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-mass-cm | log format = moos | mass-cm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-mass-mm | log format = moos | mass-mm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-buoyancy-N | log format = moos | buoyancy-N through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.4803241752968042e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-buoyancy-litre | log format = moos | buoyancy-litre through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 5.888761295032163e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-buoyancy-litre-fresh | log format = moos | buoyancy-litre-fresh through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 3.017990163703984e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-moos-direction | log format = moos | the wrong fin sign is refused, and skip_checks overrules it | synthetic | ✅ | {"without_skip": "refused", "with_skip": "wrote", "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm | log format = lcm | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-source-measured | log format = lcm | source-measured through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-unit-deg | log format = lcm | unit-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-unit-rad | log format = lcm | unit-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-unit-percent | log format = lcm | unit-percent through this format | synthetic | ✅ | {"worst_deg": 6.3611093629270335e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-unit-pwm | log format = lcm | unit-pwm through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-pwm-center | log format = lcm | pwm-center through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-pwm-reversed | log format = lcm | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 1.6697912077683464e-14, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-turns-port | log format = lcm | turns-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-pitches-down | log format = lcm | pitches-down through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-rolls-starboard | log format = lcm | rolls-starboard through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-rolls-port | log format = lcm | rolls-port through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-prop-rpm | log format = lcm | prop-rpm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.1368704361237796e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-prop-rad_s | log format = lcm | prop-rad_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-prop-rev_s | log format = lcm | prop-rev_s through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 2.273740872247559e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-gimbal-deg | log format = lcm | gimbal-deg through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-gimbal-rad | log format = lcm | gimbal-rad through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.133093125939311e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-mass-m | log format = lcm | mass-m through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-mass-cm | log format = lcm | mass-cm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-mass-mm | log format = lcm | mass-mm through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.960273029006315e-15, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-buoyancy-N | log format = lcm | buoyancy-N through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 1.4803241752968042e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-buoyancy-litre | log format = lcm | buoyancy-litre through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 5.888761295032163e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-buoyancy-litre-fresh | log format = lcm | buoyancy-litre-fresh through this format | synthetic | ✅ | {"worst_deg": 5.665363026356889e-15, "worst_rel": 3.017990163703984e-16, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-lcm-direction | log format = lcm | the wrong fin sign is refused, and skip_checks overrules it | synthetic | ✅ | {"without_skip": "refused", "with_skip": "wrote", "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot | log format = ardupilot | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot-source-measured | log format = ardupilot | source-measured through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot-pwm-center | log format = ardupilot | pwm-center through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot-pwm-reversed | log format = ardupilot | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot-turns-port | log format = ardupilot | turns-port through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-ardupilot-pitches-down | log format = ardupilot | pitches-down through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag | log format = rosbag | commanded fin angles and rpm through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag-source-measured | log format = rosbag | source-measured through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag-pwm-center | log format = rosbag | pwm-center through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag-pwm-reversed | log format = rosbag | pwm-reversed through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag-turns-port | log format = rosbag | turns-port through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+| LF-rosbag-pitches-down | log format = rosbag | pitches-down through this format | synthetic | ✅ | {"worst_deg": 0.049999092990417215, "worst_rel": 0.0, "missing": [], "bars": "b0e3157797d7"} | 0 min |
+
+### Physics identities and speed
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| F-oracle | identity = - | against the independent vector fin | computed | ✅ | {"worst_relative": 2.2164876334418627e-15, "bars": "b0e3157797d7"} | 0 min |
+| F-paths | identity = - | fast, reference, rotation physics agree, every layout | computed | ✅ | {"worst_relative": 2.467830432755995e-15, "bars": "b0e3157797d7"} | 0 min |
+| F-mass-fuzz | identity = - | random mass entries: physical or refused by name | computed | ✅ | {"physical": 192, "refused": 2808, "bars": "b0e3157797d7"} | 0 min |
+| F-speed | identity = - | four fins' cost per step | computed | ✅ | {"four_fins_over_none": 2.2829053638449492, "bars": "b0e3157797d7"} | 0 min |
+| F-properties | identity = - | speed squared, zero at rest, finite in any flow | computed | ✅ | {"speed_squared": true, "still_is_zero": true, "finite_from_behind": true, "finite_at_large_angle": true, "bars": "b0e3157797d7"} | 0 min |
+
+### Hover: nothing changed
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| H-dfki_dvl | hover = dfki_dvl | a seeded real calibration, against the commit before fins | real logs | ✅ | {"hash": "83ebd2ff1ab04831", "base": "83ebd2ff1ab04831", "exit": 0, "bars": "b0e3157797d7"} | 15 min |
+| H-dfki_depth_hold | hover = dfki_depth_hold | a seeded real calibration, against the commit before fins | real logs | ✅ | {"hash": "5b9df3cc316c1384", "base": "5b9df3cc316c1384", "exit": 0, "bars": "b0e3157797d7"} | 18 min |
+| H-uri_dvl | hover = uri_dvl | a seeded real calibration, against the commit before fins | real logs | ✅ | {"hash": "ff01459e3f2ee140", "base": "ff01459e3f2ee140", "exit": 0, "bars": "b0e3157797d7"} | 12 min |
+| H-kth_dvl | hover = kth_dvl | a seeded real calibration, against the commit before fins | real logs | ✅ | {"hash": "1119c53e07d3346e", "base": "1119c53e07d3346e", "exit": 0, "bars": "b0e3157797d7"} | 30 min |
+| H-tank_dvl | hover = tank_dvl | a seeded real calibration, against the commit before fins | real logs | ✅ | {"hash": "e5f025deab482b15", "base": "e5f025deab482b15", "exit": 0, "bars": "b0e3157797d7"} | 21 min |
+
+### Faults
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| X-wrong-sign | fault = - | a reversed rudder | synthetic log | ✅ | {"refused": "/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmpipmvkgad/raw/r.csv: rudder: the rudder looks reversed (a positive angle goes with the op", "bar... | 0 min |
+| X-degrees-as-radians | fault = - | degrees read as radians | synthetic log | ✅ | {"refused": "/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmpon3ngqd6/raw/r.csv: fin channel elevator (elev) reaches 229 deg: check its unit (it's re", "bar... | 0 min |
+| X-stuck-fin | fault = - | a stuck rudder can't be sign-checked, and says so | synthetic log | ✅ | {"not_refused": true, "found": true, "bars": "b0e3157797d7"} | 0 min |
+| X-nan-dropout | fault = - | a dropout in the fin channel | synthetic log | ✅ | {"refused": "/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmpyystrshp/raw/r.csv: 101 of 600 rows have NaN/inf in required quantities", "bars": "b0e3157797d7... | 0 min |
+| X-too-slow | fault = - | too slow for the fins to count | synthetic log | ✅ | {"not_refused": true, "found": true, "bars": "b0e3157797d7"} | 0 min |
+| X-percent-no-scale | fault = - | percent with no scale | synthetic log | ✅ | {"refused": "invalid ingest spec '/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmp9aaeayl1/s.yaml':\n1 validation error for IngestSpec\nfins\n  Value er", "... | 0 min |
+| X-swapped-channels | fault = - | rudder and elevator swapped: reported, weakly | synthetic log | ✅ | {"not_refused": true, "found": true, "bars": "b0e3157797d7"} | 0 min |
+| X-unknown-key | fault = - | a misspelled key | synthetic log | ✅ | {"refused": "invalid ingest spec '/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmpxzoeb610/s.yaml':\n1 validation error for IngestSpec\nfin_block\n  Ext", "... | 0 min |
+| X-pwm-no-scale | fault = - | servo PWM with no scale | synthetic log | ✅ | {"refused": "invalid ingest spec '/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmp568t67js/s.yaml':\n1 validation error for IngestSpec\nfins\n  Value er", "... | 0 min |
+| X-hover-with-fin-logs | refusal = - | fin logs, hover description | - | ✅ | {"refused": "these logs have fin or propeller channels but the vehicle description is hover. Say `steering: fin` under vehicle: and describe the fins (`s", "bar... | 0 min |
+| X-servo-as-thruster | fault = - | a fin in the thruster columns | synthetic log | ✅ | {"refused": "invalid ingest spec '/var/folders/tp/yhfswxrj5bxg_cl01vn7pjzw0000gn/T/tmpsujer_s5/s.yaml':\n1 validation error for IngestSpec\n  Value error, ", "b... | 0 min |
+| X-fin-with-hover-logs | refusal = - | hover logs, fin description | - | ✅ | {"refused": "the vehicle description is fin but these logs have no fin or propeller channels. Add a fins: block to the ingest spec (FINS.md)", "bars": "b0e31577... | 0 min |
+| X-glider-calibration | refusal = - | a glider | - | ✅ | {"refused": "calibration needs thrust a glider doesn't have: it moves by changing its buoyancy and shifting its battery. `strathe fin-check` checks its r", "bar... | 0 min |
+| X-no-speed-source | refusal = - | fins with depth only | - | ✅ | {"refused": "a fin-steered vehicle needs a speed source: a fin's force goes as speed squared, so speed can't be inferred from the turning it causes. Log ", "bar... | 0 min |
+
+### Every refusal
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| XS-steering_of-1 | refusal = steering_of-1 | refused by name, with its fix | - | ✅ | {"said": "vehicle.steering: 'sail' isn't one of hover, fin, vectored, hybrid, glider. hover: thrusters steer it; fin: fins and a propeller; vectored: a gimballe... | 0 min |
+| XS-_unit-1 | refusal = _unit-1 | refused by name, with its fix | - | ✅ | {"said": "fins: span_axis [0, 0, 0] has no length", "bars": "b0e3157797d7"} | 0 min |
+| XS-actuators_from-1 | refusal = actuators_from-1 | refused by name, with its fix | - | ✅ | {"said": "this description has propeller but vehicle.steering is hover. Say `steering: fin` (or vectored, hybrid) under vehicle:, or remove them", "bars": "b0e3... | 0 min |
+| XS-actuators_from-2 | refusal = actuators_from-2 | refused by name, with its fix | - | ✅ | {"said": "vehicle.steering is fin but there's no fins: section. `strathe describe-vehicle --steering fin` writes one; templates/vehicle_spec_fin_template.yaml s... | 0 min |
+| XS-actuators_from-3 | refusal = actuators_from-3 | refused by name, with its fix | - | ✅ | {"said": "vehicle.steering is vectored but there's no propeller: section with gimbal: true", "bars": "b0e3157797d7"} | 0 min |
+| XS-actuators_from-4 | refusal = actuators_from-4 | refused by name, with its fix | - | ✅ | {"said": "fins.layout: 'star' isn't one of cross, x, y3, rudder_only, custom", "bars": "b0e3157797d7"} | 0 min |
+| XS-actuators_from-5 | refusal = actuators_from-5 | refused by name, with its fix | - | ✅ | {"said": "fins: a custom layout needs a fins: list", "bars": "b0e3157797d7"} | 0 min |
+| XS-actuators_from-6 | refusal = actuators_from-6 | refused by name, with its fix | - | ✅ | {"said": "fins: two fins share a name in ['a', 'a']", "bars": "b0e3157797d7"} | 0 min |
+| XS-actuators_from-7 | refusal = actuators_from-7 | refused by name, with its fix | - | ✅ | {"said": "fin a: needs area_m2 and span_m, both above 0: its limits and drag come from them", "bars": "b0e3157797d7"} | 0 min |
+| XS-controls_from_frame-1 | refusal = controls_from_frame-1 | refused by name, with its fix | - | ✅ | {"said": "this recording has both measured and commanded fin angles: prepare it with one (fins.source)", "bars": "b0e3157797d7"} | 0 min |
+| XS-controls_from_frame-2 | refusal = controls_from_frame-2 | refused by name, with its fix | - | ✅ | {"said": "this recording has no fin angles, but the vehicle description has fins. Add a fins: block to the ingest spec (FINS.md)", "bars": "b0e3157797d7"} | 0 min |
+| XS-controls_from_frame-4 | refusal = controls_from_frame-4 | refused by name, with its fix | - | ✅ | {"said": "this recording: fin channels ['flap'] aren't rudder, elevator, aileron or a fin's name (['bottom', 'port', 'starboard', 'top'])", "bars": "b0e3157797d... | 0 min |
+| XS-controls_from_frame-3 | refusal = controls_from_frame-3 | refused by name, with its fix | - | ✅ | {"said": "this recording has angles for ['top'] but not ['bottom', 'port', 'starboard']: log every fin, or log rudder, elevator and aileron", "bars": "b0e315779... | 0 min |
+| XS-check_data-2 | refusal = check_data-2 | refused by name, with its fix | - | ✅ | {"said": "these logs have fin or propeller channels but the vehicle description is hover. Say `steering: fin` under vehicle: and describe the fins (`strathe des... | 0 min |
+| XS-check_data-1 | refusal = check_data-1 | refused by name, with its fix | - | ✅ | {"said": "calibration needs thrust a glider doesn't have: it moves by changing its buoyancy and shifting its battery. `strathe fin-check` checks its rudder agai... | 0 min |
+| XS-controls_from_frame-5 | refusal = controls_from_frame-5 | refused by name, with its fix | - | ✅ | {"said": "this recording has no rpm column, but the vehicle description needs it. Add it to the ingest spec", "bars": "b0e3157797d7"} | 0 min |
+| XS-refuse_experiment-1 | refusal = refuse_experiment-1 | refused by name, with its fix | - | ✅ | {"said": "arena can't run a glider: there's no thrust model for one", "bars": "b0e3157797d7"} | 0 min |
+| XS-check_speed_source-1 | refusal = check_speed_source-1 | refused by name, with its fix | - | ✅ | {"said": "a fin-steered vehicle needs a speed source: a fin's force goes as speed squared, so speed can't be inferred from the turning it causes. Log a DVL or p... | 0 min |
+| XS-check_data-3 | refusal = check_data-3 | refused by name, with its fix | - | ✅ | {"said": "the vehicle description is fin but these logs have no fin or propeller channels. Add a fins: block to the ingest spec (FINS.md)", "bars": "b0e3157797d... | 0 min |
+
+### Random inputs (fuzz)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| Z-specs | fuzz = - | random descriptions | random | ✅ | {"ok": 132, "refused": 268, "tracebacks": [], "bars": "b0e3157797d7"} | 0 min |
+| Z-physics | fuzz = - | random states and angles | random | ✅ | {"cases": 3000, "not_finite": 0, "bars": "b0e3157797d7"} | 0 min |
+
+### Deliberate faults (each must be caught)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| M-flip-moment | mutant = fin_force.py | N += x * fy - y * fx broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-drop-rate | mutant = fin_force.py | lu = u + b * z - r * y broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-swap-lift-drag | mutant = fin_force.py | fn = q * U * (CL * vc - CD * vn) broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-drop-inflow | mutant = fin_force.py | alpha = c[i] + bias - inflow * phi broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-no-current-forward | mutant = fast_dynamics.py | tau, sr, cr, sp, cp, None, ctl) broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-no-window-slice | mutant = objective.py | controls=None if run.controls is None else run.con broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-reverse-mixing | mutant = steering.py | m / big broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-ignore-servo | mutant = objective.py | if getattr(run, "servo", None) is not None: broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-mass-transpose | mutant = dynamics_model.py | M[i, j] = M[j, i] = getattr(params, name) broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-gazebo-sign | mutant = simfit/adapters/gazebo.py | Ma[i, j] = Ma[j, i] = flip[i] * flip[j] * getattr( broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-no-fin-check | mutant = data_ingestion.py | if best < FIN_REVERSED_CORRELATION: broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-export-area | mutant = simfit/fin_models.py | * f.area_m2 / model_areas[f.name] broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-export-group | mutant = simfit/fin_models.py | {f.name: (params.fin_lift_slope_b if f.group else  broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-model-group | mutant = simfit/fin_models.py | float(params.fin_lift_slope_b if f.group else para broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-export-drops-fins | mutant = simfit/fin_models.py | if act is None and (getattr(params, "fin_lift_slop broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-mujoco-flat-fin | mutant = simfit/fin_models.py | roll = math.atan2(s[2], s[1]) broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-silent-replay | mutant = simfit/replay_tool.py | said = (r.stderr or "").strip() or (r.stdout or "" broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-same-replay-path | mutant = simfit/replay_tool.py | d = tempfile.mkdtemp(prefix="replay_", dir=work_di broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-mount-over-image | mutant = stonefish_fit.py | if os.path.isdir(self.data_dir): broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-flights-unscored | mutant = objective.py |     flights = run.__dict__.get("_flights")
+    if  broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 8 min |
+| M-no-fin-scan | mutant = simfit/core.py |     if not fins:
+        return x0
+ broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 0 min |
+| M-no-flight-stage | mutant = run_calibration.py |     if fin_info is not None:
+        cal_result =  broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 9 min |
+| M-no-guard | mutant = fin_fit.py | if g is not None and g["swing_deg"] < MIN_FIN_SWIN broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 5 min |
+| M-finish-crash | mutant = finalize_checkpoint.py |     if sensor_info is not None:
+        metrics["s broken | tests | ✅ | {"applied": true, "caught": true, "exit": 1, "bars": "b0e3157797d7"} | 8 min |
+
+### Experiments
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| EX-all | experiments = arena, fleet, train-fleet | a calibrated fin vehicle runs in each experiment; MuJoCo refuses | - | ✅ | {"said": "9 passed in 3.28s", "bars": "b0e3157797d7"} | 0 min |
 
