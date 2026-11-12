@@ -230,16 +230,7 @@ def plan_flights(train_runs: list) -> int:
 # the hull's surge added mass, roll damping and heave and pitch damping to their limits, and 30 s heading went from 3.0 degrees after the first stage to 8.8
 # (T-prestero-slow, #97). Every other truth row had 900 s at speed and 89 flights there. 20 is the same floor as MIN_FIN_MANOEUVRES; it was chosen after
 # seeing that held-out result, so it is disclosed as such (PROJECT_STATUS.md #97).
-# What harms the fit is slow flights outnumbering the ones at speed, not a short log: P-platform-remus100's recordings planned 8 flights, all 8 at speed, and
-# the floor alone kept its first stage, 4.3% off its fin lift against a 2% bar (#97 final run). So the second stage also runs when at least
-# MIN_SHARE_AT_SPEED of the flights were flown at speed. Chosen after seeing that row, and disclosed as such.
 MIN_FLIGHTS_AT_SPEED = 20
-MIN_SHARE_AT_SPEED = 0.5
-
-
-def enough_at_speed(moving: int, count: int) -> bool:
-    """Whether the second stage runs: MIN_FLIGHTS_AT_SPEED flights at speed, or at least MIN_SHARE_AT_SPEED of the planned ones."""
-    return moving >= MIN_FLIGHTS_AT_SPEED or (count > 0 and moving >= MIN_SHARE_AT_SPEED * count)
 
 
 def flights_at_speed(train_runs: list, act) -> int:

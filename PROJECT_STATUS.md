@@ -3934,13 +3934,15 @@ values score 0.439 on today's objective, so it isn't stopping early: on 59 s at 
 without rerunning it, and was wrong. The guard stays (it stops the second stage making things worse, 8.82° there), the row stays failed, and
 LIMITS.md says what it needs: minutes at survey speed, with turns.
 
-**The slow-log guard also stopped short logs flown at speed (fixed, #97 final run).** P-platform-remus100 failed its recovery bar on
-0768cfe: fin lift `b` 4.3% off against 2% (it passed on 7 Nov, before the guard). Its four 50 s recordings plan 8 flights of 10 s, all 8 at
-speed, and the floor of 20 kept its first stage. What the guard protects against is slow flights outnumbering those at speed, so the second
-stage now also runs when at least half the planned flights (`MIN_SHARE_AT_SPEED`) were flown at speed. T-prestero-slow (5 of 89) still keeps its
-first stage. The queue was paused when this was found; P-platform-lauv had also failed by then. Both rows, and any recover row run on 0768cfe,
-are rerun on the fix, and their 0768cfe failures stay in the results. **What I looked at:** the share of a half was chosen after seeing
-P-platform-remus100's result.
+**#74 undone: a short log keeps its first stage (#97 final run).** #74 let the second stage run when half the planned flights were at
+speed, after P-platform-remus100 (8 flights, all at speed, clean logs) came back 4.3% off its fin lift on the first stage alone (bar 2%).
+On #74's code (754929d) the pairwise rows with grade sensor noise then failed: PW-03 26.5%, PW-19 17.9%, PW-22 16.7%, PW-23 18.1% (bar 10%).
+Rerun on scratch copies with the first stage only they give 5.5%, 5.5%, 9.1% and 3.3%. Each flight starts from one logged sample, and on 8
+flights that noise isn't averaged out. Real logs carry noise, so the floor of 20 flights at speed stands alone again. P-platform-remus100 and
+P-platform-lauv fail as they did on 0768cfe, in LIMITS ("A short log keeps the first stage"). **What I looked at:** before undoing it,
+on PW-03: smoothing each flight's starting state (a mean over ±3 to ±10 samples passed it; a quadratic fit over ±5 didn't, 45.7%), and a floor
+under each axis's flight yardstick (0.3°, 0.5° and 1.0° passed PW-03, but 0.3° didn't pass PW-19, -22 or -23). Neither is in the code. The
+recover and PW rows run on 754929d are rerun on this commit, and their 754929d results stay in the results.
 
 **Twelve fits say "interrupted" when they weren't (wording, #97 final run).** O-survey-only, T-fossen-{rich,mixed,survey,slow,fast},
 T-holoocean-rich and T-prestero-{rich,mixed,survey,fast,rate-5} finished their fits on 0768cfe's predecessors and were then re-finished from
