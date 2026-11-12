@@ -129,3 +129,62 @@ def test_the_report_says_what_was_done_to_heading():
     assert "As fitted, without re-trimming or the sideways flow" in said
     plain = "\n".join(fin_flight_section({"fin_free_run": f}))
     assert "sideways" not in plain and "straight flights alone" not in plain
+
+
+# ------------------------------------------------------------------ each flight in the flow just before it, from a steady start
+def test_a_flight_uses_nothing_logged_after_its_start():
+    r = _sliding(_straight(9), 0.2)
+    a = 300
+    later = r.real_nu.copy()
+    later[a + 1:, 1] += 3.0                            # whatever happens after the start
+    q = r.orientation_quat.copy()
+    q[a + 1:] = Rotation.from_euler("z", 40, degrees=True).as_quat()
+    f1, f2 = val.flight_from(r, a), val.flight_from(replace(r, real_nu=later, orientation_quat=q), a)
+    assert np.allclose(f1.current_body[a], f2.current_body[a]) and np.allclose(f1.real_nu[a], f2.real_nu[a])
+
+
+def test_after_straight_flight_it_starts_moving_with_the_water_and_not_turning():
+    r = _sliding(_straight(9), 0.2)
+    nu = r.real_nu.copy()
+    nu[:, 5] += 0.004                                  # the gyro's wobble, under the straight-flight limit
+    r = replace(r, real_nu=nu)
+    a = 300
+    f = val.flight_from(r, a)
+    k = int(val.FLOW_LOOKBACK_S * r.sample_rate_hz)
+    flow = f.current_body[a, 1]
+    assert flow == pytest.approx(float(np.mean(r.real_nu[a - k:a, 1])), abs=2e-3)   # level and body sideways agree here
+    assert f.real_nu[a, 5] == 0.0 and f.real_nu[a, 1] == pytest.approx(flow, abs=2e-3)
+    assert np.array_equal(f.real_nu[a + 1:], r.real_nu[a + 1:])                      # only the start changes
+
+
+def test_after_a_turn_it_starts_from_the_logged_state():
+    r = _sliding(_deployment(9), 0.2)
+    psi = Rotation.from_quat(r.orientation_quat).as_euler("xyz")[:, 2]
+    rate = np.abs(np.diff(psi)) * r.sample_rate_hz
+    k = int(val.FLOW_LOOKBACK_S * r.sample_rate_hz)
+    a = next(i for i in range(k, r.n_samples) if np.any(rate[i - k:i] > np.radians(val.STEADY_TURN_DEG_S)))
+    f = val.flight_from(r, a)
+    assert np.array_equal(f.real_nu[a], r.real_nu[a])
+
+
+def test_too_little_straight_flight_before_it_falls_back_to_the_recordings_offset():
+    r = _sliding(_straight(9), 0.2)
+    f = val.flight_from(r, 2)                           # 2 s in: not enough flight before it
+    assert f.current_body[2, 1] == pytest.approx(val.sideways_offset(r)) and np.array_equal(f.real_nu, r.real_nu)
+
+
+def test_no_sway_logged_leaves_the_flight_as_it_is():
+    r = _straight(9)
+    nu = r.real_nu.copy()
+    nu[:, 1] = np.nan
+    r = replace(r, real_nu=nu)
+    assert val.flight_from(r, 300) is r
+
+
+def test_the_free_run_check_flies_each_window_from_its_own_start():
+    r = _sliding(_straight(9), 0.2)
+    plain = val.fin_free_run({"calibrated": P}, [r], MIXED, window_s=30.0)
+    flown = val.fin_free_run({"calibrated": P}, [r], MIXED, window_s=30.0, flow=True)
+    assert flown["windows"] == plain["windows"]
+    assert flown["straight_on"] == plain["straight_on"]                          # holding course is scored on the log as it is
+    assert flown["calibrated"]["heading_deg"]["median"] < plain["calibrated"]["heading_deg"]["median"]
