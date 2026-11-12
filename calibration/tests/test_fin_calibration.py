@@ -470,6 +470,21 @@ def test_enough_flights_at_speed_run_the_second_stage(tmp_path, monkeypatch):
     assert len(called) == 1 and info["flight_stage"]["converged"] and info["flights_at_speed"] == fin_fit.MIN_FLIGHTS_AT_SPEED
 
 
+def test_a_short_log_keeps_the_first_stage_even_at_speed(tmp_path, monkeypatch):
+    # #97 final run: on 8 flights, all at speed, the second stage helped clean logs (P-platform-remus100) and hurt noisy ones
+    # (PW-03, -19, -22, -23 passed on the first stage and failed after it), so the floor counts flights, not their share (#74 undone)
+    import run_calibration as rc
+    called = []
+    monkeypatch.setattr(rc, "calibrate", lambda *a: called.append(a))
+    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 8)
+    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: 8)
+    run, spec = _flight_run(tmp_path)
+    first = type("F", (), {"parameters": initial_parameters(spec)})()
+    info = {"plain": []}
+    assert rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], first, info) is first
+    assert not called and "kept its short-window values" in info["plain"][-1]
+
+
 def test_flights_split_across_workers_give_the_same_residuals(tmp_path):
     import fin_fit
     from objective import ParallelJointResiduals, joint_residuals

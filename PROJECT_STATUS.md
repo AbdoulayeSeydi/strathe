@@ -3926,6 +3926,16 @@ flights at speed (89 of 89; 464 of 464), so their fits don't change. **What I lo
 was chosen after seeing this row's held-out result, so T-prestero-slow's rerun isn't an independent check of it. The failed row stays in the
 results.
 
+**#74 undone: a short log keeps its first stage (#97 final run).** #74 let the second stage run when half the planned flights were at
+speed, after P-platform-remus100 (8 flights, all at speed, clean logs) came back 4.3% off its fin lift on the first stage alone (bar 2%).
+On #74's code (754929d) the pairwise rows with grade sensor noise then failed: PW-03 26.5%, PW-19 17.9%, PW-22 16.7%, PW-23 18.1% (bar 10%).
+Rerun on scratch copies with the first stage only they give 5.5%, 5.5%, 9.1% and 3.3%. Each flight starts from one logged sample, and on 8
+flights that noise isn't averaged out. Real logs carry noise, so the floor of 20 flights at speed stands alone again. P-platform-remus100 and
+P-platform-lauv fail as they did on 0768cfe, in LIMITS ("A short log keeps the first stage"). **What I looked at:** before undoing it,
+on PW-03: smoothing each flight's starting state (a mean over ±3 to ±10 samples passed it; a quadratic fit over ±5 didn't, 45.7%), and a floor
+under each axis's flight yardstick (0.3°, 0.5° and 1.0° passed PW-03, but 0.3° didn't pass PW-19, -22 or -23). Neither is in the code. The
+recover and PW rows run on 754929d are rerun on this commit, and their 754929d results stay in the results.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
