@@ -1,70 +1,118 @@
-# Unit Economics — Real Compute Cost per Calibration
+# Unit Economics: compute cost per calibration, on Modal
 
-*Every timing number below is a real, confirmed figure from this
-session's actual runs (see `PROJECT_STATUS.md` for the source finding),
-not an estimate. Cloud pricing is real, current AWS on-demand pricing
-(checked August 2026) — real assumptions and genuine unknowns are
-flagged explicitly, not smoothed over.*
+*Updated 12 Nov 2026 for running the cloud compute on [Modal](https://modal.com/pricing). Prices were read from Modal's
+pricing page on 12 Nov 2026. Run times come from this project's own runs, and each one says where it came from. Some
+numbers are estimates, and they're labelled as estimates. This document covers cost. It doesn't set the price a lab pays.*
 
-## Real timing inputs
+**Nothing in Strathe runs on Modal yet.** No Modal app, image or volume exists in this repository. Every time below was
+measured on one Apple M1 laptop (8 cores, 8 GB), usually with 2 to 4 jobs sharing it. The Modal figures are the measured
+work multiplied by Modal's prices. They are not Modal bills.
 
-| Step | Real, confirmed cost | Source |
+## Modal prices (12 Nov 2026)
+
+| Resource | Modal's price | Per hour |
 |---|---|---|
-| Pre-flight check | Seconds | Real, live run this session |
-| Stand-in calibration (`--max-nfev 60`, full dataset) | ~6.5 hours (23,427s) | Confirmed real precedent, this session |
-| HoloOcean refinement, **per segment** | ~10.9 hours (315 real evaluations, confirmed baseline ~124.2s/eval) | Real segment run, this session |
-| Real validation (Claim A / `replay_comparison.py`) | ~85 minutes | Confirmed real, full held-out set, this session |
-| Claim B (PPO training) | **Not confirmed this session** — real training happened earlier this project, but no exact wall-clock figure is on record | Flagged gap, not fabricated |
-| Optional identifiability report | ~15-17 minutes | Confirmed real, this session |
+| CPU, per physical core (= 2 vCPU) | $0.0000131 / core / s | **$0.0472 / core-h** |
+| Memory | $0.00000222 / GiB / s | **$0.0080 / GiB-h** |
+| GPU T4 | $0.000164 / s | $0.590 / h |
+| GPU L4 | $0.000222 / s | $0.799 / h |
+| GPU A10 | $0.000306 / s | $1.10 / h |
+| Volumes (checkpoints, uploaded logs) | $0.09 / GiB / month, first 1 TiB / month free | |
+| Network egress | $0.04 / GiB | |
 
-## Update, 2026-09-23: faster stand-in replay and fleet training
+How the bill works:
+- **A GPU container is also billed for its CPU and memory**, on top of the GPU price.
+- **Preemptible is the default price.** Non-preemptible runs cost 3x. Pinning a region costs 1.15x to 1.75x. Sandboxes
+  are billed at the non-preemptible rate.
+- **Minimums:** 0.125 core and 128 MiB per container.
+- **Plans:**
+  - Starter: $0 a month, with $30 of compute included each month. It allows 3 seats, 100 containers and 10 GPUs at once.
+  - Team: $250 a month, with $100 included. It allows unlimited seats, 5,000 containers and 50 GPUs at once.
+  - Enterprise: custom pricing, with volume discounts.
 
-- **Stand-in calibration is 3x cheaper per evaluation.** `dynamics_model.simulate_trajectory` now runs on `fast_dynamics.py`, which uses the same equations with the mass matrix inverted once. Measured A/B on the same machine under the same load: one full-dataset objective evaluation (25 training runs) went from **47.5 s to 16.1 s**, with residuals identical to 9e-16. **Projected** full stand-in calibration: ~6.5 h → ~2.2 h. A full `--max-nfev 60` run is being timed to replace this projection with a measured number.
-- **Fleet policy training** (new cost line): 3M steps per policy takes ~41 min on one M1 core (`fleet_policy_seed*.json` record the exact wall-clock times). Three seeds in parallel take the same ~41 min on an 8-core machine. At the CPU rate above (~$0.17/h) that's ~$0.12 per policy.
-- **Fleet evaluation**: the 38,400-episode belief-to-success study takes ~30 min on 7 cores; the shipped default experiment takes ~5 min.
-- HoloOcean costs are unchanged by this, and HoloOcean numbers are provisional pending `verify_holoocean_frame_conventions.py` (PROJECT_STATUS.md #40).
+**Working rate used below:** one core plus 2 GiB of memory costs **$0.063 per core-hour** ($0.0472 + 2 × $0.0080).
+2 GiB per core is an assumption, because our fit workers' memory hasn't been measured on Linux. At 1 GiB per core the
+rate is $0.055, which is 12% less.
 
-## The real, honest uncertainty: how many HoloOcean segments does "done" take?
+## How the measured times become core-hours
 
-This session needed **at least 5 real segments** to reach the current best validated result (finding #27's segment 5) — and the rotational-axis investigation alone consumed several more beyond that trying different hypotheses. There's no fixed number here; it depends on how much refinement a given vehicle's data needs. Presenting a range, not a false-precision single number:
+The fit spreads each evaluation across worker processes (`objective.py`). Its cost is the CPU time those workers use.
 
-- **Minimum viable (1 segment)**: a first, real HoloOcean-refined result — good enough to know if the approach works at all
-- **This session's actual real usage (5+ segments)**: what it took to reach the best validated result on record
+- **Measured directly (fin fit):** the workers' CPU time, read from the operating system while the fit ran.
+- **Estimated (everything else):** the row's wall time × 2 cores. That's roughly what each job got while 2 to 4 jobs shared the
+  8 cores. It could be off by up to 2x either way.
+- **Excluded:** rows paused with SIGSTOP for the Fin Steer build (over 100 h each).
 
-## Real cloud pricing (AWS on-demand, checked August 2026)
+On Modal, giving a fit more cores should make it finish sooner for about the same core-hours, because the windows split
+across workers. That hasn't been measured beyond the laptop's 8 cores, so treat shorter wall times on Modal as a projection.
 
-| Instance | Specs | Price/hour | Used for |
+## Cost per job
+
+| Job | Measured work | Source | Modal cost |
 |---|---|---|---|
-| `c5.xlarge` / `c6i.xlarge` | 4 vCPU, 8GB RAM, no GPU | **$0.17/hr** | Stand-in calibration (pure CPU, no HoloOcean) |
-| `g4dn.xlarge` | 4 vCPU, 16GB RAM, NVIDIA T4 GPU | **$0.526/hr** | HoloOcean-backed steps (real Unreal Engine rendering) |
+| Pre-flight check, `strathe check` | Seconds | Any run | ~$0.00 |
+| **Hover calibration**, one vehicle's logs | 0.8 to 14.6 h wall (14 runs), median ~3.5 h, so ~1.6 to 29 core-h, median ~7 | `results_94.csv`, the `*-cal` rows across six log formats | **$0.10 to $1.83, typically ~$0.45** |
+| **Fin calibration** (fin fit plus free-run validation) | **45 core-s per evaluation, measured**; a full fit is ~3,200 evaluations, so ~40 core-h | T-prestero-long: 18.1 core-h of worker CPU over its first 1,442 second-stage evaluations | **~$2.55** |
+| Fin calibration, range across #97 | 6.3 to 23.8 h wall for synthetic truths; 38.8 h and 55 h for the two longest real REMUS fits, so ~13 to 110 core-h | `results_97.csv`, the T-* and O-* rows | **$0.80 to $6.93** |
+| Simulator fit, Gazebo (`fit-sim`) | 10.3 h wall, ~21 core-h | `results_93.csv` E19-fit_sim_gazebo | **~$1.30** |
+| HoloOcean refinement, per segment | 10.9 h (315 evaluations at ~124 s each, measured Aug 2026) | Earlier HoloOcean segment run, `PROJECT_STATUS.md` | **$9.89 on a T4** container with 4 cores + 16 GiB ($0.907/h); $12.16 on an L4 ($1.116/h) |
+| Fleet policy training, 3M steps | ~41 min on one core | `fleet_policy_seed*.json` | ~$0.04 |
 
-**One real, stated assumption**: this assumes a `g4dn.xlarge`-class GPU is *sufficient* for HoloOcean's rendering needs even in the stripped-down, deterministic calibration mode used this session. That has not been directly confirmed against this project's real GPU requirements — if a more powerful GPU instance turns out to be necessary, the HoloOcean-step costs below would scale up accordingly (e.g., a `g5.2xlarge` at $1.212/hr would roughly 2.3x those figures).
+HoloOcean has **not run in a Linux container yet**. It still needs the Epic-linked build (the Fin Steer plan's open
+HoloOcean step), Unreal running headless, and a GPU driver inside Modal's image. Until it runs there, the HoloOcean line
+is a price for a job that might not work on Modal. A T4 being enough is also unconfirmed.
 
-## Real cost per full calibration
+## Cost per lab calibration
 
-| Step | Time | Instance | Cost |
-|---|---|---|---|
-| Pre-flight | ~1 min | CPU | ~$0.00 |
-| Stand-in calibration | 6.5 hrs | CPU ($0.17/hr) | **$1.11** |
-| HoloOcean refinement (1 segment) | 10.9 hrs | GPU ($0.526/hr) | **$5.73** |
-| HoloOcean refinement (5 segments, this session's real usage) | 54.5 hrs | GPU ($0.526/hr) | **$28.67** |
-| Claim A validation | 1.42 hrs | GPU ($0.526/hr) | **$0.75** |
-| Identifiability report (optional) | ~0.28 hrs | CPU ($0.17/hr) | **$0.05** |
+| What the lab gets | Modal compute |
+|---|---|
+| Hover vehicle, stand-in physics only | **~$0.45** (range $0.10 to $1.83) |
+| Fin vehicle, stand-in physics only | **~$2.55** (range $0.80 to $6.93) |
+| Add a simulator fit (Gazebo; Stonefish has the same shape but isn't timed on its own) | +~$1.30 |
+| Add HoloOcean refinement, 1 to 5 segments | +$9.89 to $49.43 (unverified, see above) |
+| Storage: logs, checkpoints, report | Inside Modal's free 1 TiB a month for any likely volume |
 
-**Real total, minimum-viable path (1 HoloOcean segment): ~$7.60 per vehicle calibration.**
-**Real total, this session's actual usage (5 segments): ~$30.55 per vehicle calibration.**
+For scale:
+- **Starter plan:** its $30 a month of included compute covers about 65 typical hover calibrations or about 12 typical fin
+  calibrations.
+- **Team plan:** needed only for more than 3 seats, more than 100 containers at once, or more than 10 GPUs at once.
 
-*(Claim B/PPO training cost is not included above — genuinely unconfirmed, not assumed to be zero or negligible.)*
+## Re-running the proof suites on Modal
 
-## The real, important takeaway
+The stress suites are the largest single compute bill: every PR that changes the physics should rerun them.
+- **#93 to #96 (hover):** ~287 wall hours of rows, so ~575 core-h, about **$36**.
+- **#97 (Fin Steer):** ~323 wall hours, so ~646 core-h, about **$41**.
+- **All five together:** about **$77** per full rerun, against roughly 185 hours on the laptop.
 
-**Raw compute cost is small — well under $50 even at this session's actual, real usage level.** This is not what would make offering this as a paid product expensive. Worth stating plainly: **the dominant real cost this session was not compute, it was engineer time** — hours spent watching multi-hour runs, diagnosing real bugs live, and making judgment calls about convergence and next steps. Any pricing model built on compute cost alone would badly underestimate what it actually costs to deliver a calibration result *today*, given how much of tonight's process still requires a human in the loop rather than a truly unattended pipeline.
+All three figures use the wall-time × 2 core estimate. These rows are independent, so on Modal they can run as separate
+containers at once. The suite would then take about as long as its longest row, roughly 1 to 2 days, instead of a week.
+Running them this way needs a runner script that doesn't exist yet.
 
-This directly connects to `PRODUCT_VISION.md`'s own priority list: cloud orchestration and a more automated pipeline aren't just about labs' convenience — they're the actual lever that would make the real unit economics (engineer time, not compute) scale at all.
+## Things to get right when it's built
 
-## What's still genuinely unknown, not filled in with a guess
+- **Use preemptible containers, not the 3x price.** Fits already save a checkpoint after every evaluation. After a
+  preemption, `strathe calibrate --finish` (`--resume-from-checkpoint`) warm-starts from the best result so far. That
+  only works if the checkpoint is written to a Modal Volume, not the container's own disk.
+- **The warm start isn't an exact continuation.** A preempted fit restarts from its best parameters, so a preempted run
+  and an uninterrupted one can end slightly differently. Results that need to be reproducible should record any preemption.
+- **Don't pin a region** unless a lab's data rules require it: it adds 15% to 75%.
+- **Stonefish and Gazebo** run in Docker images today (Colima on the laptop). They would need to be rebuilt as Modal images,
+  and their outputs checked against the laptop numbers before any Modal result counts as proof.
+- **Lab data leaves the lab's machine.** Uploading logs to Modal is a data-handling change, and labs have to be told.
 
-- Claim B's real wall-clock cost
-- Whether `g4dn.xlarge`'s GPU is actually sufficient for this project's real HoloOcean rendering needs
-- Real storage/data-transfer costs (not computed here — likely small relative to compute, but not confirmed)
-- Any pricing model markup, margin, or what a customer would actually be charged — this document is cost, not price
+## The main point is unchanged
+
+Compute is cheap: about $0.45 to $2.55 for a typical calibration, and up to about $58 for a long fin fit with a simulator
+fit and five HoloOcean segments. Engineer time is still the main cost, in diagnosing failed fits and checking rows before
+believing them. Modal's per-second billing and free tier make compute close to free at pilot volume.
+
+## Still unknown
+
+- Our workers' real memory use on Linux. 2 GiB per core is assumed.
+- Whether fits keep the same core-hours on more than 8 cores.
+- Whether HoloOcean runs headless on Modal, and on which GPU.
+- What a lab is charged: this is cost, not price. Fin calibration also shouldn't be sold at full price yet: its heading
+  beats holding course on only one unseen real deployment, and narrowly (`LIMITS.md`).
+
+*Before 12 Nov 2026 this file priced AWS on-demand instances: c5.xlarge at $0.17/h and g4dn.xlarge at $0.526/h,
+checked Aug 2026. Git history has that version.*
