@@ -148,6 +148,19 @@ aren't supported.**
   scored at a trim its own flights set; a recording with no other recording of its deployment (or under 10 such flights) keeps the
   fit's. The model accounts for speed, attitude and manoeuvres, so flying differently doesn't count as a trim change. The report says by
   how much, and shows the flight without it. Log at least two recordings on each deployment.
+- **The heading trim comes from straight flights.** After that, the rudder trim alone is set again from the other recordings' flights
+  whose heading changed under 3° in 10 s. On logs that turn one way most of the time, a trim that also zeroes the turning flights
+  follows the turn and leaves the model flying a slow false turn on straight lines (OOI's 2019 REMUS: +10.5° in 30 s).
+- **Each held-out recording is flown in the sideways flow it was in.** A vehicle flying straight moves with the water, so a steady
+  sideways velocity over ground there (OOI's REMUS logs: -0.23 to +0.17 m/s) is a current across its path or a velocity sensor mounted
+  slightly turned. Flown in still water, the model crabs off course. Each recording's flow is its own mean sideways velocity over ground
+  on straight flight (turning under 0.5°/s, faster than 0.5 m/s), added to any current you gave. A survey line flies one heading, so a
+  current can't be told from a turned sensor; the flow is fixed to the hull, which is the same thing on one heading.
+- **Each 30 s flight uses nothing logged after its start.** Its sideways flow comes from the 10 s before it (the straight samples' mean
+  sideways velocity over ground, or the recording's own flow when there are too few). After 10 s of straight flight it starts moving
+  with the water sideways and not turning: at 1 Hz, the gyro's sample of a vehicle holding a line is mostly its wobble. On real
+  REMUS logs the vehicle held its lines through rudder the model would otherwise follow. A flight starting in a turn starts from
+  the logged state. Holding course is scored on the log as it is.
 - **Depth is scored against your depth sensor** when your logs have one (a `depth_` column), even if the fit used the DVL alone, and
   the report warns when the DVL's vertical speed and the depth sensor's rate disagree (`dvl_vs_depth`, SENSORS.md).
 - **Read "Flying on its own" first.** The fit's windows feed the logged pitch back in, which hides what the elevator does to depth.

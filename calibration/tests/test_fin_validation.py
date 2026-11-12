@@ -280,7 +280,7 @@ def test_the_report_says_what_trim_each_deployment_was_flown_at():
     txt = "\n".join(fin_flight_section({"fin_free_run": f, "fin_free_run_as_trained": f,
                                         "fin_retrim": {"02-02-2031": {"retrimmed": True, "roll_deg": .1, "pitch_deg": -2.0, "yaw_deg": None,
                                                                       "recordings": 3, "trimmed_recordings": 2, "window_s": 10.0}}}))
-    assert "own trim" in txt and "02-02-2031" in txt and "-2.00°" in txt and "Without re-trimming" in txt
+    assert "own trim" in txt and "02-02-2031" in txt and "-2.00°" in txt and "As fitted, without re-trimming" in txt
     assert "other recordings only" in txt and "kept the fit's trim (02-02-2031)" in txt
 
 

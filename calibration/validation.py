@@ -47,6 +47,10 @@ FIN_SHORT_WINDOW_S = 5.0     # and over a horizon an unstable vehicle allows
 UNSTABLE_DOUBLING_S = 6.0    # errors doubling faster than this: five doublings or more in FIN_WINDOW_S, so a 30 s flight says little about the model
 TRIM_WINDOW_S = 10.0         # a deployment's trim: the fin offsets with which the model holds attitude over flights this long, as the vehicle did
 MIN_TRIM_WINDOWS = 10        # fewer of those flights in a deployment's other recordings, and a recording keeps the fit's trim
+STRAIGHT_TRIM_DEG = 3.0      # the heading trim comes only from those flights whose logged heading changed less than this (#97)
+STEADY_TURN_DEG_S = 0.5      # a sample turning slower than this, and moving forward faster than STEADY_SURGE_MPS, is on straight flight
+STEADY_SURGE_MPS = 0.5
+FLOW_LOOKBACK_S = 10.0       # each flight's sideways water flow from this long before it starts; after this long straight, it starts steady (#97)
 STEP_PRE_S, STEP_POST_S = 1.0, 3.0
 AXES = ["u", "v", "w", "p", "q", "r"]
 AXIS_WORDS = {"u": "forward (surge)", "v": "sideways (sway)", "w": "up/down (heave)", "p": "roll rate",
@@ -488,6 +492,139 @@ def _solve(lin: list, use: list) -> tuple:
     return d, axes
 
 
+def _straight_flights(run, window_s: float = TRIM_WINDOW_S) -> list:
+    """Start samples of the recording's window_s flights (as attitude_drift steps them) whose logged heading changed by less than
+    STRAIGHT_TRIM_DEG."""
+    n = int(round(window_s * run.sample_rate_hz)) + 1
+    psi = Rotation.from_quat(run.orientation_quat).as_euler("xyz")[:, 2]
+    return [a for a in range(0, run.n_samples - n + 1, n - 1) if abs(_wrap(psi[a + n - 1] - psi[a])) < math.radians(STRAIGHT_TRIM_DEG)]
+
+
+def _heading_drift(params, vehicle, flights: list, window_s: float = TRIM_WINDOW_S) -> tuple:
+    """(sum of the model's heading at the end less the logged one, rad; flights flown) over flights [(run, start)]."""
+    total, count = 0.0, 0
+    for run, a in flights:
+        n = int(round(window_s * run.sample_rate_hz)) + 1
+        got = free_run(params, vehicle, run, a, n)
+        if got is None:
+            continue
+        total += float(_wrap(got[-1, 2] - Rotation.from_quat(run.orientation_quat[a + n - 1]).as_euler("xyz")[2]))
+        count += 1
+    return total, count
+
+
+def straight_heading_trim(params, vehicle, runs: list) -> tuple:
+    """(params with fin_bias_yaw moved, straight flights used): the rudder trim with which the model ends the runs' straight
+    TRIM_WINDOW_S flights as often right of the logged heading as left, by two secant steps of 0.5 degrees. Every flight counts
+    for roll and pitch, but not for heading: OOI's 2019 REMUS logs turn right nearly throughout (rudder +0.2 to +13.5 degrees),
+    the trim that zeroes a flight's heading error follows its turn rate (correlation +0.65), so a trim set on every flight left
+    the model flying a steady false turn on straight lines, +10.5 degrees in 30 s (#97). With fewer than MIN_TRIM_WINDOWS
+    straight flights the params come back unchanged."""
+    from dataclasses import replace
+    flights = [(r, a) for r in runs for a in _straight_flights(r)]
+    if len(flights) < MIN_TRIM_WINDOWS:
+        return params, 0
+    eps, count = math.radians(0.5), 0
+    for _ in range(2):
+        g, count = _heading_drift(params, vehicle, flights)
+        if count == 0:
+            return params, 0
+        g2, _ = _heading_drift(replace(params, fin_bias_yaw=params.fin_bias_yaw + eps), vehicle, flights)
+        if abs(g2 - g) < 1e-9:
+            break
+        params = replace(params, fin_bias_yaw=params.fin_bias_yaw - g * eps / (g2 - g))
+    return params, count
+
+
+def sideways_offset(run) -> Optional[float]:
+    """The recording's mean velocity over ground along the hull's level sideways axis on straight flight (m/s), or None without
+    a logged sway or straight flight. A vehicle flying straight moves with the water, so a steady sideways velocity there is water the model doesn't know
+    of, or a velocity sensor mounted slightly turned; either way the model flies it in still water and crabs off course. On OOI's
+    REMUS logs it is -0.23 to +0.17 m/s. Each recording flies one heading, so a world current can't be told from a sideways offset
+    fixed to the hull; fitting a current gave 0.7-1.1 m/s, which surge over ground (1.52 m/s on every heading) rules out (#97)."""
+    v, R = run.real_nu, Rotation.from_quat(run.orientation_quat)
+    if run.n_samples < 2:
+        return None
+    rate = np.abs(np.gradient(np.unwrap(R.as_euler("xyz")[:, 2]))) * run.sample_rate_hz
+    ok = (rate < math.radians(STEADY_TURN_DEG_S)) & np.isfinite(v[:, 1]) & (np.abs(np.nan_to_num(v[:, 0])) > STEADY_SURGE_MPS)
+    if not ok.any():
+        return None
+    side = R[ok].apply(np.tile([0.0, 1.0, 0.0], (int(ok.sum()), 1)))   # the hull's sideways axis, level
+    side[:, 2] = 0.0
+    side /= np.maximum(np.linalg.norm(side, axis=1, keepdims=True), 1e-9)
+    return float(np.mean(np.sum(R[ok].apply(np.nan_to_num(v[ok, :3])) * side, axis=1)))
+
+
+def with_sideways_offsets(runs: list) -> tuple:
+    """(runs, {recording: offset m/s}): each recording with its sideways_offset added to its body-axis water current."""
+    from dataclasses import replace
+    out, notes = [], {}
+    for r in runs:
+        b = sideways_offset(r)
+        if b is None:
+            out.append(r)
+            continue
+        cb = np.zeros((r.n_samples, 3)) if r.current_body is None else np.array(r.current_body, dtype=float)
+        cb[:, 1] += b
+        out.append(replace(r, current_body=cb))
+        notes[os.path.basename(r.filepath)] = round(b, 3)
+    return out, notes
+
+
+def _level_side_velocity(run) -> np.ndarray:
+    """(N,) velocity over ground along the hull's level sideways axis, m/s (NaN where the sway isn't logged)."""
+    R = Rotation.from_quat(run.orientation_quat)
+    side = R.apply(np.tile([0.0, 1.0, 0.0], (run.n_samples, 1)))
+    side[:, 2] = 0.0
+    side /= np.maximum(np.linalg.norm(side, axis=1, keepdims=True), 1e-9)
+    out = np.sum(R.apply(np.nan_to_num(run.real_nu[:, :3])) * side, axis=1)
+    return np.where(np.isfinite(run.real_nu[:, 1]), out, np.nan)
+
+
+def _steady_so_far(run) -> np.ndarray:
+    """(N,) bool: sample i is on straight flight, judged only from samples up to i (heading change since i-1 under
+    STEADY_TURN_DEG_S, moving forward faster than STEADY_SURGE_MPS, sway logged)."""
+    psi = Rotation.from_quat(run.orientation_quat).as_euler("xyz")[:, 2]
+    rate = np.r_[np.inf, np.abs(_wrap(np.diff(psi)))] * run.sample_rate_hz
+    return (rate < math.radians(STEADY_TURN_DEG_S)) & np.isfinite(run.real_nu[:, 1]) & (np.abs(np.nan_to_num(run.real_nu[:, 0])) > STEADY_SURGE_MPS)
+
+
+def flight_from(run, a: int, prepared: Optional[tuple] = None):
+    """The recording as a flight from sample a sees it, using nothing logged after a: a steady sideways water flow, the mean
+    level sideways velocity over ground on the straight samples of the FLOW_LOOKBACK_S before a (at least half of them), else the
+    recording's sideways_offset. After FLOW_LOOKBACK_S of straight flight up to and including a, it starts moving with the water
+    sideways and not turning: at 1 Hz the gyro's sample of a vehicle holding a line is mostly its wobble, and OOI's REMUS logs
+    held their lines through rudder the model would follow (#97). prepared: (_steady_so_far, _level_side_velocity, offset)."""
+    from dataclasses import replace
+    steady, side, offset = prepared if prepared is not None else (_steady_so_far(run), _level_side_velocity(run), sideways_offset(run))
+    k = int(round(FLOW_LOOKBACK_S * run.sample_rate_hz))
+    lo = max(0, a - k)
+    use = steady[lo:a]
+    if use.sum() >= max(3, k // 2):
+        b = float(np.mean(side[lo:a][use]))
+    elif offset is not None:
+        b = offset
+    else:
+        return run
+    cb = np.zeros((run.n_samples, 3)) if run.current_body is None else np.array(run.current_body, dtype=float)
+    cb[:, 1] += b
+    out = replace(run, current_body=cb)
+    if a - lo >= k and bool(np.all(steady[lo:a + 1])):
+        q = Rotation.from_quat(run.orientation_quat[a])
+        level = q.apply([0.0, 1.0, 0.0])
+        level[2] = 0.0
+        level /= max(float(np.linalg.norm(level)), 1e-9)
+        nu = run.real_nu.copy()
+        nu[a, 1] = b * float(q.inv().apply(level)[1])
+        nu[a, 5] = 0.0
+        out = replace(out, real_nu=nu)
+        if getattr(run, "anchor_lin", None) is not None and run.channels is not None:
+            lin = np.array(run.anchor_lin, dtype=float)
+            lin[a, 1] = nu[a, 1]
+            out = replace(out, anchor_lin=lin)
+    return out
+
+
 def retrim_by_deployment(params, vehicle, runs: list) -> tuple:
     """([params for each run], {deployment: what was done}): each held-out recording flown at its deployment's own trim. A vehicle
     is re-ballasted between deployments, so the same vehicle needs different fin angles to hold it (OOI's REMUS 600s: elevator trims
@@ -496,7 +633,8 @@ def retrim_by_deployment(params, vehicle, runs: list) -> tuple:
     so no recording is scored at a trim its own flights set; with fewer than MIN_TRIM_WINDOWS of those flights, it keeps the fit's.
     Two Gauss-Newton steps, the second from all the deployment's recordings. A first form matched one-step moment residuals on samples
     holding steady: at 1 Hz it read OOI's 2024 deployment's rudder trim 1.2 degrees past this, and sent its 30 s flights 16 degrees off
-    in heading (#97). An axis the biases can't move keeps its bias."""
+    in heading (#97). An axis the biases can't move keeps its bias. The heading trim is then set again from the other recordings'
+    straight flights only (straight_heading_trim), where there are MIN_TRIM_WINDOWS of them."""
     out, notes = [params] * len(runs), {}
     for date in sorted({r.date or "" for r in runs}):
         idx = [i for i, r in enumerate(runs) if (r.date or "") == date]
@@ -515,13 +653,23 @@ def retrim_by_deployment(params, vehicle, runs: list) -> tuple:
             out[i] = _shifted(params, d)
             per[os.path.basename(runs[i].filepath)] = [round(math.degrees(float(x)), 3) for x in d]
             moved |= set(axes)
+        straight = {}
+        for j, i in enumerate(idx):
+            p, used = straight_heading_trim(out[i], vehicle, [group[k] for k in range(len(group)) if k != j])
+            if used:
+                out[i] = p
+                straight[os.path.basename(runs[i].filepath)] = round(math.degrees(p.fin_bias_yaw - params.fin_bias_yaw), 3)
         trims = np.array(list(per.values())) if per else np.zeros((0, 3))
-        notes[date or "undated"] = {"retrimmed": bool(per), "recordings": len(group), "trimmed_recordings": len(per),
+        notes[date or "undated"] = {"retrimmed": bool(per or straight), "recordings": len(group), "trimmed_recordings": len(per),
                                     "flights": int(sum(flights)), "window_s": TRIM_WINDOW_S, "per_recording_deg": per,
+                                    "heading_from_straight_flights_deg": straight,
                                     **{f"{w}_deg": (round(float(np.median(trims[:, k])), 3) if per and k in moved else None)
                                        for k, w in enumerate(("roll", "pitch", "yaw"))},
                                     **{f"{w}_spread_deg": (round(float(np.ptp(trims[:, k])), 3) if per and k in moved else None)
                                        for k, w in enumerate(("roll", "pitch", "yaw"))}}
+        if straight:
+            notes[date or "undated"]["yaw_deg"] = round(float(np.median(list(straight.values()))), 3)
+            notes[date or "undated"]["yaw_spread_deg"] = round(float(np.ptp(list(straight.values()))), 3)
     return out, notes
 
 
@@ -531,11 +679,13 @@ def retrim_by_deployment(params, vehicle, runs: list) -> tuple:
 TURNED_DEG = 30.0
 
 
-def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S, run_params: Optional[dict] = None) -> dict:
+def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW_S, run_params: Optional[dict] = None,
+                 flow: bool = False) -> dict:
     """A fin vehicle flying itself from each window's real start, on the logged fin angles: heading, pitch, depth and turn rate at
     the end, against assuming it holds its heading and pitch and carries straight on. The fit's own score feeds the logged pitch
     back in, which hides what the elevator does to depth, so this is the check that counts. run_params: {model: [params for each
-    run]}, for a model flown at each deployment's own trim (retrim_by_deployment)."""
+    run]}, for a model flown at each deployment's own trim (retrim_by_deployment). flow: each flight flown as flight_from sees
+    it, in the sideways water flow just before it and, after straight flight, from a steady start."""
     keys = ("heading_deg", "pitch_deg", "depth_m", "turn_rate_rad_s")
     errs = {m: {k: [] for k in keys} for m in (*models, "straight_on")}
     turning = {m: [] for m in (*models, "straight_on")}     # heading, on windows where the vehicle really turned
@@ -544,8 +694,10 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
     for i, run in enumerate(runs):
         n = int(round(window_s * run.sample_rate_hz)) + 1
         logged = Rotation.from_quat(run.orientation_quat).as_euler("xyz")
+        prepared = (_steady_so_far(run), _level_side_velocity(run), sideways_offset(run)) if flow else None
         for a in range(0, run.n_samples - n + 1, n - 1):
             sink = _real_sink(run, a, n)
+            flight = flight_from(run, a, prepared) if flow else run
             windows += 1
             real = logged[a:a + n]
             r_end = run.real_nu[a + n - 1, 5]
@@ -561,7 +713,7 @@ def fin_free_run(models: dict, runs: list, vehicle, window_s: float = FIN_WINDOW
             for m, p in models.items():
                 if run_params and m in run_params:
                     p = run_params[m][i]
-                got = free_run(p, vehicle, run, a, n, full=True)
+                got = free_run(p, vehicle, flight, a, n, full=True)
                 if got is None:
                     div[m] += 1
                     continue
@@ -882,12 +1034,13 @@ def validate(result_dir: str, data_dir: str, spec_path: str, rate=None, plots: b
     steps = step_responses(models, runs, vehicle)
     res["steps"] = steps["summary"]
     if vehicle.actuators is not None and vehicle.actuators.fins:
-        trimmed, res["fin_retrim"] = retrim_by_deployment(params, vehicle, runs)
+        flown, res["sideways_offsets_mps"] = with_sideways_offsets(runs)
+        trimmed, res["fin_retrim"] = retrim_by_deployment(params, vehicle, flown)
         per = {"calibrated": trimmed} if any(v["retrimmed"] for v in res["fin_retrim"].values()) else None
-        res["fin_free_run"] = fin_free_run(models, runs, vehicle, run_params=per)
-        res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S, run_params=per)
-        if per:
-            res["fin_free_run_as_trained"] = fin_free_run(models, runs, vehicle)
+        res["fin_free_run"] = fin_free_run(models, runs, vehicle, run_params=per, flow=True)
+        res["fin_free_run_short"] = fin_free_run(models, runs, vehicle, window_s=FIN_SHORT_WINDOW_S, run_params=per, flow=True)
+        if per or res["sideways_offsets_mps"]:
+            res["fin_free_run_as_trained"] = fin_free_run(models, runs, vehicle)   # the fit as it came: no trim, no offset
         speed = float(np.nanmedian(np.concatenate([r.real_nu[:, 0] for r in runs])))
         if "calibrated" in models and np.isfinite(speed):
             res["fin_stability"] = fin_stability(models["calibrated"], vehicle, speed)

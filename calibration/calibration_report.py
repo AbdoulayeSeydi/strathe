@@ -484,6 +484,8 @@ def _m(s, unit="", digits=2):
 
 
 UNSTABLE_DOUBLING_S = 6.0   # validation.py's
+STRAIGHT_TRIM_DEG = 3.0     # validation.py's
+FLOW_LOOKBACK_S = 10.0      # validation.py's
 
 
 def fin_flight_section(v: dict) -> list:
@@ -518,11 +520,25 @@ def fin_flight_section(v: dict) -> list:
                  f"roll, pitch and heading as below, on that deployment's other recordings only, so no recording was scored at a trim its own "
                  f"flights set (median change, {said}).\n")
         few = sorted(d for d, t in (v.get("fin_retrim") or {}).items() if t.get("recordings") and t["recordings"] > t.get("trimmed_recordings", 0))
+        if any(t.get("heading_from_straight_flights_deg") for t in trims.values()):
+            L.append("The heading trim was then set again from those recordings' straight flights alone (heading changing under "
+                     f"{STRAIGHT_TRIM_DEG:g}° in a flight): on logs that turn one way most of the time, a trim set on every flight leaves "
+                     "the model flying a slow false turn on straight lines.\n")
         if few:
             L.append(f"Some recordings kept the fit's trim ({', '.join(few)}): their deployment's other recordings gave too few flights to set one.\n")
+    offsets = v.get("sideways_offsets_mps") or {}
+    if offsets:
+        vals = list(offsets.values())
+        L.append(f"Each flight was flown in a steady sideways water flow: the vehicle's mean sideways velocity over ground while flying "
+                 f"straight in the {FLOW_LOOKBACK_S:g} s before it, or its recording's (recordings: {min(vals):+.2f} to {max(vals):+.2f} m/s "
+                 f"over {len(vals)}). A vehicle flying straight moves with the water, so that is a current across its path, or a velocity "
+                 f"sensor mounted slightly turned; flown in still water, the model crabs off course. After {FLOW_LOOKBACK_S:g} s of straight "
+                 f"flight a flight started moving with the water and not turning, since a 1 Hz gyro sample of a vehicle holding a line is mostly "
+                 f"its wobble. Nothing logged after a flight's start was used for it.\n")
+    if trims or offsets:
         a = (v.get("fin_free_run_as_trained") or {}).get("calibrated") or {}
         if a:
-            L.append("Without re-trimming: " + ", ".join(f"{w} {a[k]['median']:.2f}{u}" for k, w, u in
+            L.append("As fitted, without re-trimming or the sideways flow: " + ", ".join(f"{w} {a[k]['median']:.2f}{u}" for k, w, u in
                                                           (("heading_deg", "heading", "°"), ("pitch_deg", "pitch", "°"), ("depth_m", "depth", " m"))
                                                           if (a.get(k) or {}).get("median") is not None) + ".\n")
     stab = v.get("fin_stability") or {}
