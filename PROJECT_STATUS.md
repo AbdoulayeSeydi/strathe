@@ -3994,6 +3994,13 @@ vs 2.15°, 2024 3.50° vs 3.73°, 2016 **0.91° vs 0.92°** (0.01°); turning wi
 start rate on every window (turning windows doubled: rejected). O-turns-unseen (CP05MOAS-A6263_R00008, 10 Apr 2019) is scored
 once with this, nothing changed after.
 
+**O-turns-unseen, scored once (12 Nov): heading beats holding course, and the whole row passes.** 30 s median over 229 windows:
+heading **1.27° vs 1.35°** holding course, pitch 2.55° (bar 3°), depth 1.24 m (bar 2 m), none diverged. The fit as it came, with no
+re-trim, flow or steady start, gave 6.06° heading and 19.79° pitch on the same flights. Its turning row, O-turning-unseen, fails: 7
+windows turned over 30° (10 needed), at 19.9° heading against 51.8° holding course (bar 10°). This is the one heading result on a
+deployment no choice was made on, and its margin is 0.08°. Fin calibration's heading claim rests on it: one vehicle type, 1 Hz,
+one clean deployment.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
