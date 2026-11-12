@@ -3971,6 +3971,16 @@ offset (0.86°, 1.65°). Every recording flies one heading, so a current can't b
 conditioning 0.03–0.08) are refuted by surge over ground, 1.51–1.53 m/s on every heading in both deployments. The margin on 2019 is
 small (0.14°).
 
+**The heading fix on the test rows, scored once (12 Nov 03:00): one passes, one fails.** With the fix above and nothing changed, 30 s
+median heading against holding course: O-turns-years-later (2024) 3.63° vs 3.73° (was 7.28°), passes; O-turns-fresh-deployment
+(2016) 1.70° vs 0.92° (was 2.78°), **fails**. So 3 of 4 real deployments now beat holding course on heading, two of them the design
+rows. The bar is unchanged and 2016 stays a failure. Both test rows had been scored before this fix, so neither was unseen data; 2016's
+lines are the straightest of the four (holding course 0.92°). The product code (`validation.with_sideways_offsets`,
+`straight_heading_trim`) gives the prototype's numbers exactly on the design rows (0.94°, 2.01°; pitch 2.65°, 3.19°). Pitch and depth
+barely move, so the rows' other bars are as they were: 2019 and 2016 pitch over 3°, 2024 depth over 2 m. One deployment of the 2019
+vehicle, CP05MOAS-A6263_R00008 (10 Apr 2019), has never been flown as held-out by this fit (it only trained O-survey-only). It is
+kept unscored as the one clean check for any further heading fix.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
