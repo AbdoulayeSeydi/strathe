@@ -513,7 +513,11 @@ REAL = {"O-turns-same-vehicle": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6264_
         "O-survey-only": (("CP05MOAS-A6263_R00008", 4), ("CP05MOAS-A6263_R00009", 6), "warned", "survey lines only: must warn"),
         # Added with the re-trim, its bars the same, before any of its flights was scored: the rows above were looked at while
         # finding the aileron, the Muw limit and the re-trim, so this one is the clean check (#97)
-        "O-turns-fresh-deployment": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00003", 6), "fly", "train in 2019, fly the other REMUS in 2016: a deployment no choice was made on")}
+        "O-turns-fresh-deployment": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00003", 6), "fly", "train in 2019, fly the other REMUS in 2016: a deployment no choice was made on"),
+        # Added after the heading fixes' first round (#76) and before its second, its bars the same: every row above had been scored
+        # while choosing them, so this deployment, never flown held-out by this fit (it only trained O-survey-only), is the clean
+        # check, scored once with the second round's choice fixed (#97)
+        "O-turns-unseen": (("CP05MOAS-A6264_R00008", 4), ("CP05MOAS-A6263_R00008", 6), "fly", "train in 2019, fly the other REMUS two months earlier: kept unscored for the heading fix")}
 # The fly rows lost to holding course: OOI's held-out missions are mostly straight lines, where an autopilot logged the fins that held
 # the line and any model flown open loop on them drifts. These ask the question where holding course is the wrong answer: the same
 # flights, only the 30 s windows whose logged heading changed by more than validation.TURNED_DEG (30°). Bars fixed before any of

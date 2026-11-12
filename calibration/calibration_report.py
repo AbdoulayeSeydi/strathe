@@ -485,6 +485,7 @@ def _m(s, unit="", digits=2):
 
 UNSTABLE_DOUBLING_S = 6.0   # validation.py's
 STRAIGHT_TRIM_DEG = 3.0     # validation.py's
+FLOW_LOOKBACK_S = 10.0      # validation.py's
 
 
 def fin_flight_section(v: dict) -> list:
@@ -528,10 +529,12 @@ def fin_flight_section(v: dict) -> list:
     offsets = v.get("sideways_offsets_mps") or {}
     if offsets:
         vals = list(offsets.values())
-        L.append(f"Each unseen recording was flown in a steady sideways water flow, its own mean sideways velocity over ground while flying "
-                 f"straight ({min(vals):+.2f} to {max(vals):+.2f} m/s over {len(vals)} recordings). A vehicle flying straight moves with the "
-                 f"water, so that is a current across its path, or a velocity sensor mounted slightly turned; flown in still water, the model "
-                 f"crabs off course. Each recording's flow comes from its own log, as `strathe estimate-current`'s current does.\n")
+        L.append(f"Each flight was flown in a steady sideways water flow: the vehicle's mean sideways velocity over ground while flying "
+                 f"straight in the {FLOW_LOOKBACK_S:g} s before it, or its recording's (recordings: {min(vals):+.2f} to {max(vals):+.2f} m/s "
+                 f"over {len(vals)}). A vehicle flying straight moves with the water, so that is a current across its path, or a velocity "
+                 f"sensor mounted slightly turned; flown in still water, the model crabs off course. After {FLOW_LOOKBACK_S:g} s of straight "
+                 f"flight a flight started moving with the water and not turning, since a 1 Hz gyro sample of a vehicle holding a line is mostly "
+                 f"its wobble. Nothing logged after a flight's start was used for it.\n")
     if trims or offsets:
         a = (v.get("fin_free_run_as_trained") or {}).get("calibrated") or {}
         if a:
