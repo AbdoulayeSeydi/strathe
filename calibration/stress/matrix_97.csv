@@ -113,8 +113,7 @@ const:STALLED_CN,SV-stall_deg Z-physics,
 const:MIN_TURNING_RAD_S,X-no-speed-source XS-check_speed_source-1,"guards inferring surge, which a fin vehicle is refused: the rows prove the refusal"
 const:TRIM_WINDOW_S,O-turns-fresh-deployment O-turns-same-vehicle O-turns-other-vehicle O-turns-years-later T-fossen-rich T-holoocean-rich,"how long each flight a deployment's trim is set from runs; a deployment trimmed the same keeps its biases (T-fossen-rich), and no recording is trimmed from its own flights (tests/test_fin_validation.py)"
 const:MIN_TRIM_WINDOWS,O-turns-fresh-deployment O-turns-same-vehicle,"too few flights in a deployment's other recordings: that recording keeps the fit's trim (tests/test_fin_validation.py)"
-const:MIN_FLIGHTS_AT_SPEED,T-prestero-slow T-fossen-slow,"too few flights at speed: the fit keeps its first stage (tests/test_fin_calibration.py); T-prestero-slow had 5 of 89, every other row all of them"
-const:MIN_SHARE_AT_SPEED,P-platform-remus100 T-prestero-slow,"a short log flown at speed still runs the second stage (tests/test_fin_calibration.py); P-platform-remus100 had 8 of 8, T-prestero-slow 5 of 89"
+const:MIN_FLIGHTS_AT_SPEED,T-prestero-slow T-fossen-slow P-platform-remus100 PW-03,"too few flights at speed: the fit keeps its first stage (tests/test_fin_calibration.py); T-prestero-slow had 5 of 89, every other row all of them"
 const:MIN_RESPONSE_DEG,O-survey-only T-prestero-survey T-fossen-survey T-prestero-rich,"a manoeuvre counts when the vehicle answers it; survey rows must warn, T-prestero-rich must not (tests/test_fin_calibration.py)"
 const:TURNED_DEG,O-turning-same-vehicle O-turning-other-vehicle O-turning-years-later O-turning-fresh-deployment,"windows that turned more than this are scored on their own: where holding course is the wrong answer. Bars fixed before any was scored"
 engine:gazebo,S-gazebo E-gazebo CV-gazebo,

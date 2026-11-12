@@ -270,7 +270,7 @@ def variables_97() -> list:
         rows += [("97", f"option:{name}{f}", "simulator option", f) for f in flags(parser, spec_flag)]
     rows += [("97", "option:fit-sim--fit=fins", "fit-sim value", "fins"), ("97", "option:fit-sim--spec", "simulator option", "--spec"), ("97", "option:export-sim--spec", "simulator option", "--spec")]
     rows += [("97", f"const:{k}", "a constant that decides something", k) for k in ("MIN_FIN_MANOEUVRES", "FIN_WINDOW_S", "STALL_BAND_RAD", "STALLED_CN", "MIN_TURNING_RAD_S",
-                                                                                        "TRIM_WINDOW_S", "MIN_TRIM_WINDOWS", "MIN_FLIGHTS_AT_SPEED", "MIN_SHARE_AT_SPEED", "MIN_RESPONSE_DEG", "TURNED_DEG")]
+                                                                                        "TRIM_WINDOW_S", "MIN_TRIM_WINDOWS", "MIN_FLIGHTS_AT_SPEED", "MIN_RESPONSE_DEG", "TURNED_DEG")]
     rows += [("97", f"engine:{k}", "simulator", k) for k in ("gazebo", "stonefish", "holoocean", "mujoco", "external")]
     rows += [("97", f"experiment:{k}", "experiment", k) for k in ("arena", "fleet", "train-fleet")]
     web = open(os.path.join(CAL, "strathe_web.py"), encoding="utf-8").read()
