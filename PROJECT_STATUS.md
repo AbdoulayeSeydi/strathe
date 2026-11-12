@@ -3706,7 +3706,7 @@ the coverage gate (42 variables found in the code, each with a row).
 - **A bug the IM rows found:** finishing a fit from its checkpoint didn't know `--unseen`, so any fit out of budget crashed. Fixed, with a test in both modes.
 - **K-1 stays a failure.** Four starts ended at the same cost, and no window length reaches its sway bar (LIMITS).
 
-### 97. Fin Steer: fin-steered AUVs (2026-11-05, in progress)
+### 97. Fin Steer: fin-steered AUVs (2026-11-05 to 2026-11-12, final run done)
 
 **Why.** Most survey AUVs steer with fins. A fin's force depends on speed squared and the water's angle to it, so it can't
 be a logged force: it has to be computed in the physics. Plan in order: audit fixes, general added mass, fin physics, vehicle
@@ -3926,6 +3926,14 @@ flights at speed (89 of 89; 464 of 464), so their fits don't change. **What I lo
 was chosen after seeing this row's held-out result, so T-prestero-slow's rerun isn't an independent check of it. The failed row stays in the
 results.
 
+**The slow-log fix didn't pass the row (correction, #97 final run).** Rerun on the merged code (0768cfe), the guard fired as designed (5 of 89
+flights at speed, first stage kept), and T-prestero-slow still failed: 30 s heading 10.4° (10.9° without re-trimming), bar 5°. The 3.00°
+above came from a 6 Nov first-stage fit made on older code (976 steps); today's first stage converges in 24 steps to cost 0.0132, and the 6 Nov
+values score 0.439 on today's objective, so it isn't stopping early: on 59 s at speed, with the vehicle answering no steering manoeuvre
+(`responses` 0), 2 s windows fit far better and still don't say how it flies itself for 30 s. I quoted the 3.00° as the expected result
+without rerunning it, and was wrong. The guard stays (it stops the second stage making things worse, 8.82° there), the row stays failed, and
+LIMITS.md says what it needs: minutes at survey speed, with turns.
+
 **#74 undone: a short log keeps its first stage (#97 final run).** #74 let the second stage run when half the planned flights were at
 speed, after P-platform-remus100 (8 flights, all at speed, clean logs) came back 4.3% off its fin lift on the first stage alone (bar 2%).
 On #74's code (754929d) the pairwise rows with grade sensor noise then failed: PW-03 26.5%, PW-19 17.9%, PW-22 16.7%, PW-23 18.1% (bar 10%).
@@ -3935,6 +3943,100 @@ P-platform-lauv fail as they did on 0768cfe, in LIMITS ("A short log keeps the f
 on PW-03: smoothing each flight's starting state (a mean over ±3 to ±10 samples passed it; a quadratic fit over ±5 didn't, 45.7%), and a floor
 under each axis's flight yardstick (0.3°, 0.5° and 1.0° passed PW-03, but 0.3° didn't pass PW-19, -22 or -23). Neither is in the code. The
 recover and PW rows run on 754929d are rerun on this commit, and their 754929d results stay in the results.
+
+**Twelve fits say "interrupted" when they weren't (wording, #97 final run).** O-survey-only, T-fossen-{rich,mixed,survey,slow,fast},
+T-holoocean-rich and T-prestero-{rich,mixed,survey,fast,rate-5} finished their fits on 0768cfe's predecessors and were then re-finished from
+their checkpoints (`run_97.py truth-finish`, `calibrate --finish`) to recompute their metrics on 0768cfe, without refitting. `calibrate
+--finish` labels a fit "interrupted; finished from its checkpoint", which is right after a real interruption, the only way a lab uses it.
+For these rows it only means re-finished. The fits from before that are kept in `~/strathe_fin_data/proof_old/*_pre73_fit`.
+
+**Heading against holding course: protocol, set before scoring any fix (#97 final run, 11 Nov 23:50).** On the real REMUS rows the
+model loses to holding course on 30 s heading (2018 2.91° vs 1.18°, 2019 2.58° vs 2.15°, 2024 7.28° vs 3.73°, 2016 2.78° vs 0.92°). On the
+2019 training deployment itself the fit flies a steady false turn on straight lines (+10.5° in 30 s, every window the same sign): its rudder
+zero point is 0.9° off, because those logs turn right nearly throughout (rudder +0.2° to +13.5°). The trim that zeroes a window's error
+follows the turn (correlation +0.65 with turn rate), so a trim set on all flights is wrong on straight ones. Every held-out deployment
+has been scored already, so none is a clean check. The protocol: candidate fixes are chosen on O-turns-same-vehicle (2018) and
+O-turns-other-vehicle (2019, the other REMUS) only, then O-turns-years-later (2024) and O-turns-fresh-deployment (2016) are scored once
+with the chosen fix and nothing tuned after. The bars don't move: heading no worse than holding course on every row.
+
+**Heading fix chosen on the design rows (12 Nov, before scoring 2024 or 2016).** Two changes, both set from the two design rows
+only. (1) The yaw trim comes from the deployment's other recordings' straight 10 s flights only (heading change under 3°; with fewer
+than 10 such flights a recording keeps today's trim), so a log that turns one way throughout doesn't set the zero point; roll and pitch trims are unchanged. (2) Each held-out
+recording gets a steady sideways water offset in body axes: the mean over-ground sideways velocity on its own straight flight (turn
+rate under 0.5°/s, surge over 0.5 m/s), applied through `current_body` as `estimate_current.py`'s per-recording current is. It uses
+that recording's own log, as the current estimate does, and nothing from the window being predicted beyond its start. Design-row
+30 s median heading, against holding course: 2018 0.94° vs 1.18°, 2019 2.01° vs 2.15° (today 2.91° and 2.58°). Two alternatives
+scored better on the design rows and were rejected for physics, not score: a world current (2018 0.83°, 2019 1.74°) and current plus
+offset (0.86°, 1.65°). Every recording flies one heading, so a current can't be told from an offset; the fitted currents (0.7–1.1 m/s,
+conditioning 0.03–0.08) are refuted by surge over ground, 1.51–1.53 m/s on every heading in both deployments. The margin on 2019 is
+small (0.14°).
+
+**The heading fix on the test rows, scored once (12 Nov 03:00): one passes, one fails.** With the fix above and nothing changed, 30 s
+median heading against holding course: O-turns-years-later (2024) 3.63° vs 3.73° (was 7.28°), passes; O-turns-fresh-deployment
+(2016) 1.70° vs 0.92° (was 2.78°), **fails**. So 3 of 4 real deployments now beat holding course on heading, two of them the design
+rows. The bar is unchanged and 2016 stays a failure. Both test rows had been scored before this fix, so neither was unseen data; 2016's
+lines are the straightest of the four (holding course 0.92°). The product code (`validation.with_sideways_offsets`,
+`straight_heading_trim`) gives the prototype's numbers exactly on the design rows (0.94°, 2.01°; pitch 2.65°, 3.19°). Pitch and depth
+barely move, so the rows' other bars are as they were: 2019 and 2016 pitch over 3°, 2024 depth over 2 m. One deployment of the 2019
+vehicle, CP05MOAS-A6263_R00008 (10 Apr 2019), has never been flown as held-out by this fit (it only trained O-survey-only). It is
+kept unscored as the one clean check for any further heading fix.
+
+**The heading fix's second round, chosen before the clean check is scored (12 Nov).** All four scored deployments are design data
+now. On near-straight windows (logged turn under 5° in 30 s) the real heading change is only 0.13–0.58 times the model's, though on
+real turns it is 0.85–1.13 times: the vehicle held its line through rudder (std 0.4–0.7°, smooth, lag-1 autocorrelation 0.92) that the
+model follows. The heading error also follows the window's sideways velocity (correlation −0.48 in 2016, −0.41 in 2019), so one
+flow per recording is too coarse. Chosen (`validation.flight_from`, merged code plus this, commit on fix/heading-steady-start): each
+flight uses nothing logged after its start. Its sideways flow is the mean level sideways velocity over ground on the straight samples
+of the 10 s before it (else the recording's offset), and after 10 s of straight flight up to its start it starts moving with the water
+sideways and not turning. Trims as in #76. Product code, 30 s median heading against holding course: 2018 0.75° vs 1.18°, 2019 1.49°
+vs 2.15°, 2024 3.50° vs 3.73°, 2016 **0.91° vs 0.92°** (0.01°); turning windows, pitch and depth as before. Look-backs of 5, 20, 30,
+60, 120 and 300 s were tried (10 s was best on three rows), and so were a start rate from heading differences (worse) and a zero
+start rate on every window (turning windows doubled: rejected). O-turns-unseen (CP05MOAS-A6263_R00008, 10 Apr 2019) is scored
+once with this, nothing changed after.
+
+**O-turns-unseen, scored once (12 Nov): heading beats holding course, and the whole row passes.** 30 s median over 229 windows:
+heading **1.27° vs 1.35°** holding course, pitch 2.55° (bar 3°), depth 1.24 m (bar 2 m), none diverged. The fit as it came, with no
+re-trim, flow or steady start, gave 6.06° heading and 19.79° pitch on the same flights. Its turning row, O-turning-unseen, fails: 7
+windows turned over 30° (10 needed), at 19.9° heading against 51.8° holding course (bar 10°). This is the one heading result on a
+deployment no choice was made on, and its margin is 0.08°. Fin calibration's heading claim rests on it: one vehicle type, 1 Hz,
+one clean deployment.
+
+**The real rows on the merged code, and the final count (12 Nov).** The heading fixes merged as 528de7e and 63d8759. The four
+O-turns rows and five O-turning rows were scored again on 63d8759 from the preserved shared fit (the fit didn't change). The numbers
+match the product check above:
+
+| Row | Heading, model against holding course | Pitch | Depth | Row |
+|---|---|---|---|---|
+| O-turns-same-vehicle (2018) | 0.75° / 1.18° | 2.65° | 1.57 m | pass |
+| O-turns-other-vehicle (2019) | 1.49° / 2.15° | 3.18° | 1.51 m | fails pitch |
+| O-turns-years-later (2024) | 3.50° / 3.73° | 2.88° | 2.12 m | fails depth |
+| O-turns-fresh-deployment (2016) | 0.91° / 0.92° | 3.20° | 1.71 m | fails pitch |
+| O-turns-unseen (2019, the clean check) | 1.27° / 1.35° | 2.55° | 1.24 m | pass |
+
+- **O-turns-unseen's score stands for the merged code.** It was scored at cc37ebe, and cc37ebe..63d8759 changes only report
+  wording, FINS.md and a test.
+- **Every turning row fails** (bar: 10 windows turned over 30°, heading ≤10°): same vehicle 23 windows at 17.6°; other vehicle 5 at
+  7.1°; years later 9 at 4.6°; fresh deployment 8 at 14.2°; unseen 7 at 19.9°.
+- **What the pitch and depth misses probably are:** the fixes trimmed only the turning plane. There's no elevator trim from level
+  flights, no per-deployment buoyancy, and no vertical flow. Both pitch misses fly the other REMUS (A6263), and A6263 also turns
+  about 30% more per degree of rudder.
+
+T-prestero-long finished at 11:42: heading 109°, pitch 10.7°, depth 1.33 m. 40 minutes of training doesn't overcome the vehicle's
+instability (the LIMITS row on unstable vehicles).
+
+**Final count: 357 of 401 rows pass, and 44 fail.** Every failure is in LIMITS.md, which `test_97s_failing_rows_are_written_down`
+enforces.
+
+| Group | Passing |
+|---|---|
+| Independent truths (T-) | 14 of 29; 14 failures are Prestero's unstable vehicle flown open loop for 30 s, and T-prestero-slow is the slow-log row |
+| Real OOI REMUS (O-) | 8 of 16 |
+| Recovery (P-) | 14 of 30 |
+| Recovery with noise (PW-) | 31 of 35; the P- and PW- failures are mostly the short-log first stage, plus P-position-fixes |
+| Cross-engine (CV-) | 3 of 4; CV-mujoco-first-turn fails |
+| All other groups (C, D, E, EX, F, H, J, LF, M, MC, S, SV, V, W, X, XS, Z) | All pass |
+
+Fin calibration isn't sold at full price on this: its heading beats holding course on one unseen real deployment, by 0.08°.
 
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
