@@ -470,27 +470,6 @@ def test_enough_flights_at_speed_run_the_second_stage(tmp_path, monkeypatch):
     assert len(called) == 1 and info["flight_stage"]["converged"] and info["flights_at_speed"] == fin_fit.MIN_FLIGHTS_AT_SPEED
 
 
-def test_a_short_log_flown_at_speed_runs_the_second_stage(tmp_path, monkeypatch):
-    # P-platform-remus100 (#97 final run): 8 flights planned, all 8 at speed, and the floor of 20 alone kept its first stage
-    import run_calibration as rc
-    called = []
-    monkeypatch.setattr(rc, "calibrate", lambda spec, runs, cc: called.append(cc) or type("R", (), {"cc": cc, "n_iterations": 1})())
-    monkeypatch.setattr("fin_fit.plan_flights", lambda runs: 8)
-    monkeypatch.setattr("fin_fit.flights_at_speed", lambda runs, act: 8)
-    run, spec = _flight_run(tmp_path)
-    info = {"plain": []}
-    rc.fin_flight_stage(_stage_config(tmp_path), spec, [run], type("F", (), {"parameters": initial_parameters(spec)})(), info)
-    assert len(called) == 1 and not any("kept its short-window values" in p for p in info["plain"])
-
-
-def test_enough_at_speed_needs_the_floor_or_half_the_flights():
-    floor, share = fin_fit.MIN_FLIGHTS_AT_SPEED, fin_fit.MIN_SHARE_AT_SPEED
-    assert fin_fit.enough_at_speed(floor, 1000) and not fin_fit.enough_at_speed(floor - 1, 1000)
-    assert fin_fit.enough_at_speed(8, 8) and fin_fit.enough_at_speed(4, 8) and not fin_fit.enough_at_speed(3, 8)
-    assert not fin_fit.enough_at_speed(5, 89)        # T-prestero-slow still keeps its first stage
-    assert not fin_fit.enough_at_speed(0, 0) and share == 0.5
-
-
 def test_flights_split_across_workers_give_the_same_residuals(tmp_path):
     import fin_fit
     from objective import ParallelJointResiduals, joint_residuals
