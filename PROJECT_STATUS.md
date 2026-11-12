@@ -3942,6 +3942,12 @@ first stage. The queue was paused when this was found; P-platform-lauv had also 
 are rerun on the fix, and their 0768cfe failures stay in the results. **What I looked at:** the share of a half was chosen after seeing
 P-platform-remus100's result.
 
+**Twelve fits say "interrupted" when they weren't (wording, #97 final run).** O-survey-only, T-fossen-{rich,mixed,survey,slow,fast},
+T-holoocean-rich and T-prestero-{rich,mixed,survey,fast,rate-5} finished their fits on 0768cfe's predecessors and were then re-finished from
+their checkpoints (`run_97.py truth-finish`, `calibrate --finish`) to recompute their metrics on 0768cfe, without refitting. `calibrate
+--finish` labels a fit "interrupted; finished from its checkpoint", which is right after a real interruption, the only way a lab uses it.
+For these rows it only means re-finished. The fits from before that are kept in `~/strathe_fin_data/proof_old/*_pre73_fit`.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
