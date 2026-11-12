@@ -3960,8 +3960,8 @@ O-turns-other-vehicle (2019, the other REMUS) only, then O-turns-years-later (20
 with the chosen fix and nothing tuned after. The bars don't move: heading no worse than holding course on every row.
 
 **Heading fix chosen on the design rows (12 Nov, before scoring 2024 or 2016).** Two changes, both set from the two design rows
-only. (1) The yaw trim comes from the deployment's other recordings' straight 10 s flights only (heading change under 3°, at least 3
-flights), so a log that turns one way throughout doesn't set the zero point; roll and pitch trims are unchanged. (2) Each held-out
+only. (1) The yaw trim comes from the deployment's other recordings' straight 10 s flights only (heading change under 3°; with fewer
+than 10 such flights a recording keeps today's trim), so a log that turns one way throughout doesn't set the zero point; roll and pitch trims are unchanged. (2) Each held-out
 recording gets a steady sideways water offset in body axes: the mean over-ground sideways velocity on its own straight flight (turn
 rate under 0.5°/s, surge over 0.5 m/s), applied through `current_body` as `estimate_current.py`'s per-recording current is. It uses
 that recording's own log, as the current estimate does, and nothing from the window being predicted beyond its start. Design-row
