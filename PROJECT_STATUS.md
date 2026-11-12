@@ -3950,6 +3950,15 @@ their checkpoints (`run_97.py truth-finish`, `calibrate --finish`) to recompute 
 --finish` labels a fit "interrupted; finished from its checkpoint", which is right after a real interruption, the only way a lab uses it.
 For these rows it only means re-finished. The fits from before that are kept in `~/strathe_fin_data/proof_old/*_pre73_fit`.
 
+**Heading against holding course: protocol, set before scoring any fix (#97 final run, 11 Nov 23:50).** On the real REMUS rows the
+model loses to holding course on 30 s heading (2018 2.91° vs 1.18°, 2019 2.58° vs 2.15°, 2024 7.28° vs 3.73°, 2016 2.78° vs 0.92°). On the
+2019 training deployment itself the fit flies a steady false turn on straight lines (+10.5° in 30 s, every window the same sign): its rudder
+zero point is 0.9° off, because those logs turn right nearly throughout (rudder +0.2° to +13.5°). The trim that zeroes a window's error
+follows the turn (correlation +0.65 with turn rate), so a trim set on all flights is wrong on straight ones. Every held-out deployment
+has been scored already, so none is a clean check. The protocol: candidate fixes are chosen on O-turns-same-vehicle (2018) and
+O-turns-other-vehicle (2019, the other REMUS) only, then O-turns-years-later (2024) and O-turns-fresh-deployment (2016) are scored once
+with the chosen fix and nothing tuned after. The bars don't move: heading no worse than holding course on every row.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
