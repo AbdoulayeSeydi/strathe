@@ -7,7 +7,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 import validation as val
-from calibration_report import STRAIGHT_TRIM_DEG, fin_flight_section
+from calibration_report import FLOW_LOOKBACK_S, STRAIGHT_TRIM_DEG, fin_flight_section
 from test_fin_pipeline import P
 from test_fin_validation import MIXED, _deployment
 
@@ -25,7 +25,7 @@ def _straight(seed, date="02-02-2031", run=1, yaw_trim_deg=0.0, n=1200):
 
 
 def test_the_limits_agree_with_the_report():
-    assert STRAIGHT_TRIM_DEG == val.STRAIGHT_TRIM_DEG
+    assert STRAIGHT_TRIM_DEG == val.STRAIGHT_TRIM_DEG and FLOW_LOOKBACK_S == val.FLOW_LOOKBACK_S
 
 
 def test_only_flights_that_held_their_heading_are_straight():
