@@ -3981,6 +3981,19 @@ barely move, so the rows' other bars are as they were: 2019 and 2016 pitch over 
 vehicle, CP05MOAS-A6263_R00008 (10 Apr 2019), has never been flown as held-out by this fit (it only trained O-survey-only). It is
 kept unscored as the one clean check for any further heading fix.
 
+**The heading fix's second round, chosen before the clean check is scored (12 Nov).** All four scored deployments are design data
+now. On near-straight windows (logged turn under 5° in 30 s) the real heading change is only 0.13–0.58 times the model's, though on
+real turns it is 0.85–1.13 times: the vehicle held its line through rudder (std 0.4–0.7°, smooth, lag-1 autocorrelation 0.92) that the
+model follows. The heading error also follows the window's sideways velocity (correlation −0.48 in 2016, −0.41 in 2019), so one
+flow per recording is too coarse. Chosen (`validation.flight_from`, merged code plus this, commit on fix/heading-steady-start): each
+flight uses nothing logged after its start. Its sideways flow is the mean level sideways velocity over ground on the straight samples
+of the 10 s before it (else the recording's offset), and after 10 s of straight flight up to its start it starts moving with the water
+sideways and not turning. Trims as in #76. Product code, 30 s median heading against holding course: 2018 0.75° vs 1.18°, 2019 1.49°
+vs 2.15°, 2024 3.50° vs 3.73°, 2016 **0.91° vs 0.92°** (0.01°); turning windows, pitch and depth as before. Look-backs of 5, 20, 30,
+60, 120 and 300 s were tried (10 s was best on three rows), and so were a start rate from heading differences (worse) and a zero
+start rate on every window (turning windows doubled: rejected). O-turns-unseen (CP05MOAS-A6263_R00008, 10 Apr 2019) is scored
+once with this, nothing changed after.
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
