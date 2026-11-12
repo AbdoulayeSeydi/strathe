@@ -3959,6 +3959,18 @@ has been scored already, so none is a clean check. The protocol: candidate fixes
 O-turns-other-vehicle (2019, the other REMUS) only, then O-turns-years-later (2024) and O-turns-fresh-deployment (2016) are scored once
 with the chosen fix and nothing tuned after. The bars don't move: heading no worse than holding course on every row.
 
+**Heading fix chosen on the design rows (12 Nov, before scoring 2024 or 2016).** Two changes, both set from the two design rows
+only. (1) The yaw trim comes from the deployment's other recordings' straight 10 s flights only (heading change under 3°, at least 3
+flights), so a log that turns one way throughout doesn't set the zero point; roll and pitch trims are unchanged. (2) Each held-out
+recording gets a steady sideways water offset in body axes: the mean over-ground sideways velocity on its own straight flight (turn
+rate under 0.5°/s, surge over 0.5 m/s), applied through `current_body` as `estimate_current.py`'s per-recording current is. It uses
+that recording's own log, as the current estimate does, and nothing from the window being predicted beyond its start. Design-row
+30 s median heading, against holding course: 2018 0.94° vs 1.18°, 2019 2.01° vs 2.15° (today 2.91° and 2.58°). Two alternatives
+scored better on the design rows and were rejected for physics, not score: a world current (2018 0.83°, 2019 1.74°) and current plus
+offset (0.86°, 1.65°). Every recording flies one heading, so a current can't be told from an offset; the fitted currents (0.7–1.1 m/s,
+conditioning 0.03–0.08) are refuted by surge over ground, 1.51–1.53 m/s on every heading in both deployments. The margin on 2019 is
+small (0.14°).
+
 **The survey warning missed two rows (fixed, #97 final run).** Two "must warn" rows failed. T-prestero-survey: Prestero's vehicle is unstable,
 so its autopilot swung the fins 22 (steering) and 45 (pitching) times on survey lines, over the 20 that pass for manoeuvring, and nothing was
 flagged; its 5 s heading was 2.14° against 1.22° for the rich fit, so steering really was less pinned down. O-survey-only: both fin groups
