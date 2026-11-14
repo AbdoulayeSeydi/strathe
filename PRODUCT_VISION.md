@@ -189,7 +189,7 @@ result than "still investigating" — see Part 3, item 29.
 
 ## Part 3 — Detailed gap list: MVP → full product
 
-> **Status update, 2026-10-01** (details in PROJECT_STATUS.md #39-#60; every known limit is in LIMITS.md). Items below are unchanged text; this is what has moved since:
+> **Status update, 2026-11-14** (details in PROJECT_STATUS.md #39-#97; every known limit is in LIMITS.md). Items below keep their original text, with a **Done** line where the item is built; this is what has moved since:
 >
 > | Item | Now |
 > |---|---|
@@ -206,6 +206,11 @@ result than "still investigating" — see Part 3, item 29.
 > | Optical / hybrid comm links | **Done, uncalibrated (#59):** `--link acoustic\|optical\|hybrid` in the fleet simulation, training, the CLI and the web page. Optical delivery follows received light power for clear/coastal/harbour/custom water and a pointing gain for omni or cone terminals (half-angles). Hybrid runs `optical_first` (skip acoustic while optical is up) or `redundant`. Acoustic runs are bit-identical. Finding: with omni terminals the shipped policies reach 100% in every loss condition (+33 points at L3a @ 3 s). With 30° cones they lose the link as they roll, and fore/aft cones raise collisions. Needs a lab's link logs to calibrate. |
 > | 8. Payload (buoyancy only) | **Started (#58):** `--buoyancy` changes the net buoyancy in every engine, fixed or drawn per episode. Mass, CG and CB changes are not propagated. |
 > | Water current (open water) | **Done, off by default (#55):** speed and direction (fixed or drawn per episode), vertical flow, slow fluctuation, and whether teammate models know it. Works in both engines, the fleet, the single-vehicle env, the CLI, the web page and training. Calibration accepts a known current, or estimates each recording's constant current from the logs (#57: `--estimate-current`, with checks for currents that changed). Not built: a current that changes within a recording, or varies across space. |
+> | 6. Vehicle-class bound templates | **Done (#95):** `describe-vehicle` writes a whole description, each range with its reason, from a tape measure and a scale (a frame, or a torpedo from its diameter) or from a Gazebo, URDF, MuJoCo or HoloOcean model; `--steering fin` adds the fins (calibration/DESCRIBE_VEHICLE.md). Generated descriptions are scored against hand-written ones on the same real logs (STRESS_TEST_93_95.md). |
+> | 11. More log formats | **Done (#94):** PX4 `.ulg`, MOOS-IvP `.alog` and LCM logs read directly, with no converter; a damaged or cut-off log keeps what can be read and says what was skipped (calibration/LOG_FORMATS.md). |
+> | One field day | **Done (#93):** calibration from a single field day. Recordings within the day, or the last part of one long recording, are held out, and the report says that check is easier than a new day (calibration/ONE_SESSION.md). |
+> | 10. Sensor suite | **Done (#96):** see item 10. Four real vehicles were calibrated with their velocity hidden: the reference tank's BlueROV2, DFKI's, URI's ALPHA RISE and KTH's Marinarium BlueROV2 (PX4, ROS 2 bags; calibration/examples/marinarium/). |
+> | 2, 7. Fin-steered vehicles, off-diagonal added mass | **Done (#97):** see items 2 and 7. All 15 off-diagonal entries of the mass matrix, fitted or held (calibration/DESCRIBE_VEHICLE.md). |
 > | Unit economics | Priced on Modal (12 Nov 2026): about $0.45 per hover calibration and $2.55 per fin calibration in compute, from measured run times; nothing runs on Modal yet. See UNIT_ECONOMICS.md. |
 
 
@@ -240,6 +245,8 @@ just what's missing but why it matters.
    motor response lag, saturation, nonlinear thrust curve). This MVP
    always assumed clean, pre-computed net force/torque already existed in
    the dataset — no real deployment will hand over data like that.
+   **Done (#56, #66):** raw PWM, normalized commands or forces, any thruster `layout:`, and thruster lag
+   (opt-in, #66).
 4. **Water current / disturbance modeling** — currently hardcoded to zero;
    `vehicle_spec.yaml` explicitly flags this as a tank/pool-only
    assumption that breaks for real open-water customer data.
@@ -251,6 +258,8 @@ just what's missing but why it matters.
    was hand-derived for one vehicle over the course of one long session; a
    real product needs these generated from basic specs, not hand-tuned
    per customer.
+   **Done (#95):** `describe-vehicle` generates them from basic measurements or a simulator model
+   (calibration/DESCRIBE_VEHICLE.md).
 7. **Off-diagonal added-mass generalization** — done (#97): all 15 entries of
    the mass matrix, one builder, any vehicle can list the ones it needs.
 8. **Payload modeling** — payload changes mass, buoyancy, CG, and CB
@@ -269,7 +278,8 @@ just what's missing but why it matters.
     the gyro, optionally the accelerometer), in `calibrate` and in
     `fit-sim`/`export-sim`; an axis no sensor sees is held and the report
     says so. With the velocity hidden on real logs, 1 Hz fixes and depth
-    score within 0.011 of the velocity fit on the reference tank.
+    score within 0.011 of the velocity fit on the reference tank. Four real vehicles were
+    tested, the fourth KTH's Marinarium BlueROV2 (calibration/examples/marinarium/).
     Limits measured: LIMITS.md.
 
 ### B. Data ingestion
@@ -282,12 +292,18 @@ just what's missing but why it matters.
     project's own dataset already had) rather than silently miscalibrate
     against unfamiliar customer data — realistically 4-8 weeks for
     something genuinely trustworthy, not 1-2.
+    **Done (#56, #57, #94):** CSV, ROS bags, ArduPilot (#57), PX4, MOOS-IvP and LCM logs read directly, with guards
+    against unit, frame and time errors (calibration/LOG_FORMATS.md).
 12. **Raw-PWM-only datasets** — ties directly to item 3; if a customer's
     logs don't already have pre-computed forces, the pipeline currently
     can't use them at all.
+    **Done (#56):** PWM-only logs calibrate in one command.
 13. **Garbage-input robustness** — pre-flight checks catch *sub-optimal*
     data (bad sampling rate, poor excitation), but nothing has been tested
     against genuinely corrupted, wrong-unit, or wrong-vehicle input.
+    **Done (#56, #94):** damaged, cut-off and empty logs, wrong units and wrong frames are made deliberately
+    and tested; each gives a result or a plain refusal, never a traceback (calibration/LOG_FORMATS.md,
+    STRESS_TEST_93_95.md).
 
 ### C. Infrastructure & scale
 

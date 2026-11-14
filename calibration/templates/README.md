@@ -57,6 +57,10 @@ the formulas to work them out from its mass and size. **Easier:** `python strath
 in, and pass it with `--spec`. Without it Strathe uses a BlueROV2 Heavy (11.2 kg), which
 is right only for that vehicle (`../../LAB_GUIDE.md` step 4).
 
+Its `added_mass_coupling` section has a commented example of the mass matrix's off-diagonal entries: which a
+port-starboard symmetric vehicle can have, and how to fit or hold one (`../DESCRIBE_VEHICLE.md`, "Off-diagonal
+added mass"). `vehicle_spec_fin_template.yaml` has the same section.
+
 ## What every spec needs
 
 - **Velocity** (surge, sway, heave, roll/pitch/yaw rates): from a DVL or
