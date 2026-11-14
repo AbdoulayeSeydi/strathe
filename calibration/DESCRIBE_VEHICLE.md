@@ -62,6 +62,32 @@ fit from wandering to values that fit the training logs and fail on unseen ones 
 The file records each range's reason (`bounds_rationale`), so you can see where every number came from. The
 torpedo rules are the ones `describe-stonefish` uses.
 
+## Off-diagonal added mass
+
+The mass matrix has 15 entries off its diagonal: how accelerating along or about one axis pushes on another (a
+torpedo's fins, a centre of gravity below the hull's axis). Strathe's model carries all 15 (PROJECT_STATUS.md #97),
+but logs rarely separate them from drag and inertia, so list only what you have a reason for. They go under
+`calibration_targets.added_mass_coupling` (`templates/vehicle_spec_template.yaml` has a commented example).
+
+- **What `describe-vehicle` writes:**
+  - **A frame or a thruster-driven torpedo:** surge-pitch (`Xq_dot`) and heave-pitch (`Zq_dot`), starting at 0 and
+    fitted within ±0.5.
+  - **A fin-steered vehicle** (`--steering fin`): the entries its fins and centre of gravity make, worked out by strip
+    theory and held, not fitted. The example in [FINS.md](FINS.md) gets `Xq_dot`, `Zq_dot`, `Yp_dot` and `Yr_dot`.
+  - **Every entry not listed is held at 0.**
+- **Each value is the matrix's own entry,** rigid body plus added mass. The matrix is symmetric, so `Yr_dot` is also
+  `Nv_dot`, and `Zq_dot` is also `Mw_dot`.
+- **A vehicle that mirrors port to starboard** (the default) can only have six: `Xw_dot Xq_dot Zq_dot Yp_dot Yr_dot
+  Kr_dot`. Listing any of the other nine (`Xv_dot Xp_dot Xr_dot Yw_dot Yq_dot Zp_dot Zr_dot Kq_dot Mr_dot`) stops the
+  description from loading, unless you add `symmetry: none` under `added_mass_coupling`.
+- **Fitted or held:** give an entry a range (`bounds: [lo, hi]`) to fit it, or the same number twice
+  (`bounds: [v, v]`) to hold it at a value from CAD or a tank test.
+- **The matrix must stay positive-definite,** as every real vehicle's is. Loading the description warns if values
+  inside your ranges could break that, and a fit that reaches them scores as a very bad fit. Keep the ranges small
+  against the vehicle's smallest mass and inertia.
+- **In simulators:** a Gazebo export and HoloOcean's generated vehicle class carry the full matrix. Stonefish's added
+  mass is diagonal, so its export drops these entries, and its notes say which. MuJoCo takes no export (LIMITS.md).
+
 ## From a simulator model
 
 `--from-model FILE --sim gazebo | urdf | mujoco | holoocean` (the kind is guessed from `.sdf`, `.world`, `.urdf`,

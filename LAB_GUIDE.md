@@ -85,6 +85,8 @@ corrected if you give it ([calibration/SENSORS.md](calibration/SENSORS.md)).
 **Other formats:**
 - **PX4, MOOS-IvP and LCM** are read directly: how to name what to read, and what happens to a damaged log, is in
   [calibration/LOG_FORMATS.md](calibration/LOG_FORMATS.md).
+- **ROS 2 bags from a PX4 vehicle:** [examples/marinarium/](calibration/examples/marinarium/README.md) reads KTH's
+  Marinarium BlueROV2 (PX4, motion capture, no DVL or pressure sensor) directly, step by step, with what was checked.
 - **DUNE/IMC, vendor binaries:** export to CSV, one table per recording.
 - **One CSV per sensor:** merge the files onto one time base first ([examples/dfki_tether/](calibration/examples/dfki_tether/README.md) does exactly that, step by step).
 

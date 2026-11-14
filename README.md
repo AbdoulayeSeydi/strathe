@@ -45,9 +45,11 @@ Every row works from one command (`python strathe.py ...`) and from the local we
 |---|---|
 | Calibrate from raw logs in one step | `calibrate --ingest-spec my_rov.yaml`: converts, checks, fits, finds what the data can't pin down, and writes a plain-language report |
 | Describe your vehicle without filling in a template | `describe-vehicle --mass ... --length ... --width ... --height ...` (or `--diameter`, or `--from-model` a Gazebo, URDF, MuJoCo or HoloOcean file): `calibration/DESCRIBE_VEHICLE.md` |
+| Calibrate with no DVL, or a DVL with gaps | nothing extra: Strathe uses what the logs have (position fixes from USBL, LBL, GPS or motion capture, depth, the gyro) and the report says which sensor calibrated each axis, and which axes it held; `--sensors` chooses explicitly (`calibration/SENSORS.md`). Tested on four real vehicles with the velocity hidden, including KTH's Marinarium BlueROV2 (`calibration/examples/marinarium/`) |
+| Give your vehicle off-diagonal added mass | list any of the mass matrix's 15 off-diagonal entries under `added_mass_coupling`, fitted or held; `describe-vehicle --steering fin` works out the fins' and holds them (`calibration/DESCRIBE_VEHICLE.md`) |
 | Calibrate from one field day, or one long recording | nothing extra: recordings within the day (or the recording's last part) are held out, and the report says that check is easier than a new day; `--heldout-recordings` to choose (`calibration/ONE_SESSION.md`) |
 | Use CSV logs with your own column names and units | a CSV template in `calibration/templates/` |
-| Use ROS 1 / ROS 2 bags | read directly: `templates/ingest_rosbag_mavros.yaml` |
+| Use ROS 1 / ROS 2 bags | read directly: `templates/ingest_rosbag_mavros.yaml`; a worked example on a real PX4 BlueROV2's ROS 2 bags: `calibration/examples/marinarium/` |
 | Use ArduSub / ArduPilot logs | read directly: `.bin` from the SD card (`templates/ingest_ardupilot_bin.yaml`), `.tlog` from the ground station (`templates/ingest_mavlink_tlog.yaml`) |
 | Use PX4, MOOS-IvP or LCM logs | read directly: `templates/ingest_px4_ulog.yaml`, `ingest_moos_alog.yaml`, `ingest_lcm.yaml` (`calibration/LOG_FORMATS.md`) |
 | Use logs with only thruster PWM, no forces | BlueROV2 Heavy preset, or any vehicle's thruster `layout:` |
