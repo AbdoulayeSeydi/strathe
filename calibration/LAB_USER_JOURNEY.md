@@ -159,7 +159,12 @@ cp calibration/templates/vehicle_spec_template.yaml my_logs/my_vehicle_spec.yaml
 python strathe.py calibrate --ingest-spec my_logs/my_rov.yaml --spec my_logs/my_vehicle_spec.yaml --name my_rov
 ```
 
-**C1. My logs are ROS bags, ArduPilot logs, or CSVs with my own column names, units and frame.** PASS.
+**C1. My logs are ROS bags, ArduPilot, PX4, MOOS-IvP or LCM logs, or CSVs with my own column names, units and frame.** PASS.
+- PX4 `.ulg`, MOOS-IvP `.alog` and LCM logs are read directly too, with no converter (#94, `LOG_FORMATS.md`;
+  `templates/ingest_px4_ulog.yaml`, `ingest_moos_alog.yaml`, `ingest_lcm.yaml`). A damaged or cut-off log is read up
+  to the damage, and the ingest report says what was skipped.
+- A worked example on a real PX4 BlueROV2's ROS 2 bags, with motion capture and no DVL: `calibration/examples/marinarium/`
+  (KTH's Marinarium, the fourth real vehicle in #96).
 - ArduSub DataFlash `.bin` and MAVLink `.tlog` are read directly too (templates included). World-frame
   velocity, as ArduPilot logs it, is rotated into the body frame.
 - One ingestion spec maps them (`calibration/templates/`, with a README).
@@ -230,6 +235,24 @@ assumed 10 Hz (PROJECT_STATUS.md #56).
 - Where each sensor sits (`position_m`), a water-tracking DVL (`track: water`) and each sensor's noise (`noise:`
   or a datasheet `grade:`) go in the description's `sensors:` section.
 - `fit-sim` and `export-sim` work the same way for your simulator.
+
+**C9. I only have one field day of logs, or one long mission.** PASS, with a warning (#93, `ONE_SESSION.md`).
+- Nothing extra to give: with one day, Strathe holds out the latest 30% of its recordings; with one recording, its
+  last 30% after a 10 s gap. `--heldout-recordings` chooses instead (a recording, or `name::last20%`).
+- The report's first line says the check was within one session, and the skill sentence says so too.
+- Measured: a one-session score was within 0.07 of the score on other days, either way, on a BlueROV2 in a tank and
+  ALPHA RISE in open water. It can't show a day with a different trim, battery or current: record a second session
+  for the honest number.
+
+**C10. I don't have a vehicle description.** PASS (#95, `DESCRIBE_VEHICLE.md`).
+- `strathe describe-vehicle --mass ... --length ... --width ... --height ...` (or `--diameter` for a torpedo) writes
+  one from a tape measure and a scale; `--from-model` reads a Gazebo, URDF, MuJoCo or HoloOcean model instead. Each
+  range records its reason.
+- Calibrated on the same real logs as hand-written descriptions: the BlueROV2 Heavy's scored 0.435 against 0.379
+  hand-written, DFKI's 0.303 against 0.297, and ALPHA RISE's 0.221 and 0.197 against 0.227 and 0.183. Some rows
+  miss a bar, each named in `DESCRIBE_VEHICLE.md`.
+- Without a description, Strathe uses a BlueROV2 Heavy (11.2 kg), which is right only for that vehicle.
+- Off-diagonal added mass, if your vehicle needs it, goes under `added_mass_coupling` (`DESCRIBE_VEHICLE.md`).
 
 ## The single-vehicle journey
 

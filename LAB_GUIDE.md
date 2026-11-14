@@ -112,6 +112,10 @@ python strathe.py describe-vehicle --mass 33 --length 1.5 --diameter 0.254 --out
 python strathe.py describe-vehicle --from-model my_robot.urdf --sim urdf --out my_vehicle_spec.yaml                    # a model
 ```
 
+**Off-diagonal added mass** (a fin, or a centre of gravity off the hull's axis, coupling one axis to another):
+`describe-vehicle` fits surge-pitch and heave-pitch within a small range, or for a fin vehicle works out its fins'
+entries and holds them. Any of the mass matrix's 15 off-diagonal entries can be added, fitted or held ([calibration/DESCRIBE_VEHICLE.md](calibration/DESCRIBE_VEHICLE.md#off-diagonal-added-mass)).
+
 **Have a Stonefish model of your vehicle?** Strathe writes the description from it, with no template to fill in:
 
 ```bash
