@@ -3700,11 +3700,28 @@ the coverage gate (42 variables found in the code, each with a row).
 | U-3g | URI, the default | 0.039 | 0.37 | −0.13 | ✅ too little turning: held and said |
 | B-infer-turn-0.5, -0.25 | known truth, turning at 0.35 and 0.20 rad/s | 0.999, 0.999 | 1.00 | 1.00 | ✅ |
 | B-infer-turn-0.1 | known truth, 0.09 rad/s | −0.216 | 0.68 | −1.35 | ✅ held and said |
-| IM-*, IMA-* | 16 sensor mixes on two vehicles, a short budget | | | | ✅ all |
+| IM-*, IMA-* | 16 sensor mixes on two vehicles, a short budget | | | | ✅ all, before the turning guard (8 IMA rows fail on the final rerun, below) |
 
 - **U-3i, the check nothing had been looked at on, met its bar and was still wrong.** ALPHA RISE turns at about a tenth of the BlueROV2s' rate. Inferring ran every surge and sway value to a limit, and sway reached −3.0. The bar only looks at heave and yaw. So under 0.15 rad/s RMS of yaw rate (`measurements.MIN_TURNING_RAD_S`, from training data only) they're now held, and the report says why. Run again, U-3i fails its bar, as nothing is inferred there any more; U-3g covers that behaviour.
 - **A bug the IM rows found:** finishing a fit from its checkpoint didn't know `--unseen`, so any fit out of budget crashed. Fixed, with a test in both modes.
 - **K-1 stays a failure.** Four starts ended at the same cost, and no window length reaches its sway bar (LIMITS).
+
+**The full rerun on the final hover code (63f8a50, 4–14 Nov).** Every #93–#96 row was run again on 63f8a50 (#60,
+inferring surge and sway), except I-px4-real and I-px4-real-ingest, which need the public PX4 log downloaded and
+weren't in the queue (their earlier pass stands, on older code). The queue was paused for Fin Steer from 5 to 12 Nov.
+Results: #93 142 of 142, #94 422 of 422 run, #95 146 of 154 (the same eight E-alpha failures as before), #96 253 of 275
+(266 before). The nine #96 failures from before still fail. 13 #96 rows that passed now fail, and none because the
+product got worse:
+
+| Rows | Before | Now | Why |
+|---|---|---|---|
+| U-3i, IMA-v*, IMA-va* (9) | inferred surge and sway | held | First run with the turning guard (ee1e06d, 4 Nov 13:23): ALPHA RISE turns under 0.15 rad/s, so surge and sway are held, and these bars ask for inference. U-3i's mean skill is 0.039 held against −0.438 inferred |
+| B-applied-1, B-applied-fresh-1, B-given-0 | 0.9816, 0.9748, 0.876 | the same | Judged against B-latency-1 and -fresh-1, which were rerun with the delay taken off by default (df9ae5a, 3 Nov), so they no longer show the uncorrected skill. The check's baseline broke, not the correction. Fixing it changes how the bar is worked out, so it's left as found |
+| FS-mujoco | sensors' fit 3.97 m at 30 s | 4.93 m | Now worse than the model it started from (4.59 m; DVL fit 4.28 m). It passed before fit-sim's path followed the logged attitude (b9b5a63, 3 Nov) |
+
+Each is in LIMITS. One job, 94-lcm-logger, crashed on 12 Nov at 14:40 without recording a row: lcm-logger wrote 0 bytes
+and didn't exit within 10 s of SIGINT, with the load at about 40 and the laptop unplugged. Run alone at 17:57 the same
+day, I-lcm-logger passed (99 of 100 messages logged, no difference from lcm's own decode); that's the row recorded.
 
 ### 97. Fin Steer: fin-steered AUVs (2026-11-05 to 2026-11-12, final run done)
 
