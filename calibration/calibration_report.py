@@ -762,13 +762,31 @@ def sensors_section(metrics: Optional[dict]) -> list:
         elif d.get("late"):
             why = ("A USBL or GPS that reports late shifts every fix." if kind == "position" else
                    "A depth sensor read through a slow link or filter reports late.")
-            gain = (f"each fix explained {d['gain_per_fix']:.2f}" if kind == "position" else
-                    f"each second of readings explained {d.get('gain_per_s', float('nan')):.2f}")
+            if d.get("pooled"):
+                gain = (f"over {d['runs']} recordings, {d['gain_total']:.1f} better in log-likelihood than with no "
+                        f"delay, and the same without the recording that gained most")
+            else:
+                gain = ((f"each fix explained {d['gain_per_fix']:.2f}" if kind == "position" else
+                         f"each second of readings explained {d.get('gain_per_s', float('nan')):.2f}")
+                        + f" better in log-likelihood than with no delay, over {d['fixes']} {what}")
             L.append(f"\n> ⚠️ {name}'s {what} match the vehicle's motion best {least}{d['delay_s']:.1f} s late "
-                     f"({gain} better in log-likelihood "
-                     f"than with no delay, over {d['fixes']} {what}), so {d['applied_s']:.1f} s was taken off them "
+                     f"({gain}), so {d['applied_s']:.1f} s was taken off them "
                      f"before the fit. {why} If you know your system's latency, give it as `delay_s:` in its "
                      f"`{kind}:` block (0 if it's on time) and calibrate again (SENSORS.md).")
+        elif d.get("pooled") and d.get("delay_s", 0) > 0:   # seen over several recordings, not clearly enough to apply
+            from state_smoother import DELAY_POOLED_GAIN
+            if d["delay_s"] < d["floor_s"] - 1e-9:
+                because = (f"under the {d['floor_s']:g} s a {'position sensor' if kind == 'position' else 'depth sensor'}'s "
+                           f"delay can be told apart at")
+            elif d["gain_total"] < DELAY_POOLED_GAIN:
+                because = (f"only {d['gain_total']:.1f} better in log-likelihood than no delay over {d['runs']} "
+                           f"recordings; taking it off takes {DELAY_POOLED_GAIN:g}")
+            else:
+                because = (f"one recording decides it: without it, the other {d['runs'] - 1} read "
+                           f"{d['loo_delay_s']:.1f} s")
+            L.append(f"\n{name}'s {what} match the motion best {least}{d['delay_s']:.1f} s late over {d['runs']} "
+                     f"recordings, but not clearly ({because}), so it wasn't taken off: if you know your system's "
+                     f"latency, give it as `delay_s:` (SENSORS.md).")
         elif d.get("delay_s", 0) >= 0.5 and d.get("gain_per_fix") is not None:   # seen, not clearly enough to apply
             how = (f"{d['gain_per_fix']:.2f} better per fix than no delay; taking it off takes {DELAY_GAIN_PER_FIX:g}"
                    if kind == "position" else f"{d.get('gain_per_s', float('nan')):.3f} better per second of "
