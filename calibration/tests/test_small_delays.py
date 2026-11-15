@@ -75,3 +75,21 @@ def test_the_report_says_why_a_pooled_delay_was_or_wasnt_taken_off():
     one = _report(dict(base, delay_s=1.0, gain_total=53.1, loo_delay_s=2.0, runs=2, late=False))
     assert "one recording decides it: without it, the other 1 read 2.0 s" in one
     assert "s late" not in _report(dict(base, delay_s=0.0, gain_total=0.0, late=False))
+
+
+def test_a_found_delay_is_scanned_again_with_the_fitted_values():
+    """run_calibration.rescan_delays (#98): a delay the first scan found short (here 0.1 s taken off depth that's
+    0.3 s late) is scanned again from the sensor's own times with better values, and the readings end up shifted by
+    the new delay, not by the old one plus it; a delay the lab gave is left alone."""
+    from run_calibration import rescan_delays
+    runs = _runs(4, depth_lag=3)
+    sm.shift_fixes(runs, "main", 0.1)
+    info = {"noise": NOISE, "fix_delays": {
+        "main": {"kind": "depth", "delay_s": 0.1, "late": True, "applied_s": 0.1, "applied_from": "found in the fixes"},
+        "usbl": {"kind": "position", "delay_s": 0.0, "late": False, "applied_s": 0.5,
+                 "applied_from": "the vehicle description's sensors.usbl.delay_s"}}}
+    rescan_delays(runs, [], TRUTH, SPEC.vehicle, 0.03, info, 2)
+    d = info["fix_delays"]["main"]
+    assert abs(d["applied_s"] - 0.3) <= 0.1 + 1e-9 and d["rescanned_round"] == 2 and d["first_scan"]["applied_s"] == 0.1
+    assert all(abs(next(c for c in r.channels if c.name == "main").shifted_s - d["applied_s"]) < 1e-9 for r in runs)
+    assert info["fix_delays"]["usbl"]["applied_s"] == 0.5 and "rescanned_round" not in info["fix_delays"]["usbl"]
