@@ -279,6 +279,12 @@ DELAY_MAX_RUNS = 8            # the runs with the most readings: 8 already separ
 DELAY_POOLED_GAIN = 3.0       # pooled log-likelihood gain over no delay (7x the largest false gain seen)
 DELAY_FLOOR_S = {"position": 0.2, "depth": 0.1}   # the smallest found delay taken off
 DELAY_LOO_AGREE_S = 0.2       # leaving out the run that gains most, the rest must find the delay within this
+# Recordings that disagree (after #98's first proof run): how much better each run fits with its own best delay than
+# with the pooled one, per run. On every consistent known truth in A0 (0 to 0.4 s late, 3 seeds, fixes and depth) at
+# most 1.01; on DFKI's real Bar30, logged apart from its motion capture and merged by time, 3.86 (its 8 longest runs)
+# and 4.97 (all 57). Over this, one delay doesn't fit them, so none is taken off and the report says so. Chosen on A0's
+# numbers after D-real-dfki failed (PROJECT_STATUS.md #98)
+DELAY_DISAGREE_PER_RUN = 2.0
 
 
 def _window(r, name: str) -> tuple:
@@ -379,12 +385,15 @@ def _pooled_delay(name: str, kind: str, usable: list, params, vehicle, accel_sig
     gains = [ll[best] - ll[0.0] for ll in lls]
     rest = [ll for i, ll in enumerate(lls) if i != int(np.argmax(gains))]
     loo = _best(rest)
+    disagree = float(sum(max(ll.values()) - ll[best] for ll in lls) / len(lls))
     late = bool(best >= DELAY_FLOOR_S[kind] - 1e-9 and total >= DELAY_POOLED_GAIN
-                and abs(loo - best) <= DELAY_LOO_AGREE_S + 1e-9)
+                and abs(loo - best) <= DELAY_LOO_AGREE_S + 1e-9 and disagree <= DELAY_DISAGREE_PER_RUN)
     return {"kind": kind, "delay_s": round(float(best), 2), "gain_per_fix": round(total / n, 3),
             "gain_per_s": round(total / secs, 3), "fixes": int(n), "at_the_scan_edge": bool(best >= top),
             "late": late, "pooled": True, "runs": len(usable), "gain_total": round(total, 2),
-            "loo_delay_s": round(float(loo), 2), "floor_s": DELAY_FLOOR_S[kind]}
+            "loo_delay_s": round(float(loo), 2), "floor_s": DELAY_FLOOR_S[kind],
+            "disagreement_per_run": round(disagree, 2),
+            "own_delays_s": sorted(round(float(max(ll, key=ll.get)), 2) for ll in lls)}
 
 
 def _one_run_delay(name: str, kind: str, runs: Sequence, params, vehicle, accel_sigma: float, noise) -> dict:

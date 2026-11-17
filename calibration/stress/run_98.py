@@ -101,7 +101,7 @@ E2E = {
 
 
 def all_rows() -> set:
-    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE)
+    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE) | set(FIX_ROWS)
 
 
 # --- D rows ------------------------------------------------------------------------------------------------------------
@@ -523,6 +523,77 @@ def attitude(only=None) -> int:
     return 0
 
 
+
+# --- F rows: recordings that disagree (after D-real-dfki failed) ------------------------------------------------------
+# DELAY_DISAGREE_PER_RUN was chosen on A0's numbers after D-real-dfki failed (PROJECT_STATUS.md #98). These rows, with
+# their own bars hashed apart, were fixed before any ran: the disagreeing cases have nothing taken off, and every
+# consistent delay and on-time sensor of the D rows gives the same answer as before.
+BARS_FIX = {"disagree_taken_off_s": 0.0, "never_wrong_s": 0.1, "found_from": {"position": 0.3, "depth": 0.1}}
+BARS_FIX_HASH = hashlib.sha256(json.dumps(BARS_FIX, sort_keys=True).encode()).hexdigest()[:12]
+MIXED = {   # row: (sensor changed, the delay in half the recordings)
+    "F-depth-mixed": ("depth", 0.4), "F-pos-mixed": ("position", 0.4),
+}
+REGRESS = ["D-pos-0.3", "D-pos-0.4", "D-pos-0.3-s962", "D-pos-0.3-s963", "D-pos-0.3-n4", "D-pos-0.3-rate10",
+           "D-depth-0.1", "D-depth-0.2", "D-ontime-s96"]
+FIX_ROWS = ["F-real-dfki", *MIXED, *[f"F-{r[2:]}" for r in REGRESS], "F-real-tank", "F-real-kth", "F-real-uri"]
+
+
+def _mixed_dataset(row: str) -> str:
+    """8 of 12 Jan's recordings: the sensor late by the delay in recordings 1, 3, 5, 7 and on time in 2, 4, 6, 8."""
+    sensor, x = MIXED[row]
+    root = os.path.join(WORK, "data", row)
+    if not os.path.exists(os.path.join(root, "truth")) or len(os.listdir(os.path.join(root, "truth"))) < 8:
+        shutil.rmtree(root, ignore_errors=True)
+        src = S.reference_sources(TRAIN, 8)
+        S.truth_dataset(root, src[0::2], sensors=_sensors(**{sensor: {"delay_s": x}}), seed=96)
+        S.truth_dataset(root, src[1::2], sensors=NOMINAL, seed=97)
+    return root
+
+
+def fix_rows(only=None) -> int:
+    for row in FIX_ROWS:
+        if only and not any(row == o or row.startswith(o) for o in only):
+            continue
+        t0 = time.time()
+        nums = {"bars": BARS_FIX_HASH}
+        if row in MIXED or row == "F-real-dfki":
+            if row == "F-real-dfki":
+                data, spec, name = REAL["D-real-dfki"][0], REAL["D-real-dfki"][1], "bar30"
+            else:
+                data, spec = os.path.join(_mixed_dataset(row), "data"), S.SPEC_BLUEROV2
+                name = "main" if MIXED[row][0] == "depth" else "usbl"
+            d = scan(data, spec)[name]
+            took = d["delay_s"] if d.get("late") else 0.0
+            nums["found"] = d
+            ok = took == BARS_FIX["disagree_taken_off_s"] and d.get("disagreement_per_run", 0) > 0
+            from state_smoother import DELAY_DISAGREE_PER_RUN
+            ok = ok and d["disagreement_per_run"] > DELAY_DISAGREE_PER_RUN
+            expect = "recordings that disagree: nothing taken off, and the disagreement over the bar (said in the report)"
+            what = (f"{name}: half the recordings {MIXED[row][1]} s late, half on time" if row in MIXED
+                    else "DFKI's real Bar30 (logged apart from its motion capture)")
+        elif row.startswith("F-real-"):
+            data, spec = REAL["D-real-" + row[7:]]
+            res = scan(data, spec)
+            nums["found"] = res
+            ok = all((d["delay_s"] if d.get("late") else 0.0) == 0.0 for d in res.values() if "delay_s" in d)
+            expect, what = "real sensors (and URI's unknown GPS): nothing taken off, as before", f"real {row[7:]}"
+        else:   # a D row again, with the guard
+            src_row = "D-" + row[2:]
+            var, val, sensors, n, seed, sensor, truth = DETECT[src_row]
+            root = _dataset(src_row, sensors, n, seed)
+            res = scan(os.path.join(root, "data"), S.SPEC_BLUEROV2)
+            names = ("usbl", "main") if sensor == "both" else (sensor,)
+            oks, expects = [], []
+            for nm in names:
+                ok1, e1 = _judge_detect(res[nm]["kind"], truth, res[nm], n)
+                oks.append(ok1)
+                expects.append(f"{nm}: {e1}")
+            nums["found"] = {k: res[k] for k in names}
+            ok, expect, what = all(oks), "as " + src_row + ": " + "; ".join(expects), f"{src_row} again, with the guard"
+        record(F, row, "recordings disagree", row[2:], what, "synthetic and real", nums, expect, bool(ok), time.time() - t0)
+    return 0
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
     if cmd == "list":
@@ -532,6 +603,8 @@ if __name__ == "__main__":
         sys.exit(detect(sys.argv[2:] or None))
     if cmd == "e2e":
         sys.exit(e2e(sys.argv[2:] or None))
+    if cmd == "fix":
+        sys.exit(fix_rows(sys.argv[2:] or None))
     if cmd == "attitude":
         sys.exit(attitude(sys.argv[2:] or None))
     if cmd == "all":
