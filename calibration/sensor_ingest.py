@@ -254,7 +254,8 @@ def gyro_vs_orientation(t: np.ndarray, R: np.ndarray, gyro: np.ndarray) -> dict:
     if late:
         warnings.append(f"the gyro and the orientation match best shifted in time ({', '.join(late)}; positive: the "
                         f"gyro is late): different clocks, or a slow attitude filter. Calibration lines them up as "
-                        f"logged")
+                        f"logged, because the logs can't show which one is late: if you know, give the gyro's latency "
+                        f"as body_velocity.angular_delay_s or the orientation's as orientation.delay_s (SENSORS.md)")
     if warnings:
         out["warning"] = "; ".join(warnings)
     return out
