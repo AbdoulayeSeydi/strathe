@@ -25,3 +25,6 @@ strathe_jobs/
 calibration/stonefish/build/
 calibration/simulators/gazebo/build/
 stonefish_fit_*/
+
+# precomputed REMUS missions for the escort study (rebuilt from seeds on demand)
+calibration/escort/missions_cache/
