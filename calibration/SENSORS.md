@@ -161,14 +161,31 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
   vehicle description's `sensors:`, calibration takes it off. Either way it's taken as said, 0 included (0: the
   fixes are on time). Give it in one place: both is refused.
 - **Left out, calibration looks for a delay** in each position and depth sensor's readings. It shifts them
-  earlier, 0 to 2 s, over the minute with the most readings, and asks the state smoother (the description's physics
-  driven by the logged thrust) which shift explains them best. A shift of 0.5 s or more that explains the readings
-  clearly better than no shift is **taken off before the fit**, and the report warns that it was: for a position
-  sensor, at least 0.5 better in log-likelihood per fix; for depth, logged at 1 to 10 Hz, at least 0.3 per second
-  of readings. A weaker shift of 0.5 s or more is only said. Reloading the calibration (validation,
-  identifiability, `estimate-current`, fit-sim and export-sim given it) takes off the same delay. A gyro that lags
-  the orientation is said at ingest, not shifted, since either one could be the late one. Measured through
-  calibration (PROJECT_STATUS.md #96), position fixes:
+  earlier, 0 to 2 s, and asks the state smoother (the description's physics driven by the logged thrust) which
+  shift explains them best.
+  - **With two or more training recordings (#98),** each recording's minute with the most readings is scored (up to
+    the 8 recordings with the most) and the evidence added up, first at 0.5 s steps, then at 0.1 s. A delay is
+    **taken off before the fit** when it is at least 0.2 s for a position sensor or 0.1 s for depth, explains the
+    readings at least 3.0 better in log-likelihood than no delay over all of them together, and is still found
+    within 0.2 s when the recording that gains most is left out, so no single recording decides it.
+  - **Each later anchor round scans it again with the fitted values,** from the readings' own times. The
+    description's physics finds a delay short (fixes 0.3 s late read 0.2 s); the fitted values find it as it is.
+  - **With one recording,** the scan from before #98: a shift of 0.5 s or more, at least 0.5 better per fix (0.3 per
+    second of depth readings).
+  - The report says how many recordings agreed, or why a delay wasn't taken off: under the floor, too little
+    evidence, or one recording deciding it. Reloading the calibration (validation, identifiability,
+    `estimate-current`, fit-sim, export-sim, and finishing a fit from its checkpoint) takes off the same delay.
+  - **Measured on a known truth, through calibrate (PROJECT_STATUS.md #98):** fixes 0.3 s late were found at 0.3 s
+    and held-out skill went from 0.966 to 0.997 (0.996 with them on time); depth 0.2 s late from 0.988 to 0.996;
+    fixes 1 s late were found at 1.0 s (0.8 s before #98), 0.906 to 0.997. On time, synthetic and the tank's, KTH's
+    and DFKI's motion capture: nothing taken off. Fixes 0.1 and 0.2 s late, and 0.3 s late at one fix every 5 s,
+    can't be told apart from on time; give those as `delay_s:`.
+  - **When the recordings disagree:** DFKI's Bar30, logged separately from its motion capture and merged, reads
+    0.2 s late in its longest recordings and on time in most others. 0.2 s was taken off, and cost 0.002 of held-out
+    skill (LIMITS.md). If your sensors are logged by separate systems, give `delay_s:`, 0 if you know they're on time.
+
+  A gyro that lags the orientation is said at ingest, not shifted, since either one could be the late one. Measured
+  through calibration before #98 (PROJECT_STATUS.md #96), position fixes:
   - **Fixes with no delay** (the tank's and DFKI's, made from motion capture, and DFKI's motion capture itself):
     0.0 s, no gain, nothing taken off.
   - **URI's real GPS:** at least 2 s, but 0.125 per fix over 26 fixes: said, not taken off. URI's DVL couldn't
