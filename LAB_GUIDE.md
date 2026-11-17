@@ -79,8 +79,10 @@ column or topic names, units and frame. Each template's comments say what every 
 
 **A sensor that reports late** (a USBL fix after acoustic travel and processing, depth through a slow link): give
 its latency as `delay_s:` in its `position:` or `depth:` block, 0 if it's on time. Left out, Strathe looks for a
-delay and takes off one the readings clearly show, and the report says so; a delay under about 0.5 s is only
-corrected if you give it ([calibration/SENSORS.md](calibration/SENSORS.md)).
+delay and takes off one the readings clearly show, and the report says so. With two or more recordings it adds
+up the evidence from all of them, so a USBL-like fix 0.3 s late or depth 0.1 s late is found; smaller, or with one
+recording under 0.5 s, give it. Sensors logged by separate systems can disagree from recording to recording:
+give `delay_s:` for those ([calibration/SENSORS.md](calibration/SENSORS.md)).
 
 **Other formats:**
 - **PX4, MOOS-IvP and LCM** are read directly: how to name what to read, and what happens to a damaged log, is in

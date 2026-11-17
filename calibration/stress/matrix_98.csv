@@ -1,0 +1,27 @@
+variable,rows,note
+const:DELAY_SCAN_S,D-pos-0.4 E-regress-1,
+const:DELAY_REFINE_S,D-pos-0.3-n1 E-regress-1,the one-run scan
+const:DELAY_WINDOW_S,D-pos-0.3 D-depth-0.2,
+const:DELAY_SAID_S,D-pos-0.3-n1,the one-run floor
+const:DELAY_GAIN_PER_FIX,D-pos-0.3-n1,the one-run bar
+const:DELAY_GAIN_PER_S_DEPTH,exempt,the one-run depth bar: unchanged by #98 and tested by #96's B-depthlag rows and tests/test_measurements.py
+const:DELAY_KINDS,D-pos-0.3 D-depth-0.2,
+const:DELAY_FINE_STEP_S,D-pos-0.1 D-pos-0.2 D-pos-0.3 D-pos-0.4,
+const:DELAY_FINE_SPAN_S,D-pos-0.3 D-pos-0.4 E-regress-1,
+const:DELAY_MAX_RUNS,D-pos-0.3-n16,
+const:DELAY_POOLED_GAIN,D-ontime-s96 D-ontime-s962 D-ontime-s963 D-real-tank D-real-dfki D-real-kth,
+const:DELAY_FLOOR_S.position,D-pos-0.1 D-pos-0.2 D-pos-0.3,
+const:DELAY_FLOOR_S.depth,D-depth-0.1 D-depth-0.2,
+const:DELAY_LOO_AGREE_S,D-real-uri,
+rule:pooled,D-pos-0.3 D-pos-0.3-n4 E-pos-0.3,
+rule:one-run,D-pos-0.3-n1,
+kind:position,D-pos-0.3 E-pos-0.3,
+kind:depth,D-depth-0.2 E-depth-0.2,
+report:floor,exempt,report wording: tests/test_small_delays.py::test_the_report_says_why_a_pooled_delay_was_or_wasnt_taken_off
+report:weak,exempt,report wording: tests/test_small_delays.py::test_the_report_says_why_a_pooled_delay_was_or_wasnt_taken_off
+report:one-recording,D-real-uri,
+given:right,E-given-0.3,
+given:zero,E-given-0,
+path:validate,E-paths,
+path:report,E-paths,
+path:finish,E-paths,

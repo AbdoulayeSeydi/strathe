@@ -21,7 +21,8 @@ TITLES = {"93": "One field day: hold out recordings, or a block of time",
           "94": "PX4, MOOS-IvP and LCM logs, read directly",
           "95": "Vehicle spec from basic measurements, or from any simulator model",
           "96": "Calibrate from what the vehicle measures: no DVL needed",
-          "97": "Fin Steer: fin-steered vehicles, every simulator, the full mass matrix"}
+          "97": "Fin Steer: fin-steered vehicles, every simulator, the full mass matrix",
+          "98": "Small sensor delays, found automatically"}
 # Each feature's row groups, by the row id's prefix (the part before the first "-"; #93's are numbered: F1, E8b).
 GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate faults (each must be caught)",
                  "E": "End to end on real data"},
@@ -38,6 +39,8 @@ GROUPS = {"93": {"F": "Fast checks on the real recordings", "M": "Deliberate fau
                  "J": "The lab's journey, from nothing to a report", "P": "Platforms and one value at a time, on Strathe's own model (plumbing, not physics)", "PW": "All pairs of variables",
                  "V": "Vectored tails", "MC": "Each mass matrix entry", "SV": "Every description key, singly", "D": "describe-vehicle's options", "W": "The web card", "LF": "Every way of stating a channel, per log format",
                  "F": "Physics identities and speed", "H": "Hover: nothing changed", "X": "Faults", "XS": "Every refusal", "Z": "Random inputs (fuzz)", "M": "Deliberate faults (each must be caught)", "EX": "Experiments"},
+          "98": {"D": "The delay scan, as calibrate runs it: known truth and real sensors",
+                 "E": "End to end: calibrated with the delay found, given, or told it is 0"},
           "96": {"R": "Real: the reference BlueROV2 tank, motion-capture velocity hidden",
                  "D": "Real: DFKI's BlueROV2, its own Bar30, IMU and attitude, motion-capture velocity hidden",
                  "U": "Real: URI's ALPHA RISE at sea, the raw DVL hidden",

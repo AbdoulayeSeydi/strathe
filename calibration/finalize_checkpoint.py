@@ -42,18 +42,20 @@ def _per_dof(params, runs, vehicle, horizon=None):
 
 
 def _sensor_setup(train, held, params, default, spec, data_dir, sampling_rate_hz, horizon_samples, sensors,
-                  use_accelerometer, accel_sigma, unseen="infer") -> tuple:
+                  use_accelerometer, accel_sigma, unseen="infer", checkpoint=None) -> tuple:
     """The sensor suite (#96), as the fit had it: the same windows, axes held, smoother noise and scales; each
     window's start from the smoother with the checkpoint's values. Returns (info, horizon_samples, held params)."""
     import types
     import state_smoother as sm
     from optimizer import CalibrationConfig
-    from run_calibration import sensor_fit_summary, sensor_suite_setup, smoother_noise_of
+    from run_calibration import apply_noted_delays, sensor_fit_summary, sensor_suite_setup, smoother_noise_of
     cc = CalibrationConfig(horizon_samples=horizon_samples)
     cfg = types.SimpleNamespace(calibration_config=cc, sampling_rate_hz=sampling_rate_hz, data_dir=data_dir,
                                 smoother_accel_sigma=accel_sigma, sensors=tuple(sensors),
                                 use_accelerometer=use_accelerometer, unseen=unseen)
     info = sensor_suite_setup(cfg, train, held, default, spec.vehicle, spec)
+    if checkpoint:   # the delays the checkpoint's own round took off (#98), not this fresh scan's
+        apply_noted_delays(checkpoint, train, held, info["fix_delays"])
     sm.set_anchors(train + held, params, spec.vehicle, info["smoother"]["accel_sigma_mps2"],
                    smoother_noise_of(info))
     info["fit"] = sensor_fit_summary(default, params, train, held, spec.vehicle)
@@ -96,7 +98,7 @@ def finalize(checkpoint: str, data_dir: str, spec_path: str, heldout_dates, out_
     if train and train[0].channels is not None:
         sensor_info, horizon_samples, sensor_held = _sensor_setup(train, held, params, default, spec, data_dir,
                                                                   sampling_rate_hz, horizon_samples, sensors,
-                                                                  use_accelerometer, accel_sigma, unseen)
+                                                                  use_accelerometer, accel_sigma, unseen, checkpoint)
     zero = zero_baseline_rmse(held)
     cal_held, diverged_full = stable_rmse_by_dof(params, held, v)  # a blow-up is reported, not a crash
     short = max(2, int(round(SKILL_EVAL_HORIZON_S * sampling_rate_hz)))

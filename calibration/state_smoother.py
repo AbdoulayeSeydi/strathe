@@ -267,6 +267,46 @@ DELAY_GAIN_PER_FIX = 0.5
 # case, tested on fresh recordings (B-depthlag-*)
 DELAY_GAIN_PER_S_DEPTH = 0.3
 DELAY_KINDS = ("position", "depth")
+# Two or more training runs (#98): every run's best DELAY_WINDOW_S window is scored and the log-likelihoods added, so
+# a small delay that each run shows weakly adds up. Chosen on the 12 Jan known truth (16 recordings, 3 seeds) and the
+# real on-time sensors (the tank's, DFKI's and KTH's motion capture and depth, URI's GPS and depth), before any proof
+# row ran (PROJECT_STATUS.md #98): on time, the pooled best was 0.0 s with no gain in every case from 4 runs (the
+# largest false gain anywhere, URI's real depth from 2 runs, 0.4); USBL-like 1 Hz fixes late by 0.3 / 0.4 s were
+# found 0.2 / 0.3 s late with a pooled gain of 6.5-146, depth late by 0.1-0.3 s found exactly with 1.3-142.
+DELAY_FINE_STEP_S = 0.1       # one sample at 10 Hz: finer than that stays `delay_s:`
+DELAY_FINE_SPAN_S = 0.4       # fine steps this far either side of the coarse scan's best
+DELAY_MAX_RUNS = 8            # the runs with the most readings: 8 already separates 0.3 s from none, at half the cost
+DELAY_POOLED_GAIN = 3.0       # pooled log-likelihood gain over no delay (7x the largest false gain seen)
+DELAY_FLOOR_S = {"position": 0.2, "depth": 0.1}   # the smallest found delay taken off
+DELAY_LOO_AGREE_S = 0.2       # leaving out the run that gains most, the rest must find the delay within this
+
+
+def _window(r, name: str) -> tuple:
+    """(start sample, readings) of the DELAY_WINDOW_S window of run r with the most of sensor `name`'s readings."""
+    ch = next((c for c in (r.channels or []) if c.name == name), None)
+    if ch is None:
+        return 0, 0
+    L = min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz)))
+    has = np.isfinite(ch.values[:, 0]).astype(float)
+    counts = np.convolve(has, np.ones(L), "valid")
+    a = int(np.argmax(counts))
+    return a, int(counts[a])
+
+
+def _loglik(r, name: str, a: int, delay: float, params, vehicle, accel_sigma: float, noise) -> float:
+    from dataclasses import replace
+    from measurements import slice_run
+    L = min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz)))
+    k = int(round(delay * r.sample_rate_hz))
+    chans = [replace(c, values=shifted_values(c.values, k)) if c.name == name else c for c in r.channels]
+    res = smooth(slice_run(replace(r, channels=chans), a, a + L), params, vehicle, accel_sigma, noise)
+    return res.loglik if res.fallback is None else float("-inf")
+
+
+def _best(lls: Sequence[dict]) -> float:
+    """The delay with the highest summed log-likelihood over these runs' scans (all on the same grid)."""
+    tot = {d: sum(ll[d] for ll in lls) for d in lls[0]}
+    return max(tot, key=tot.get)
 
 
 def shifted_values(values: np.ndarray, k: int) -> np.ndarray:
@@ -298,15 +338,63 @@ def shift_fixes(runs: Sequence, name: str, delay_s: float) -> None:
 
 
 def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optional[dict] = None) -> dict:
-    """{position or depth sensor: {kind, delay_s, gain_per_fix, gain_per_s, fixes, late}}: how late each sensor's
-    readings look, from the DELAY_WINDOW_S of a training run with the most of them (fixes and gain_per_fix count
-    readings, a depth sensor's too). late: clear enough to take off (DELAY_GAIN_PER_FIX for a position sensor,
-    DELAY_GAIN_PER_S_DEPTH for depth)."""
-    from dataclasses import replace
-    from measurements import slice_run
+    """{position or depth sensor: {kind, delay_s, gain_per_fix, gain_per_s, fixes, late, ...}}: how late each sensor's
+    readings look. With two or more runs that have at least 10 of its readings, pooled over up to DELAY_MAX_RUNS of
+    them (_pooled_delay); with one, from that run's best window, as before #98 (_one_run_delay). fixes and gain_per_fix
+    count readings, a depth sensor's too."""
     out = {}
     kinds = {ch.name: ch.kind for r in runs for ch in (r.channels or []) if ch.kind in DELAY_KINDS}
     for name in sorted(kinds):
+        usable = [(r, *_window(r, name)) for r in runs]
+        usable = sorted([u for u in usable if u[2] >= 10], key=lambda u: -u[2])[:DELAY_MAX_RUNS]
+        if len(usable) >= 2:
+            out[name] = _pooled_delay(name, kinds[name], usable, params, vehicle, accel_sigma, noise)
+        else:
+            out[name] = _one_run_delay(name, kinds[name], runs, params, vehicle, accel_sigma, noise)
+    return out
+
+
+def _pooled_delay(name: str, kind: str, usable: list, params, vehicle, accel_sigma: float, noise) -> dict:
+    """Every usable run scored on one grid: the coarse DELAY_SCAN_S, then DELAY_FINE_STEP_S steps within
+    DELAY_FINE_SPAN_S of its pooled best. late: the pooled best is at least DELAY_FLOOR_S[kind], gains at least
+    DELAY_POOLED_GAIN over no delay, and the runs left after dropping the one that gains most find it within
+    DELAY_LOO_AGREE_S (so no single run, or single unlucky window, decides it)."""
+    lls = [{d: _loglik(r, name, a, d, params, vehicle, accel_sigma, noise) for d in DELAY_SCAN_S} for r, a, _ in usable]
+    if not all(np.isfinite(v) for ll in lls for v in ll.values()):
+        return {"kind": kind, "note": "the smoother failed on a delay tried, so no delay can be told"}
+    c = _best(lls)
+    top = max(DELAY_SCAN_S)
+    fine = sorted({round(c + i * DELAY_FINE_STEP_S, 3) for i in range(-int(round(DELAY_FINE_SPAN_S / DELAY_FINE_STEP_S)),
+                                                                     int(round(DELAY_FINE_SPAN_S / DELAY_FINE_STEP_S)) + 1)
+                   if 0.0 <= c + i * DELAY_FINE_STEP_S <= top + 1e-9} - set(DELAY_SCAN_S))
+    for (r, a, _), ll in zip(usable, lls):
+        for d in fine:
+            ll[d] = _loglik(r, name, a, d, params, vehicle, accel_sigma, noise)
+    if not all(np.isfinite(v) for ll in lls for v in ll.values()):
+        return {"kind": kind, "note": "the smoother failed on a delay tried, so no delay can be told"}
+    best = _best(lls)
+    n = sum(u[2] for u in usable)
+    secs = sum(min(r.n_samples, int(round(DELAY_WINDOW_S * r.sample_rate_hz))) / r.sample_rate_hz for r, _, _ in usable)
+    total = float(sum(ll[best] - ll[0.0] for ll in lls))
+    gains = [ll[best] - ll[0.0] for ll in lls]
+    rest = [ll for i, ll in enumerate(lls) if i != int(np.argmax(gains))]
+    loo = _best(rest)
+    late = bool(best >= DELAY_FLOOR_S[kind] - 1e-9 and total >= DELAY_POOLED_GAIN
+                and abs(loo - best) <= DELAY_LOO_AGREE_S + 1e-9)
+    return {"kind": kind, "delay_s": round(float(best), 2), "gain_per_fix": round(total / n, 3),
+            "gain_per_s": round(total / secs, 3), "fixes": int(n), "at_the_scan_edge": bool(best >= top),
+            "late": late, "pooled": True, "runs": len(usable), "gain_total": round(total, 2),
+            "loo_delay_s": round(float(loo), 2), "floor_s": DELAY_FLOOR_S[kind]}
+
+
+def _one_run_delay(name: str, kind: str, runs: Sequence, params, vehicle, accel_sigma: float, noise) -> dict:
+    """One run with enough readings: its best window, scanned as before #98 (DELAY_SCAN_S, then DELAY_REFINE_S either
+    side), and taken off from DELAY_SAID_S at DELAY_GAIN_PER_FIX (DELAY_GAIN_PER_S_DEPTH for depth)."""
+    from dataclasses import replace
+    from measurements import slice_run
+    kinds = {name: kind}
+    out = {}
+    for name in (name,):
         best_run, best_a, best_n = None, 0, 0
         for r in runs:
             ch = next((c for c in r.channels if c.name == name), None)
@@ -342,8 +430,8 @@ def fix_delays(runs: Sequence, params, vehicle, accel_sigma: float, noise: Optio
         out[name] = {"kind": kinds[name], "delay_s": round(float(best), 2), "gain_per_fix": round(float(gain), 3),
                      "gain_per_s": round(float(per_s), 3), "fixes": best_n,
                      "at_the_scan_edge": bool(best >= max(DELAY_SCAN_S)),
-                     "late": bool(best >= DELAY_SAID_S and np.isfinite(gain) and clear)}
-    return out
+                     "late": bool(best >= DELAY_SAID_S and np.isfinite(gain) and clear), "pooled": False, "runs": 1}
+    return out[name]
 
 
 def choose_accel_sigma(runs: Sequence, params, vehicle, noise: Optional[dict] = None,

@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-14 11:31. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-17 14:58. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -1817,4 +1817,45 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | Row | Varied | What | Data | Result | Numbers | Time |
 |---|---|---|---|---|---|---|
 | EX-all | experiments = arena, fleet, train-fleet | a calibrated fin vehicle runs in each experiment; MuJoCo refuses | - | ✅ | {"said": "9 passed in 3.28s", "bars": "b0e3157797d7"} | 0 min |
+
+## #98. Small sensor delays, found automatically
+
+**23 of 26 rows pass** (26 variables found in the code, each with a row).
+
+
+### The delay scan, as calibrate runs it: known truth and real sensors
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| D-pos-0.1 | delay = 0.1 | usbl late by 0.1 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 469, "at_the_scan_edge": false,... | 6 min |
+| D-pos-0.2 | delay = 0.2 | usbl late by 0.2 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 469, "at_the_scan_edge": false,... | 6 min |
+| D-pos-0.3 | delay = 0.3 | usbl late by 0.3 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.044, "gain_per_s": 0.043, "fixes": 469, "at_the_scan_edge": fa... | 5 min |
+| D-pos-0.4 | delay = 0.4 | usbl late by 0.4 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.3, "gain_per_fix": 0.143, "gain_per_s": 0.14, "fixes": 469, "at_the_scan_edge": fal... | 5 min |
+| D-pos-0.3-s962 | seed = 962 | usbl late by 0.3 s, 8 recordings, seed 962 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.088, "gain_per_s": 0.087, "fixes": 471, "at_the_scan_edge": fa... | 5 min |
+| D-pos-0.3-s963 | seed = 963 | usbl late by 0.3 s, 8 recordings, seed 963 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.103, "gain_per_s": 0.101, "fixes": 470, "at_the_scan_edge": fa... | 5 min |
+| D-pos-0.3-n1 | recordings = 1 | usbl late by 0.3 s, 1 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.103, "gain_per_s": 0.098, "fixes": 57, "at_the_scan_edge": fal... | 0 min |
+| D-pos-0.3-n4 | recordings = 4 | usbl late by 0.3 s, 4 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.025, "gain_per_s": 0.025, "fixes": 232, "at_the_scan_edge": fa... | 2 min |
+| D-pos-0.3-n16 | recordings = 16 | usbl late by 0.3 s, 16 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.02, "gain_per_s": 0.019, "fixes": 476, "at_the_scan_edge": fal... | 11 min |
+| D-pos-0.3-rate0.2 | fix rate = 0.2 | usbl late by 0.3 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ❌ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 96, "at_the_scan_edge": false, ... | 7 min |
+| D-pos-0.3-rate10 | fix rate = 10.0 | usbl late by 0.3 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.037, "gain_per_s": 0.355, "fixes": 4555, "at_the_scan_edge": f... | 6 min |
+| D-depth-0.1 | depth delay = 0.1 | main late by 0.1 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"main": {"kind": "depth", "delay_s": 0.1, "gain_per_fix": 0.002, "gain_per_s": 0.018, "fixes": 4800, "at_the_scan_edge": fals... | 6 min |
+| D-depth-0.2 | depth delay = 0.2 | main late by 0.2 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"main": {"kind": "depth", "delay_s": 0.2, "gain_per_fix": 0.011, "gain_per_s": 0.114, "fixes": 4800, "at_the_scan_edge": fals... | 5 min |
+| D-ontime-s96 | on time = 96 | usbl; main late by 0.0 s, 8 recordings, seed 96 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 469, "at_the_scan_edge": false,... | 6 min |
+| D-ontime-s962 | on time = 962 | usbl; main late by 0.0 s, 8 recordings, seed 962 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 471, "at_the_scan_edge": false,... | 9 min |
+| D-ontime-s963 | on time = 963 | usbl; main late by 0.0 s, 8 recordings, seed 963 | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "f6460c22badb", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 470, "at_the_scan_edge": false,... | 8 min |
+| D-real-tank | real data = r1 | real tank: every position and depth sensor | r1 | ✅ | {"bars": "f6460c22badb", "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 4800, "at_the_scan_edge": false, "... | 10 min |
+| D-real-dfki | real data = d1 | real dfki: every position and depth sensor | d1 | ❌ | {"bars": "f6460c22badb", "found": {"bar30": {"kind": "depth", "delay_s": 0.2, "gain_per_fix": 0.017, "gain_per_s": 0.152, "fixes": 4039, "at_the_scan_edge": fal... | 10 min |
+| D-real-kth | real data = k1 | real kth: every position and depth sensor | k1 | ✅ | {"bars": "f6460c22badb", "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 1800, "at_the_scan_edge": false, "... | 8 min |
+| D-real-uri | real data = uri_nodvl | real uri: every position and depth sensor | uri_nodvl | ✅ | {"bars": "f6460c22badb", "found": {"gps": {"kind": "position", "delay_s": 1.0, "gain_per_fix": 0.618, "gain_per_s": 0.443, "fixes": 86, "at_the_scan_edge": fals... | 4 min |
+
+### End to end: calibrated with the delay found, given, or told it is 0
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| E-pos-0.3 | delay end to end = 0.3 | fixes 0.3 s late: found and taken off, against delay_s: 0 and on time | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664, "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes... | 28 min |
+| E-depth-0.2 | delay end to end = 0.2 | depth 0.2 s late: found and taken off, against delay_s: 0 and on time | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9881, "found": {"main": {"kind": "depth", "delay_s": 0.2, "gain_per_fix": 0.011, "gain_per_s": 0.115, "f... | 26 min |
+| E-given-0.3 | given delay_s = 0.3 | fixes 0.3 s late, delay_s: 0.3 given: taken as given | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664, "after": 0.9974, "taken_off_s": 0.3, "applied_from": "the vehicle description's sensors.usbl.delay... | 28 min |
+| E-given-0 | given delay_s = 0.0 | fixes 0.3 s late, delay_s: 0 given: nothing taken off, as said | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664} | 13 min |
+| E-regress-1 | today's behaviour = 1.0 | fixes 1 s late: found and taken off, as before #98 | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9057, "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes... | 26 min |
+| E-paths | every path = 0.3 | validate, report and a fit finished from its checkpoint apply the same delay | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ❌ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664, "calibrate_took_s": 0.3, "finished_took_s": 0.2, "validate_exit": 0, "report_exit": 0, "report_say... | 18 min |
 

@@ -3826,6 +3826,62 @@ of 6. Every product fit already writes to fresh folders, so no fit is affected; 
 **One bar was committed late.** `SIM_RECOVER` was written before S-refused, S-external, S-holoocean and S-mujoco first ran, but committed after.
 Its value never changed, and those runs don't count: only the final run does. It's now in the hashed bars with the others.
 
+### 98. Small sensor delays, found automatically (2026-11-14 to 2026-11-17)
+
+**What changed.** A position or depth sensor that reports late is now found from 0.3 s (USBL-like fixes) and 0.1 s
+(depth), down from 0.5 s, when there are two or more training recordings (`state_smoother.fix_delays`):
+- **Pooled evidence:** each recording's best minute is scored, up to 8 recordings, at 0.5 s then 0.1 s steps, and the
+  log-likelihoods are added.
+- **Taken off when** the delay is at least 0.2 s (position) or 0.1 s (depth), gains at least 3.0 over no delay, and
+  is still found within 0.2 s with the recording that gains most left out.
+- **Scanned again with the fitted values** each later anchor round (`run_calibration.rescan_delays`).
+- **A fit's checkpoint records the delays its round used** (`applied_delays.json`), and finishing it takes those off.
+- **One recording** keeps the scan from before #98.
+
+**How the constants were chosen (A0, before any proof row ran).** On the 12 Jan known truth (16 recordings, 3 seeds),
+delays of 0 to 0.4 s, and the real on-time sensors (the tank's, DFKI's and KTH's motion capture and depth, URI's GPS
+and depth). On time, the pooled best was 0.0 s with no gain in every case from 4 recordings; the largest false gain
+anywhere was URI's real depth from 2 recordings, 0.4. Fixes 0.3 s late read 0.2 s with the description's values and
+0.3 s, with about ten times the evidence, with the true ones: hence the rescan.
+
+**The proof: the standard one, chosen on 14 Nov** (26 rows, bars `f6460c22badb` committed before any ran;
+`stress/run_98.py`). Not varied: fix noise, dropouts, current, lever arms, the description's error, sample rate and
+combinations (LIMITS.md). 23 of 26 pass.
+
+| Rows | What | Result |
+|---|---|---|
+| D-pos-0.1, -0.2 | fixes 0.1 / 0.2 s late, 8 recordings | read on time: under the floor, nothing taken off ✅ |
+| D-pos-0.3, -0.4, -0.3-s962, -0.3-s963 | 0.3 / 0.4 s late; seeds | found 0.2 / 0.3 s (first scan), gain 21-67 ✅ |
+| D-pos-0.3-n1, -n4, -n16 | 1, 4, 16 recordings | one: said, not taken off (as before); 4 and 16: found ✅ |
+| D-pos-0.3-rate10 | fixes at 10 Hz | found, gain 170 ✅ |
+| D-pos-0.3-rate0.2 | one fix every 5 s | **nothing found (no gain over 96 fixes)** ❌ |
+| D-depth-0.1, -0.2 | depth late | found exactly ✅ |
+| D-ontime-* (3 seeds), D-real-tank, -kth | on time | nothing taken off ✅ |
+| D-real-uri | URI's GPS (true delay unknown) | 1.0 s pooled, 2.0 s leaving one out: said, not taken off ✅ |
+| D-real-dfki | DFKI's Bar30 | **0.2 s taken off (gain 70)** ❌ |
+| E-pos-0.3 | calibrate, fixes 0.3 s late | first scan 0.2 s, rescan 0.3 s; skill 0.9664 → 0.9974 (on time 0.9956) ✅ |
+| E-depth-0.2 | depth 0.2 s late | 0.2 s; 0.9881 → 0.9957 ✅ |
+| E-regress-1 | fixes 1 s late | first 0.9 s, rescan 1.0 s; 0.9057 → 0.9972 ✅ |
+| E-given-0.3, E-given-0 | `delay_s` given | taken as given ✅ |
+| E-paths | validate, report, a finished fit | **a fit stopped in round 1 kept 0.2 s, the full fit 0.3 s** ❌ |
+
+**The three failures.**
+- **D-pos-0.3-rate0.2:** at one fix every 5 s there's nothing to see; such logs need `delay_s:`.
+- **D-real-dfki:** DFKI's Bar30 and motion capture were logged apart and merged by time. Over all 57 recordings the
+  depth reads 0.1 s; the 2 Jan recordings mostly 0.2-0.4 s, the 1 Jan ones mostly 0.0, several of which strongly
+  reject a shift. The 8 longest read 0.2 s. Fitted both ways on the same data, taking 0.2 s off cost 0.002 of held-out
+  skill on 2 Jan against the motion capture (0.4015 to 0.3994) and 0.06 m of 60 s drift; with `delay_s: 0` the fit
+  equals #96's to four decimals. These per-recording numbers were looked at after the row failed. A rule that would
+  have caught it (two or more recordings strongly rejecting) was tried on A0's numbers and rejected: with DFKI's 8
+  longest only one rejects, and a true 0.3 s delay on the known truth also has one. No rule was changed for it.
+- **E-paths:** the row compares a fit stopped in its first round with the same data fitted in full, so it fails by
+  design; it found that finishing a checkpoint re-ran only the first scan, which could take off a different delay
+  than the round used. Fixed after the row ran (the checkpoint now records the delays), with a test; the row wasn't
+  rerun.
+
+**Order of work, for the record:** the rescan was added after the bars were committed, while the D rows ran (they
+call the scan directly and don't use it), and before any E row; the checkpoint fix after the E rows.
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

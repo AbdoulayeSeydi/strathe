@@ -558,6 +558,7 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
         scales[lab] = ms.still_scales(rs, H)[lab]
     for r in train_runs + heldout_runs:
         r.sensor_scales = scales
+    note_applied_delays(getattr(config, "checkpoint_path", None), delays)
     return {"sensors_asked": list(config.sensors), "use_accelerometer": bool(config.use_accelerometer),
             "channels": labels, "horizon_s": H / config.sampling_rate_hz, "axes_seen_by": seen,
             "plain": ms.seen_words(seen, inferred), "held_unobserved": held, "inferred_axes": sorted(inferred),
@@ -593,6 +594,67 @@ def sensor_runs_from_metrics(runs: list, metrics: dict, params, vehicle) -> Opti
     return sm.set_anchors(runs, params, vehicle, sigma, smoother_noise_of(ss))
 
 
+APPLIED_DELAYS_FILE = "applied_delays.json"
+
+
+def note_applied_delays(checkpoint_path: Optional[str], delays: dict) -> None:
+    """{sensor: seconds} the fit's runs carry now, written next to its checkpoint (#98): a later anchor round can scan a
+    delay again and change it, so finishing a checkpoint (finalize_checkpoint) must take off the one that round used,
+    not scan from scratch."""
+    if not checkpoint_path:
+        return
+    path = Path(checkpoint_path).with_name(APPLIED_DELAYS_FILE)
+    path.write_text(json.dumps({n: float(d.get("applied_s") or 0.0) for n, d in delays.items() if "applied_s" in d}),
+                    encoding="utf-8")
+
+
+def apply_noted_delays(checkpoint_path: str, train_runs: list, heldout_runs: list, delays: dict) -> None:
+    """The delays a checkpoint's fit used (note_applied_delays), taken off these runs in place of a fresh scan's."""
+    import state_smoother as sm
+    path = Path(checkpoint_path).with_name(APPLIED_DELAYS_FILE)
+    if not path.exists():   # a checkpoint from before #98: the fresh scan, as before
+        return
+    for name, s in json.loads(path.read_text(encoding="utf-8")).items():
+        d = delays.get(name)
+        if d is None or float(d.get("applied_s") or 0.0) == float(s):
+            continue
+        sm.shift_fixes(train_runs + heldout_runs, name, float(s))
+        d["applied_s"] = float(s)
+        d["applied_from_checkpoint"] = True
+        if s and d.get("applied_from") is None:
+            d["applied_from"] = "found in the fixes"
+
+
+def rescan_delays(train_runs: list, heldout_runs: list, params, vehicle, sigma: float, info: dict, rnd: int) -> None:
+    """A delay found in the fixes (never a given one), scanned again with the fitted values (#98): the description's
+    physics finds a late sensor's delay short (on the known truth, 0.3 s fixes read 0.2 s with the description and
+    0.3 s with the true values), so better physics finds it better. Scanned from the sensor's own times, not from the
+    times already shifted, so a round can't add to the last one's error."""
+    import state_smoother as sm
+    from dataclasses import replace as _replace
+    found = {n: d for n, d in (info.get("fix_delays") or {}).items()   # every sensor whose delay wasn't given
+             if "delay_s" in d and d.get("applied_from") in (None, "found in the fixes")}
+    if not found:
+        return
+    raw = []
+    for r in train_runs:   # each found sensor's readings at their logged times
+        chans = [_replace(c, values=sm.shifted_values(c.values, -int(round(c.shifted_s * r.sample_rate_hz))), shifted_s=0.0)
+                 if c.name in found and c.shifted_s else c for c in r.channels]
+        raw.append(_replace(r, channels=chans))
+    again = sm.fix_delays(raw, params, vehicle, sigma, smoother_noise_of(info))
+    for name, d in found.items():
+        new = again.get(name) or {}
+        took = float(new["delay_s"]) if new.get("late") else 0.0
+        if took != (d.get("applied_s") or 0.0):
+            logger.warning("Sensor suite round %d: %s's readings, scanned again with the fitted values, match the motion "
+                           "best %.1f s late: %.1f s taken off instead of %.1f s", rnd, name, new.get("delay_s", 0.0),
+                           took, d.get("applied_s") or 0.0)
+            sm.shift_fixes(train_runs + heldout_runs, name, took)
+        info["fix_delays"][name] = {**new, "applied_s": took, **({"applied_from": "found in the fixes"} if took else {}),
+                                    "first_scan": {k: d.get(k) for k in ("delay_s", "gain_total", "late", "applied_s")},
+                                    "rescanned_round": rnd}
+
+
 def sensor_anchor_rounds(config: "PipelineConfig", loaded_spec, train_runs: list, heldout_runs: list, cal_result,
                          vehicle, info: dict):
     """Re-estimate every window's starting velocity with the fitted values, refit from there, up to
@@ -605,6 +667,8 @@ def sensor_anchor_rounds(config: "PipelineConfig", loaded_spec, train_runs: list
     sigma = info["smoother"]["accel_sigma_mps2"]
     for rnd in range(2, max(1, config.anchor_rounds) + 1):
         prev = cal_result.parameters
+        rescan_delays(train_runs, heldout_runs, prev, vehicle, sigma, info, rnd)
+        note_applied_delays(getattr(config, "checkpoint_path", None), info.get("fix_delays") or {})
         sm_info = sm.set_anchors(train_runs + heldout_runs, prev, vehicle, sigma, smoother_noise_of(info))
         cc = _replace(config.calibration_config, x0_override=prev.to_vector(), n_restarts=1)
         cal_result = calibrate(loaded_spec, train_runs, cc)

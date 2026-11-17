@@ -278,7 +278,26 @@ def variables_97() -> list:
     return rows
 
 
-FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95, "96": variables_96, "97": variables_97}
+def variables_98() -> list:
+    """Small sensor delays found automatically: every DELAY_ constant in state_smoother.py (a dict one by key), the two
+    rules (pooled, one run), each sensor kind it shifts, each reason the report gives for not taking one off, a given
+    delay_s, and the paths that reload a delay."""
+    import state_smoother as sm
+    rows = []
+    for k in sorted(n for n in dir(sm) if n.startswith("DELAY_")):
+        v = getattr(sm, k)
+        rows += ([("98", f"const:{k}.{kk}", "a constant that decides something", kk) for kk in v] if isinstance(v, dict)
+                 else [("98", f"const:{k}", "a constant that decides something", k)])
+    rows += [("98", f"rule:{r}", "how a delay is decided", r) for r in ("pooled", "one-run")]
+    rows += [("98", f"kind:{k}", "a sensor kind a delay is taken off", k) for k in sm.DELAY_KINDS]
+    rows += [("98", f"report:{r}", "why the report says a delay wasn't taken off", r) for r in ("floor", "weak", "one-recording")]
+    rows += [("98", f"given:{g}", "a delay_s the lab gave", g) for g in ("right", "zero")]
+    rows += [("98", f"path:{p}", "reloads a calibration's delay", p) for p in ("validate", "report", "finish")]
+    return rows
+
+
+FEATURES = {"93": variables_93, "94": variables_94, "95": variables_95, "96": variables_96, "97": variables_97,
+            "98": variables_98}
 
 
 def inventory(features=None) -> list:

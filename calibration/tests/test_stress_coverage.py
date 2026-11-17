@@ -53,7 +53,7 @@ def test_the_results_page_lists_every_row():
     import page
     from common import load_rows
     text = page.render()
-    for feature in ("93", "94", "95", "96", "97"):
+    for feature in ("93", "94", "95", "96", "97", "98"):
         missing = [r["row"] for r in load_rows(feature) if f"<code>{page.E(r['row'])}</code>" not in text]
         assert not missing, f"#{feature} rows missing from the page: {missing[:5]}"
 
@@ -116,3 +116,14 @@ def test_97s_turning_rows_judge_only_the_windows_that_turned(tmp_path, monkeypat
     assert not R.run_turning_row(row)
     write(12, 8.0, 7.0)
     assert not R.run_turning_row(row)
+
+
+def test_98s_failing_rows_are_written_down():
+    """A failure is a finding (#98): every failing row is in LIMITS, with what it means for a lab."""
+    from common import load_rows
+    limits = open(os.path.join(os.path.dirname(HERE), "..", "LIMITS.md"), encoding="utf-8").read()
+    rows = {}
+    for r in load_rows("98"):
+        rows[r["row"]] = r
+    missing = [k for k, r in rows.items() if r["passed"] != "pass" and k not in limits]
+    assert not missing, f"failing rows with no LIMITS.md entry: {missing}"
