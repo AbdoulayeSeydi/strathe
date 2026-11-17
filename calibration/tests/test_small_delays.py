@@ -93,3 +93,23 @@ def test_a_found_delay_is_scanned_again_with_the_fitted_values():
     assert abs(d["applied_s"] - 0.3) <= 0.1 + 1e-9 and d["rescanned_round"] == 2 and d["first_scan"]["applied_s"] == 0.1
     assert all(abs(next(c for c in r.channels if c.name == "main").shifted_s - d["applied_s"]) < 1e-9 for r in runs)
     assert info["fix_delays"]["usbl"]["applied_s"] == 0.5 and "rescanned_round" not in info["fix_delays"]["usbl"]
+
+
+def test_finishing_a_checkpoint_takes_off_the_delay_its_round_used(tmp_path):
+    """run_calibration.note_applied_delays / apply_noted_delays (#98): a later round can scan a delay again and change
+    it (0.2 s to 0.3 s here), so finishing that round's checkpoint takes off what the round used, not the fresh scan's
+    first answer; a checkpoint from before #98 (no record) keeps the fresh scan."""
+    from run_calibration import APPLIED_DELAYS_FILE, apply_noted_delays, note_applied_delays
+    ck = tmp_path / "checkpoint.yaml"
+    note_applied_delays(str(ck), {"main": {"applied_s": 0.3}, "usbl": {"applied_s": 0.0}, "odd": {"note": "few"}})
+    assert (tmp_path / APPLIED_DELAYS_FILE).exists()
+    runs = _runs(2)
+    sm.shift_fixes(runs, "main", 0.2)    # what a fresh scan (the description's values) took off
+    delays = {"main": {"applied_s": 0.2, "applied_from": "found in the fixes"}, "usbl": {"applied_s": 0.0}}
+    apply_noted_delays(str(ck), runs, [], delays)
+    assert delays["main"]["applied_s"] == 0.3 and delays["main"]["applied_from_checkpoint"]
+    assert all(abs(next(c for c in r.channels if c.name == "main").shifted_s - 0.3) < 1e-9 for r in runs)
+    assert delays["usbl"] == {"applied_s": 0.0}
+    old = {"main": {"applied_s": 0.2}}
+    apply_noted_delays(str(tmp_path / "elsewhere" / "checkpoint.yaml"), runs, [], old)
+    assert old == {"main": {"applied_s": 0.2}}
