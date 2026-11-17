@@ -293,6 +293,9 @@ def variables_98() -> list:
     rows += [("98", f"report:{r}", "why the report says a delay wasn't taken off", r) for r in ("floor", "weak", "one-recording")]
     rows += [("98", f"given:{g}", "a delay_s the lab gave", g) for g in ("right", "zero")]
     rows += [("98", f"path:{p}", "reloads a calibration's delay", p) for p in ("validate", "report", "finish")]
+    from data_ingestion import OrientationSpec, VelocitySpec   # a gyro's and an orientation's latency (Part B)
+    rows += [("98", f"ingest:body_velocity.{k}", "an ingest spec key", k) for k in VelocitySpec.model_fields if k.endswith("delay_s")]
+    rows += [("98", f"ingest:orientation.{k}", "an ingest spec key", k) for k in OrientationSpec.model_fields if k.endswith("delay_s")]
     return rows
 
 
