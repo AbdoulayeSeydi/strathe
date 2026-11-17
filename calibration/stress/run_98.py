@@ -29,6 +29,7 @@ import subprocess
 import sys
 import time
 
+import numpy as np
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
