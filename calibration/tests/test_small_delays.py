@@ -113,3 +113,26 @@ def test_finishing_a_checkpoint_takes_off_the_delay_its_round_used(tmp_path):
     old = {"main": {"applied_s": 0.2}}
     apply_noted_delays(str(tmp_path / "elsewhere" / "checkpoint.yaml"), runs, [], old)
     assert old == {"main": {"applied_s": 0.2}}
+
+
+def test_recordings_that_disagree_have_nothing_taken_off():
+    """Depth 0.4 s late in two recordings and on time in two (sensors logged apart and merged, each recording offset
+    differently): each fits far better with its own delay than with any one, so none is taken off, and the report
+    says the recordings disagree. A consistent delay (the first test) stays under the bar."""
+    found = sm.fix_delays(_runs(4, depth_lag=4, lag_runs={0, 1}), TRUTH, SPEC.vehicle, 0.03, NOISE)["main"]
+    assert found["disagreement_per_run"] > sm.DELAY_DISAGREE_PER_RUN and not found["late"], found
+    assert found["own_delays_s"][0] == 0.0 and found["own_delays_s"][-1] >= 0.3
+    text = _report({**found, "applied_s": 0.0})
+    assert "the recordings disagree" in text and "wasn't taken off" in text
+    same = sm.fix_delays(_runs(4, depth_lag=2), TRUTH, SPEC.vehicle, 0.03, NOISE)["main"]
+    assert same["late"] and same["disagreement_per_run"] <= sm.DELAY_DISAGREE_PER_RUN
+
+
+def test_fixes_too_slow_to_show_a_small_delay_say_to_give_it():
+    base = {"kind": "position", "delay_s": 0.0, "late": False, "pooled": True, "runs": 8, "gain_total": 0.0,
+            "loo_delay_s": 0.0, "floor_s": 0.2, "disagreement_per_run": 0.0, "fixes": 96, "applied_s": 0.0}
+    slow = _report({**base, "fix_interval_s": 5.0})
+    assert "every 5.0 s" in slow and "`delay_s:`" in slow
+    assert "too far apart" not in _report({**base, "fix_interval_s": 1.0, "fixes": 480})     # 1 Hz: the floor holds
+    assert "too far apart" not in _report({**base, "fix_interval_s": 5.0, "late": True, "delay_s": 1.0,
+                                           "applied_s": 1.0})                                # found: nothing to add

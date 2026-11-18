@@ -540,7 +540,8 @@ def sensor_suite_setup(config: "PipelineConfig", train_runs: list, heldout_runs:
             sm.shift_fixes(train_runs + heldout_runs, name, d["applied_s"])
     for name in sorted(set(given) - set(delays)):
         logger.warning("Sensor suite: %s's delay_s (%s) isn't used: no position or depth sensor %s in these "
-                       "recordings", name, given[name][1], name)
+                       "recordings (a gyro's or orientation's latency goes in the ingest spec: "
+                       "body_velocity.angular_delay_s, orientation.delay_s)", name, given[name][1], name)
     if any(d["applied_s"] for d in delays.values()):
         sigma, scores = pick_sigma()   # late fixes look like unexplained acceleration
     logger.info("Sensor suite: state smoother's unexplained acceleration %.3g m/s^2%s", sigma,

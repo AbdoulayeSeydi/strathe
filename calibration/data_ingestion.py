@@ -196,6 +196,10 @@ class VelocitySpec(BaseModel):
     # the same axes as the spec's frame; readings are rotated into the vehicle's axes. Body-frame velocity only.
     linear_mount_rpy_deg: Optional[list[float]] = None
     angular_mount_rpy_deg: Optional[list[float]] = None
+    # the gyro's latency (#98): its rates reach the log this many seconds after the vehicle turned. Taken off at ingest,
+    # before anything else reads them. Calibration doesn't look for it: a late gyro and a late orientation can't be told
+    # apart from the logs (a thruster spin-up looks like a late gyro), so ingest only says it sees one
+    angular_delay_s: Optional[float] = None
 
     @model_validator(mode="after")
     def _all(self):
@@ -212,6 +216,12 @@ class VelocitySpec(BaseModel):
             v = getattr(self, name)
             if v is not None and len(v) != 3:
                 raise ValueError(f"body_velocity.{name} is three angles in degrees: roll pitch yaw, got {v}")
+        if self.angular_delay_s is not None:
+            if not (np.isfinite(self.angular_delay_s) and self.angular_delay_s >= 0):
+                raise ValueError(f"body_velocity.angular_delay_s: the gyro's latency, 0 s or more, got {self.angular_delay_s}")
+            if not self.has_angular:
+                raise ValueError("body_velocity.angular_delay_s is the gyro's latency, but no gyro (p, q, r) is given: "
+                                 "rates derived from the orientation take the orientation's delay_s")
         if self.linear_mount_rpy_deg is not None and self.linear_frame == "world":
             raise ValueError("body_velocity.linear_mount_rpy_deg is for a body-frame sensor (a DVL); "
                              "world-frame velocity (linear_frame: world) has no mount to undo")
@@ -243,11 +253,15 @@ class EulerSpec(BaseModel):
 class OrientationSpec(BaseModel):
     quaternion: Optional[QuaternionSpec] = None
     euler: Optional[EulerSpec] = None
+    # the orientation's latency (#98), e.g. an attitude filter that reports late: taken off at ingest, like the gyro's
+    delay_s: Optional[float] = None
 
     @model_validator(mode="after")
     def _one(self):
         if (self.quaternion is None) == (self.euler is None):
             raise ValueError("orientation needs exactly one of: quaternion or euler")
+        if self.delay_s is not None and not (np.isfinite(self.delay_s) and self.delay_s >= 0):
+            raise ValueError(f"orientation.delay_s: the orientation's latency, 0 s or more, got {self.delay_s}")
         return self
 
 
@@ -810,6 +824,25 @@ def fin_direction(t, rate: np.ndarray, angle: np.ndarray, moving: np.ndarray, wo
     return out
 
 
+def _take_off_attitude_delays(spec: IngestSpec, t: np.ndarray, ang, R: np.ndarray, report: dict) -> tuple:
+    """The gyro's and the orientation's latency, if the spec gives them (#98): each is read at t + delay, so the value
+    at t is what the sensor saw at t (linear interpolation for the gyro, spherical for the orientation; the last
+    `delay` seconds hold the last reading). On a CSV this is on the raw timestamps, before resampling; bags and logs
+    are already on their grid. 0 is said too: on time."""
+    vel, o = spec.body_velocity, spec.orientation
+    dg = vel.angular_delay_s if vel is not None else None
+    if dg is not None:
+        report["gyro_delay_s"] = dg
+        if dg and ang is not None and len(t) > 1:
+            ang = np.stack([np.interp(t + dg, t, ang[:, k]) for k in range(3)], 1)
+    if o.delay_s is not None:
+        report["orientation_delay_s"] = o.delay_s
+        if o.delay_s and len(t) > 1:
+            from rosbag_reader import slerp
+            R = Rotation.from_quat(slerp(t, Rotation.from_matrix(R).as_quat(), t + o.delay_s)).as_matrix()
+    return ang, R
+
+
 def _sensor_channel(spec: IngestSpec, b, t_n, v, path, report) -> dict:
     """One sensor block's readings -> SI units in Strathe's frames, held repeats and impossible fixes dropped, the
     sensor's delay taken off its times, and its own rate and noise measured. Returns the channel's description, with
@@ -987,6 +1020,7 @@ def convert_file(spec: IngestSpec, path: str) -> tuple:
     else:
         eu = np.stack([_col(df, getattr(o.euler, k), path) for k in ("roll", "pitch", "yaw")], 1)
         R = Rotation.from_euler("xyz", eu * ANGLE_UNITS[o.euler.unit]).as_matrix()
+    ang, R = _take_off_attitude_delays(spec, t, ang, R, report)
     if lin is not None and vel.linear_frame == "world":
         lin = np.einsum("nji,nj->ni", R, lin)  # R maps body to world, so R^T takes world velocity to body
         report["velocity_rotated_from_world_frame"] = True

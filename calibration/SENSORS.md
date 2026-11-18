@@ -138,6 +138,7 @@ Start from a template:
 ```yaml
 body_velocity:            # leave out u, v, w with no DVL; leave out p, q, r if no gyro is logged
   columns: {p: ..., q: ..., r: ...}
+  # angular_delay_s: 0.02   the gyro's latency, if you know it (orientation: {delay_s: ...} for the attitude's)
   # with a DVL: u, v, w too, and linear_gaps: keep so its dropouts stay dropouts
 depth:                    # a depth reading, or a pressure (Pa, hPa, kPa, mbar, bar, psi)
   pressure: {column: ..., unit: mbar, water: salt, surface: auto}
@@ -173,18 +174,34 @@ accelerometer: {x: ..., y: ..., z: ..., unit: m/s^2}
   - **With one recording,** the scan from before #98: a shift of 0.5 s or more, at least 0.5 better per fix (0.3 per
     second of depth readings).
   - The report says how many recordings agreed, or why a delay wasn't taken off: under the floor, too little
-    evidence, or one recording deciding it. Reloading the calibration (validation, identifiability,
+    evidence, one recording deciding it, the recordings disagreeing, or fixes too slow. Reloading the calibration (validation, identifiability,
     `estimate-current`, fit-sim, export-sim, and finishing a fit from its checkpoint) takes off the same delay.
   - **Measured on a known truth, through calibrate (PROJECT_STATUS.md #98):** fixes 0.3 s late were found at 0.3 s
     and held-out skill went from 0.966 to 0.997 (0.996 with them on time); depth 0.2 s late from 0.988 to 0.996;
-    fixes 1 s late were found at 1.0 s (0.8 s before #98), 0.906 to 0.997. On time, synthetic and the tank's, KTH's
-    and DFKI's motion capture: nothing taken off. Fixes 0.1 and 0.2 s late, and 0.3 s late at one fix every 5 s,
-    can't be told apart from on time; give those as `delay_s:`.
-  - **When the recordings disagree:** DFKI's Bar30, logged separately from its motion capture and merged, reads
-    0.2 s late in its longest recordings and on time in most others. 0.2 s was taken off, and cost 0.002 of held-out
-    skill (LIMITS.md). If your sensors are logged by separate systems, give `delay_s:`, 0 if you know they're on time.
+    fixes 1 s late were found at 1.0 s (0.8 s before #98), 0.906 to 0.997. On time, synthetic and the tank's and KTH's
+    motion capture: nothing taken off. Fixes 0.1 and 0.2 s late, and 0.3 s late at one fix every 5 s, can't be told
+    apart from on time; give those as `delay_s:`.
+  - **When the recordings disagree, nothing is taken off.** Each recording is also scored at its own best delay; when
+    that fits them better than the pooled delay by more than 2.0 in log-likelihood per recording, on average, one delay
+    doesn't fit them all, and the report says so with each recording's own reading. DFKI's Bar30, logged separately
+    from its motion capture and merged by time, reads 0.2-0.6 s late in some recordings and on time in most (3.86 per
+    recording over its 8 longest; every consistent known truth 1.01 or less), so nothing is taken off it. Half the
+    recordings 0.4 s late and half on time: nothing taken off. If your sensors are logged by separate systems, give
+    `delay_s:`, 0 if you know they're on time.
+  - **Fixes too slow to show a small delay:** when a position sensor's fixes come more than 1.5 s apart and nothing
+    was taken off, the report says they're too slow and to give `delay_s:`. At one fix every 5 s, 0.3 s late isn't
+    seen even over 600 s windows.
 
-  A gyro that lags the orientation is said at ingest, not shifted, since either one could be the late one. Measured
+- **A gyro's or an orientation's latency** is given in the ingest spec as `body_velocity.angular_delay_s` (the gyro's
+  p, q, r) or `orientation.delay_s`, in seconds. Ingest takes it off before resampling: the gyro read at t + delay by
+  linear interpolation, the orientation by slerp, so a delay under one sample works too. 0 is taken as said and changes
+  nothing. Calibration doesn't look for these (PROJECT_STATUS.md #98): with the description's physics the logs can't
+  tell a late gyro from a late orientation, and a thruster that spins up 0.15 s late makes an on-time gyro look 0.1-0.2
+  s late, which would have shifted real vehicles' on-time sensors (the tank's gyro 0.1 s, DFKI's orientation 0.5 s,
+  URI's gyro 0.5 s). So ingest only says when the gyro and the orientation's own rate of turn match best with one of
+  them shifted, and names the key to give.
+
+  Measured
   through calibration before #98 (PROJECT_STATUS.md #96), position fixes:
   - **Fixes with no delay** (the tank's and DFKI's, made from motion capture, and DFKI's motion capture itself):
     0.0 s, no gain, nothing taken off.

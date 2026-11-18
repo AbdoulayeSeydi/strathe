@@ -774,8 +774,12 @@ def sensors_section(metrics: Optional[dict]) -> list:
                      f"before the fit. {why} If you know your system's latency, give it as `delay_s:` in its "
                      f"`{kind}:` block (0 if it's on time) and calibrate again (SENSORS.md).")
         elif d.get("pooled") and d.get("delay_s", 0) > 0:   # seen over several recordings, not clearly enough to apply
-            from state_smoother import DELAY_POOLED_GAIN
-            if d["delay_s"] < d["floor_s"] - 1e-9:
+            from state_smoother import DELAY_DISAGREE_PER_RUN, DELAY_POOLED_GAIN
+            if d.get("disagreement_per_run", 0.0) > DELAY_DISAGREE_PER_RUN:
+                because = (f"the recordings disagree: on their own they read {', '.join(f'{x:g}' for x in d['own_delays_s'])} s, "
+                           f"so one delay doesn't fit them all; sensors logged by separate systems and merged by time "
+                           f"can be offset differently in each recording")
+            elif d["delay_s"] < d["floor_s"] - 1e-9:
                 because = (f"under the {d['floor_s']:g} s a {'position sensor' if kind == 'position' else 'depth sensor'}'s "
                            f"delay can be told apart at")
             elif d["gain_total"] < DELAY_POOLED_GAIN:
@@ -794,6 +798,12 @@ def sensors_section(metrics: Optional[dict]) -> list:
             L.append(f"\n{name}'s {what} match the motion best {least}{d['delay_s']:.1f} s late, but not clearly "
                      f"({how}), so it wasn't taken off: if you know your system's latency, give it as `delay_s:` "
                      f"(SENSORS.md).")
+        from state_smoother import DELAY_SLOW_FIX_S
+        if (not given and not d.get("late") and kind == "position"
+                and (d.get("fix_interval_s") or 0.0) > DELAY_SLOW_FIX_S):
+            L.append(f"\n{name}'s fixes come about every {d['fix_interval_s']:.1f} s: too far apart to show a small delay "
+                     f"reliably (at one fix every 5 s, 0.3 s late isn't seen), so nothing was taken off. If "
+                     f"you know your system's latency, give it as `delay_s:` in its `position:` block (SENSORS.md).")
     sm_ = ss.get("smoother") or {}
     if sm_.get("fallbacks"):
         L.append("\n> ⚠️ The starting-velocity estimate fell back to the DVL (or rest) on: "

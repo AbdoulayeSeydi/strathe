@@ -3882,6 +3882,72 @@ combinations (LIMITS.md). 23 of 26 pass.
 **Order of work, for the record:** the rescan was added after the bars were committed, while the D rows ran (they
 call the scan directly and don't use it), and before any E row; the checkpoint fix after the E rows.
 
+### 98b. Sensor timing, after the first proof run: recordings that disagree, slow fixes, and a gyro's or orientation's given latency (2026-11-17)
+
+**Recordings that disagree: nothing is taken off.** D-real-dfki failed (0.2 s taken off DFKI's Bar30). Each recording
+is now also scored at its own best delay; when that beats the pooled delay by more than `DELAY_DISAGREE_PER_RUN` 2.0
+in log-likelihood per recording, on average, nothing is taken off and the report says the recordings disagree, with
+each one's own reading. **Disclosure:** this was chosen after D-real-dfki failed, on A0's numbers (every consistent
+known truth: 1.01 or less) and DFKI's own (3.86 over its 8 longest, 4.97 over all 57); those DFKI numbers were looked at
+after the row failed. A per-recording delay was tried first and wasn't built: fitted per recording, DFKI's held-out
+skill was 0.4016 against 0.4015 with nothing taken off. Bars `380fd274c797` were committed before any F row ran.
+
+| Row | What | Pooled | Own delays (s) | Disagreement | Taken off |
+|---|---|---|---|---|---|
+| F-real-dfki | DFKI's Bar30 | 0.2 s, gain 70.1 | 0.0, 0.1, 0.2, 0.2, 0.2, 0.3, 0.4, 0.4 | 3.87 | nothing ✅ |
+| F-depth-mixed | depth 0.4 s late in 4 of 8 recordings | 0.3 s, gain 91.5 | 0.0 ×4, 0.4 ×4 | 6.49 | nothing ✅ |
+| F-pos-mixed | fixes 0.4 s late in 4 of 8 | 0.0 s | 0.0 ×4, 0.1, 0.1, 0.3, 0.3 | 3.49 | nothing ✅ |
+| F-pos-0.3, -0.4, -0.3-s962, -s963, -n4, -rate10 | D rows again, consistent delays | 0.2-0.3 s, gain 5.9-170 | | 0.10-1.28 | as before ✅ |
+| F-depth-0.1, -0.2 | depth late | 0.1 / 0.2 s | | 0.03 / 0.05 | as before ✅ |
+| F-ontime-s96, F-real-tank, F-real-kth | on time | 0.0 s | all 0.0 | 0.0 | nothing ✅ |
+| F-real-uri | URI's GPS | 1.0 s, said | 1.0, 2.0 | 0.74 | nothing, as before ✅ |
+
+15 of 15 pass. The largest consistent case, 4 recordings at 0.3 s, read 1.28, so the margin under the bar is 0.7.
+
+**Fixes too slow to show a small delay: the report says so.** D-pos-0.3-rate0.2 failed (one fix every 5 s, 0.3 s
+late: nothing seen) and the report said nothing. Longer windows don't help: with 120, 300 and 600 s windows the pooled
+scan found 0.0, 0.0 and 0.2 s, none taken off (at 1 Hz, 120 s doubled the gain, 20.8 to 41.8, at 2.4 times the cost,
+and on time stayed 0). So nothing changes in what is taken off; when a position sensor's fixes come more than
+`DELAY_SLOW_FIX_S` 1.5 s apart and nothing was taken off, the report says they're too slow and to give `delay_s:`.
+Bars `a7575ed144d9`, committed before any S row ran:
+
+| Row | Fixes | Found | Fixes apart | Slow-fix note |
+|---|---|---|---|---|
+| S-pos-0.3-rate0.2 | 0.3 s late, one every 5 s | nothing | 5.0 s | said ✅ |
+| S-pos-0.3-rate1 | 0.3 s late, 1 Hz | 0.2 s, gain 20.8, taken off | 1.02 s | not said ✅ |
+| S-pos-0.3-rate10 | 0.3 s late, 10 Hz | 0.2 s, gain 170, taken off | 0.11 s | not said ✅ |
+| S-ontime | on time, 1 Hz | nothing | 1.02 s | not said ✅ |
+
+4 of 4 pass. (The first scan reads 0.3 s fixes as 0.2 s; the rescan with the fitted values finds 0.3 s, E-pos-0.3.)
+
+**A gyro's or orientation's latency, given at ingest (Part B, reduced).** B0 was a no-go for finding it: with the
+description's physics the orientation lag always read 0.2-0.4 s, within 0.2% of the cost of the others; a 0.15 s
+thruster spin-up the description doesn't have made an on-time gyro look 0.1-0.2 s late; and on time, the tank's gyro
+read 0.1 s, DFKI's orientation 0.5 s and URI's gyro 0.5 s. So nothing is looked for, and ingest takes
+`body_velocity.angular_delay_s` and `orientation.delay_s` (the gyro read at t + delay, linearly; the orientation by
+slerp), before resampling. Bars `4f5d9f04a082`, committed before any G row ran; lab-style CSVs of the truth replaying
+4 of 12 Jan's recordings and 1 of 14 Feb's:
+
+| Row | What | Result |
+|---|---|---|
+| G-ontime | nothing late, nothing given | nothing shifted ✅ |
+| G-gyro-0.2-said, G-orient-0.2-said | late, not given | nothing shifted; for the gyro, ingest names the key ✅ |
+| G-gyro-0.2-given | gyro 0.2 s late, given | **the ingest check still reads 0.4 s on p, q** ❌ |
+| G-orient-0.2-given | orientation 0.2 s late, given | back on time ✅ |
+| G-given-0 | 0 given | identical to nothing given ✅ |
+| G-subsample-0.05 | 0.05 s at 50 Hz | RMS error at least halved ✅ |
+| G-refuse | -0.1 s | refused, with what to do ✅ |
+| SN-px4/moos/lcm-attitude_delay (#94's harness) | both keys through each format | the same as the CSV route, 3e-14 ✅ |
+
+**G-gyro-0.2-given's failure is the judge's.** After the given 0.2 s is taken off, the gyro matches the truth's rates
+to 2.5e-6 rad/s in all 5 files, and the check reads exactly what it reads on G-ontime, file by file. The known truth
+replays roll and pitch from a real recording (the simulator is teacher-forced), so its p and q never follow its
+orientation (R² 0.10-0.24) and read -0.2 to -0.4 s even on time. The bar didn't move. On these rows, held-out skill
+was low whichever way (about -0.07, the said and on-time cases within 0.0003), so the skill bars say little here.
+
+**Not varied:** a gyro and an orientation both late, a gyro at 100 Hz, a real vehicle with a given latency, and
+fixes between 0.2 and 1 Hz (LIMITS.md).
+
 ## Honest open items
 
 - **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.

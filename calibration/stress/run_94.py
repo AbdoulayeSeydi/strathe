@@ -168,6 +168,7 @@ SENSOR_CASES = {   # case: (sensor groups written, spec blocks) -- spec built in
     "dvl_keep": "a DVL with dropouts, linear_gaps: keep",
     "dvl_interpolate": "the DVL, linear_gaps: interpolate (the default) stated",
     "skips": "every sensor check listed in skip_checks",
+    "attitude_delay": "the gyro's latency (body_velocity.angular_delay_s 0.2) and the orientation's (delay_s 0.1) (#98)",
 }
 SENSOR_RATE_EVERY = {"usbl": 10, "gps": 10, "depth": 2, "press": 2, "acc": 1, "dvlg": 1, "flag": 1}
 G0, LAT0, LON0 = 9.80665, 41.4436494, -71.42388341
@@ -510,6 +511,9 @@ def spec_for(fmt: str, v: dict, files_glob: str, _unused, folder: str, kind=None
             s["body_velocity"]["linear_gaps"] = "keep"
         if case == "dvl_interpolate":
             s["body_velocity"]["linear_gaps"] = "interpolate"
+        if case == "attitude_delay":
+            s["body_velocity"]["angular_delay_s"] = 0.2
+            s["orientation"]["delay_s"] = 0.1
     return s
 
 
@@ -606,7 +610,7 @@ def s_sensors() -> None:
                 except (OSError, ValueError):
                     pass
             res["sensors"] = sens
-            ok = _ok(res) and (case in ("other_check", "odometry_check", "dvl_interpolate") or bool(sens))
+            ok = _ok(res) and (case in ("other_check", "odometry_check", "dvl_interpolate", "attitude_delay") or bool(sens))
             record(F, f"SN-{fmt}-{case}", "sensor", case, f"{fmt}: {what}", "bluerov sample", res,
                    f"same as the CSV route (< {TOL:g}), sensor readings in the same samples", ok,
                    res.get("seconds", 0))
