@@ -28,3 +28,4 @@ path:finish,E-paths,
 ingest:body_velocity.angular_delay_s,G-gyro-0.2-given G-gyro-0.2-said G-subsample-0.05 G-refuse,
 ingest:orientation.delay_s,G-orient-0.2-given G-orient-0.2-said G-given-0,
 const:DELAY_DISAGREE_PER_RUN,F-real-dfki F-depth-mixed F-pos-mixed F-pos-0.3 F-pos-0.4 F-depth-0.2 F-ontime-s96,
+const:DELAY_SLOW_FIX_S,S-pos-0.3-rate0.2 S-pos-0.3-rate1 S-pos-0.3-rate10 S-ontime,the slow-fix note

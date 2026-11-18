@@ -101,7 +101,7 @@ E2E = {
 
 
 def all_rows() -> set:
-    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE) | set(FIX_ROWS)
+    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE) | set(FIX_ROWS) | set(SLOW)
 
 
 # --- D rows ------------------------------------------------------------------------------------------------------------
@@ -594,6 +594,44 @@ def fix_rows(only=None) -> int:
     return 0
 
 
+# --- S rows: fixes too slow to show a small delay (after D-pos-0.3-rate0.2 failed) ------------------------------------
+# DELAY_SLOW_FIX_S was chosen after D-pos-0.3-rate0.2 failed and a window experiment (120, 300, 600 s) found 0.2 Hz
+# fixes don't show 0.3 s however long the window (PROJECT_STATUS.md #98). These rows and their bars were fixed before
+# any ran: at 0.2 Hz nothing is taken off and the report says to give `delay_s:`; at 1 and 10 Hz, and on time, it doesn't.
+BARS_SLOW = {"slow_taken_off_s": 0.0, "note_when_slow": True, "note_otherwise": False}
+BARS_SLOW_HASH = hashlib.sha256(json.dumps(BARS_SLOW, sort_keys=True).encode()).hexdigest()[:12]
+SLOW = {   # row: (the D row whose data it scans, slow)
+    "S-pos-0.3-rate0.2": ("D-pos-0.3-rate0.2", True), "S-pos-0.3-rate1": ("D-pos-0.3", False),
+    "S-pos-0.3-rate10": ("D-pos-0.3-rate10", False), "S-ontime": ("D-ontime-s96", False),
+}
+
+
+def slow_rows(only=None) -> int:
+    from calibration_report import sensors_section
+    for row, (src_row, slow) in SLOW.items():
+        if only and not any(row == o or row.startswith(o) for o in only):
+            continue
+        t0 = time.time()
+        var, val, sensors, n, seed, sensor, truth = DETECT[src_row]
+        root = _dataset(src_row, sensors, n, seed)
+        d = scan(os.path.join(root, "data"), S.SPEC_BLUEROV2)["usbl"]
+        took = d["delay_s"] if d.get("late") else 0.0
+        shown = {**d, "applied_s": took, **({"applied_from": "found in the fixes"} if took else {})}
+        text = "\n".join(sensors_section({"sensor_suite": {"channels": ["usbl.n"], "fix_delays": {"usbl": shown}}}))
+        noted = "too far apart" in text and "`delay_s:`" in text
+        nums = {"bars": BARS_SLOW_HASH, "found": d, "noted": noted}
+        if slow:
+            ok = took == BARS_SLOW["slow_taken_off_s"] and noted == BARS_SLOW["note_when_slow"]
+            expect = "fixes at 0.2 Hz: nothing taken off, and the report says they're too slow and to give delay_s"
+        else:
+            ok1, e1 = _judge_detect("position", truth, d, n)
+            ok = ok1 and noted == BARS_SLOW["note_otherwise"]
+            expect = f"as {src_row} ({e1}), and no slow-fix note"
+        record(F, row, "fix rate", row[2:], f"{src_row}'s data", "synthetic BlueROV2 (12 Jan recordings)", nums,
+               expect, bool(ok), time.time() - t0)
+    return 0
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
     if cmd == "list":
@@ -605,6 +643,8 @@ if __name__ == "__main__":
         sys.exit(e2e(sys.argv[2:] or None))
     if cmd == "fix":
         sys.exit(fix_rows(sys.argv[2:] or None))
+    if cmd == "slow":
+        sys.exit(slow_rows(sys.argv[2:] or None))
     if cmd == "attitude":
         sys.exit(attitude(sys.argv[2:] or None))
     if cmd == "all":

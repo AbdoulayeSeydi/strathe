@@ -285,6 +285,10 @@ DELAY_LOO_AGREE_S = 0.2       # leaving out the run that gains most, the rest mu
 # and 4.97 (all 57). Over this, one delay doesn't fit them, so none is taken off and the report says so. Chosen on A0's
 # numbers after D-real-dfki failed (PROJECT_STATUS.md #98)
 DELAY_DISAGREE_PER_RUN = 2.0
+# Fixes further apart than this (s, on average over the scanned windows) are too slow to show a delay near the floor:
+# A0 measured the floor at 1 Hz, and at 0.2 Hz a 0.3 s delay wasn't seen even over 600 s windows (#98 fix
+# experiment), so with nothing taken off the report says to give `delay_s:`.
+DELAY_SLOW_FIX_S = 1.5
 
 
 def _window(r, name: str) -> tuple:
@@ -393,7 +397,8 @@ def _pooled_delay(name: str, kind: str, usable: list, params, vehicle, accel_sig
             "late": late, "pooled": True, "runs": len(usable), "gain_total": round(total, 2),
             "loo_delay_s": round(float(loo), 2), "floor_s": DELAY_FLOOR_S[kind],
             "disagreement_per_run": round(disagree, 2),
-            "own_delays_s": sorted(round(float(max(ll, key=ll.get)), 2) for ll in lls)}
+            "own_delays_s": sorted(round(float(max(ll, key=ll.get)), 2) for ll in lls),
+            "fix_interval_s": round(secs / n, 2) if n else None}
 
 
 def _one_run_delay(name: str, kind: str, runs: Sequence, params, vehicle, accel_sigma: float, noise) -> dict:

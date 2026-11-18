@@ -798,6 +798,12 @@ def sensors_section(metrics: Optional[dict]) -> list:
             L.append(f"\n{name}'s {what} match the motion best {least}{d['delay_s']:.1f} s late, but not clearly "
                      f"({how}), so it wasn't taken off: if you know your system's latency, give it as `delay_s:` "
                      f"(SENSORS.md).")
+        from state_smoother import DELAY_SLOW_FIX_S
+        if (not given and not d.get("late") and kind == "position"
+                and (d.get("fix_interval_s") or 0.0) > DELAY_SLOW_FIX_S):
+            L.append(f"\n{name}'s fixes come about every {d['fix_interval_s']:.1f} s: too far apart to show a small delay "
+                     f"reliably (at one fix every 5 s, 0.3 s late isn't seen), so nothing was taken off. If "
+                     f"you know your system's latency, give it as `delay_s:` in its `position:` block (SENSORS.md).")
     sm_ = ss.get("smoother") or {}
     if sm_.get("fallbacks"):
         L.append("\n> ⚠️ The starting-velocity estimate fell back to the DVL (or rest) on: "
