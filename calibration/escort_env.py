@@ -17,6 +17,10 @@ so the ROV must predict a vehicle whose physics differ from its own.
                        (#97 T-prestero-slow), dead-reckoned from the beacon holding its fins and rpm
     generic            the same model with the starting values `describe-vehicle` writes from a tape measure
     physics_alphaA     A of the way from calibrated to generic, parameter by parameter
+    calibrated_intent  calibrated model flown under the REMUS autopilot toward the beaconed heading and depth
+    generic_intent     the same with the generic parameters
+    calibrated_nofins  calibrated model from state-only beacons (fins unknown, held centred)
+                       (these three: escort_beliefs.py)
     constant_velocity  last beacon position + its velocity x age
     last_beacon        the REMUS assumed to sit where its last beacon said
 The calibrated model is not the truth: the truth is Prestero's equations, which Strathe's model was not written from.
@@ -183,6 +187,11 @@ class RemusModels:
             return BeliefSpec("physics", "calibrated", self.calibrated)
         if name == "generic":
             return BeliefSpec("physics", "generic", self.generic)
+        if name in ("calibrated_intent", "generic_intent", "calibrated_nofins"):
+            from escort_beliefs import EscortBeliefSpec
+            base = name.split("_")[0]
+            kind = "physics_intent" if name.endswith("intent") else "physics_nofins"
+            return EscortBeliefSpec(kind, name, getattr(self, base), self.basis)
         if name.startswith("physics_alpha"):
             alpha = float(name[len("physics_alpha"):])
             return BeliefSpec("physics", name, interpolate_params(self.calibrated, self.generic, alpha))
@@ -281,10 +290,13 @@ class EscortSim:
         return self._observation(self._estimate())
 
     def _beacon(self, tick: int) -> Beacon:
+        from escort_beliefs import EscortBeacon
         m, k = self.mission, self._k0 + tick
         dr, ds, rpm = m.fins[k]
-        return Beacon(send_tick=tick, position=m.pos[k].copy(), orientation=m.R[k].copy(), nu=m.nu[k].copy(),
-                      tau=np.zeros(6), controls=controls_for(self.remus.basis, dr, ds, rpm))
+        return EscortBeacon(send_tick=tick, position=m.pos[k].copy(), orientation=m.R[k].copy(), nu=m.nu[k].copy(),
+                            tau=np.zeros(6), controls=controls_for(self.remus.basis, dr, ds, rpm),
+                            fins=(float(dr), float(ds), float(rpm)),
+                            intent=(float(m.heading_order[k]), float(self.library.cfg.depth_m)))
 
     def remus_true(self, tick: Optional[int] = None) -> tuple:
         k = self._k0 + (self.tick if tick is None else tick)

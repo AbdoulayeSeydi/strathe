@@ -4,6 +4,8 @@ run_escort_study.py -- the heterogeneous escort study: which REMUS model a BlueR
 
     python run_escort_study.py --policies escort_policy_seed1 escort_policy_seed2 escort_policy_seed3 scripted
     python run_escort_study.py --policies scripted --per-mission 1 --out results/escort_smoke    # quick check
+    python run_escort_study.py --policies ... --beliefs calibrated_nofins calibrated_intent generic_intent \
+        --merge-with results/escort_study/episodes.csv --out results/escort_beacon     # what the beacon carries
 
 Every cell (policy x teammate model x comm condition) runs the SAME episodes: the held-out missions
 (escort_remus.EVAL_SEEDS, never trained on), the same windows, ROV starts and packet-loss draws. Only the teammate
@@ -31,8 +33,14 @@ import escort_remus as ER
 BELIEFS = ("oracle", "calibrated", "physics_alpha0.25", "physics_alpha0.5", "physics_alpha0.75", "generic",
            "constant_velocity", "last_beacon")
 COMMS = ("L0@1", "L2@3", "L3a@1", "L3a@3")
+# What the beacon carries (escort_beliefs.py), run with --beliefs ... --merge-with <the main study's episodes.csv>
+BEACON_BELIEFS = ("calibrated_nofins", "calibrated_intent", "generic_intent")
 CONTRASTS = (("calibrated", "generic"), ("calibrated", "constant_velocity"), ("calibrated", "last_beacon"),
              ("constant_velocity", "last_beacon"), ("generic", "last_beacon"), ("oracle", "calibrated"))
+BEACON_CONTRASTS = (("calibrated", "calibrated_nofins"), ("calibrated_intent", "calibrated"),
+                    ("generic_intent", "generic"), ("calibrated_intent", "generic_intent"),
+                    ("oracle", "calibrated_intent"))
+_TEXT_FIELDS = {"policy", "belief", "comm", "backend", "episode_key"}
 ALPHA = {"calibrated": 0.0, "physics_alpha0.25": 0.25, "physics_alpha0.5": 0.5, "physics_alpha0.75": 0.75, "generic": 1.0}
 DEFAULT_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escort", "missions_cache")
 
@@ -110,7 +118,7 @@ def analyse(rows: list, out: str) -> dict:
         for k, v in e.items():
             s[f"mean_{k}" if not k.startswith("mean") else k] = float(np.nanmean(np.array(v, dtype=float)))
     contrasts = []
-    for a, b in CONTRASTS:
+    for a, b in CONTRASTS + BEACON_CONTRASTS:
         for group in (("comm",), ("policy", "comm")):
             for c in paired_contrast(rows, a, b, group_by=group):
                 c.setdefault("policy", "pooled")
@@ -123,13 +131,30 @@ def analyse(rows: list, out: str) -> dict:
     return {"summary": summary, "pooled": pooled, "contrasts": contrasts}
 
 
+def read_episodes(path: str) -> list:
+    """An episodes.csv back as rows with numbers where the study wrote numbers."""
+    out = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            row = {}
+            for k, v in r.items():
+                if k in _TEXT_FIELDS:
+                    row[k] = v
+                else:
+                    x = float(v) if v not in ("", "nan") else float("nan")
+                    row[k] = int(x) if k in ("success", "collision", "lost", "steps", "beacons_sent",
+                                             "beacons_delivered", "mission_seed") and np.isfinite(x) else x
+            out.append(row)
+    return out
+
+
 def _pct(x):
     return f"{100 * x:.0f}%"
 
 
 def write_report(rows, pooled, contrasts, out):
     comms = sorted({r["comm"] for r in rows}, key=lambda c: (c.split("@")[0], float(c.split("@")[1][:-1])))
-    beliefs = [b for b in BELIEFS if any(r["belief"] == b for r in rows)]
+    beliefs = [b for b in BELIEFS + BEACON_BELIEFS if any(r["belief"] == b for r in rows)]
     pols = sorted({r["policy"] for r in rows})
     P = {(s["comm"], s["belief"]): s for s in pooled}
     L = [f"# Escort study: a BlueROV2 escorting a REMUS 100", "",
@@ -151,20 +176,25 @@ def write_report(rows, pooled, contrasts, out):
         L.append(f"| {c} | " + " | ".join(
             f"{_pct(P[(c, b)]['mean_in_band_frac_straight'])} / {_pct(P[(c, b)]['mean_in_band_frac_turn'])}" if (c, b) in P else ""
             for b in beliefs) + " |")
-    L += ["", "## Paired differences in success (points), pooled over policies", "",
-          "| Comm | " + " | ".join(f"{a} - {b}" for a, b in CONTRASTS) + " |", "|---|" + "---|" * len(CONTRASTS)]
     C = {(c["comm"], c["a"], c["b"]): c for c in contrasts if c["policy"] == "pooled"}
-    for cm in comms:
-        cells = []
-        for a, b in CONTRASTS:
-            c = C.get((cm, a, b))
-            if c is None:
-                cells.append("")
-                continue
-            lo, hi = c["success_diff_ci95"]
-            star = " *" if lo > 0 or hi < 0 else ""
-            cells.append(f"{100 * c['success_diff']:+.0f} [{100 * lo:+.0f}, {100 * hi:+.0f}]{star}")
-        L.append(f"| {cm} | " + " | ".join(cells) + " |")
+    for title, pairs in (("Paired differences in success (points), pooled over policies", CONTRASTS),
+                         ("What the beacon carries: paired differences in success (points)", BEACON_CONTRASTS)):
+        pairs = [(a, b) for a, b in pairs if any((cm, a, b) in C for cm in comms)]
+        if not pairs:
+            continue
+        L += ["", f"## {title}", "", "| Comm | " + " | ".join(f"{a} - {b}" for a, b in pairs) + " |",
+              "|---|" + "---|" * len(pairs)]
+        for cm in comms:
+            cells = []
+            for a, b in pairs:
+                c = C.get((cm, a, b))
+                if c is None:
+                    cells.append("")
+                    continue
+                lo, hi = c["success_diff_ci95"]
+                star = " *" if lo > 0 or hi < 0 else ""
+                cells.append(f"{100 * c['success_diff']:+.0f} [{100 * lo:+.0f}, {100 * hi:+.0f}]{star}")
+            L.append(f"| {cm} | " + " | ".join(cells) + " |")
     alphas = [b for b in ALPHA if b in beliefs]
     if len(alphas) >= 3:
         L += ["", "## Dose-response: model parameters moved from calibrated (0) to generic (1)", "",
@@ -198,6 +228,9 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--cache", default=DEFAULT_CACHE)
     ap.add_argument("--out", default="results/escort_study")
+    ap.add_argument("--merge-with", default=None, metavar="EPISODES_CSV",
+                    help="an earlier run's episodes.csv on the same episodes: its rows are analysed with this run's "
+                         "(e.g. new beacon contents against the main study's models). Refused if the episodes differ.")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     seeds = list(ER.EVAL_SEEDS)[:args.missions]
@@ -222,6 +255,16 @@ def main():
         for i, t in enumerate(tasks):
             rows += run_cell(t)
             print(f"  {i + 1}/{len(tasks)} cells ({(time.time() - t0) / 60:.1f} min)", flush=True)
+    if args.merge_with:
+        old_rows = read_episodes(args.merge_with)
+        new_keys = {r["episode_key"] for r in rows}
+        if new_keys - {r["episode_key"] for r in old_rows}:
+            raise SystemExit(f"{args.merge_with} wasn't run on these episodes (different --missions, --per-mission "
+                             "or --episode-seed): the rows can't be paired")
+        clash = {(r["policy"], r["comm"], r["belief"]) for r in rows} & {(r["policy"], r["comm"], r["belief"]) for r in old_rows}
+        old_rows = [r for r in old_rows if (r["policy"], r["comm"], r["belief"]) not in clash]
+        print(f"merged {len(old_rows)} rows from {args.merge_with}" + (f" (re-run cells replaced: {len(clash)})" if clash else ""))
+        rows = old_rows + rows
     rows.sort(key=lambda r: (r["policy"], r["comm"], r["belief"], r["episode_key"]))
     _write_csv(os.path.join(args.out, "episodes.csv"), rows)
     analyse(rows, args.out)

@@ -8,7 +8,7 @@ is the experimental variable.
 |---|---|---|
 | Steers with | 8 thrusters (BlueROV2 Heavy allocation, `thruster_model.bluerov2_heavy`) | 4 fins and a propeller |
 | Can hover | yes | no (0.5 to 0.7 m/s at 700 rpm) |
-| Truth physics | Strathe's BlueROV2 calibration `calibrated_parameters_fleet_truth_alt.yaml` | Prestero's 2001 equations (`stress/prestero_remus.py`), not Strathe's model |
+| Truth physics | Strathe's BlueROV2 model calibrated from HoloOcean simulator data (`calibrated_parameters_fleet_truth_alt.yaml`, a checkpoint, not converged) | Prestero's 2001 equations (`stress/prestero_remus.py`), not Strathe's model |
 | Controlled by | the learned policy (or `EscortPursuit`) | its own autopilot (the #97 Prestero autopilot plus a depth loop) |
 | Sends | nothing | a beacon every 0.5 to 3 s: position, attitude, velocity, fin angles, rpm |
 
@@ -22,6 +22,17 @@ is the experimental variable.
 | `generic` | the same model with `describe-vehicle`'s tape-measure starting values |
 | `constant_velocity` | last position + last velocity x age |
 | `last_beacon` | where the last beacon said |
+
+### What the beacon carries (`escort_beliefs.py`)
+
+| Name | Beacon | Prediction between beacons |
+|---|---|---|
+| `calibrated_nofins` | state only | calibrated model, fins centred, the mission's rpm |
+| `calibrated`, `generic` | state + fins + rpm | the model holding the fins and rpm (zero-order hold) |
+| `calibrated_intent`, `generic_intent` | state + fins + rpm + heading and depth orders | the model flown under the REMUS's own autopilot (same law, 100 Hz) toward the orders |
+
+The intent models assume the ROV knows the REMUS's autopilot law and gains, and that the orders on the send tick hold
+until the next beacon. The pitch integrator isn't sent; it is set so the law gives back the reported elevator angle.
 
 The calibrated model is not the truth: Prestero's equations have lumped lift terms and off-diagonal mass that Strathe's
 model was not written from, so its errors are real model error.
@@ -42,6 +53,7 @@ model was not written from, so its errors are real model error.
 |---|---|
 | `escort_remus.py` | the REMUS truth, its missions, and the precomputed mission library |
 | `escort_env.py` | the escort simulation, teammate models, task, scripted controller |
+| `escort_beliefs.py` | the state-only and intent beacon contents and their models |
 | `escort_gym.py` | gymnasium wrapper for SB3 training |
 | `train_escort_policy.py` | trains a policy (fleet v2's hyperparameters) |
 | `run_escort_study.py` | the paired evaluation and its report |
@@ -61,7 +73,12 @@ python train_escort_policy.py --timesteps 20000 --seed 1 --out /tmp/escort_smoke
 python train_escort_policy.py --seed 1 --out escort_policy_seed1   # 3M PPO steps; run seeds 2 and 3 side by side
 python run_escort_study.py --policies escort_policy_seed1 escort_policy_seed2 escort_policy_seed3 scripted \
     --out results/escort_study
+python run_escort_study.py --policies escort_policy_seed1 escort_policy_seed2 escort_policy_seed3 scripted \
+    --beliefs calibrated_nofins calibrated_intent generic_intent \
+    --merge-with results/escort_study/episodes.csv --out results/escort_beacon     # what the beacon carries
 ```
+`--merge-with` pairs the new models with the main study's episodes; use the same policy names and the default
+`--missions`, `--per-mission` and `--episode-seed`, or it refuses.
 
 Missions are cached under `escort/missions_cache/` (training: seeds 0 to 399; evaluation: 100000 to 100099, never
 trained on). The study runs every cell on the same episodes (3 per held-out mission by default), so all differences
@@ -72,5 +89,5 @@ contrasts with bootstrap CIs, and the dose-response.
 
 - One-way link: the REMUS doesn't hear or react to the ROV. A leader-follower escort, not mutual coordination.
 - Still water, exact sensors on both vehicles.
-- The ROV's BlueROV2 model was calibrated in a tank at lower speeds than the escort reaches (~1 m/s).
+- The ROV's BlueROV2 model was calibrated from HoloOcean simulator data (a non-converged checkpoint), not from real logs. The study holds it fixed; only the REMUS model varies.
 - The calibrated REMUS model was fitted at 750 to 1150 rpm and is used at 700 rpm.

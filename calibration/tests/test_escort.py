@@ -299,3 +299,80 @@ def test_gym_env(lib, models):
     assert env.observation_space.contains(obs) and "belief" in info
     obs, r, term, trunc, info = env.step(env.action_space.sample())
     assert obs.shape == (EE.OBS_DIM,) and isinstance(r, float)
+
+
+# ------------------------------------------------------------------ what the beacon carries (escort_beliefs.py)
+
+def _first_beacon(sim, lib, k=30):
+    sim.reset(EE.EscortEpisode(0, k, (3.0, 0.0, 0.0), 1))
+    return sim._beacon(0)
+
+
+def test_beacons_carry_fins_and_orders(lib, models):
+    sim = _sim(lib, models)
+    b = _first_beacon(sim, lib)
+    m = lib[0]
+    assert b.fins == tuple(float(x) for x in m.fins[30])
+    assert b.intent == (float(m.heading_order[30]), SHORT.depth_m)
+
+
+def test_intent_model_reproduces_the_reported_elevator(lib, models):
+    """The pitch integrator is set so the autopilot law gives back the elevator angle in the beacon."""
+    sim = _sim(lib, models)
+    remus = models[1]
+    b = _first_beacon(sim, lib, k=100)
+    bel = remus.belief("calibrated_intent").build(.1, remus.vehicle)
+    bel.on_tick(0, [b])
+    pitch, q, yaw, r, z = bel._state()
+    th_d = float(np.clip(ER.DEPTH_GAIN * (z - b.intent[1]), -ER.PITCH_ORDER_LIMIT_RAD, ER.PITCH_ORDER_LIMIT_RAD))
+    ds, dr, _ = ER.autopilot(pitch, q, yaw, r, b.intent[0], th_d, bel._ii, ER.AUTOPILOT_H)
+    if abs(b.fins[1]) < ER.FIN_LIMIT_RAD - 1e-6 and abs(bel._ii) < .5:
+        assert ds == pytest.approx(b.fins[1], abs=1e-3)   # one integrator step (|e_th| h) apart: the law integrates first
+    assert dr == pytest.approx(b.fins[0], abs=1e-3)       # same law, same state: the same rudder
+
+
+def test_no_fins_model_centres_the_fins_and_keeps_the_rpm(lib, models):
+    sim = _sim(lib, models)
+    remus = models[1]
+    b = _first_beacon(sim, lib)
+    bel = remus.belief("calibrated_nofins").build(.1, remus.vehicle)
+    bel.on_tick(0, [b])
+    assert bel._core.controls == pytest.approx(list(ER.controls_for(remus.basis, 0.0, 0.0, b.fins[2])))
+
+
+def test_intent_beats_holding_the_fins_over_long_gaps(lib, models):
+    """The predicted REMUS 7 s after a beacon, no beacon in between: flying the autopilot toward the orders stays
+    closer than coasting on frozen fins."""
+    sim = _sim(lib, models)
+    remus = models[1]
+    err = {"calibrated": [], "calibrated_intent": []}
+    for k in range(0, len(lib[1]) - 80, 25):
+        sim.reset(EE.EscortEpisode(1, 0, (3.0, 0.0, 0.0), 1))
+        b = sim._beacon(k)
+        b = dataclasses.replace(b, send_tick=0)
+        for name in err:
+            bel = remus.belief(name).build(.1, remus.vehicle)
+            bel.on_tick(0, [b])
+            for t in range(1, 71):
+                bel.on_tick(t, [])
+            err[name].append(float(np.linalg.norm(bel.estimate(None) - lib[1].pos[k + 70])))
+    assert np.median(err["calibrated_intent"]) < 0.7 * np.median(err["calibrated"])
+
+
+def test_report_has_the_beacon_contrasts(lib, models, tmp_path):
+    import run_escort_study as RS
+    RS._W.update(lib=lib, rov=models[0], remus=models[1], cfg=EE.EscortConfig(), policies={})
+    eps = EE.evaluation_episodes(lib, EE.EscortConfig(), per_mission=1, seed=6)
+    first = []
+    for b in ("oracle", "calibrated", "generic"):
+        first += RS.run_cell(("scripted", b, "L3a@3", eps))
+    RS._write_csv(str(tmp_path / "first.csv"), first)
+    back = RS.read_episodes(str(tmp_path / "first.csv"))
+    assert [r["success"] for r in back] == [r["success"] for r in first]
+    assert back[0]["mean_belief_error_m"] == pytest.approx(first[0]["mean_belief_error_m"], rel=1e-5)
+    rows = back
+    for b in RS.BEACON_BELIEFS:
+        rows += RS.run_cell(("scripted", b, "L3a@3", eps))
+    RS.analyse(rows, str(tmp_path))
+    rep = (tmp_path / "report.md").read_text()
+    assert "What the beacon carries" in rep and "calibrated_intent - calibrated" in rep
