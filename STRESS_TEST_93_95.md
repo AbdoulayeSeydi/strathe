@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-17 14:58. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-17 21:32. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -183,7 +183,7 @@ Each calibration trained on one session, scored on its own held-out part and on 
 
 ## #94. PX4, MOOS-IvP and LCM logs, read directly
 
-**424 of 424 rows pass** (603 variables found in the code, each with a row).
+**427 of 427 rows pass** (609 variables found in the code, each with a row).
 
 
 ### Every real recording through each format, against the CSV route
@@ -679,6 +679,9 @@ Each calibration trained on one session, scored on its own held-out part and on 
 | SN-lcm-dvl_keep | sensor = dvl_keep | lcm: a DVL with dropouts, linear_gaps: keep | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 5.4, "warnings_fmt": [], "axes_not_s... | 0 min |
 | SN-lcm-dvl_interpolate | sensor = dvl_interpolate | lcm: the DVL, linear_gaps: interpolate (the default) stated | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 2.4, "warnings_fmt": [], "axes_not_s... | 0 min |
 | SN-lcm-skips | sensor = skips | lcm: every sensor check listed in skip_checks | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 5.8, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-px4-attitude_delay | sensor = attitude_delay | px4: the gyro's latency (body_velocity.angular_delay_s 0.2) and the orientation's (delay_s 0.1) (#98) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 0.7, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-moos-attitude_delay | sensor = attitude_delay | moos: the gyro's latency (body_velocity.angular_delay_s 0.2) and the orientation's (delay_s 0.1) (#98) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.2, "warnings_fmt": [], "axes_not_s... | 0 min |
+| SN-lcm-attitude_delay | sensor = attitude_delay | lcm: the gyro's latency (body_velocity.angular_delay_s 0.2) and the orientation's (delay_s 0.1) (#98) | bluerov sample | ✅ | {"same_files": true, "recordings": 2, "rows": 6000, "max_abs_diff": 2.842170943040401e-14, "worst_column": "Fz", "seconds": 1.6, "warnings_fmt": [], "axes_not_s... | 0 min |
 
 ## #95. Vehicle spec from basic measurements, or from any simulator model
 
@@ -1820,7 +1823,7 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 
 ## #98. Small sensor delays, found automatically
 
-**23 of 26 rows pass** (26 variables found in the code, each with a row).
+**49 of 53 rows pass** (30 variables found in the code, each with a row).
 
 
 ### The delay scan, as calibrate runs it: known truth and real sensors
@@ -1858,4 +1861,46 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | E-given-0 | given delay_s = 0.0 | fixes 0.3 s late, delay_s: 0 given: nothing taken off, as said | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664} | 13 min |
 | E-regress-1 | today's behaviour = 1.0 | fixes 1 s late: found and taken off, as before #98 | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ✅ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9057, "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes... | 26 min |
 | E-paths | every path = 0.3 | validate, report and a fit finished from its checkpoint apply the same delay | synthetic BlueROV2 (4 recordings of 12 Jan, 14 Feb held out) | ❌ | {"bars": "f6460c22badb", "on_time": 0.9956, "before": 0.9664, "calibrate_took_s": 0.3, "finished_took_s": 0.2, "validate_exit": 0, "report_exit": 0, "report_say... | 18 min |
+
+### Other rows (F)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| F-real-dfki | recordings disagree = real-dfki | DFKI's real Bar30 (logged apart from its motion capture) | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"kind": "depth", "delay_s": 0.2, "gain_per_fix": 0.017, "gain_per_s": 0.152, "fixes": 4039, "at_the_scan_edge": false, "late"... | 15 min |
+| F-depth-mixed | recordings disagree = depth-mixed | main: half the recordings 0.4 s late, half on time | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"kind": "depth", "delay_s": 0.3, "gain_per_fix": 0.019, "gain_per_s": 0.191, "fixes": 4800, "at_the_scan_edge": false, "late"... | 16 min |
+| F-pos-mixed | recordings disagree = pos-mixed | usbl: half the recordings 0.4 s late, half on time | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 470, "at_the_scan_edge": false, "late": ... | 15 min |
+| F-pos-0.3 | recordings disagree = pos-0.3 | D-pos-0.3 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.044, "gain_per_s": 0.043, "fixes": 469, "at_the_scan_edge": fa... | 14 min |
+| F-pos-0.4 | recordings disagree = pos-0.4 | D-pos-0.4 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.3, "gain_per_fix": 0.143, "gain_per_s": 0.14, "fixes": 469, "at_the_scan_edge": fal... | 15 min |
+| F-pos-0.3-s962 | recordings disagree = pos-0.3-s962 | D-pos-0.3-s962 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.088, "gain_per_s": 0.087, "fixes": 471, "at_the_scan_edge": fa... | 14 min |
+| F-pos-0.3-s963 | recordings disagree = pos-0.3-s963 | D-pos-0.3-s963 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.103, "gain_per_s": 0.101, "fixes": 470, "at_the_scan_edge": fa... | 14 min |
+| F-pos-0.3-n4 | recordings disagree = pos-0.3-n4 | D-pos-0.3-n4 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.025, "gain_per_s": 0.025, "fixes": 232, "at_the_scan_edge": fa... | 7 min |
+| F-pos-0.3-rate10 | recordings disagree = pos-0.3-rate10 | D-pos-0.3-rate10 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.037, "gain_per_s": 0.355, "fixes": 4555, "at_the_scan_edge": f... | 13 min |
+| F-depth-0.1 | recordings disagree = depth-0.1 | D-depth-0.1 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"main": {"kind": "depth", "delay_s": 0.1, "gain_per_fix": 0.002, "gain_per_s": 0.018, "fixes": 4800, "at_the_scan_edge": fals... | 95 min |
+| F-depth-0.2 | recordings disagree = depth-0.2 | D-depth-0.2 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"main": {"kind": "depth", "delay_s": 0.2, "gain_per_fix": 0.011, "gain_per_s": 0.114, "fixes": 4800, "at_the_scan_edge": fals... | 7 min |
+| F-ontime-s96 | recordings disagree = ontime-s96 | D-ontime-s96 again, with the guard | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"usbl": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 469, "at_the_scan_edge": false,... | 6 min |
+| F-real-tank | recordings disagree = real-tank | real tank | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 4800, "at_the_scan_edge": false, "... | 11 min |
+| F-real-kth | recordings disagree = real-kth | real kth | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"main": {"kind": "depth", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 1800, "at_the_scan_edge": false, "... | 8 min |
+| F-real-uri | recordings disagree = real-uri | real uri | synthetic and real | ✅ | {"bars": "380fd274c797", "found": {"gps": {"kind": "position", "delay_s": 1.0, "gain_per_fix": 0.618, "gain_per_s": 0.443, "fixes": 86, "at_the_scan_edge": fals... | 4 min |
+
+### Other rows (G)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| G-ontime | given attitude delay = ontime | (0.0, 0.0, None, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "mean_skill": -0.0704} | 73 min |
+| G-gyro-0.2-said | given attitude delay = gyro-0.2-said | (0.2, 0.0, None, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "mean_skill": -0.0707, "gyro_lag_seen_s": 0.3} | 40 min |
+| G-gyro-0.2-given | given attitude delay = gyro-0.2-given | (0.2, 0.0, 0.2, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ❌ | {"bars": "4f5d9f04a082", "mean_skill": -0.0704, "said": -0.0707, "on_time": -0.0704, "gyro_lag_left_s": 0.4} | 43 min |
+| G-orient-0.2-said | given attitude delay = orient-0.2-said | (0.0, 0.2, None, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "mean_skill": -0.0708, "gyro_lag_seen_s": 0.6} | 44 min |
+| G-orient-0.2-given | given attitude delay = orient-0.2-given | (0.0, 0.2, None, 0.2, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "mean_skill": -0.0704, "said": -0.0708, "on_time": -0.0704, "gyro_lag_left_s": 0.4, "orientation_err_deg": 5e-05} | 112 min |
+| G-given-0 | given attitude delay = given-0 | (0.0, 0.0, 0.0, 0.0, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "identical": true, "said": true} | 0 min |
+| G-subsample-0.05 | given attitude delay = subsample-0.05 | (0.05, 0.0, 0.05, None, 50.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "rms_after_over_before": 0.098} | 0 min |
+| G-refuse | given attitude delay = refuse | (0.0, 0.0, -0.1, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "refused": "invalid ingest spec '/Users/abdoulayeseydi/strathe_sensor_data/r98/attitude/G-refuse/ingest.yaml':\n1 validation error for ... | 0 min |
+
+### Other rows (S)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| S-pos-0.3-rate0.2 | fix rate = pos-0.3-rate0.2 | D-pos-0.3-rate0.2's data | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "a7575ed144d9", "found": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 96, "at_the_scan_edge": false, "late": f... | 9 min |
+| S-pos-0.3-rate1 | fix rate = pos-0.3-rate1 | D-pos-0.3's data | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "a7575ed144d9", "found": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.044, "gain_per_s": 0.043, "fixes": 469, "at_the_scan_edge": false, "lat... | 9 min |
+| S-pos-0.3-rate10 | fix rate = pos-0.3-rate10 | D-pos-0.3-rate10's data | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "a7575ed144d9", "found": {"kind": "position", "delay_s": 0.2, "gain_per_fix": 0.037, "gain_per_s": 0.355, "fixes": 4555, "at_the_scan_edge": false, "la... | 8 min |
+| S-ontime | fix rate = ontime | D-ontime-s96's data | synthetic BlueROV2 (12 Jan recordings) | ✅ | {"bars": "a7575ed144d9", "found": {"kind": "position", "delay_s": 0.0, "gain_per_fix": 0.0, "gain_per_s": 0.0, "fixes": 469, "at_the_scan_edge": false, "late": ... | 6 min |
 
