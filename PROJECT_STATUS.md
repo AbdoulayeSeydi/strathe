@@ -3957,9 +3957,74 @@ was low whichever way (about -0.07, the said and on-time cases within 0.0003), s
 **Not varied:** a gyro and an orientation both late, a gyro at 100 Hz, a real vehicle with a given latency, and
 fixes between 0.2 and 1 Hz (LIMITS.md).
 
+### 99. Heterogeneous escort: a BlueROV2 escorting a REMUS 100 (2026-11-16 to 2026-11-18)
+
+**What it is** (`calibration/ESCORT.md`). A hover vehicle and a fin-steered one on one acoustic link:
+- **The REMUS 100** flies its own survey: Prestero's equations, re-ballasted, under its autopilot at 700 rpm.
+- **The BlueROV2** must stay 3 ± 1 m from it, knowing where it is only from its beacons and a teammate model between
+  them.
+- **The variable is the model:** the oracle, calibrated (#97's `T-prestero-slow`), generic (tape-measure values), a
+  dose-response between them, constant velocity, or the last beacon.
+- **What the beacon carries:** state only, plus fins and rpm (the default), or plus the heading and depth orders
+  (intent).
+
+Every cell runs the same held-out missions, ROV starts and packet-loss draws. CIs resample whole missions.
+
+**The main study: still water, 99,000 episodes.** Seeds 1-5 and the scripted escort, 11 models, 5 links, 300 episodes
+per cell.
+
+| Link | calibrated | generic | const. velocity | calibrated + intent | calibrated − generic | intent gain, calibrated | calibration × intent |
+|---|---|---|---|---|---|---|---|
+| no loss, 1 s | 95% | 95% | 95% | 95% | −0 | −0 | −0 |
+| 30% loss, 3 s | 94% | 87% | 89% | 95% | +7 [+5, +9] | +2 [+1, +3] | +1 [−1, +2] |
+| 60% loss, 1 s | 95% | 93% | 92% | 94% | +2 [+1, +3] | −0 | −1 [−1, +0] |
+| 60% loss, 2 s | 84% | 60% | 80% | 93% | +24 [+21, +27] | +9 [+6, +11] | +8 [+5, +11] |
+| 60% loss, 3 s | 61% | 33% | 55% | 78% | +28 [+25, +31] | +18 [+13, +22] | +16 [+12, +20] |
+
+- **The model only matters once the link is slow and lossy.** At 1 s or faster, any physics model is as good as the
+  oracle.
+- **Calibration and intent multiply:** intent adds 18 points to the calibrated model at 60% loss, 3 s, and 2 to the
+  generic one.
+- **The full 4 × 4 grid** (86,400 episodes, 100 per cell) agrees on where it matters: 30% loss, 3 s and 60% loss,
+  2-3 s. At 60% loss, 3 s it reads calibrated 70% [62, 77] against the main study's 61% [56, 65], from a different
+  episode draw, so numbers are quoted from the main study.
+- **Seed 3 is a weak policy** (75-78% with the oracle); the scripted escort and seeds 2, 4 and 5 reach 99-100%.
+
+**Open water: 12,000 episodes.** The setup:
+- 60% loss, 3 s; a steady 0.2 m/s current; the ROV's sensor noise measured at a fish farm (SOLAQUA, biases assumed).
+- Policies trained in currents of 0-0.3 m/s with that noise, and `scripted_pi`.
+- The still-water policies can't be used here: memoryless, they are held about 1.8 m off by the current's drag
+  whatever they know.
+
+| Contrast | Points |
+|---|---|
+| Told the current, calibrated model (calibrated_aware − calibrated) | +25 [+21, +29] |
+| Told the current, generic model | +4 [+0, +8] |
+| Calibration, current known | +28 [+25, +31] |
+| Calibration × knowing the current | +21 [+16, +25] |
+| Calibrated + intent, current known, − constant velocity | +24 [+20, +27] |
+| Calibrated, current not known, − constant velocity | −10 [−16, −4] |
+
+- In a current, a physics model that assumes still water loses to constant velocity, which sees the drift in the
+  beacon.
+- The current has to be known and the model calibrated: a generic model told the current still loses to constant
+  velocity (−13).
+- **Absolute numbers are low:** the PI escort reaches 65% even with the oracle.
+- **Robust seed 1 does better with the calibrated, current-aware intent model (84%) than with the oracle (68%).** Its
+  oracle number isn't a ceiling.
+
+**Not shown here, on purpose:**
+- the REMUS's own navigation error (its beacons are exact);
+- a two-way link: the REMUS never reacts to the ROV;
+- a ROV model from real logs (it is from HoloOcean data);
+- the calibrated REMUS at the rpm it was fitted at (750-1150, used at 700).
+
+All of these are in LIMITS.md. The policies and results aren't committed; they stay in the escort worktree on the
+machine that ran them, and the commands to reproduce them are in ESCORT.md.
+
 ## Honest open items
 
-- **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent: planned-command or trajectory beacons, or teammate-policy models, remain the lever.
+- **Physics dead reckoning only ties last-beacon in still water** (#48, #54). It pulls ahead in a current it knows about (#55). Predicting a teammate means predicting its future commands. An optical link gives high-rate state sharing (#59), which isn't intent. Intent in the beacon (the heading and depth orders) was measured in the escort study (#99): +18 points for a calibrated model at 60% loss, 3 s, +2 for a generic one; it isn't in `strathe fleet` yet.
 - **Currents:** one constant current per recording. An unknown one is estimated (#57), but a current that changes within a recording, or varies across space, isn't modelled. A fleet that works in currents should estimate the ambient current and give it to its teammate model.
 - **All limits, with what to do about each, are in `LIMITS.md` (#57).**
 - **Sensor noise costs formation-holding about 10 points, and almost all of it is the starting position fix (#60, correcting #58).** With a perfect fix, the assumed `typical` or the measured `open_water` sensors cost about 1. The lever is relative positioning between the vehicles (acoustic ranging, a shared USBL). TD3, the best algorithm in clean simulation, loses the most under noise (−22 points): compare algorithms with `--mode both`.
