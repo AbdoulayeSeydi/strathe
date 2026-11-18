@@ -3945,6 +3945,15 @@ replays roll and pitch from a real recording (the simulator is teacher-forced), 
 orientation (R² 0.10-0.24) and read -0.2 to -0.4 s even on time. The bar didn't move. On these rows, held-out skill
 was low whichever way (about -0.07, the said and on-time cases within 0.0003), so the skill bars say little here.
 
+**Two rows judged again (bars `b0647d902875`, committed before any ran).** The old rows stay as they failed.
+
+| Row | What | Result |
+|---|---|---|
+| J-gyro-0.2-given | G-gyro-0.2-given's data, the ingested gyro against the truth's rates | within 2.5e-6 rad/s (bar 1e-4) ✅ |
+| J-gyro-0.2-said | the same, not given: does the judge see the late gyro? | up to 2.38 rad/s off (bar: at least 1e-3) ✅ |
+| J-finish-round1 | fixes 0.3 s late; calibrate stopped in round 1, then `--finish` | noted 0.2 s, 0.2 s taken off, the report says it ✅ |
+| J-finish-later | stopped after round 2 scanned the delay again (0.2 to 0.3 s), then `--finish` | noted 0.3 s, 0.3 s taken off from the checkpoint (a fresh scan reads 0.2 s) ✅ |
+
 **Not varied:** a gyro and an orientation both late, a gyro at 100 Hz, a real vehicle with a given latency, and
 fixes between 0.2 and 1 Hz (LIMITS.md).
 

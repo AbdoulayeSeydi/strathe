@@ -1,6 +1,6 @@
 # Stress test: #93-#96
 
-Written by `calibration/stress/report.py` on 2026-11-17 21:32. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
+Written by `calibration/stress/report.py` on 2026-11-17 23:07. Every variable each feature has is listed by `stress/inventory.py` from the code, and `tests/test_stress_coverage.py` fails if one has no row here.
 
 ## #93. One field day: hold out recordings, or a block of time
 
@@ -1823,7 +1823,7 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 
 ## #98. Small sensor delays, found automatically
 
-**49 of 53 rows pass** (30 variables found in the code, each with a row).
+**53 of 57 rows pass** (30 variables found in the code, each with a row).
 
 
 ### The delay scan, as calibrate runs it: known truth and real sensors
@@ -1894,6 +1894,15 @@ A vehicle with known parameters replays the real logged thrust; its sensors are 
 | G-given-0 | given attitude delay = given-0 | (0.0, 0.0, 0.0, 0.0, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "identical": true, "said": true} | 0 min |
 | G-subsample-0.05 | given attitude delay = subsample-0.05 | (0.05, 0.0, 0.05, None, 50.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "rms_after_over_before": 0.098} | 0 min |
 | G-refuse | given attitude delay = refuse | (0.0, 0.0, -0.1, None, 10.0) | synthetic BlueROV2, lab-style CSVs through ingest | ✅ | {"bars": "4f5d9f04a082", "refused": "invalid ingest spec '/Users/abdoulayeseydi/strathe_sensor_data/r98/attitude/G-refuse/ingest.yaml':\n1 validation error for ... | 0 min |
+
+### Other rows (J)
+
+| Row | Varied | What | Data | Result | Numbers | Time |
+|---|---|---|---|---|---|---|
+| J-gyro-0.2-given | judged again = gyro-0.2-given | G-gyro-0.2-given's data: the ingested gyro against the truth's rates | synthetic BlueROV2 | ✅ | {"bars": "b0647d902875", "gyro_max_err_rad_s": 2.496168307830615e-06} | 0 min |
+| J-gyro-0.2-said | judged again = gyro-0.2-said | G-gyro-0.2-said's data: the same judge sees the late gyro | synthetic BlueROV2 | ✅ | {"bars": "b0647d902875", "gyro_max_err_rad_s": 2.3794860832506597} | 0 min |
+| J-finish-round1 | judged again = finish-round1 | fixes 0.3 s late: calibrate stopped in round 1, then --finish | synthetic BlueROV2 | ✅ | {"bars": "b0647d902875", "stopped": true, "noted": {"main": 0.0, "usbl": 0.2}, "notes_seen": 1, "finish_exit": 0, "finished_applied_s": 0.2, "applied_from_check... | 8 min |
+| J-finish-later | judged again = finish-later | fixes 0.3 s late: calibrate stopped after a later round scanned the delay again, then --finish | synthetic BlueROV2 | ✅ | {"bars": "b0647d902875", "stopped": true, "noted": {"main": 0.0, "usbl": 0.3}, "notes_seen": 2, "finish_exit": 0, "finished_applied_s": 0.3, "applied_from_check... | 26 min |
 
 ### Other rows (S)
 
