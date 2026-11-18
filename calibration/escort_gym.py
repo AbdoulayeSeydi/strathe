@@ -22,9 +22,12 @@ ACTION_SPACE = gym.spaces.Box(low=-1.0, high=1.0, shape=(ACT_DIM,), dtype=np.flo
 class EscortGymEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, sim: EscortSim, belief_sampler: Callable[[np.random.Generator], BeliefSpec],
+    def __init__(self, sim, belief_sampler: Callable[[np.random.Generator], BeliefSpec],
                  comm_conditions: Sequence[CommCondition], seed: int = 0):
-        self.sim = sim
+        """sim: one EscortSim, or a list of them (e.g. one per water current and sensor setting) to draw from
+        uniformly at every reset (domain randomisation)."""
+        self.sims = list(sim) if isinstance(sim, (list, tuple)) else [sim]
+        self.sim = self.sims[0]
         self.belief_sampler = belief_sampler
         self.comm_conditions = list(comm_conditions)
         self.observation_space = OBSERVATION_SPACE
@@ -35,6 +38,8 @@ class EscortGymEnv(gym.Env):
         super().reset(seed=seed)
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+        if len(self.sims) > 1:
+            self.sim = self.sims[int(self._rng.integers(len(self.sims)))]
         comm = self.comm_conditions[int(self._rng.integers(len(self.comm_conditions)))]
         self.sim.set_comm(comm)
         self.sim.set_belief(self.belief_sampler(self._rng))

@@ -376,3 +376,158 @@ def test_report_has_the_beacon_contrasts(lib, models, tmp_path):
     RS.analyse(rows, str(tmp_path))
     rep = (tmp_path / "report.md").read_text()
     assert "What the beacon carries" in rep and "calibrated_intent - calibrated" in rep
+
+
+# ------------------------------------------------------------------ current and the ROV's own sensors
+
+CURRENT = dataclasses.replace(SHORT, current_speed_mps=0.2)
+
+
+@pytest.fixture(scope="module")
+def lib_current(tmp_path_factory):
+    return ER.MissionLibrary.build([7, 8, 9], CURRENT, cache_dir=str(tmp_path_factory.mktemp("missions_cur")))
+
+
+def test_still_water_cache_key_is_unchanged():
+    assert SHORT.key() == ER.MissionConfig(**{k: v for k, v in dataclasses.asdict(SHORT).items()
+                                              if k != "current_speed_mps"}).key()
+    assert CURRENT.key() != SHORT.key()
+
+
+def test_current_moves_the_remus_without_changing_its_plan(lib, lib_current):
+    still, cur = lib[0], lib_current[0]
+    assert np.allclose(np.linalg.norm(cur.current), 0.2) and cur.current[2] == 0.0
+    assert np.array_equal(still.heading_order, cur.heading_order)       # same turn plan
+    assert not np.allclose(still.pos, cur.pos)
+    assert np.abs(cur.pos[:, 2] - SHORT.depth_m).max() < 1.0              # still holds depth
+
+
+def test_rov_drifts_with_the_current(lib_current, models):
+    sim = _sim(lib_current, models)
+    sim.set_belief(models[1].belief("oracle"))
+    sim.reset(EE.EscortEpisode(0, 0, (3.0, 0.0, 0.0), 1))
+    sim.core.reset(position=sim.core.position_array(), nu=np.zeros(6))   # at rest, thrusters off
+    for _ in range(300):
+        sim.core.step(np.zeros(6))                                       # the current is set on the ROV's physics
+    assert np.allclose(sim.core.world_velocity()[:2], lib_current[0].current[:2], atol=0.03)
+
+
+def test_a_model_told_the_current_predicts_better(lib_current, models):
+    sim = _sim(lib_current, models)
+    remus = models[1]
+    sim.reset(EE.EscortEpisode(0, 0, (3.0, 0.0, 0.0), 1))
+    m = lib_current[0]
+    err = {"calibrated": [], "calibrated_aware": []}
+    for k in range(0, len(m) - 80, 25):
+        b = dataclasses.replace(sim._beacon(k), send_tick=0)
+        for name in err:
+            spec = remus.belief(name)
+            bel = spec.build(.1, remus.vehicle)
+            bel.set_water_current(m.current if getattr(spec, "current_aware", False) else None)
+            bel.on_tick(0, [b])
+            for t in range(1, 71):
+                bel.on_tick(t, [])
+            err[name].append(float(np.linalg.norm(bel.estimate(None) - m.pos[k + 70])))
+    assert np.median(err["calibrated_aware"]) < np.median(err["calibrated"])
+    with pytest.raises(ValueError):
+        remus.belief("constant_velocity_aware")
+
+
+def test_sensor_noise_changes_what_the_rov_sees_not_what_happens(lib, models):
+    from sensor_noise import resolve_sensor_noise
+    rov, remus = models
+    exact_sim = EE.EscortSim(rov, remus, lib, EE.EscortConfig())
+    noisy_sim = EE.EscortSim(rov, remus, lib, EE.EscortConfig(sensor_noise=resolve_sensor_noise("open_water")))
+    ep = EE.EscortEpisode(0, 5, (3.0, 1.0, 0.0), 3)
+    out = []
+    for sim in (exact_sim, noisy_sim):
+        sim.set_belief(remus.belief("oracle"))
+        o = sim.reset(ep)
+        obs, rew = [o], []
+        for t in range(100):
+            o, r, term, trunc, _ = sim.step(np.array([0.2, -0.1, 0.0, 0.05]))
+            obs.append(o)
+            rew.append(r)
+            if term or trunc:
+                break
+        out.append((np.array(obs), np.array(rew)))
+    assert np.array_equal(out[0][1], out[1][1])                          # same actions, same true outcome
+    d = np.abs(out[0][0] - out[1][0])
+    assert d[:, 8:11].max() > 0.05                                       # dead-reckoned position error shows
+    noisy_sim.set_belief(remus.belief("calibrated"))                     # the same errors for every model
+    o1 = noisy_sim.reset(ep)
+    noisy_sim.set_belief(remus.belief("oracle"))
+    o2 = noisy_sim.reset(ep)
+    assert np.array_equal(o1[:8], o2[:8])
+
+
+def test_mission_clustered_ci():
+    import run_escort_study as RS
+    rows = []
+    for mission in range(20):
+        for e in range(3):
+            for pol in ("p1", "p2"):
+                a = int((mission + e) % 4 != 0)          # a succeeds 3 times in 4, b never
+                key = f"m{mission}-{e}"
+                rows += [{"policy": pol, "comm": "L3a@3s", "episode_key": key, "mission_seed": mission, "belief": "a", "success": a},
+                         {"policy": pol, "comm": "L3a@3s", "episode_key": key, "mission_seed": mission, "belief": "b", "success": 0}]
+    (m,) = RS.mission_clustered(rows, {"a": 1, "b": -1})
+    assert m["n_pairs"] == 120 and m["n_missions"] == 20
+    assert m["estimate"] == pytest.approx(np.mean([r["success"] for r in rows if r["belief"] == "a"]))
+    lo, hi = m["ci95"]
+    assert lo < m["estimate"] < hi and hi - lo < 0.3
+    rows.append({"policy": "p1", "comm": "L3a@3s", "episode_key": "lonely", "mission_seed": 99, "belief": "a", "success": 1})
+    assert RS.mission_clustered(rows, {"a": 1, "b": -1})[0]["n_pairs"] == 120      # unmatched rows are left out
+
+
+def test_integral_escort_holds_the_band_in_a_current(lib_current, models):
+    """The main study's PD escort is held ~2 m off by a current (its drag feed-forward uses ground velocity); integral
+    action learns that push, so with perfect knowledge of the REMUS it holds the band far more of the time."""
+    sim = _sim(lib_current, models)
+    sim.set_belief(models[1].belief("oracle"))
+    eps = EE.evaluation_episodes(lib_current, sim.cfg, per_mission=1, seed=3)
+    pd_ = [EE.run_episode(sim, EE.EscortPursuit(models[0]), e) for e in eps]
+    pi = [EE.run_episode(sim, EE.EscortPursuit(models[0], ki=4.0), e) for e in eps]
+    assert np.mean([r["in_band_frac"] for r in pi]) > np.mean([r["in_band_frac"] for r in pd_]) + 0.4
+    assert sum(r["success"] for r in pi) >= 2 and not any(r["success"] for r in pd_)
+    with pytest.raises(ValueError):
+        EE.EscortPursuit(models[0], ki=4.0).predict(np.zeros((2, EE.OBS_DIM)))
+
+
+def test_training_draws_currents_noise_and_aware_models(models, tmp_path):
+    import train_escort_policy as T
+    rov, remus = models
+    sims = T.build_sims(rov, remus, EE.EscortConfig(), [0.0, 0.2], "open_water", 0.5, 2, str(tmp_path), 1)
+    assert len(sims) == 20 and sum(s.cfg.sensor_noise is not None for s in sims) == 10
+    assert {round(float(np.linalg.norm(s.library[0].current)), 3) for s in sims} == {0.0, 0.2}
+    smp = T.belief_sampler(remus, "mix", aware_prob=0.5)
+    rng = np.random.default_rng(0)
+    specs = [smp(rng) for _ in range(300)]
+    phys = [s for s in specs if s.kind == "physics"]
+    assert 0.3 < np.mean([getattr(s, "current_aware", False) for s in phys]) < 0.7
+    assert not any(getattr(s, "current_aware", False) for s in specs if s.kind != "physics")
+    assert T.belief_sampler(remus, "mix")(rng).label                    # still-water training unchanged
+
+
+def test_gym_env_draws_from_several_sims(lib, lib_current, models):
+    pytest.importorskip("gymnasium")
+    from escort_gym import EscortGymEnv
+    import train_escort_policy as T
+    env = EscortGymEnv([_sim(lib, models), _sim(lib_current, models)], T.belief_sampler(models[1]),
+                       T.comm_conditions(), seed=0)
+    seen = set()
+    for i in range(12):
+        env.reset(seed=i)
+        seen.add(id(env.sim))
+    assert len(seen) == 2
+
+
+def test_episodes_csv_keeps_every_rows_columns(tmp_path):
+    """--merge-with joins rows from runs before the robustness slice (no current_mps, noise) with newer ones."""
+    import run_escort_study as RS
+    old = {"policy": "p", "belief": "a", "comm": "L0@1s", "backend": "stand_in", "episode_key": "k1", "success": 1}
+    new = {**old, "episode_key": "k2", "current_mps": 0.2, "noise": "open_water"}
+    for rows in ([old, new], [new, old]):
+        RS._write_csv(str(tmp_path / "e.csv"), rows)
+        back = RS.read_episodes(str(tmp_path / "e.csv"))
+        assert {r["episode_key"] for r in back} == {"k1", "k2"} and "noise" in back[0]

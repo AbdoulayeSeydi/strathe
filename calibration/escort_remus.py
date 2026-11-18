@@ -65,9 +65,11 @@ def autopilot(pitch, q, yaw, r, psi_d, th_d, ii, h):
     return ds, dr, ii
 
 
-def derivative(x, delta_s, delta_r, rpm, buoyancy_change_n: float = BUOYANCY_CHANGE_N) -> np.ndarray:
-    """Prestero's state derivative with buoyancy B + buoyancy_change_n."""
-    d = PR.derivative(x, delta_s, delta_r, rpm)
+def derivative(x, delta_s, delta_r, rpm, buoyancy_change_n: float = BUOYANCY_CHANGE_N,
+               current_ned=(0.0, 0.0, 0.0)) -> np.ndarray:
+    """Prestero's state derivative with buoyancy B + buoyancy_change_n, in a water current (his own current term:
+    forces from the velocity relative to the water; nu stays relative to the ground)."""
+    d = PR.derivative(x, delta_s, delta_r, rpm, current_ned)
     if buoyancy_change_n:
         k = -buoyancy_change_n             # his (W - B) grows by this much
         phi, th = x[9], x[10]
@@ -76,8 +78,9 @@ def derivative(x, delta_s, delta_r, rpm, buoyancy_change_n: float = BUOYANCY_CHA
     return d
 
 
-def rk4_step(x, delta_s, delta_r, rpm, h, buoyancy_change_n: float = BUOYANCY_CHANGE_N) -> np.ndarray:
-    f = lambda y: derivative(y, delta_s, delta_r, rpm, buoyancy_change_n)
+def rk4_step(x, delta_s, delta_r, rpm, h, buoyancy_change_n: float = BUOYANCY_CHANGE_N,
+             current_ned=(0.0, 0.0, 0.0)) -> np.ndarray:
+    f = lambda y: derivative(y, delta_s, delta_r, rpm, buoyancy_change_n, current_ned)
     k1 = f(x)
     k2 = f(x + .5 * h * k1)
     k3 = f(x + .5 * h * k2)
@@ -95,9 +98,15 @@ class MissionConfig:
     turns_deg: tuple = (90.0, -90.0)
     buoyancy_change_n: float = BUOYANCY_CHANGE_N
     dt: float = 0.1
+    # A steady horizontal current of this speed, flowing toward a direction drawn per mission (uniform, from its own
+    # random stream: the mission's turn plan is the same as in still water).
+    current_speed_mps: float = 0.0
 
     def key(self) -> str:
-        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()[:12]
+        d = asdict(self)
+        if not d["current_speed_mps"]:
+            del d["current_speed_mps"]        # still-water caches built before currents existed stay valid
+        return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -109,6 +118,7 @@ class Mission:
     nu: np.ndarray           # (N, 6) body velocity
     fins: np.ndarray         # (N, 3) Prestero delta_r, delta_s (rad), rpm applied during tick k
     heading_order: np.ndarray  # (N,) rad
+    current: np.ndarray = field(default_factory=lambda: np.zeros(3))   # (3,) NED water current, m/s
 
     def __len__(self):
         return len(self.t)
@@ -120,8 +130,16 @@ class Mission:
         return abs(float(self.nu[k, 5])) > TURNING_RATE_RAD_S
 
 
+def mission_current(seed: int, cfg: MissionConfig) -> np.ndarray:
+    if not cfg.current_speed_mps:
+        return np.zeros(3)
+    a = float(np.random.default_rng([seed, 0xC0]).uniform(0.0, 2 * math.pi))
+    return cfg.current_speed_mps * np.array([math.cos(a), math.sin(a), 0.0])
+
+
 def fly_mission(seed: int, cfg: MissionConfig = MissionConfig()) -> Mission:
     rng = np.random.default_rng(seed)
+    cur = mission_current(seed, cfg)
     h = AUTOPILOT_H
     every = int(round(cfg.dt / h))
     u0 = 1.54 * cfg.rpm / 1500.0     # his propeller term's steady speed in still water (Xuu u^2 = thrust)
@@ -151,11 +169,11 @@ def fly_mission(seed: int, cfg: MissionConfig = MissionConfig()) -> Mission:
                 nxt = t + float(rng.uniform(*cfg.leg_s))
             th_d = float(np.clip(DEPTH_GAIN * (x[8] - cfg.depth_m), -PITCH_ORDER_LIMIT_RAD, PITCH_ORDER_LIMIT_RAD))
             ds, dr, ii = autopilot(x[10], x[4], x[11], x[5], psi, th_d, ii, h)
-            x = rk4_step(x, ds, dr, cfg.rpm, h, cfg.buoyancy_change_n)
+            x = rk4_step(x, ds, dr, cfg.rpm, h, cfg.buoyancy_change_n, cur)
         if not np.all(np.isfinite(x)):
             raise FloatingPointError(f"REMUS mission {seed} diverged at tick {k}")
         record(k)
-    return Mission(seed, np.array(T), np.array(P), np.array(Rm), np.array(NU), np.array(F), np.array(H))
+    return Mission(seed, np.array(T), np.array(P), np.array(Rm), np.array(NU), np.array(F), np.array(H), cur)
 
 
 def controls_basis(act) -> tuple:
@@ -218,7 +236,7 @@ class MissionLibrary:
         np.savez_compressed(path, seeds=np.array([x.seed for x in m]), t=np.stack([x.t for x in m]),
                             pos=np.stack([x.pos for x in m]), R=np.stack([x.R for x in m]), nu=np.stack([x.nu for x in m]),
                             fins=np.stack([x.fins for x in m]), heading_order=np.stack([x.heading_order for x in m]),
-                            config=json.dumps(asdict(self.cfg)))
+                            current=np.stack([x.current for x in m]), config=json.dumps(asdict(self.cfg)))
 
     @classmethod
     def load(cls, path: str, cfg: Optional[MissionConfig] = None) -> "MissionLibrary":
@@ -229,8 +247,9 @@ class MissionLibrary:
         # each d[key] decompresses the whole stacked array, so read every array once: indexing d[key] per mission
         # kept one full copy alive per mission (400 missions held ~35 GB, not 88 MB)
         a = {k: d[k] for k in ("seeds", "t", "pos", "R", "nu", "fins", "heading_order")}
-        missions = [Mission(int(s), a["t"][i], a["pos"][i], a["R"][i], a["nu"][i], a["fins"][i], a["heading_order"][i])
-                    for i, s in enumerate(a["seeds"])]
+        a["current"] = d["current"] if "current" in d.files else np.zeros((len(a["seeds"]), 3))   # older caches
+        missions = [Mission(int(s), a["t"][i], a["pos"][i], a["R"][i], a["nu"][i], a["fins"][i], a["heading_order"][i],
+                            a["current"][i]) for i, s in enumerate(a["seeds"])]
         return cls(missions, stored)
 
 

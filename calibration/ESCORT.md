@@ -77,6 +77,30 @@ python run_escort_study.py --policies escort_policy_seed1 escort_policy_seed2 es
     --beliefs calibrated_nofins calibrated_intent generic_intent \
     --merge-with results/escort_study/episodes.csv --out results/escort_beacon     # what the beacon carries
 ```
+Robustness slice. The still-water policies can't be used in a current: like the scripted PD escort, they are
+memoryless and learned their drag from ground velocity, so a current holds them off the band whatever they know about
+the REMUS (the PD escort with perfect knowledge drops to 0%). So the slice uses policies trained with currents and the
+ROV's sensor noise drawn per episode, and `scripted_pi`, the PD escort plus integral action:
+```bash
+python train_escort_policy.py --seed 1 --current-speeds 0 0.1 0.2 0.3 --noise open_water --out escort_robust_seed1
+python run_escort_study.py --policies escort_robust_seed1 escort_robust_seed2 escort_robust_seed3 scripted_pi \
+    --comms L3a@3 --current-speed 0.2 --noise open_water \
+    --beliefs oracle calibrated calibrated_aware calibrated_intent calibrated_intent_aware generic constant_velocity \
+    --out results/escort_open_water
+```
+Training in currents tells a physics model the current half the time (`--aware-prob`).
+- `--current-speed`: a steady horizontal current toward a direction drawn per mission. It acts on both vehicles (the
+  REMUS through Prestero's own current term, the ROV through its physics). A model named `<model>_aware` is told the
+  current; without the suffix it assumes still water. `constant_velocity` sees the drift in the beacon's ground velocity.
+- `--noise open_water`: the ROV's own sensors with the noise measured on a BlueROV2 at a fish farm (SOLAQUA; biases
+  assumed). The policy sees what they measure, including a dead-reckoned own position; reward, success and the REMUS
+  stay true. The REMUS's beacons stay exact (an assumption: no measured REMUS navigation error is used).
+- The current changes the missions, so they get their own cache; still-water caches are unchanged.
+
+CIs in the report resample whole missions (`mission_clustered`), since every policy runs the same episodes and each
+mission gives several; `contrasts.csv` keeps the per-episode CIs too. `interactions.csv` has
+calibration x intent = (calibrated_intent - generic_intent) - (calibrated - generic).
+
 `--merge-with` pairs the new models with the main study's episodes; use the same policy names and the default
 `--missions`, `--per-mission` and `--episode-seed`, or it refuses.
 
@@ -88,6 +112,6 @@ contrasts with bootstrap CIs, and the dose-response.
 ## Limits
 
 - One-way link: the REMUS doesn't hear or react to the ROV. A leader-follower escort, not mutual coordination.
-- Still water, exact sensors on both vehicles.
+- Still water and exact sensors by default; the robustness slice adds a current and the ROV's measured sensor noise, never the REMUS's navigation error.
 - The ROV's BlueROV2 model was calibrated from HoloOcean simulator data (a non-converged checkpoint), not from real logs. The study holds it fixed; only the REMUS model varies.
 - The calibrated REMUS model was fitted at 750 to 1150 rpm and is used at 700 rpm.

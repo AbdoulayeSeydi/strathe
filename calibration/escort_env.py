@@ -117,6 +117,9 @@ class EscortConfig:
     w_ctrl: float = 0.01
     w_prox: float = 1.0
     influence_m: float = 2.5
+    # The ROV's own sensors (sensor_noise.py; None = exact). The observation is built from what they measure
+    # (velocity, rates, attitude, heading, dead-reckoned position); reward, success and the REMUS stay true.
+    sensor_noise: Optional[object] = None
 
     def validate(self) -> None:
         if self.collision_m >= self.target_range_m - self.band_m:
@@ -129,6 +132,8 @@ class EscortConfig:
             raise ValueError("acquire_s leaves no ticks to judge")
         if not 0.0 < self.success_in_band <= 1.0:
             raise ValueError("success_in_band must be in (0, 1]")
+        if self.sensor_noise is not None:
+            self.sensor_noise.validate()
 
     @property
     def worst_tick_cost(self) -> float:
@@ -175,6 +180,20 @@ def evaluation_episodes(library: MissionLibrary, cfg: EscortConfig, per_mission:
 
 # --------------------------------------------------------------------------- models of the REMUS
 
+class CurrentAware:
+    """A physics teammate model told the water current (`<model>_aware`); without the suffix a model assumes still
+    water. Models without physics (last_beacon, constant_velocity) can't use it."""
+
+    def __init__(self, base, label: str):
+        if base.kind not in ("physics", "physics_intent", "physics_nofins"):
+            raise ValueError(f"{base.label} has no physics to tell the current to")
+        self.base, self.kind, self.label, self.current_aware = base, base.kind, label, True
+        self.params = base.params
+
+    def build(self, dt, vehicle):
+        return self.base.build(dt, vehicle)
+
+
 @dataclass
 class RemusModels:
     vehicle: VehicleConstants        # Strathe's description of the REMUS (fins, propeller)
@@ -182,7 +201,9 @@ class RemusModels:
     generic: CalibrationParameters
     basis: tuple                     # Prestero fins -> Strathe controls
 
-    def belief(self, name: str) -> BeliefSpec:
+    def belief(self, name: str):
+        if name.endswith("_aware"):
+            return CurrentAware(self.belief(name[:-len("_aware")]), name)
         if name == "calibrated":
             return BeliefSpec("physics", "calibrated", self.calibrated)
         if name == "generic":
@@ -250,6 +271,7 @@ class EscortSim:
         self.set_comm(CommCondition())
         self.set_belief(BeliefSpec("last_beacon", "last_beacon"))
         self.episode = None
+        self._sensors = None
 
     def set_comm(self, comm: CommCondition) -> None:
         k = comm.beacon_interval_s / self.cfg.dt
@@ -279,6 +301,17 @@ class EscortSim:
         nu[:3] = Rr.T @ m.world_velocity(k)       # the ROV launches moving with the REMUS
         self.core.reset(position=m.pos[k] + np.asarray(episode.offset), nu=nu,
                         orientation=self._Rotation.from_matrix(Rr))
+        cur = np.asarray(m.current, dtype=float)
+        self.core.current_world = [float(c) for c in cur] if cur.any() else None
+        if hasattr(self.belief, "set_water_current"):
+            aware = getattr(self.belief_spec, "current_aware", False)
+            self.belief.set_water_current(cur if aware and cur.any() else None)
+        self._sensors = None
+        if self.cfg.sensor_noise is not None and self.cfg.sensor_noise.active:
+            from sensor_noise import SensorSuite
+            # seeded by the episode only: every model and policy sees the same sensor errors
+            self._sensors = SensorSuite(self.cfg.sensor_noise, self.cfg.dt, [episode.comm_seed, 0x5E75])
+            self._sensors.start(self.core.position_array(), np.array(self.core.R), self.core.nu_array())
         plc, bwc = SEVERITIES[self.comm.severity]
         self.channel = CommChannel(plc, bwc, speed_of_sound_mps=self.comm.speed_of_sound_mps, seed=episode.comm_seed,
                                    fixed_latency_s=self.comm.fixed_latency_s)
@@ -327,6 +360,8 @@ class EscortSim:
         tau[list(ACTION_AXES)] = a * self.rov.scale
         tau = np.asarray(self.rov.thrusters.achievable_wrench(tau), dtype=float)
         self.core.step(tau)
+        if self._sensors is not None:
+            self._sensors.update(self.core.position_array(), np.array(self.core.R), self.core.nu_array())
         self.tick += 1
         t = self.tick * self.cfg.dt
         p_rov = self.core.position_array()
@@ -378,13 +413,17 @@ class EscortSim:
 
     def _observation(self, est) -> np.ndarray:
         est_pos, est_vel = est
-        c = self.core
-        R = np.array(c.R)
-        roll, pitch = c.roll_pitch()
-        rel = R.T @ (est_pos - c.position_array())
-        relv = R.T @ (est_vel - c.world_velocity())
+        if self._sensors is not None:
+            me = self._sensors.last                      # what the ROV measures about itself
+            R, pos, nu, roll, pitch = me.R, me.position, me.nu, me.roll, me.pitch
+        else:
+            c = self.core
+            R, pos, nu = np.array(c.R), c.position_array(), c.nu_array()
+            roll, pitch = c.roll_pitch()
+        rel = R.T @ (est_pos - pos)
+        relv = R.T @ est_vel - nu[:3]
         age = min(self.belief.age_s, self.cfg.age_cap_s) / self.cfg.age_cap_s
-        return np.concatenate([c.nu_array(), [roll, pitch], rel, relv, [age, 1.0]]).astype(np.float32)
+        return np.concatenate([nu, [roll, pitch], rel, relv, [age, 1.0]]).astype(np.float32)
 
     def summary(self) -> dict:
         """The episode's outcome once it has ended."""
@@ -417,6 +456,8 @@ class EscortSim:
 
 def run_episode(sim: EscortSim, policy, episode: EscortEpisode) -> dict:
     obs = sim.reset(episode)
+    if hasattr(policy, "reset"):
+        policy.reset()
     done = False
     while not done:
         act, _ = policy.predict(obs[None, :], deterministic=True)
@@ -433,17 +474,29 @@ class EscortPursuit:
     believed REMUS. Shows a result isn't an artefact of one learned policy, and checks the task is feasible."""
 
     def __init__(self, rov: RovModel, target_range_m: float = 3.0, kp: float = 0.6, kd: float = 1.6,
-                 k_yaw: float = 1.5, k_r: float = 2.0, mass_kg: float = 25.0):
+                 k_yaw: float = 1.5, k_r: float = 2.0, mass_kg: float = 25.0, ki: float = 0.0,
+                 i_limit_n: float = 60.0, dt: float = 0.1):
+        """ki > 0 adds integral action on the range error (N per m*s), held as a world-fixed force estimate (turned
+        with the measured yaw rate) and limited to i_limit_n: it learns a steady push such as a current's drag, which
+        the drag feed-forward (computed from ground velocity) gets wrong. ki = 0 is the main study's controller."""
         self.rov, self.target = rov, target_range_m
         self.kp, self.kd, self.k_yaw, self.k_r, self.m = kp, kd, k_yaw, k_r, mass_kg
+        self.ki, self.i_limit, self.dt = ki, i_limit_n, dt
+        self._i = np.zeros(3)
         p = rov.params
         self.lin = np.array([p.Xu, p.Yv, p.Zw])
         self.quad = np.array([p.Xuu, p.Yvv, p.Zww])
         self.n_lin, self.n_quad = p.Nr, p.Nrr
 
+    def reset(self):
+        self._i = np.zeros(3)
+
     def predict(self, obs, deterministic: bool = True):
         out = []
-        for o in np.atleast_2d(obs):
+        obs2 = np.atleast_2d(obs)
+        if self.ki and len(obs2) != 1:
+            raise ValueError("the integral controller keeps one episode's state: predict one observation at a time")
+        for o in obs2:
             v = o[0:3].astype(float)
             r = float(o[5])
             rel, relv = o[8:11].astype(float), o[11:14].astype(float)
@@ -451,6 +504,15 @@ class EscortPursuit:
             los = rel / d if d > 1e-6 else np.zeros(3)
             ff = -(self.lin + self.quad * np.abs(v)) * v            # cancels the ROV's own drag
             F = ff + self.m * (self.kp * (d - self.target) * los + self.kd * relv)
+            if self.ki:
+                c, sn = math.cos(-r * self.dt), math.sin(-r * self.dt)     # the body turned by r dt: keep it world-fixed
+                ix, iy = self._i[0], self._i[1]
+                self._i[0], self._i[1] = c * ix - sn * iy, sn * ix + c * iy
+                self._i += self.ki * (d - self.target) * los * self.dt
+                n = float(np.linalg.norm(self._i))
+                if n > self.i_limit:
+                    self._i *= self.i_limit / n
+                F = F + self._i
             yaw_err = math.atan2(rel[1], rel[0]) if d > 1e-6 else 0.0
             N = -(self.n_lin + self.n_quad * abs(r)) * r + self.k_yaw * yaw_err - self.k_r * r
             a = np.array([F[0], F[1], F[2], N]) / self.rov.scale
