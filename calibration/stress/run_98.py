@@ -101,7 +101,7 @@ E2E = {
 
 
 def all_rows() -> set:
-    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE) | set(FIX_ROWS) | set(SLOW)
+    return set(DETECT) | set(REAL) | set(E2E) | set(ATTITUDE) | set(FIX_ROWS) | set(SLOW) | set(JUDGED)
 
 
 # --- D rows ------------------------------------------------------------------------------------------------------------
@@ -632,6 +632,117 @@ def slow_rows(only=None) -> int:
     return 0
 
 
+# --- J rows: two #98 rows judged again, the way they should have been (after the follow-up PR) ------------------------
+# G-gyro-0.2-given was judged by ingest's lag check, which reads p and q -0.3 s even on time on this known truth (its
+# roll and pitch are replayed from a real recording); E-paths compared a fit stopped in round 1 with a full fit, which
+# differ by design. These rows and their bars were fixed before any ran; the old rows stay as they failed.
+BARS_JUDGED = {
+    "gyro_err_given_rad_s": 1e-4,   # the delay given: the ingested gyro within this of the truth's rates (CSV rounding)
+    "gyro_err_said_min_rad_s": 1e-3,   # not given: at least this far off, so the judge can see a late gyro
+    "finished_equals_noted": True,   # a fit stopped mid-round, finished from its checkpoint, takes off what it noted
+    "report_names_it": True,
+}
+BARS_JUDGED_HASH = hashlib.sha256(json.dumps(BARS_JUDGED, sort_keys=True).encode()).hexdigest()[:12]
+JUDGED = {   # row: what
+    "J-gyro-0.2-given": "G-gyro-0.2-given's data: the ingested gyro against the truth's rates",
+    "J-gyro-0.2-said": "G-gyro-0.2-said's data: the same judge sees the late gyro",
+    "J-finish-round1": "fixes 0.3 s late: calibrate stopped in round 1, then --finish",
+    "J-finish-later": "fixes 0.3 s late: calibrate stopped after a later round scanned the delay again, then --finish",
+}
+
+
+def _gyro_err(tag: str) -> float:
+    import pandas as pd
+    summary, data, truth = _ingest(tag)
+    worst = 0.0
+    for f in summary["files"]:
+        if not f.get("output"):
+            continue
+        got = pd.read_csv(os.path.join(data, f["output"]))[["Bp", "Bq", "Br"]].to_numpy()
+        tru = pd.read_csv(os.path.join(truth, f["output"]))[["Bp", "Bq", "Br"]].to_numpy()
+        n = min(len(got), len(tru)) - 5   # the last samples: nothing after the end to read at t + delay
+        worst = max(worst, float(np.abs(got[:n] - tru[:n]).max()))
+    return worst
+
+
+def _stop_and_finish(row: str, root: str, later: bool) -> dict:
+    """calibrate in the background; stopped once a checkpoint is newer than the delays noted in round 1 (or in a later
+    round, noted again), then the same command with --finish."""
+    import signal
+    out = os.path.join(WORK, "fits", row)
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    argv = [PY, "strathe_cli.py", "calibrate", "--data", os.path.join(root, "data"), "--spec", S.SPEC_BLUEROV2,
+            "--out", out, "--name", row, "--max-nfev", "80", "--seed", "7", "--workers", "3",
+            "--heldout-dates", *HELD, "--skip-identifiability", "--unseen", "hold"]
+    noted, ck = os.path.join(out, "applied_delays.json"), os.path.join(out, "checkpoint.yaml")
+    log = open(out + ".log", "w", encoding="utf-8")
+    proc = subprocess.Popen(argv, cwd=CAL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    notes, last = 0, None
+    res = {"stopped": False}
+    while proc.poll() is None:
+        time.sleep(2)
+        if os.path.exists(noted):
+            m = os.path.getmtime(noted)
+            if m != last:
+                notes, last = notes + 1, m
+        if notes >= (2 if later else 1) and os.path.exists(ck) and os.path.getmtime(ck) > last:
+            res["noted"] = json.load(open(noted))
+            res["notes_seen"] = notes
+            os.killpg(proc.pid, signal.SIGTERM)
+            proc.wait()
+            res["stopped"] = True
+            break
+    log.close()
+    if not res["stopped"]:
+        res["error"] = "calibrate finished before it could be stopped"
+        return res
+    with open(out + ".finish.log", "w", encoding="utf-8") as f:
+        res["finish_exit"] = subprocess.run(argv + ["--finish"], cwd=CAL, stdout=f, stderr=subprocess.STDOUT).returncode
+    m = json.load(open(os.path.join(out, "metrics.json"))) if os.path.exists(os.path.join(out, "metrics.json")) else {}
+    d = ((m.get("sensor_suite") or {}).get("fix_delays") or {}).get("usbl") or {}
+    res["finished_applied_s"] = d.get("applied_s")
+    res["applied_from_checkpoint"] = d.get("applied_from_checkpoint")
+    text = "".join(open(f, encoding="utf-8").read() for f in glob.glob(os.path.join(out, "*report*.md")))
+    took = res["noted"].get("usbl")
+    res["report_says_it"] = bool(took) and f"{took:.1f} s was taken off" in text
+    return res
+
+
+def judged_rows(only=None) -> int:
+    for row, what in JUDGED.items():
+        if only and not any(row == o or row.startswith(o) for o in only):
+            continue
+        t0 = time.time()
+        nums = {"bars": BARS_JUDGED_HASH}
+        try:
+            if row.startswith("J-gyro"):
+                err = _gyro_err("G-" + row[2:])
+                nums["gyro_max_err_rad_s"] = err
+                if row.endswith("given"):
+                    ok = err <= BARS_JUDGED["gyro_err_given_rad_s"]
+                    expect = f"the ingested gyro within {BARS_JUDGED['gyro_err_given_rad_s']:g} rad/s of the truth's rates"
+                else:
+                    ok = err >= BARS_JUDGED["gyro_err_said_min_rad_s"]
+                    expect = f"not given: at least {BARS_JUDGED['gyro_err_said_min_rad_s']:g} rad/s off (the judge sees it)"
+            else:
+                sensors = _sensors(position={"delay_s": 0.3})
+                root = _dataset("E-" + "-".join(f"{k}{v.get('delay_s', 0):g}" for k, v in sensors.items()), sensors,
+                                4, 96, held=True)
+                r = _stop_and_finish(row, root, later=row.endswith("later"))
+                nums.update(r)
+                took = (r.get("noted") or {}).get("usbl")
+                ok = (r.get("stopped") and r.get("finish_exit") == 0 and took is not None
+                      and (r.get("finished_applied_s") == took) == BARS_JUDGED["finished_equals_noted"]
+                      and r.get("report_says_it") == BARS_JUDGED["report_names_it"])
+                expect = "finished from the checkpoint: the delay its round noted is the one taken off, and the report says it"
+        except Exception as e:   # noqa: BLE001 -- a crash is a failed row, with its reason
+            nums["error"] = f"{type(e).__name__}: {e}"[:300]
+            ok, expect = False, "ran"
+        record(F, row, "judged again", row[2:], what, "synthetic BlueROV2", nums, expect, bool(ok), time.time() - t0)
+    return 0
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
     if cmd == "list":
@@ -643,6 +754,8 @@ if __name__ == "__main__":
         sys.exit(e2e(sys.argv[2:] or None))
     if cmd == "fix":
         sys.exit(fix_rows(sys.argv[2:] or None))
+    if cmd == "judged":
+        sys.exit(judged_rows(sys.argv[2:] or None))
     if cmd == "slow":
         sys.exit(slow_rows(sys.argv[2:] or None))
     if cmd == "attitude":
