@@ -20,7 +20,8 @@ variable; the true physics of both vehicles is held fixed.
 ## Beacon contents
 A beacon carries the sender's state at send time: world position, body
 orientation, body velocity (nu), and the thrust command (tau) it applied
-on its most recent tick. Real acoustic modems send small compressed
+on its most recent tick. A fin-steered sender also sends its fin angles
+and propeller rpm (controls), which a physics belief holds the same way. Real acoustic modems send small compressed
 state packets; the channel's payload_size_bytes stays a nominal 24 bytes
 so the named comm severities (including L3b's "1 byte short of a beacon")
 keep their existing meaning.
@@ -60,6 +61,9 @@ class Beacon:
     orientation: np.ndarray     # (3,3) body->world rotation matrix
     nu: np.ndarray              # (6,) body-frame velocity
     tau: np.ndarray             # (6,) body-frame thrust applied on send_tick
+    # A fin-steered sender's fin angles and propeller rpm on send_tick, in Strathe's control layout
+    # (fin_force.Actuators.width). None for a hover vehicle: its thrust is all in tau.
+    controls: Optional[np.ndarray] = None
 
 
 class TeammateBelief:
@@ -165,6 +169,8 @@ class PhysicsBelief(TeammateBelief):
         # the teammate's thrusters are taken to be at the command it sent (only matters with a thruster lag)
         self._core.reset(position=beacon.position, nu=beacon.nu,
                          orientation=Rotation.from_matrix(beacon.orientation), applied_wrench=beacon.tau)
+        # a fin-steered teammate: its fins and propeller are held at what it sent (zero-order hold, like tau)
+        self._core.controls = None if beacon.controls is None else [float(c) for c in beacon.controls]
         for _ in range(max(0, now_tick - beacon.send_tick)):
             self._step()
 

@@ -1,0 +1,384 @@
+schema_version: 0.3.0
+metadata:
+  description: 'truth_prestero: written by `strathe describe-vehicle` from your measurements
+    (30.48 kg, torpedo, 1.33 x 0.191 m, water 1025 kg/m^3). Starting values and limits
+    only: the logs decide the calibrated values.'
+assumptions:
+- Added mass is diagonal; the centre of gravity / buoyancy offset is modelled in z
+  only (Strathe's model).
+- Thruster forces come from the ingestion spec's thrusters block (or logged forces);
+  the thruster model isn't calibrated.
+vehicle:
+  name: truth_prestero
+  steering: fin
+data_conventions:
+  torque_reference_offset_m:
+  - 0.0
+  - 0.0
+  - 0.0
+  torque_reference_rationale: torques taken about this point (describe-vehicle --torque-reference-offset);
+    [0, 0, 0] when your thruster positions are measured from the point your drag acts
+    through
+  source: ingestion spec layout
+  confidence: measured
+environment:
+  current_velocity_mps: 0.0
+  current_direction_deg: 0.0
+  current_vertical_mps: 0.0
+  source: assumed still water
+  confidence: assumed
+  note: Set a known current here or with --current-world-mps; an unknown one with
+    --estimate-current.
+payload:
+  description: Baseline configuration.
+  additional_mass_kg: 0.0
+  note: Recalibrate after a large payload change (mass, buoyancy and centre of gravity
+    all move).
+thruster_model:
+  calibrated: false
+  count: 4
+  hardware: Blue Robotics T200
+  source: manufacturer
+  confidence: published
+  note: Layout and thrust curve are in the ingestion spec's thrusters block.
+  future_calibration_targets: {}
+fixed_parameters:
+  mass_kg:
+    value: 30.48
+    unit: kg
+    source: your measurements
+    confidence: measured
+calibration_targets:
+  effective_inertia:
+    Ieff_roll:
+      unit: kg*m^2
+      initial_guess: 0.139
+      bounds:
+      - 0.0278
+      - 1.3899
+      bounds_rationale: a solid torpedo 0.139 + water 0, about the reference point;
+        1/5 to 10x
+      source: your measurements
+      confidence: estimated
+    Ieff_pitch:
+      unit: kg*m^2
+      initial_guess: 10.3203
+      bounds:
+      - 2.0641
+      - 51.6014
+      bounds_rationale: a solid torpedo 4.56 + water 5.76, about the reference point;
+        1/5 to 5x
+      source: your measurements
+      confidence: estimated
+    Ieff_yaw:
+      unit: kg*m^2
+      initial_guess: 10.3203
+      bounds:
+      - 2.0641
+      - 51.6014
+      bounds_rationale: a solid torpedo 4.56 + water 5.76, about the reference point;
+        1/5 to 5x
+      source: your measurements
+      confidence: estimated
+  linear_damping:
+    Xu:
+      unit: N/(m/s)
+      initial_guess: -2.8395
+      bounds:
+      - -117.4737
+      - -0.5
+      bounds_rationale: up to 1 m/s x the quadratic limit
+      source: your measurements
+      confidence: estimated
+    Yv:
+      unit: N/(m/s)
+      initial_guess: -39.0571
+      bounds:
+      - -325.4759
+      - -0.5
+      bounds_rationale: up to 1 m/s x the quadratic limit
+      source: your measurements
+      confidence: estimated
+    Zw:
+      unit: N/(m/s)
+      initial_guess: -39.0571
+      bounds:
+      - -325.4759
+      - -0.5
+      bounds_rationale: up to 1 m/s x the quadratic limit
+      source: your measurements
+      confidence: estimated
+    Kp:
+      unit: N*m/(rad/s)
+      initial_guess: -1.0
+      bounds:
+      - -10.0
+      - -0.05
+      bounds_rationale: small for a round hull; larger for a box frame
+      source: estimated
+      confidence: estimated
+    Mq:
+      unit: N*m/(rad/s)
+      initial_guess: -2.8715
+      bounds:
+      - -71.7869
+      - -0.2
+      bounds_rationale: up to 1 rad/s x the quadratic limit
+      source: your measurements
+      confidence: estimated
+    Nr:
+      unit: N*m/(rad/s)
+      initial_guess: -2.8715
+      bounds:
+      - -71.7869
+      - -0.2
+      bounds_rationale: up to 1 rad/s x the quadratic limit
+      source: your measurements
+      confidence: estimated
+  quadratic_damping:
+    Xuu:
+      unit: N/(m/s)^2
+      initial_guess: -4.4053
+      bounds:
+      - -117.4737
+      - -0.7342
+      bounds_rationale: drag coefficient 0.05 to 8 on the frontal area of a 1.33 m
+        x 0.19 m hull
+      source: your measurements
+      confidence: estimated
+    Yvv:
+      unit: N/(m/s)^2
+      initial_guess: -130.1904
+      bounds:
+      - -325.4759
+      - -3.9057
+      bounds_rationale: drag coefficient 0.03 to 2.5 on the side area of a 1.33 m
+        x 0.19 m hull
+      source: your measurements
+      confidence: estimated
+    Zww:
+      unit: N/(m/s)^2
+      initial_guess: -130.1904
+      bounds:
+      - -325.4759
+      - -3.9057
+      bounds_rationale: drag coefficient 0.03 to 2.5 on the side area of a 1.33 m
+        x 0.19 m hull
+      source: your measurements
+      confidence: estimated
+    Kpp:
+      unit: N*m/(rad/s)^2
+      initial_guess: -1.0
+      bounds:
+      - -10.0
+      - -0.05
+      bounds_rationale: small for a round hull
+      source: estimated
+      confidence: estimated
+    Mqq:
+      unit: N*m/(rad/s)^2
+      initial_guess: -9.5716
+      bounds:
+      - -287.1476
+      - -0.05
+      bounds_rationale: drag coefficient up to 3x sway's, for fins
+      source: your measurements
+      confidence: estimated
+    Nrr:
+      unit: N*m/(rad/s)^2
+      initial_guess: -9.5716
+      bounds:
+      - -287.1476
+      - -0.05
+      bounds_rationale: drag coefficient up to 3x sway's, for fins
+      source: your measurements
+      confidence: estimated
+  added_mass_diag:
+    Xu_dot:
+      unit: kg
+      initial_guess: 3.048
+      bounds:
+      - 0.0
+      - 30.48
+      bounds_rationale: 0 to the displaced mass 30.5 kg
+      source: your measurements
+      confidence: estimated
+    Yv_dot:
+      unit: kg
+      initial_guess: 39.06
+      bounds:
+      - 0.0
+      - 78.12
+      bounds_rationale: 0 to 2x strip theory rho*pi*r^2*L = 39.1 kg for a 1.33 m x
+        0.19 m hull
+      source: your measurements
+      confidence: estimated
+    Zw_dot:
+      unit: kg
+      initial_guess: 39.06
+      bounds:
+      - 0.0
+      - 78.12
+      bounds_rationale: 0 to 2x strip theory rho*pi*r^2*L = 39.1 kg for a 1.33 m x
+        0.19 m hull
+      source: your measurements
+      confidence: estimated
+  added_mass_coupling:
+    Xq_dot:
+      unit: kg or kg*m
+      initial_guess: 0.582168
+      bounds:
+      - 0.582168
+      - 0.582168
+      bounds_rationale: 'held: worked out from the fins and the centre of gravity,
+        because logs rarely separate these'
+      source: strip theory
+      confidence: estimated
+    Zq_dot:
+      unit: kg or kg*m
+      initial_guess: 0.531724
+      bounds:
+      - 0.531724
+      - 0.531724
+      bounds_rationale: 'held: worked out from the fins and the centre of gravity,
+        because logs rarely separate these'
+      source: strip theory
+      confidence: estimated
+    Yp_dot:
+      unit: kg or kg*m
+      initial_guess: -0.582168
+      bounds:
+      - -0.582168
+      - -0.582168
+      bounds_rationale: 'held: worked out from the fins and the centre of gravity,
+        because logs rarely separate these'
+      source: strip theory
+      confidence: estimated
+    Yr_dot:
+      unit: kg or kg*m
+      initial_guess: -0.531724
+      bounds:
+      - -0.531724
+      - -0.531724
+      bounds_rationale: 'held: worked out from the fins and the centre of gravity,
+        because logs rarely separate these'
+      source: strip theory
+      confidence: estimated
+  buoyancy:
+    net_buoyancy_z:
+      unit: N
+      initial_guess: 0.0
+      bounds:
+      - -35.8811
+      - 35.8811
+      bounds_rationale: +-12% of the 299 N weight around neutral
+      source: your measurements
+      confidence: estimated
+    cg_cb_offset_z:
+      unit: m
+      initial_guess: 0.0191
+      bounds:
+      - -0.0955
+      - 0.0955
+      bounds_rationale: within half the diameter (0.0955 m) either way
+      source: your measurements
+      confidence: estimated
+    cg_cb_offset_x:
+      unit: m
+      initial_guess: 0.0
+      bounds:
+      - -0.05
+      - 0.05
+      bounds_rationale: a few cm of fore-aft trim
+      source: assumed
+      confidence: assumed
+  hull_lift:
+    Zuw:
+      unit: N/(m/s)^2
+      initial_guess: -22.436
+      bounds:
+      - -179.49
+      - 0.0
+      bounds_rationale: slender-body lift, up to ~8x
+      source: slender-body lift for a 0.19 m diameter
+      confidence: estimated
+    Muw:
+      unit: N*m/(m/s)^2
+      initial_guess: 0.0
+      bounds:
+      - -238.72
+      - 238.72
+      bounds_rationale: +-|Zuw| x length, over Zuw's limits
+      source: estimated
+      confidence: estimated
+    Muq:
+      unit: N*m/((m/s)*(rad/s))
+      initial_guess: -5.0
+      bounds:
+      - -150.0
+      - 0.0
+      bounds_rationale: 'bare hull: small; fins: large'
+      source: estimated
+      confidence: estimated
+  fins:
+    fin_lift_slope_a:
+      unit: per rad
+      initial_guess: 1.6196
+      bounds:
+      - 0.8098
+      - 2.4294
+      bounds_rationale: lift slope from aspect ratio, x0.5 to x1.5
+      source: fin geometry
+      confidence: estimated
+    fin_inflow_a:
+      unit: '-'
+      initial_guess: 0.7
+      bounds:
+      - 0.0
+      - 1.2
+      bounds_rationale: the hull straightens the flow reaching the fins
+      source: fin geometry
+      confidence: estimated
+    fin_lift_slope_b:
+      unit: per rad
+      initial_guess: 1.6196
+      bounds:
+      - 0.8098
+      - 2.4294
+      bounds_rationale: lift slope from aspect ratio, x0.5 to x1.5
+      source: fin geometry
+      confidence: estimated
+    fin_inflow_b:
+      unit: '-'
+      initial_guess: 0.7
+      bounds:
+      - 0.0
+      - 1.2
+      bounds_rationale: the hull straightens the flow reaching the fins
+      source: fin geometry
+      confidence: estimated
+optimization:
+  algorithm: scipy.optimize.least_squares (trust region reflective)
+  loss: linear (standard least-squares residuals)
+  ftol: 1.0e-08
+validation:
+  primary_metric: mean per-run RMSE across all 6 velocity DOFs (Bu,Bv,Bw,Bp,Bq,Br)
+  identifiability_note: See the calibration report's identifiability section for what
+    these logs can and can't separate.
+fins:
+  layout: cross
+  x_m: -0.64
+  radius_m: 0.14
+  area_m2: 0.00665
+  span_m: 0.0857
+  limit_deg: 30.0
+  stall_deg: 25.0
+propeller:
+  diameter_m: 0.14
+  kt0: 0.0157
+  kq0: 0.0158
+  spin: -1.0
+  position_m:
+  - -0.7
+  - 0
+  - 0

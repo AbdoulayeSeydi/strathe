@@ -1,0 +1,57 @@
+generated_at_utc: '2026-11-11T06:45:17.457988+00:00'
+spec_version: 0.3.0
+git_commit: 0768cfe02d7b308790a0e50d8f811a263f95bed9
+vehicle_mass_kg: 30.48
+seed: 7
+vehicle_type: fin
+parameters:
+  Ieff_roll: 0.24278804098074472
+  Ieff_pitch: 8.67303229613648
+  Ieff_yaw: 9.92861010619049
+  Xu: -1.0456519613541988
+  Yv: -0.5000000000000001
+  Zw: -0.5000000000000004
+  Kp: -0.19334483103444408
+  Mq: -0.20000000000000004
+  Nr: -0.9295690807300987
+  Xuu: -0.7342000000000001
+  Yvv: -165.49107792133893
+  Zww: -114.18759835453822
+  Kpp: -0.3580879645132033
+  Mqq: -161.2900839754367
+  Nrr: -90.84356347710417
+  Xu_dot: 2.729452007105601e-31
+  Yv_dot: 45.84020906061837
+  Zw_dot: 45.17172713347044
+  net_buoyancy_z: 6.153463510999549
+  cg_cb_offset_z: 0.01968853081425216
+  Xq_dot: 0.582168
+  Zq_dot: 0.531724
+  thruster_time_constant_s: 0.0
+  cg_cb_offset_x: 0.0002714118054065146
+  Zuw: -21.44323361444542
+  Muw: -12.844031560451151
+  Muq: -1.2345920303814765e-24
+  Xv_dot: 0.0
+  Xw_dot: 0.0
+  Xp_dot: 0.0
+  Xr_dot: 0.0
+  Yw_dot: 0.0
+  Yp_dot: -0.582168
+  Yq_dot: 0.0
+  Yr_dot: -0.531724
+  Zp_dot: 0.0
+  Zr_dot: 0.0
+  Kq_dot: 0.0
+  Kr_dot: 0.0
+  Mr_dot: 0.0
+  fin_lift_slope_a: 1.4200770006762338
+  fin_lift_slope_b: 1.6196
+  fin_inflow_a: 0.6214372024625233
+  fin_inflow_b: 0.7
+  fin_drag0: 0.0
+  fin_bias_roll: 0.0
+  fin_bias_pitch: 0.0
+  fin_bias_yaw: 0.0
+  fin_servo_T: 0.0
+  thrust_scale: 1.0
